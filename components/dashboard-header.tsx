@@ -112,3 +112,5 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
     </header>
   )
 }
+
+export default DashboardHeader
