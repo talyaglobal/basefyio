@@ -1,5 +1,4 @@
 import { getUser } from "@/lib/auth"
-import DashboardHeader from "@/components/DashboardHeader" // Import the shared DashboardHeader component
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Database, Table2, Code2, Activity } from "lucide-react"
 
@@ -8,7 +7,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <DashboardHeader user={user} /> {/* Use the shared DashboardHeader component */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
