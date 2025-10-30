@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthStore } from "@/store/auth-store"
-import { mockUser, mockOrganizations, mockProjects } from "@/lib/mock-data"
+import { mockOrganizations, mockProjects } from "@/lib/mock-data"
 import { Database, Zap } from "lucide-react"
 
 export default function SignInPage() {
@@ -27,10 +27,20 @@ export default function SignInPage() {
     e.preventDefault()
     setLoading(true)
 
-    // Simulate API call
-    setTimeout(() => {
-      // Mock authentication - accept any email/password
-      setUser(mockUser)
+    try {
+      const response = await fetch("/api/auth/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Invalid credentials")
+      }
+
+      const data = await response.json()
+
+      setUser(data.user)
       setCurrentOrg(mockOrganizations[0])
       setCurrentProject(mockProjects[0])
 
@@ -40,22 +50,45 @@ export default function SignInPage() {
       })
 
       router.push("/dashboard")
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Invalid email or password",
+        variant: "destructive",
+      })
+    } finally {
       setLoading(false)
-    }, 1000)
+    }
   }
 
-  const handleBypassLogin = () => {
-    setUser(mockUser)
-    setCurrentOrg(mockOrganizations[0])
-    setCurrentProject(mockProjects[0])
+  const handleBypassLogin = async () => {
+    try {
+      const response = await fetch("/api/auth/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "admin@kolaybase.com",
+          password: "bypass",
+        }),
+      })
 
-    toast({
-      title: "Bypassed Authentication",
-      description: "Logged in instantly for development.",
-      variant: "default",
-    })
+      if (response.ok) {
+        const data = await response.json()
+        setUser(data.user)
+        setCurrentOrg(mockOrganizations[0])
+        setCurrentProject(mockProjects[0])
 
-    router.push("/dashboard")
+        toast({
+          title: "Bypassed Authentication",
+          description: "Logged in instantly for development.",
+          variant: "default",
+        })
+
+        router.push("/dashboard")
+      }
+    } catch (error) {
+      console.error("Bypass login error:", error)
+    }
   }
 
   return (
