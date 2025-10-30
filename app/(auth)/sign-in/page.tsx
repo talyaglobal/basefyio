@@ -62,6 +62,7 @@ export default function SignInPage() {
   }
 
   const handleBypassLogin = async () => {
+    console.log("[v0] Bypass button clicked")
     try {
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
@@ -72,8 +73,12 @@ export default function SignInPage() {
         }),
       })
 
+      console.log("[v0] Bypass API response status:", response.status)
+
       if (response.ok) {
         const data = await response.json()
+        console.log("[v0] Bypass API response data:", data)
+
         setUser(data.user)
         setCurrentOrg(mockOrganizations[0])
         setCurrentProject(mockProjects[0])
@@ -84,10 +89,13 @@ export default function SignInPage() {
           variant: "default",
         })
 
+        console.log("[v0] Redirecting to dashboard...")
         router.push("/dashboard")
+      } else {
+        console.error("[v0] Bypass failed with status:", response.status)
       }
     } catch (error) {
-      console.error("Bypass login error:", error)
+      console.error("[v0] Bypass login error:", error)
     }
   }
 

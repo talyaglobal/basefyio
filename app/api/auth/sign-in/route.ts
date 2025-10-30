@@ -14,6 +14,8 @@ export async function POST(request: Request) {
     }
 
     if (email === "admin@kolaybase.com" && password === "bypass") {
+      console.log("[v0] Bypass mode activated")
+
       const secret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key")
       const token = await new SignJWT({
         userId: "bypass-user-id",
@@ -22,6 +24,8 @@ export async function POST(request: Request) {
         .setProtectedHeader({ alg: "HS256" })
         .setExpirationTime("7d")
         .sign(secret)
+
+      console.log("[v0] JWT token created for bypass")
 
       const response = NextResponse.json({
         success: true,
@@ -33,8 +37,10 @@ export async function POST(request: Request) {
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 7, // 7 days
+        path: "/",
       })
 
+      console.log("[v0] Cookie set, returning response")
       return response
     }
 
@@ -70,6 +76,7 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
     })
 
     return response
