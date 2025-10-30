@@ -18,8 +18,8 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-64 flex-col border-r bg-card">
-        <DashboardNav />
+      <aside className="hidden md:flex w-64 flex-col border-r border-sidebar-border bg-sidebar">
+        <DashboardNav userEmail={user.email} />
       </aside>
 
       {/* Main content area */}

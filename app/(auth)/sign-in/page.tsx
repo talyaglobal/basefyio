@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthStore } from "@/store/auth-store"
 import { mockUser, mockOrganizations, mockProjects } from "@/lib/mock-data"
-import { Database } from "lucide-react"
+import { Database, Zap } from "lucide-react"
 
 export default function SignInPage() {
   const [email, setEmail] = useState("")
@@ -42,6 +42,20 @@ export default function SignInPage() {
       router.push("/dashboard")
       setLoading(false)
     }, 1000)
+  }
+
+  const handleBypassLogin = () => {
+    setUser(mockUser)
+    setCurrentOrg(mockOrganizations[0])
+    setCurrentProject(mockProjects[0])
+
+    toast({
+      title: "Bypassed Authentication",
+      description: "Logged in instantly for development.",
+      variant: "default",
+    })
+
+    router.push("/dashboard")
   }
 
   return (
@@ -105,6 +119,16 @@ export default function SignInPage() {
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}
+          </Button>
+
+          <Button
+            type="button"
+            onClick={handleBypassLogin}
+            className="w-full bg-green-600 hover:bg-green-700 text-white"
+            variant="default"
+          >
+            <Zap className="h-4 w-4 mr-2" />
+            Bypass Login (Dev Mode)
           </Button>
         </form>
 
