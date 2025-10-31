@@ -469,13 +469,68 @@ export class RealtimeServer {
   }
 
   private extractTokenFromRequest(req: IncomingMessage): string | null {
+    // Try query parameter first
     const url = new URL(req.url || '', 'http://localhost')
-    return url.searchParams.get('token')
+    const tokenParam = url.searchParams.get('token')
+    if (tokenParam) return tokenParam
+    
+    // Try Authorization header (Bearer token)
+    const authHeader = req.headers.authorization
+    if (authHeader?.startsWith('Bearer ')) {
+      return authHeader.substring(7)
+    }
+    
+    // Try x-api-key header
+    const apiKey = req.headers['x-api-key']
+    if (apiKey && typeof apiKey === 'string') {
+      return apiKey
+    }
+    
+    return null
   }
 
   private async validateToken(token: string): Promise<string | undefined> {
-    // Implement token validation logic
-    // For now, return a placeholder
+    try {
+      const { jwtVerify } = await import('jose')
+      const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret')
+      
+      try {
+        const { payload } = await jwtVerify(token, secret)
+        
+        // Extract user ID from token payload
+        const userId = payload.sub || payload.userId || payload.id
+        
+        if (typeof userId === 'string') {
+          // Verify user exists in database
+          const user = await this.sql`
+            SELECT id FROM users WHERE id = ${userId} AND is_active = true
+            LIMIT 1
+          `
+          
+          if (user.length > 0) {
+            return user[0].id
+          }
+        }
+      } catch (error) {
+        // Token might be an API key instead
+        const { hashApiKey } = await import('./api-key-utils')
+        const hashedKey = await hashApiKey(token)
+        
+        const apiKeys = await this.sql`
+          SELECT user_id FROM api_keys
+          WHERE hashed_key = ${hashedKey} AND is_active = true
+          AND (expires_at IS NULL OR expires_at > NOW())
+          LIMIT 1
+        `
+        
+        if (apiKeys.length > 0) {
+          return apiKeys[0].user_id
+        }
+      }
+    } catch (error) {
+      console.error('Token validation error:', error)
+    }
+    
     return undefined
   }
 
