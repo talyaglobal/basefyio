@@ -23,13 +23,21 @@ export async function GET(request: NextRequest) {
     const { limit, cursor, prefix } = validation.data
 
     // Use safe database with the pagination builder
+    // Note: Using COALESCE for url as it might not exist in schema, constructing from path
     const builder = new PaginationBuilder(
       safeDb,
       "storage_files",
-      "SELECT id, name, size, type, url, created_at FROM storage_files"
+      `SELECT 
+        id, 
+        name, 
+        size, 
+        mime_type as type, 
+        COALESCE(metadata->>'url', CONCAT('/api/storage/files/', id)) as url, 
+        created_at 
+      FROM storage_files`
     )
 
-    builder.where("user_id = $1", auth.user.id)
+    builder.where("uploaded_by = $1", auth.user.id)
 
     if (prefix) {
       builder.where("name ILIKE $2", `${prefix}%`)
