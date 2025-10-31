@@ -6,7 +6,7 @@ export default async function TablesPage() {
 
   return (
     <div className="space-y-6">
-      <DashboardHeader title="Table Editor" subtitle="Browse and edit your database tables" />
+      <DashboardHeader />
       <TableBrowser />
     </div>
   )

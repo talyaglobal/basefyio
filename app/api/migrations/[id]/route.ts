@@ -3,9 +3,10 @@ import { neon } from "@neondatabase/serverless"
 
 const sql = neon(process.env.DATABASE_URL!)
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await sql`DELETE FROM migrations WHERE id = ${params.id}`
+    const { id } = await params
+    await sql`DELETE FROM migrations WHERE id = ${id}`
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

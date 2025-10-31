@@ -25,23 +25,19 @@ export async function POST(request: NextRequest) {
         if (mode === "upsert") {
           // Implement upsert logic (requires primary key)
           const updateSet = columns.map((col, i) => `${col} = $${i + 1}`).join(", ")
-          await sql(
-            `
+          const upsertQuery = `
             INSERT INTO ${table} (${columns.join(", ")})
             VALUES (${placeholders})
             ON CONFLICT DO UPDATE SET ${updateSet}
-          `,
-            values,
-          )
+          `
+          await sql(upsertQuery as any, values as any)
         } else {
           // Simple insert
-          await sql(
-            `
+          const insertQuery = `
             INSERT INTO ${table} (${columns.join(", ")})
             VALUES (${placeholders})
-          `,
-            values,
-          )
+          `
+          await sql(insertQuery as any, values as any)
         }
 
         successCount++

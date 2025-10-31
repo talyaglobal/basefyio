@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { kolaybase } from "@/lib/kolaybase"
 
 interface DashboardHeaderProps {
   userEmail?: string
@@ -39,6 +41,15 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
   const pageInfo = routeTitles[pathname] || { title: "Dashboard", description: "" }
+  const [lastRefreshAt, setLastRefreshAt] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    setLastRefreshAt(kolaybase.getLastRefreshAt())
+    const off = kolaybase.onRefresh((t) => setLastRefreshAt(t))
+    return () => {
+      off()
+    }
+  }, [])
 
   const handleSignOut = async () => {
     await fetch("/api/auth/sign-out", { method: "POST" })
@@ -80,6 +91,10 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
 
         {/* Right side actions */}
         <div className="flex items-center gap-2">
+          <div className="text-xs text-muted-foreground hidden md:block" title={lastRefreshAt ? new Date(lastRefreshAt).toLocaleTimeString() : "No refresh yet"}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1 ${lastRefreshAt ? "bg-green-500" : "bg-gray-400"}`} />
+            {lastRefreshAt ? "Session fresh" : "Waiting refresh"}
+          </div>
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-5 w-5" />
             <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />

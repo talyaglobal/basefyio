@@ -39,20 +39,42 @@ export async function POST(request: Request) {
     const user = users[0]
 
     // Create JWT token
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key")
-    const token = await new SignJWT({ userId: user.id, email: user.email })
+    const accessSecret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key")
+    const refreshSecret = new TextEncoder().encode(process.env.REFRESH_SECRET || process.env.JWT_SECRET || "your-secret-key")
+    const accessToken = await new SignJWT({ userId: user.id, email: user.email })
       .setProtectedHeader({ alg: "HS256" })
-      .setExpirationTime("7d")
-      .sign(secret)
+      .setExpirationTime("15m")
+      .sign(accessSecret)
+
+    const rid = Math.random().toString(36).slice(2)
+    const refreshToken = await new SignJWT({ userId: user.id, email: user.email, rid })
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("30d")
+      .sign(refreshSecret)
 
     // Set cookie
     const response = NextResponse.json({ success: true, user: { id: user.id, email: user.email } })
-    response.cookies.set("kb_token", token, {
+    response.cookies.set("kb_token", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 15, // 15 minutes
     })
+    response.cookies.set("kb_refresh", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: "/",
+    })
+
+    // Optionally persist refresh rid
+    try {
+      await sql`
+        INSERT INTO refresh_tokens (rid, user_id, email, issued_at, expires_at, revoked)
+        VALUES (${rid}, ${user.id}, ${user.email}, NOW(), NOW() + INTERVAL '30 days', false)
+      `
+    } catch {}
 
     return response
   } catch (error) {

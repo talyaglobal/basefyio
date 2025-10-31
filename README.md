@@ -1,125 +1,276 @@
 # Kolaybase
 
-A powerful database management interface inspired by Supabase, built with Next.js 16 and Neon PostgreSQL.
+A powerful PostgreSQL database management platform built with Next.js. Kolaybase provides an intuitive interface for managing databases, generating APIs, and real-time updates.
 
 ## Features
 
-- **Authentication System**: Secure user authentication with JWT tokens
-- **Table Editor**: Browse and edit database tables with an intuitive data grid
-- **SQL Editor**: Write and execute SQL queries with syntax highlighting
-- **GraphQL Explorer**: Test GraphQL queries and explore your API schema
-- **Realtime Testing**: Test realtime subscriptions and connections
-- **Storage Browser**: Manage file uploads and storage
-- **API Key Management**: Create and manage API keys for programmatic access
-- **Settings**: Comprehensive account and database settings
+- 📊 **Database Management** - Create, manage, and query PostgreSQL databases
+- 🚀 **API Generation** - Automatically generate REST and GraphQL APIs
+- ⚡ **Real-time Subscriptions** - WAL-based realtime with presence & broadcast channels
+- 🔐 **Authentication & Authorization** - Secure user management with JWT
+- 📂 **File Storage** - Integrated file upload and management
+- 🔑 **API Keys** - Generate and manage API keys with scoped permissions
+- ⚡ **Edge Functions** - Serverless functions with Deno/Node.js runtime
+- 📅 **Scheduled Jobs** - Cron-based job scheduling with webhooks
+- 🔒 **Secrets Manager** - Encrypted secrets with fine-grained permissions
+- 📈 **Analytics** - Built-in analytics and monitoring
 
-## Tech Stack
-
-- **Framework**: Next.js 16 with App Router
-- **Database**: Neon PostgreSQL
-- **Authentication**: JWT with bcryptjs
-- **UI**: shadcn/ui components with Tailwind CSS v4
-- **Deployment**: Vercel
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ installed
-- A Neon database account
+- Node.js 18+ 
+- PostgreSQL database (we recommend [Neon](https://neon.tech) for serverless PostgreSQL)
 
 ### Installation
 
-1. Clone the repository
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd kolaybase
+   ```
+
 2. Install dependencies:
-   \`\`\`bash
+   ```bash
    npm install
-   \`\`\`
+   ```
 
 3. Set up environment variables:
-   \`\`\`env
-   DATABASE_URL=your_neon_database_url
-   JWT_SECRET=your_jwt_secret
-   \`\`\`
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add your database connection string:
+   ```env
+   DATABASE_URL=postgresql://username:password@host:5432/database
+   JWT_SECRET=your_super_secret_jwt_key_here
+   ```
 
-4. Run the database migrations:
-   \`\`\`bash
-   # The SQL scripts in /scripts will set up your database
-   \`\`\`
+4. Initialize the database:
+   ```bash
+   npm run db:setup
+   ```
 
 5. Start the development server:
-   \`\`\`bash
+   ```bash
    npm run dev
-   \`\`\`
+   ```
 
-6. Open [http://localhost:3000](http://localhost:3000)
+6. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Database Schema
+## Database Setup
 
-The application uses the following tables:
-- `users` - User accounts
-- `api_keys` - API key management
-- `storage_files` - File storage metadata
-- `saved_queries` - Saved SQL queries
+### Using Neon (Recommended)
 
-## API Routes
+1. Create a new project at [neon.tech](https://neon.tech)
+2. Copy your connection string to the `DATABASE_URL` in `.env`
+3. Run the database setup script:
+   ```bash
+   npm run db:setup
+   ```
 
-- `/api/auth/*` - Authentication endpoints
-- `/api/tables/*` - Table management
-- `/api/sql/*` - SQL query execution
-- `/api/graphql` - GraphQL endpoint
-- `/api/storage/*` - File storage
-- `/api/api-keys/*` - API key management
-- `/api/settings/*` - User settings
+### Using Local PostgreSQL
 
-## Features in Detail
+1. Install PostgreSQL locally
+2. Create a new database: `createdb kolaybase`
+3. Update `DATABASE_URL` in `.env` with your local connection string
+4. Run the setup script: `npm run db:setup`
 
-### Table Editor
-- View all tables in your database
-- Browse table data with pagination
-- Edit rows inline
-- Add new rows
-- Delete rows
-- Search across table data
+## Default Credentials
 
-### SQL Editor
-- Write SQL queries with a code editor
-- Execute queries and view results
-- Save frequently used queries
-- Export results to CSV
-- View execution time
+After running the database setup, a default admin user is created:
 
-### GraphQL Explorer
-- Execute GraphQL queries and mutations
-- Test with variables
-- View schema documentation
-- Realtime subscription testing
+- **Email**: admin@kolaybase.com  
+- **Password**: admin123
 
-### Storage Browser
-- Upload files with progress tracking
-- Browse uploaded files
-- Download files
-- Delete files
-- Search files
+⚠️ **Important**: Change this password in production!
 
-### API Keys
-- Generate secure API keys
-- View and copy keys
-- Delete keys
-- Usage examples for REST and JavaScript
+## Project Structure
 
-## Security
+```
+kolaybase/
+├── app/                    # Next.js 13+ app directory
+│   ├── api/               # API routes
+│   ├── (auth)/            # Authentication pages
+│   └── dashboard/         # Dashboard pages
+├── components/            # React components
+│   └── ui/               # shadcn/ui components
+├── lib/                   # Utility libraries
+│   ├── auth.ts           # Authentication logic
+│   ├── kolaybase.ts      # Main SDK client
+│   └── api-utils.ts      # API utilities
+├── scripts/               # Database and utility scripts
+│   ├── init-db.sql       # Database schema
+│   └── setup-db.js       # Setup script
+├── types/                 # TypeScript type definitions
+└── public/               # Static assets
+```
 
-- Passwords are hashed with bcrypt
-- JWT tokens for authentication
-- HTTP-only cookies
-- Protected API routes
-- Row-level security ready
+## API Documentation
 
-## License
+Once running, visit `/api-docs` for the OpenAPI documentation.
 
-MIT
+### Authentication
+
+Kolaybase supports two authentication methods:
+
+1. **Session-based**: Traditional login with JWT tokens
+2. **API Keys**: For programmatic access with scoped permissions
+
+### Available Scopes
+
+- `read:tables` - Read table data
+- `write:tables` - Modify table data  
+- `read:schema` - View database schema
+- `write:schema` - Modify database schema
+- `read:files` - Access file storage
+- `write:files` - Upload/modify files
+- `admin` - Full administrative access
+
+## Development
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run db:setup` - Initialize database
+- `npm run db:init` - Alias for db:setup
+
+### Environment Setup
+
+1. **Copy environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Generate secure secrets:**
+   ```bash
+   node scripts/generate-env-secrets.js
+   ```
+
+3. **Update your `.env` file with:**
+   - Your PostgreSQL database connection string
+   - The generated secure secrets
+   - Your application URLs
+
+### Required Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes | - |
+| `JWT_SECRET` | Secret for JWT token signing | Yes | - |
+| `KOLAYBASE_MASTER_KEY` | Master key for secrets encryption | Recommended | Auto-generated |
+
+### Optional Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DB_PROVIDER` | Database provider | `neon` |
+| `DB_MAX_CONNECTIONS` | Max database connections | `100` |
+| `DB_POOL_MAX` | Connection pool size | `20` |
+| `REFRESH_SECRET` | Refresh token secret | Uses `JWT_SECRET` |
+| `MAGIC_SECRET` | Magic link token secret | Uses `JWT_SECRET` |
+| `NEXT_PUBLIC_BASE_URL` | Application base URL | `http://localhost:3000` |
+| `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | - |
+
+## New Features
+
+### 🔄 Real-time Subscriptions
+- **WAL-based streaming**: Listen to database changes in real-time
+- **Presence tracking**: Track user presence across channels
+- **Broadcast messaging**: Send real-time messages to channel subscribers
+- **WebSocket connections**: Efficient bidirectional communication
+
+```javascript
+// Connect to realtime
+const client = kolaybase.realtime.connect()
+
+// Subscribe to table changes
+client.subscribe('posts', (change) => {
+  console.log('New change:', change)
+})
+
+// Join a channel
+client.channel('chat-room-1').subscribe()
+
+// Send broadcast message
+client.channel('chat-room-1').send('message', { text: 'Hello!' })
+```
+
+### ⚡ Edge Functions
+- **Multiple runtimes**: Support for Deno and Node.js
+- **Function templates**: Pre-built templates for common use cases
+- **Environment variables**: Secure configuration management
+- **Execution metrics**: Monitor performance and usage
+
+```javascript
+// Example edge function (Deno)
+export default async function handler(context) {
+  const { request, secrets, environment } = context
+  
+  return new Response(JSON.stringify({
+    message: "Hello from Kolaybase Edge Functions!"
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
+```
+
+### 📅 Scheduled Jobs
+- **Cron expressions**: Flexible scheduling with standard cron syntax
+- **Multiple triggers**: Support for edge functions and webhooks
+- **Timezone support**: Schedule jobs in different timezones
+- **Execution history**: Track job runs and performance
+
+```javascript
+// Create a scheduled job
+await kolaybase.scheduledJobs.create({
+  name: 'Daily Report',
+  cronExpression: '0 9 * * *', // Every day at 9 AM
+  functionId: 'report-generator',
+  timezone: 'America/New_York'
+})
+```
+
+### 🔒 Secrets Manager
+- **Encrypted storage**: AES-256-GCM encryption for all secrets
+- **Access control**: Fine-grained permissions for users and functions
+- **Key rotation**: Built-in key rotation capabilities
+- **Audit logging**: Track secret access and modifications
+
+```javascript
+// Create a secret
+await kolaybase.secrets.create('API_KEY', 'secret-value')
+
+// Grant read access to a function
+await kolaybase.secrets.grantPermission('API_KEY', {
+  functionId: 'my-function',
+  permission: 'read'
+})
+
+// Access secret in edge function
+const apiKey = context.secrets.API_KEY
+```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/new-feature`
+3. Make your changes and add tests
+4. Commit your changes: `git commit -am 'Add new feature'`
+5. Push to the branch: `git push origin feature/new-feature`
+6. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For support and questions:
+- Create an issue on GitHub
+- Check the documentation at `/api-docs`
+- Join our community discussions

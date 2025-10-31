@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,8 +27,7 @@ interface ApiKey {
 }
 
 export function ApiKeyManager() {
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
-  const [loading, setLoading] = useState(false)
+  const queryClient = useQueryClient()
   const [error, setError] = useState("")
   const [isCreating, setIsCreating] = useState(false)
   const [newKeyName, setNewKeyName] = useState("")
@@ -35,72 +35,52 @@ export function ApiKeyManager() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    loadApiKeys()
-  }, [])
+  const apiKeysQuery = useQuery({
+    queryKey: ["api-keys"],
+    queryFn: async () => {
+      const res = await fetch("/api/api-keys")
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || "Failed to load API keys")
+      return json
+    },
+  })
 
-  const loadApiKeys = async () => {
-    setLoading(true)
-    setError("")
-    try {
-      const response = await fetch("/api/api-keys")
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      setApiKeys(data.keys)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load API keys")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const createApiKey = async () => {
-    if (!newKeyName.trim()) {
-      setError("Please enter a name for the API key")
-      return
-    }
-
-    setLoading(true)
-    setError("")
-    try {
-      const response = await fetch("/api/api-keys", {
+  const createKeyMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await fetch("/api/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName }),
+        body: JSON.stringify({ name }),
       })
-
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || "Failed to create API key")
+      return json as { key: ApiKey }
+    },
+    onSuccess: (data) => {
       setNewlyCreatedKey(data.key.key)
-      await loadApiKeys()
       setNewKeyName("")
       setIsCreating(false)
-    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] })
+    },
+    onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : "Failed to create API key")
-    } finally {
-      setLoading(false)
-    }
-  }
+    },
+  })
 
-  const deleteApiKey = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this API key? This action cannot be undone.")) return
-
-    setLoading(true)
-    setError("")
-    try {
-      const response = await fetch(`/api/api-keys/${id}`, {
-        method: "DELETE",
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      await loadApiKeys()
-    } catch (err) {
+  const deleteKeyMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/api-keys/${id}`, { method: "DELETE" })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || "Failed to delete API key")
+      return json
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] })
+    },
+    onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : "Failed to delete API key")
-    } finally {
-      setLoading(false)
-    }
-  }
+    },
+  })
 
   const copyToClipboard = (key: string, id: string) => {
     navigator.clipboard.writeText(key)
@@ -157,7 +137,7 @@ export function ApiKeyManager() {
             <div>
               <CardTitle>API Keys</CardTitle>
               <CardDescription>
-                {apiKeys.length} {apiKeys.length === 1 ? "key" : "keys"} active
+                {(apiKeysQuery.data as any)?.keys?.length ?? 0} {((apiKeysQuery.data as any)?.keys?.length ?? 0) === 1 ? "key" : "keys"} active
               </CardDescription>
             </div>
             <Dialog open={isCreating} onOpenChange={setIsCreating}>
@@ -187,8 +167,8 @@ export function ApiKeyManager() {
                   <Button variant="outline" onClick={() => setIsCreating(false)}>
                     Cancel
                   </Button>
-                  <Button onClick={createApiKey} disabled={loading || !newKeyName.trim()}>
-                    {loading ? "Creating..." : "Create Key"}
+                  <Button onClick={() => createKeyMutation.mutate(newKeyName)} disabled={createKeyMutation.isPending || !newKeyName.trim()}>
+                    {createKeyMutation.isPending ? "Creating..." : "Create Key"}
                   </Button>
                 </div>
               </DialogContent>
@@ -202,9 +182,9 @@ export function ApiKeyManager() {
             </Alert>
           )}
 
-          {loading && apiKeys.length === 0 ? (
+          {apiKeysQuery.isLoading && ((apiKeysQuery.data as any)?.keys?.length ?? 0) === 0 ? (
             <div className="text-center py-12 text-muted-foreground">Loading API keys...</div>
-          ) : apiKeys.length === 0 ? (
+          ) : ((apiKeysQuery.data as any)?.keys?.length ?? 0) === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Key className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No API keys yet</p>
@@ -212,7 +192,7 @@ export function ApiKeyManager() {
             </div>
           ) : (
             <div className="space-y-3">
-              {apiKeys.map((key) => (
+              {(apiKeysQuery.data as any)?.keys?.map((key: ApiKey) => (
                 <div key={key.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -245,7 +225,7 @@ export function ApiKeyManager() {
                       {key.last_used && ` • Last used ${new Date(key.last_used).toLocaleDateString()}`}
                     </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => deleteApiKey(key.id)} disabled={loading}>
+                  <Button variant="ghost" size="sm" onClick={() => deleteKeyMutation.mutate(key.id)} disabled={deleteKeyMutation.isPending}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

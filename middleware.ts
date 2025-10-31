@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { securityHeaders } from "@/lib/api-utils"
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get("kb_token")
@@ -23,7 +24,12 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next()
+  const res = NextResponse.next()
+  const headers = securityHeaders()
+  for (const [k, v] of Object.entries(headers)) {
+    res.headers.set(k, v)
+  }
+  return res
 }
 
 export const config = {

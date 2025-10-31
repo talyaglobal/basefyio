@@ -1,9 +1,32 @@
 // Kolaybase Client SDK
 import type { AuthResponse, User, FileObject, RealtimeEvent } from "@/types"
 
+export type ApiErrorShape = {
+  code: string
+  message: string
+  details?: unknown
+  status: number
+}
+
+export class ApiError extends Error {
+  code: string
+  details?: unknown
+  status: number
+  constructor({ code, message, details, status }: ApiErrorShape) {
+    super(message)
+    this.code = code
+    this.details = details
+    this.status = status
+    this.name = "ApiError"
+  }
+}
+
 class KolaybaseClient {
   private baseUrl: string
   private token?: string
+  private isRefreshing = false
+  private refreshListeners = new Set<(t: number) => void>()
+  private lastRefreshAt?: number
 
   constructor(baseUrl = "") {
     this.baseUrl = baseUrl
@@ -13,10 +36,31 @@ class KolaybaseClient {
     this.token = token
   }
 
-  private async request(path: string, options: RequestInit = {}) {
-    const headers: HeadersInit = {
+  startAutoRefresh(intervalMs = 10 * 60 * 1000) {
+    if (typeof window === "undefined") return
+    setInterval(() => {
+      this.auth.refresh().catch(() => {})
+    }, intervalMs)
+  }
+
+  getLastRefreshAt() {
+    return this.lastRefreshAt
+  }
+
+  onRefresh(listener: (t: number) => void) {
+    this.refreshListeners.add(listener)
+    return () => this.refreshListeners.delete(listener)
+  }
+
+  private notifyRefresh() {
+    this.lastRefreshAt = Date.now()
+    this.refreshListeners.forEach((fn) => fn(this.lastRefreshAt!))
+  }
+
+  private async request(path: string, options: RequestInit = {}, triedRefresh = false): Promise<any> {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...options.headers,
+      ...(options.headers instanceof Headers ? {} : options.headers as Record<string, string>),
     }
 
     if (this.token) {
@@ -28,11 +72,37 @@ class KolaybaseClient {
       headers,
     })
 
+    const isJson = (response.headers.get("content-type") || "").includes("application/json")
+    const body = isJson ? await response.json().catch(() => ({})) : undefined
+
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
+      const errorShape: ApiErrorShape = {
+        code: (body && (body.code || body.error || "unknown_error")) as string,
+        message: (body && (body.message || body.error_description || response.statusText)) as string,
+        details: body && (body.details || body),
+        status: response.status,
+      }
+
+      if (response.status === 401 && typeof window !== "undefined") {
+        // Attempt one-time refresh before redirecting
+        if (!triedRefresh) {
+          try {
+            await this.auth.refresh()
+            return this.request(path, options, true)
+          } catch {}
+        }
+        window.location.href = "/(auth)/sign-in"
+      }
+
+      throw new ApiError(errorShape)
     }
 
-    return response.json()
+    return body
+  }
+
+  // Public wrapper so components can reuse standardized error handling
+  async apiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+    return this.request(path, options) as Promise<T>
   }
 
   // REST API
@@ -128,6 +198,16 @@ class KolaybaseClient {
     signOut: async () => {
       return this.request("/api/auth/signout", { method: "POST" })
     },
+    refresh: async () => {
+      if (this.isRefreshing) return
+      this.isRefreshing = true
+      try {
+        await this.request("/api/auth/refresh", { method: "POST" })
+        this.notifyRefresh()
+      } finally {
+        this.isRefreshing = false
+      }
+    },
     getUser: async (): Promise<User | null> => {
       try {
         return await this.request("/api/auth/user")
@@ -139,3 +219,8 @@ class KolaybaseClient {
 }
 
 export const kolaybase = new KolaybaseClient()
+
+// Convenience wrapper for components that still call fetch directly
+export async function apiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  return kolaybase.apiFetch<T>(path, options)
+}

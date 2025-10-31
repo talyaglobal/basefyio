@@ -13,11 +13,14 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuthStore } from "@/store/auth-store"
 import { mockOrganizations, mockProjects } from "@/lib/mock-data"
 import { Database, Zap } from "lucide-react"
+import { Github, Chrome } from "lucide-react"
 
 export default function SignInPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
+  const [mfaRequired, setMfaRequired] = useState(false)
+  const [mfaToken, setMfaToken] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
@@ -31,11 +34,16 @@ export default function SignInPage() {
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, mfaToken: mfaRequired ? mfaToken : undefined }),
       })
 
       if (!response.ok) {
-        throw new Error("Invalid credentials")
+        const err = await response.json().catch(() => ({}))
+        if (response.status === 401 && err?.code === "REQUIRE_MFA") {
+          setMfaRequired(true)
+          throw new Error("MFA required")
+        }
+        throw new Error(err?.message || "Invalid credentials")
       }
 
       const data = await response.json()
@@ -44,18 +52,11 @@ export default function SignInPage() {
       setCurrentOrg(mockOrganizations[0])
       setCurrentProject(mockProjects[0])
 
-      toast({
-        title: "Welcome back!",
-        description: "Successfully signed in to Kolaybase.",
-      })
+      toast({ title: "Welcome back!", description: "Successfully signed in to Kolaybase." })
 
       router.push("/dashboard")
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Invalid email or password",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: mfaRequired ? "Enter your MFA code" : "Invalid email or password", variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -146,6 +147,20 @@ export default function SignInPage() {
               />
             </div>
 
+            {mfaRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="mfa">MFA Code</Label>
+                <Input
+                  id="mfa"
+                  placeholder="123 456"
+                  value={mfaToken}
+                  onChange={(e) => setMfaToken(e.target.value)}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                />
+              </div>
+            )}
+
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="remember"
@@ -172,6 +187,15 @@ export default function SignInPage() {
             Bypass Login (Dev Mode)
           </Button>
         </form>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Button asChild variant="outline">
+            <a href="/api/auth/oauth/github/authorize"><Github className="h-4 w-4 mr-2" /> Continue with GitHub</a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="/api/auth/oauth/google/authorize"><Chrome className="h-4 w-4 mr-2" /> Continue with Google</a>
+          </Button>
+        </div>
 
         <p className="text-center text-sm text-muted-foreground">
           {"Don't have an account? "}

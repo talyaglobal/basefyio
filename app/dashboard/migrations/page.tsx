@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -58,6 +58,11 @@ export default function MigrationsPage() {
     name: "",
     sql: "",
   })
+
+  // Auto-bootstrap required auth tables (idempotent)
+  useEffect(() => {
+    fetch("/api/migrations/bootstrap", { method: "POST" }).catch(() => {})
+  }, [])
 
   const handleCreateMigration = () => {
     const version = String(migrations.length + 1).padStart(3, "0")

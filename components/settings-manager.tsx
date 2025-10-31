@@ -37,6 +37,60 @@ export function SettingsManager({ user }: SettingsManagerProps) {
   const [queryAlerts, setQueryAlerts] = useState(false)
   const [storageAlerts, setStorageAlerts] = useState(true)
 
+  // MFA state
+  const [mfaEnabled, setMfaEnabled] = useState(false)
+  const [mfaSecret, setMfaSecret] = useState("")
+  const [mfaOtpauth, setMfaOtpauth] = useState("")
+  const [mfaCode, setMfaCode] = useState("")
+
+  const startMfaSetup = async () => {
+    if (!user?.email || !user?.id) {
+      setError("Sign in to configure MFA")
+      return
+    }
+    setLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const res = await fetch("/api/auth/mfa/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: user.email, userId: user.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.message || "Failed to start MFA setup")
+      setMfaSecret(data.secret)
+      setMfaOtpauth(data.otpauth)
+    } catch (e: any) {
+      setError(e?.message || "Failed to start MFA setup")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifyMfa = async () => {
+    if (!user?.id) return
+    setLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const res = await fetch("/api/auth/mfa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: mfaCode, userId: user.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.message || "Invalid MFA code")
+      setMfaEnabled(true)
+      setSuccess("MFA enabled successfully")
+      setMfaCode("")
+    } catch (e: any) {
+      setError(e?.message || "Failed to verify MFA")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const updateEmail = async () => {
     setLoading(true)
     setError("")
@@ -334,7 +388,44 @@ export function SettingsManager({ user }: SettingsManagerProps) {
               <div className="space-y-3">
                 <h4 className="text-sm font-medium">Two-Factor Authentication</h4>
                 <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
-                <Button variant="outline">Enable 2FA</Button>
+                {!mfaSecret && !mfaEnabled && (
+                  <Button variant="outline" onClick={startMfaSetup} disabled={loading || !user}>
+                    {loading ? "Preparing..." : "Enable 2FA"}
+                  </Button>
+                )}
+                {mfaSecret && !mfaEnabled && (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label>Secret</Label>
+                      <Input value={mfaSecret} readOnly onFocus={(e) => e.currentTarget.select()} />
+                      <p className="text-xs text-muted-foreground">Add this secret to your authenticator app (or use the otpauth link below).</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>otpauth URL</Label>
+                      <Input value={mfaOtpauth} readOnly onFocus={(e) => e.currentTarget.select()} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Enter code from your app</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="123 456"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                        />
+                        <Button onClick={verifyMfa} disabled={loading || !mfaCode}>
+                          {loading ? "Verifying..." : "Verify"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {mfaEnabled && (
+                  <div className="flex items-center gap-2 text-green-600 text-sm">
+                    2FA enabled for this account
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

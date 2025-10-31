@@ -24,15 +24,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ tabl
       ORDER BY ordinal_position
     `
 
+    // Sanitize table name to prevent SQL injection
+    const sanitizedTableName = tableName.replace(/[^a-zA-Z0-9_]/g, '')
+    if (sanitizedTableName !== tableName || !sanitizedTableName) {
+      return NextResponse.json({ error: "Invalid table name" }, { status: 400 })
+    }
+
     let rows
     if (bypassRLS) {
       // Execute query with RLS disabled for admin users
-      rows = await sql`
-        SELECT * FROM ${sql(tableName)} LIMIT 100
-      `
+      rows = await sql.unsafe(`SELECT * FROM "${sanitizedTableName}" LIMIT 100`)
     } else {
       // Normal query respecting RLS policies
-      rows = await sql(`SELECT * FROM ${sql(tableName)} LIMIT 100`)
+      rows = await sql.unsafe(`SELECT * FROM "${sanitizedTableName}" LIMIT 100`)
     }
 
     return NextResponse.json({ columns, rows })

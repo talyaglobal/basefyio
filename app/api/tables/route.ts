@@ -1,36 +1,35 @@
 import { NextResponse } from "next/server"
-import { neon } from "@neondatabase/serverless"
-import { getUser } from "@/lib/auth"
-
-const sql = neon(process.env.DATABASE_URL!)
+import { requireScopes, createInternalError, securityHeaders } from "@/lib/api-utils"
+import { safeDb } from "@/lib/db-safety"
 
 export async function GET() {
   try {
-    const user = await getUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const auth = await requireScopes(["read:tables"])
+    if (!auth.success) {
+      return auth.error
     }
 
     // Get all tables from public schema
-    const tables = await sql`
-      SELECT 
-        table_name,
-        (SELECT COUNT(*) FROM information_schema.tables t2 
-         WHERE t2.table_name = t.table_name AND t2.table_schema = 'public') as row_count
-      FROM information_schema.tables t
+    const tablesResult = await safeDb.safeSelect(`
+      SELECT table_name
+      FROM information_schema.tables 
       WHERE table_schema = 'public'
       AND table_type = 'BASE TABLE'
       ORDER BY table_name
-    `
+    `)
 
-    // Get row counts for each table
+    // Get row counts for each table safely
     const tablesWithCounts = await Promise.all(
-      tables.map(async (table) => {
+      tablesResult.rows.map(async (table: any) => {
         try {
-          const result = await sql(`SELECT COUNT(*) as count FROM ${sql(table.table_name)}`)
+          const countResult = await safeDb.safeSelect(
+            `SELECT COUNT(*) as count FROM ${table.table_name}`,
+            [],
+            { timeout: 10000 } // 10 second timeout for count queries
+          )
           return {
             table_name: table.table_name,
-            row_count: Number(result[0].count),
+            row_count: Number(countResult.rows[0].count),
           }
         } catch {
           return {
@@ -41,9 +40,11 @@ export async function GET() {
       }),
     )
 
-    return NextResponse.json({ tables: tablesWithCounts })
+    return NextResponse.json({ tables: tablesWithCounts }, {
+      headers: securityHeaders()
+    })
   } catch (error) {
     console.error("Error fetching tables:", error)
-    return NextResponse.json({ error: "Failed to fetch tables" }, { status: 500 })
+    return createInternalError("Failed to fetch tables")
   }
 }
