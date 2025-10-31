@@ -6,15 +6,56 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Vercel optimization
-  // Enable server components
+  
+  // Force dynamic rendering for database management features
   experimental: {
     serverActions: {
+      allowedOrigins: ['localhost:3000', '*.vercel.app'],
       bodySizeLimit: '10mb',
     },
   },
-  // Remove turbopack config as it's causing font loading issues
-  // Turbopack is experimental and can cause build issues
+
+  // Optimize for database-heavy applications
+  poweredByHeader: false,
+  
+  // Add security headers for database management
+  async headers() {
+    return [
+      {
+        source: '/api/(.*)',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+        ],
+      },
+      {
+        source: '/dashboard/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+          {
+            key: 'Pragma',
+            value: 'no-cache',
+          },
+        ],
+      },
+    ]
+  },
+
+  // Configure Turbopack (Next.js 16 default)
+  turbopack: {},
 }
 
 export default nextConfig

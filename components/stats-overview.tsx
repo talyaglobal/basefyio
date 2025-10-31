@@ -17,11 +17,7 @@ type StatsResponse = {
   apiKeys: number
 }
 
-export function StatsOverview({
-  render,
-}: {
-  render: (stats: StatsResponse | null, state: { isLoading: boolean; error: string | null }) => React.ReactNode
-}) {
+export function StatsOverview() {
   const { data, isLoading, isError, error } = useQuery<StatsResponse>({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
@@ -33,7 +29,12 @@ export function StatsOverview({
   })
 
   const err = isError ? (error as Error).message : null
-  return <>{render(data ?? null, { isLoading, error: err })}</>
+  return (
+    <div className="space-y-4">
+      <DefaultStatsGrid stats={data ?? null} isLoading={isLoading} />
+      {err && <div className="text-sm text-red-600">{err}</div>}
+    </div>
+  )
 }
 
 export const DefaultStatsGrid = ({ stats, isLoading }: { stats: StatsResponse | null; isLoading: boolean }) => {

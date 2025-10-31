@@ -1,6 +1,10 @@
 import { getUser } from "@/lib/auth"
 import { GraphQLExplorer } from "@/components/graphql-explorer"
 
+// Force dynamic rendering for user authentication
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function GraphQLPage() {
   const user = await getUser()
 

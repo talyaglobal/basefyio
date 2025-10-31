@@ -1,6 +1,10 @@
 import { getUser } from "@/lib/auth"
 import { SettingsManager } from "@/components/settings-manager"
 
+// Force dynamic rendering for user settings
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function SettingsPage() {
   const user = await getUser()
 

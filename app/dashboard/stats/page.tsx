@@ -1,5 +1,8 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { DefaultStatsGrid, StatsOverview } from "@/components/stats-overview"
+import { StatsOverview } from "@/components/stats-overview"
+
+// Force dynamic rendering for real-time stats
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export default function StatsPage() {
   return (
@@ -9,14 +12,7 @@ export default function StatsPage() {
         <p className="text-muted-foreground mt-1">Usage and performance metrics</p>
       </div>
 
-      <StatsOverview
-        render={(stats, { isLoading, error }) => (
-          <div className="space-y-4">
-            <DefaultStatsGrid stats={stats} isLoading={isLoading} />
-            {error && <div className="text-sm text-red-600">{error}</div>}
-          </div>
-        )}
-      />
+      <StatsOverview />
     </div>
   )
 }

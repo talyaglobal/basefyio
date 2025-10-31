@@ -1,6 +1,10 @@
 import { getUser } from "@/lib/auth"
 import { ApiKeyManager } from "@/components/api-key-manager"
 
+// Force dynamic rendering for API keys management
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function ApiKeysPage() {
   const user = await getUser()
 

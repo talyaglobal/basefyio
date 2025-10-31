@@ -4,6 +4,10 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { getUser } from "@/lib/auth"
 import { redirect } from "next/navigation"
 
+// Force dynamic rendering for dashboard layout with user authentication
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function DashboardLayout({
   children,
 }: {

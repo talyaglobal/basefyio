@@ -1,6 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ActivityFeed } from "@/components/activity-feed"
 
+// Force dynamic rendering for real-time activity feed
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default function ActivityPage() {
   return (
     <div className="space-y-6">

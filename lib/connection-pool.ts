@@ -230,7 +230,7 @@ export class ConnectionPool {
 
       // For Neon/PostgreSQL
       if (params.length > 0) {
-        result = await connection.sql(query, params)
+        result = await connection.sql.query(query, params)
       } else {
         result = await connection.sql.unsafe(query)
       }

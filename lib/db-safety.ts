@@ -271,7 +271,7 @@ export class SafeDatabase {
 
       // Execute query with timeout
       const queryPromise = params.length > 0 
-        ? this.sql(query, params)
+        ? this.sql.query(query, params)
         : this.sql.unsafe(query)
 
       const { result, timedOut } = await this.executeWithTimeout(queryPromise, timeout)

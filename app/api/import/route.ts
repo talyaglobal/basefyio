@@ -30,14 +30,14 @@ export async function POST(request: NextRequest) {
             VALUES (${placeholders})
             ON CONFLICT DO UPDATE SET ${updateSet}
           `
-          await sql(upsertQuery as any, values as any)
+          await sql.query(upsertQuery, values)
         } else {
           // Simple insert
           const insertQuery = `
             INSERT INTO ${table} (${columns.join(", ")})
             VALUES (${placeholders})
           `
-          await sql(insertQuery as any, values as any)
+          await sql.query(insertQuery, values)
         }
 
         successCount++

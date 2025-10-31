@@ -3,6 +3,7 @@
 // Database setup script for Kolaybase
 // This script initializes the PostgreSQL database with all required tables
 
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
@@ -28,13 +29,15 @@ async function setupDatabase() {
     // Read and execute the init SQL scripts
     const initSqlPath = path.join(__dirname, 'init-db.sql');
     const realtimeSqlPath = path.join(__dirname, 'realtime-schema.sql');
+    const quotaSchedulingSqlPath = path.join(__dirname, 'quota-and-scheduling-schema.sql');
     
     console.log('📋 Executing database initialization scripts...');
     
-    // Combine both SQL files
+    // Combine all SQL files
     const initSql = fs.readFileSync(initSqlPath, 'utf8');
     const realtimeSql = fs.readFileSync(realtimeSqlPath, 'utf8');
-    const combinedSql = initSql + '\n\n' + realtimeSql;
+    const quotaSchedulingSql = fs.readFileSync(quotaSchedulingSqlPath, 'utf8');
+    const combinedSql = initSql + '\n\n' + realtimeSql + '\n\n' + quotaSchedulingSql;
     
     // Split the SQL file into individual statements
     const statements = combinedSql
@@ -47,7 +50,7 @@ async function setupDatabase() {
 
     for (const statement of statements) {
       try {
-        await sql(statement);
+        await sql.unsafe(statement);
         successCount++;
       } catch (error) {
         console.error(`❌ Error executing statement: ${statement.substring(0, 50)}...`);
@@ -68,6 +71,9 @@ async function setupDatabase() {
       console.log('⚡ Edge functions system ready');
       console.log('📅 Scheduled jobs system initialized');
       console.log('🔐 Secrets manager configured');
+      console.log('📊 Quota monitoring system ready');
+      console.log('⚙️  System configuration defaults set');
+      console.log('🔑 Default encryption keys configured (update in production!)');
     } else {
       console.log('\n⚠️  Some errors occurred during setup. Please check the logs above.');
     }

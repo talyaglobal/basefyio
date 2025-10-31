@@ -1,6 +1,10 @@
 import { getUser } from "@/lib/auth"
 import { StorageBrowser } from "@/components/storage-browser"
 
+// Force dynamic rendering for storage with real-time file data
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function StoragePage() {
   const user = await getUser()
 
