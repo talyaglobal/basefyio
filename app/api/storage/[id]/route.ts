@@ -28,7 +28,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
 
     // Delete the file using safe query
-    await safeDb.safeUpdate(
+    await safeDb.query(
       `DELETE FROM storage_files WHERE id = $1 AND uploaded_by = $2`,
       [id, auth.user.id],
       { allowDML: true }

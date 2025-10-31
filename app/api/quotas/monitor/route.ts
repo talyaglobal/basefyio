@@ -4,7 +4,7 @@ import {
   createInternalError, 
   securityHeaders 
 } from "@/lib/api-utils"
-import { quotaManager } from "@/lib/resource-quotas"
+import { quotaMonitor } from "@/lib/quota-monitor"
 
 type Severity = 'low' | 'medium' | 'high' | 'critical'
 
@@ -17,114 +17,54 @@ export async function GET(request: NextRequest) {
 
     const userId = auth.user.id
 
-    const [quota, usage] = await Promise.all([
-      quotaManager.getUserQuota(userId),
-      quotaManager.getCurrentUsage(userId),
-    ])
+    // Check current quotas for violations (this will also store them if found)
+    const currentViolations = await quotaMonitor.checkUserQuotas(userId)
 
-    const violations: Array<{
-      id: string
-      resource: 'database' | 'storage' | 'api' | 'backup'
-      severity: Severity
-      message: string
-      utilizationPercent: number
-      timestamp: string
-      acknowledged: boolean
-    }> = []
+    // Get stored violations from database (includes acknowledged ones)
+    const storedViolations = await quotaMonitor.getViolationsHistory(userId, 100)
 
-    // Database
-    const dbUsagePct = Math.min(100, (usage.database.size / quota.database.maxSize) * 100)
-    if (dbUsagePct >= 90) {
-      violations.push({
-        id: `db-size-${Date.now()}`,
-        resource: 'database',
-        severity: dbUsagePct >= 100 ? 'critical' : dbUsagePct >= 95 ? 'high' : 'medium',
-        message: `Database size at ${dbUsagePct.toFixed(1)}% of quota`,
-        utilizationPercent: dbUsagePct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
-    }
-    if (usage.database.tables >= quota.database.maxTables) {
-      violations.push({
-        id: `db-tables-${Date.now()}`,
-        resource: 'database',
-        severity: 'high',
-        message: `Maximum number of tables reached (${quota.database.maxTables})`,
-        utilizationPercent: 100,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
+    // Merge current violations with stored ones, preferring stored for acknowledged status
+    const violationMap = new Map<string, typeof storedViolations[0]>()
+    
+    // Add stored violations first
+    for (const violation of storedViolations) {
+      violationMap.set(violation.id, violation)
     }
 
-    // Storage
-    const storagePct = Math.min(100, (usage.storage.size / quota.storage.maxSize) * 100)
-    if (storagePct >= 90) {
-      violations.push({
-        id: `storage-size-${Date.now()}`,
-        resource: 'storage',
-        severity: storagePct >= 100 ? 'critical' : storagePct >= 95 ? 'high' : 'medium',
-        message: `Storage usage at ${storagePct.toFixed(1)}% of quota`,
-        utilizationPercent: storagePct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
+    // Add/update with current violations (merge with stored if exists)
+    for (const violation of currentViolations) {
+      const existing = violationMap.get(violation.id)
+      if (existing) {
+        // Update with latest data but keep acknowledged status
+        violationMap.set(violation.id, {
+          ...violation,
+          acknowledged: existing.acknowledged,
+          acknowledgedAt: existing.acknowledgedAt,
+          acknowledgedBy: existing.acknowledgedBy,
+        })
+      } else {
+        violationMap.set(violation.id, violation)
+      }
     }
 
-    // API
-    const hourPct = Math.min(100, (usage.api.requestsLastHour / quota.api.maxRequestsPerHour) * 100)
-    if (hourPct >= 90) {
-      violations.push({
-        id: `api-hour-${Date.now()}`,
-        resource: 'api',
-        severity: hourPct >= 100 ? 'high' : 'medium',
-        message: `Hourly API usage at ${hourPct.toFixed(1)}% of quota`,
-        utilizationPercent: hourPct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
-    }
-    const dayPct = Math.min(100, (usage.api.requestsToday / quota.api.maxRequestsPerDay) * 100)
-    if (dayPct >= 90) {
-      violations.push({
-        id: `api-day-${Date.now()}`,
-        resource: 'api',
-        severity: dayPct >= 100 ? 'high' : 'medium',
-        message: `Daily API usage at ${dayPct.toFixed(1)}% of quota`,
-        utilizationPercent: dayPct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
-    }
+    // Convert to array and filter to show active violations (last 30 days)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const allViolations = Array.from(violationMap.values())
+      .filter(v => new Date(v.timestamp) >= thirtyDaysAgo)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
-    // Backup
-    const backupCountPct = Math.min(100, (usage.backup.count / quota.backup.maxBackups) * 100)
-    if (backupCountPct >= 100) {
-      violations.push({
-        id: `backup-count-${Date.now()}`,
-        resource: 'backup',
-        severity: 'high',
-        message: `Maximum number of backups reached (${quota.backup.maxBackups})`,
-        utilizationPercent: backupCountPct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
-    }
+    // Format for UI
+    const formattedViolations = allViolations.map(v => ({
+      id: v.id,
+      resource: v.resource as 'database' | 'storage' | 'api' | 'backup',
+      severity: v.severity as Severity,
+      message: v.message,
+      utilizationPercent: v.utilizationPercent,
+      timestamp: v.timestamp.toISOString(),
+      acknowledged: v.acknowledged || false,
+    }))
 
-    const backupSizePct = Math.min(100, (usage.backup.totalSize / quota.backup.maxBackupSize) * 100)
-    if (backupSizePct >= 90) {
-      violations.push({
-        id: `backup-size-${Date.now()}`,
-        resource: 'backup',
-        severity: backupSizePct >= 100 ? 'critical' : backupSizePct >= 95 ? 'high' : 'medium',
-        message: `Backup storage at ${backupSizePct.toFixed(1)}% of quota`,
-        utilizationPercent: backupSizePct,
-        timestamp: new Date().toISOString(),
-        acknowledged: false,
-      })
-    }
-
-    const summary = violations.reduce(
+    const summary = formattedViolations.reduce(
       (acc, v) => {
         acc[v.severity] += 1
         return acc
@@ -133,8 +73,8 @@ export async function GET(request: NextRequest) {
     )
 
     return NextResponse.json({
-      violationsDetected: violations.length,
-      violations,
+      violationsDetected: formattedViolations.length,
+      violations: formattedViolations,
       summary,
     }, {
       headers: {
@@ -145,39 +85,5 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error("Error fetching quota monitor:", error)
     return createInternalError("Failed to fetch quota monitor data")
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const auth = await requireScopesWithRateLimit(request, ["admin"])
-    if (!auth.success) {
-      return auth.error
-    }
-
-    // Manual trigger for quota monitoring (admin only)
-    // Note: This requires the quota-monitor to be implemented
-    // For now, return empty violations
-    const violations: any[] = []
-
-    return NextResponse.json({
-      success: true,
-      violationsDetected: violations.length,
-      violations: violations.map(v => ({
-        userId: v.userId,
-        resource: v.resource,
-        severity: v.severity,
-        message: v.message,
-        utilizationPercent: v.utilizationPercent
-      }))
-    }, {
-      headers: {
-        ...securityHeaders(),
-        ...auth.rateLimitHeaders,
-      }
-    })
-  } catch (error: any) {
-    console.error("Error running quota monitoring:", error)
-    return createInternalError("Failed to run quota monitoring")
   }
 }
