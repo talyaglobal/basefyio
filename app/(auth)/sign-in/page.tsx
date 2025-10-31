@@ -22,6 +22,7 @@ export default function SignInPage() {
   const [mfaRequired, setMfaRequired] = useState(false)
   const [mfaToken, setMfaToken] = useState("")
   const [loading, setLoading] = useState(false)
+  const [bypassLoading, setBypassLoading] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
   const { setUser, setCurrentOrg, setCurrentProject } = useAuthStore()
@@ -63,7 +64,11 @@ export default function SignInPage() {
   }
 
   const handleBypassLogin = async () => {
+    if (bypassLoading) return // Prevent multiple clicks
+    
     console.log("[v0] Bypass button clicked")
+    setBypassLoading(true)
+    
     try {
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
@@ -94,9 +99,22 @@ export default function SignInPage() {
         router.push("/dashboard")
       } else {
         console.error("[v0] Bypass failed with status:", response.status)
+        const errorData = await response.json().catch(() => ({}))
+        toast({
+          title: "Bypass Failed",
+          description: errorData?.message || `Server responded with status ${response.status}`,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("[v0] Bypass login error:", error)
+      toast({
+        title: "Bypass Error",
+        description: "Network error occurred. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setBypassLoading(false)
     }
   }
 
@@ -182,9 +200,10 @@ export default function SignInPage() {
             onClick={handleBypassLogin}
             className="w-full bg-green-600 hover:bg-green-700 text-white"
             variant="default"
+            disabled={bypassLoading}
           >
             <Zap className="h-4 w-4 mr-2" />
-            Bypass Login (Dev Mode)
+            {bypassLoading ? "Bypassing..." : "Bypass Login (Dev Mode)"}
           </Button>
         </form>
 
