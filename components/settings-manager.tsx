@@ -52,13 +52,12 @@ export function SettingsManager({ user }: SettingsManagerProps) {
     setError("")
     setSuccess("")
     try {
-      const res = await fetch("/api/auth/mfa/setup", {
+      const res = await fetch("/api/auth/mfa/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email, userId: user.id }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.message || "Failed to start MFA setup")
+      if (!res.ok) throw new Error(data?.error || "Failed to start MFA setup")
       setMfaSecret(data.secret)
       setMfaOtpauth(data.otpauth)
     } catch (e: any) {
@@ -77,17 +76,38 @@ export function SettingsManager({ user }: SettingsManagerProps) {
       const res = await fetch("/api/auth/mfa/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: mfaCode, userId: user.id }),
+        body: JSON.stringify({ token: mfaCode }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.message || "Invalid MFA code")
+      if (!res.ok) throw new Error(data?.error || "Invalid MFA code")
       setMfaEnabled(true)
       setSuccess("MFA enabled successfully")
       setMfaCode("")
+      setMfaSecret("")
+      setMfaOtpauth("")
     } catch (e: any) {
       setError(e?.message || "Failed to verify MFA")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
+  const [recoveryCodesLoading, setRecoveryCodesLoading] = useState(false)
+
+  const generateRecoveryCodes = async () => {
+    setRecoveryCodesLoading(true)
+    setError("")
+    try {
+      const res = await fetch("/api/auth/mfa/recovery", { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to generate recovery codes")
+      setRecoveryCodes(data.codes || [])
+      setSuccess("Recovery codes generated. Save them securely.")
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate recovery codes")
+    } finally {
+      setRecoveryCodesLoading(false)
     }
   }
 
@@ -422,8 +442,30 @@ export function SettingsManager({ user }: SettingsManagerProps) {
                   </div>
                 )}
                 {mfaEnabled && (
-                  <div className="flex items-center gap-2 text-green-600 text-sm">
-                    2FA enabled for this account
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-green-600 text-sm">
+                      2FA enabled for this account
+                    </div>
+                    <Separator />
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">Recovery Codes</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Save these codes in a safe place. You can use them to access your account if you lose access to your authenticator app.
+                      </p>
+                      {recoveryCodes.length > 0 ? (
+                        <div className="p-3 border rounded-lg bg-muted space-y-2">
+                          {recoveryCodes.map((code, i) => (
+                            <code key={i} className="block font-mono text-xs">
+                              {code}
+                            </code>
+                          ))}
+                        </div>
+                      ) : (
+                        <Button variant="outline" onClick={generateRecoveryCodes} disabled={recoveryCodesLoading}>
+                          {recoveryCodesLoading ? "Generating..." : "Generate Recovery Codes"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

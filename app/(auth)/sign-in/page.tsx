@@ -21,6 +21,7 @@ export default function SignInPage() {
   const [rememberMe, setRememberMe] = useState(false)
   const [mfaRequired, setMfaRequired] = useState(false)
   const [mfaToken, setMfaToken] = useState("")
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false)
   const [loading, setLoading] = useState(false)
   const [bypassLoading, setBypassLoading] = useState(false)
   const router = useRouter()
@@ -35,7 +36,12 @@ export default function SignInPage() {
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, mfaToken: mfaRequired ? mfaToken : undefined }),
+        body: JSON.stringify({ 
+          email, 
+          password, 
+          mfaToken: mfaRequired && !useRecoveryCode ? mfaToken : undefined,
+          recoveryCode: mfaRequired && useRecoveryCode ? mfaToken : undefined,
+        }),
       })
 
       if (!response.ok) {
@@ -167,14 +173,26 @@ export default function SignInPage() {
 
             {mfaRequired && (
               <div className="space-y-2">
-                <Label htmlFor="mfa">MFA Code</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="mfa">{useRecoveryCode ? "Recovery Code" : "MFA Code"}</Label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseRecoveryCode(!useRecoveryCode)
+                      setMfaToken("")
+                    }}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {useRecoveryCode ? "Use MFA code" : "Use recovery code"}
+                  </button>
+                </div>
                 <Input
                   id="mfa"
-                  placeholder="123 456"
+                  placeholder={useRecoveryCode ? "Enter recovery code" : "123 456"}
                   value={mfaToken}
                   onChange={(e) => setMfaToken(e.target.value)}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
+                  inputMode={useRecoveryCode ? "text" : "numeric"}
+                  pattern={useRecoveryCode ? undefined : "[0-9]*"}
                 />
               </div>
             )}

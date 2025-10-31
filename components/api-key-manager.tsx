@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { kolaybase } from "@/lib/kolaybase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,23 +39,16 @@ export function ApiKeyManager() {
   const apiKeysQuery = useQuery({
     queryKey: ["api-keys"],
     queryFn: async () => {
-      const res = await fetch("/api/api-keys")
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || "Failed to load API keys")
-      return json
+      return kolaybase.apiFetch<{ keys: ApiKey[] }>("/api/api-keys")
     },
   })
 
   const createKeyMutation = useMutation({
     mutationFn: async (name: string) => {
-      const res = await fetch("/api/api-keys", {
+      return kolaybase.apiFetch<{ key: ApiKey }>("/api/api-keys", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || "Failed to create API key")
-      return json as { key: ApiKey }
     },
     onSuccess: (data) => {
       setNewlyCreatedKey(data.key.key)
@@ -69,10 +63,7 @@ export function ApiKeyManager() {
 
   const deleteKeyMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/api-keys/${id}`, { method: "DELETE" })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || "Failed to delete API key")
-      return json
+      return kolaybase.apiFetch(`/api/api-keys/${id}`, { method: "DELETE" })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["api-keys"] })

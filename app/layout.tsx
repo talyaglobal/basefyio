@@ -1,15 +1,17 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+// Font disabled temporarily due to Turbopack issues
+// import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import QueryProvider from "@/components/query-provider"
 import AutoRefreshProvider from "@/components/auto-refresh-provider"
 
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: "--font-inter"
-})
+// Font disabled temporarily
+// const inter = Inter({ 
+//   subsets: ["latin"],
+//   variable: "--font-inter"
+// })
 
 export const metadata: Metadata = {
   title: "Kolaybase - Database Management Made Easy",
@@ -24,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} antialiased`}>
+      <body className="font-sans antialiased">
         <QueryProvider>
           <AutoRefreshProvider>
             {children}

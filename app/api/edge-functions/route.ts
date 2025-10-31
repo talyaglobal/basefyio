@@ -106,26 +106,24 @@ export async function POST(request: NextRequest) {
 
     const { name, slug, description, runtime, source_code, environment_variables, timeout_ms, memory_limit_mb } = validation.data
 
-    // Check if slug already exists
+    // Check if slug already exists for this user
     const existingResult = await safeDb.safeSelect(`
-      SELECT id FROM edge_functions WHERE slug = $1
-    `, [slug])
+      SELECT id, version FROM edge_functions 
+      WHERE slug = $1 AND created_by = $2
+      ORDER BY version DESC LIMIT 1
+    `, [slug, auth.user.id])
 
+    let version = 1
     if (existingResult.rows.length > 0) {
-      return NextResponse.json({
-        code: "SLUG_EXISTS",
-        message: "A function with this slug already exists"
-      }, { 
-        status: 409,
-        headers: securityHeaders()
-      })
+      // Increment version for update
+      version = (existingResult.rows[0].version || 0) + 1
     }
 
     const result = await safeDb.safeInsert(`
       INSERT INTO edge_functions (
         name, slug, description, runtime, source_code, environment_variables,
-        timeout_ms, memory_limit_mb, created_by, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        timeout_ms, memory_limit_mb, version, created_by, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       RETURNING id, name, slug, description, runtime, timeout_ms, memory_limit_mb,
                 is_active, version, created_at
     `, [
@@ -137,17 +135,28 @@ export async function POST(request: NextRequest) {
       JSON.stringify(environment_variables),
       timeout_ms,
       memory_limit_mb,
+      version,
       auth.user.id
     ])
 
     const edgeFunction = result.rows[0]
 
-    // Deploy the function
-    await edgeFunctionRuntime.deployFunction({
-      ...edgeFunction,
-      environment_variables,
-      source_code
-    })
+    // Deploy the function - try Docker first, fallback to standard
+    try {
+      const { dockerEdgeFunctionRuntime } = await import('@/lib/edge-functions-docker')
+      await dockerEdgeFunctionRuntime.deployFunction({
+        ...edgeFunction,
+        environment_variables,
+        source_code
+      })
+    } catch (dockerError) {
+      console.warn('Docker deployment failed, using standard deployment:', dockerError)
+      await edgeFunctionRuntime.deployFunction({
+        ...edgeFunction,
+        environment_variables,
+        source_code
+      })
+    }
 
     return NextResponse.json({
       success: true,

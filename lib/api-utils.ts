@@ -134,12 +134,21 @@ export function corsHeaders() {
 }
 
 export function securityHeaders() {
+  // OAuth providers
+  const oauthDomains = [
+    "https://github.com",
+    "https://api.github.com",
+    "https://accounts.google.com",
+    "https://oauth2.googleapis.com",
+    "https://openidconnect.googleapis.com",
+  ].join(" ")
+
   return {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none';",
+    "Content-Security-Policy": `default-src 'self'; connect-src 'self' ${oauthDomains}; frame-src ${oauthDomains}; frame-ancestors 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline';`,
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",

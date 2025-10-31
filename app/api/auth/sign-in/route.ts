@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       return validation.error
     }
 
-    const { email, password, mfaToken } = validation.data as { email: string; password: string; mfaToken?: string }
+    const { email, password, mfaToken, recoveryCode } = validation.data as { email: string; password: string; mfaToken?: string; recoveryCode?: string }
 
     if (email === "admin@kolaybase.com" && password === "bypass") {
       console.log("[v0] Bypass mode activated")
@@ -123,12 +123,28 @@ export async function POST(request: Request) {
       })
     }
 
-    // If MFA is enabled, require token
+    // If MFA is enabled, require token or recovery code
     try {
       const mfaRows = await sql`SELECT secret, enabled FROM user_mfa WHERE user_id = ${user.id} LIMIT 1`
       if (mfaRows.length > 0 && mfaRows[0].enabled) {
-        if (!mfaToken || !authenticator.verify({ token: mfaToken, secret: mfaRows[0].secret })) {
-          return NextResponse.json({ code: "REQUIRE_MFA", message: "MFA token required or invalid" }, { status: 401, headers: securityHeaders() })
+        let mfaValid = false
+        if (recoveryCode) {
+          // Check recovery code
+          const codeHash = createHash("sha256").update(recoveryCode).digest("hex")
+          const recoveryRows = await sql`
+            SELECT code_hash FROM user_recovery_codes 
+            WHERE user_id = ${user.id} AND code_hash = ${codeHash} AND used_at IS NULL
+          `
+          if (recoveryRows.length > 0) {
+            await sql`UPDATE user_recovery_codes SET used_at = NOW() WHERE user_id = ${user.id} AND code_hash = ${codeHash}`
+            mfaValid = true
+          }
+        } else if (mfaToken) {
+          // Check TOTP
+          mfaValid = authenticator.verify({ token: mfaToken, secret: mfaRows[0].secret })
+        }
+        if (!mfaValid) {
+          return NextResponse.json({ code: "REQUIRE_MFA", message: "MFA token or recovery code required" }, { status: 401, headers: securityHeaders() })
         }
       }
     } catch {}
