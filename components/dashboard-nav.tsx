@@ -74,6 +74,12 @@ const navGroups = [
     title: "Tools",
     items: [
       {
+        title: "Quota Monitor",
+        href: "/dashboard/quota-monitor",
+        icon: Shield,
+        badge: "New",
+      },
+      {
         title: "GraphQL",
         href: "/dashboard/graphql",
         icon: Activity,

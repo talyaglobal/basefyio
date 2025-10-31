@@ -2,8 +2,9 @@
 -- Additional tables required for quota monitoring, scheduling, and advanced features
 
 -- Enable required extensions (in case they're not already enabled)
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Note: Using gen_random_uuid() which is available in PostgreSQL 13+ without extensions
+-- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =======================
 -- QUOTA MONITORING TABLES
@@ -11,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Resource usage tracking table
 CREATE TABLE IF NOT EXISTS resource_usage_log (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   resource_type VARCHAR(50) NOT NULL, -- 'api_calls', 'storage', 'bandwidth', etc.
   usage_amount NUMERIC(15,2) NOT NULL DEFAULT 0,
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS resource_usage_log (
 
 -- Quota thresholds configuration
 CREATE TABLE IF NOT EXISTS quota_thresholds (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   resource_type VARCHAR(50) NOT NULL,
   threshold_type VARCHAR(20) NOT NULL CHECK (threshold_type IN ('warning', 'critical', 'limit')),
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS quota_thresholds (
 
 -- Quota violations tracking
 CREATE TABLE IF NOT EXISTS quota_violations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   resource_type VARCHAR(50) NOT NULL,
   severity VARCHAR(20) NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS quota_violations (
 
 -- Alert channels for quota notifications
 CREATE TABLE IF NOT EXISTS quota_alert_channels (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   type VARCHAR(20) NOT NULL CHECK (type IN ('email', 'webhook', 'sms', 'slack')),
   config JSONB NOT NULL, -- Channel-specific configuration
@@ -70,7 +71,7 @@ CREATE TABLE IF NOT EXISTS quota_alert_channels (
 
 -- Scheduled jobs configuration
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   description TEXT,
@@ -94,7 +95,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 
 -- Scheduled job execution history
 CREATE TABLE IF NOT EXISTS scheduled_job_runs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id UUID REFERENCES scheduled_jobs(id) ON DELETE CASCADE,
   status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'timeout')),
   started_at TIMESTAMPTZ DEFAULT NOW(),
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS scheduled_job_runs (
 
 -- Edge functions configuration
 CREATE TABLE IF NOT EXISTS edge_functions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   description TEXT,
@@ -129,7 +130,7 @@ CREATE TABLE IF NOT EXISTS edge_functions (
 
 -- Edge function invocation logs
 CREATE TABLE IF NOT EXISTS edge_function_invocations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   function_id UUID REFERENCES edge_functions(id) ON DELETE CASCADE,
   request_id VARCHAR(100),
   status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'timeout')),
@@ -150,7 +151,7 @@ CREATE TABLE IF NOT EXISTS edge_function_invocations (
 
 -- Encryption keys for secrets management
 CREATE TABLE IF NOT EXISTS encryption_keys (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key_id VARCHAR(100) UNIQUE NOT NULL,
   encrypted_key TEXT NOT NULL, -- Key encrypted with master key
   algorithm VARCHAR(50) DEFAULT 'AES-256-GCM',
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS encryption_keys (
 
 -- Secrets storage
 CREATE TABLE IF NOT EXISTS secrets (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   description TEXT,
