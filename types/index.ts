@@ -14,12 +14,36 @@ export interface Organization {
   created_at: string
 }
 
+// Team is an alias for Organization (organizations table represents teams)
+export interface Team {
+  id: string
+  name: string
+  slug: string
+  owner_id: string
+  created_at: string
+  updated_at?: string
+}
+
 export interface Project {
   id: string
   name: string
   org_id: string
-  database_url: string
+  description?: string
+  database_url?: string // deprecated - kept for backward compatibility
   created_at: string
+  updated_at?: string
+}
+
+export interface Database {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  database_url: string
+  provider: 'postgres' | 'neon' | 'supabase'
+  status: 'active' | 'inactive' | 'maintenance'
+  created_at: string
+  updated_at?: string
 }
 
 export interface AuthResponse {

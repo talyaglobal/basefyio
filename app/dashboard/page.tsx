@@ -1,8 +1,7 @@
-import { getUser } from "@/lib/auth"
+"use client"
 
-// Force dynamic rendering for dashboard with real-time data
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+import { useEffect } from "react"
+import { useWorkspace } from "@/components/workspace-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,13 +18,76 @@ import {
   Zap,
   Shield,
   FileText,
+  Building2,
+  FolderOpen,
+  AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
 
-async function getDashboardStats() {
-  // In a real app, fetch from your database
-  return {
-    databases: 1,
+export default function DashboardPage() {
+  const workspace = useWorkspace()
+
+  useEffect(() => {
+    workspace.refreshWorkspace()
+  }, [])
+
+  // Show empty state if no team selected
+  if (!workspace.selectedTeam) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Team Selected</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+              Create or select a team to get started. Teams help you organize projects and collaborate with others.
+            </p>
+            <Button onClick={() => workspace.refreshWorkspace()}>
+              Refresh Teams
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show empty state if no project selected
+  if (!workspace.selectedProject) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <FolderOpen className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Project Selected</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+              Select or create a project in <strong>{workspace.selectedTeam.name}</strong> to continue.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show empty state if no database selected
+  if (!workspace.selectedDatabase) {
+    return (
+      <div className="space-y-6">
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Database className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Database Selected</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+              Select or create a database in <strong>{workspace.selectedProject.name}</strong> to view your dashboard.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Mock stats - in production, fetch from API based on selected database
+  const stats = {
+    databases: workspace.databases.length,
     tables: 12,
     queries: 8,
     apiKeys: 3,
@@ -70,23 +132,39 @@ async function getDashboardStats() {
       },
     ],
   }
-}
-
-export default async function DashboardPage() {
-  const user = await getUser()
-  const stats = await getDashboardStats()
 
   return (
     <div className="space-y-6">
+      {/* Workspace context info */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Building2 className="h-4 w-4" />
+        <span>{workspace.selectedTeam.name}</span>
+        <span>/</span>
+        <FolderOpen className="h-4 w-4" />
+        <span>{workspace.selectedProject.name}</span>
+        <span>/</span>
+        <Database className="h-4 w-4" />
+        <span className="font-medium">{workspace.selectedDatabase.name}</span>
+        {workspace.selectedDatabase.status !== "active" && (
+          <Badge variant="secondary" className="ml-2">
+            {workspace.selectedDatabase.status}
+          </Badge>
+        )}
+      </div>
+
       <div className="rounded-lg bg-gradient-to-r from-primary/10 via-primary/5 to-background border p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold">Welcome back, {user?.email?.split("@")[0] || "User"}!</h2>
-            <p className="text-muted-foreground mt-1">Here's what's happening with your database today.</p>
+            <h2 className="text-2xl font-bold">
+              {workspace.selectedDatabase.name}
+            </h2>
+            <p className="text-muted-foreground mt-1">
+              Here's what's happening with your database today.
+            </p>
           </div>
           <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
             <Activity className="h-3 w-3 mr-1" />
-            All Systems Operational
+            {workspace.selectedDatabase.status === "active" ? "All Systems Operational" : "Database Status: " + workspace.selectedDatabase.status}
           </Badge>
         </div>
       </div>
@@ -103,7 +181,7 @@ export default async function DashboardPage() {
             <div className="text-2xl font-bold">{stats.databases}</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
               <TrendingUp className="h-3 w-3 text-green-500" />
-              Connected and active
+              In this project
             </p>
           </CardContent>
         </Card>
@@ -166,7 +244,7 @@ export default async function DashboardPage() {
                 <CardDescription>Latest changes in your database</CardDescription>
               </div>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/dashboard/audit">
+                <Link href="/dashboard/activity">
                   View All
                   <ArrowRight className="h-4 w-4 ml-1" />
                 </Link>

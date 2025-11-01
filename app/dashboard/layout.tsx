@@ -1,6 +1,7 @@
 import type React from "react"
 import { DashboardNav } from "@/components/dashboard-nav"
 import { DashboardHeader } from "@/components/dashboard-header"
+import { WorkspaceProvider } from "@/components/workspace-context"
 import { getUser } from "@/lib/auth"
 import { redirect } from "next/navigation"
 
@@ -20,20 +21,22 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-64 flex-col border-r border-sidebar-border bg-sidebar">
-        <DashboardNav userEmail={user.email} />
-      </aside>
+    <WorkspaceProvider>
+      <div className="flex h-screen overflow-hidden">
+        {/* Desktop sidebar */}
+        <aside className="hidden md:flex w-64 flex-col border-r border-sidebar-border bg-sidebar">
+          <DashboardNav userEmail={user.email} />
+        </aside>
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <DashboardHeader userEmail={user.email} />
+        {/* Main content area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <DashboardHeader userEmail={user.email} />
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="container mx-auto p-6">{children}</div>
-        </main>
+          <main className="flex-1 overflow-y-auto">
+            <div className="container mx-auto p-6">{children}</div>
+          </main>
+        </div>
       </div>
-    </div>
+    </WorkspaceProvider>
   )
 }

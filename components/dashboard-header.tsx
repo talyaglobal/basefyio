@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Menu, Bell, User } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { DashboardNav } from "./dashboard-nav"
+import { TeamProjectSelector } from "./team-project-selector"
+import { useWorkspace } from "./workspace-context"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +44,7 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
   const router = useRouter()
   const pageInfo = routeTitles[pathname] || { title: "Dashboard", description: "" }
   const [lastRefreshAt, setLastRefreshAt] = useState<number | undefined>(undefined)
+  const workspace = useWorkspace()
 
   useEffect(() => {
     setLastRefreshAt(kolaybase.getLastRefreshAt())
@@ -49,6 +52,11 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
     return () => {
       off()
     }
+  }, [])
+
+  useEffect(() => {
+    // Refresh workspace data on mount
+    workspace.refreshWorkspace()
   }, [])
 
   const handleSignOut = async () => {
@@ -81,11 +89,26 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
           </SheetContent>
         </Sheet>
 
+        {/* Team/Project/Database Selector */}
+        <div className="flex-1 flex items-center gap-4">
+          <TeamProjectSelector
+            selectedTeam={workspace.selectedTeam}
+            selectedProject={workspace.selectedProject}
+            selectedDatabase={workspace.selectedDatabase}
+            teams={workspace.teams}
+            projects={workspace.projects}
+            databases={workspace.databases}
+            onTeamChange={workspace.setSelectedTeam}
+            onProjectChange={workspace.setSelectedProject}
+            onDatabaseChange={workspace.setSelectedDatabase}
+          />
+        </div>
+
         {/* Page title */}
-        <div className="flex-1">
+        <div className="hidden lg:flex flex-col items-end">
           <h1 className="text-xl font-semibold">{pageInfo.title}</h1>
           {pageInfo.description && (
-            <p className="text-sm text-muted-foreground hidden sm:block">{pageInfo.description}</p>
+            <p className="text-sm text-muted-foreground">{pageInfo.description}</p>
           )}
         </div>
 
