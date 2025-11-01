@@ -3,10 +3,10 @@ import {
   requireScopes, 
   validateRequestBody, 
   createInternalError, 
-  securityHeaders 
+  securityHeaders,
+  getDatabaseConnection
 } from "@/lib/api-utils"
 import { sqlExecuteSchema } from "@/lib/validation-schemas"
-import { safeDb } from "@/lib/db-safety"
 import { isSqlWriteOperation } from "@/lib/api-key-utils"
 
 export async function POST(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return validation.error
     }
 
-    const { query, params = [], readOnly = false } = validation.data
+    const { query, params = [], readOnly = false, database_id } = validation.data
 
     // Determine required scopes based on query type
     const isWriteOperation = isSqlWriteOperation(query)
@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
         headers: securityHeaders()
       })
     }
+
+    // Get database connection (dynamic or default)
+    const { safeDb } = await getDatabaseConnection(database_id)
 
     // Determine query execution options
     const isAdminUser = auth.user.authMethod === "session"

@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, RefreshCw, Search, Edit, Trash2, Save, X, Shield } from "lucide-react"
+import { useWorkspace } from "@/components/workspace-context"
 
 interface TableInfo {
   table_name: string
@@ -37,6 +38,7 @@ interface ColumnInfo {
 }
 
 export function TableBrowser() {
+  const { selectedDatabase } = useWorkspace()
   const [tables, setTables] = useState<TableInfo[]>([])
   const [selectedTable, setSelectedTable] = useState<string>("")
   const [columns, setColumns] = useState<ColumnInfo[]>([])
@@ -52,7 +54,7 @@ export function TableBrowser() {
 
   useEffect(() => {
     loadTables()
-  }, [])
+  }, [selectedDatabase])
 
   useEffect(() => {
     if (selectedTable) {
@@ -64,7 +66,10 @@ export function TableBrowser() {
     setLoading(true)
     setError("")
     try {
-      const response = await fetch("/api/tables")
+      const url = selectedDatabase?.id 
+        ? `/api/tables?database_id=${selectedDatabase.id}`
+        : "/api/tables"
+      const response = await fetch(url)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       setTables(data.tables)

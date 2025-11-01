@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
           updated_at: t.updated_at,
         })),
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching teams:", error)
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const { name } = body
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json({ error: "Team name is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "Team name is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Generate slug from name
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     `
 
     if (existing.length > 0) {
-      return NextResponse.json({ error: "Team with this name already exists" }, { status: 409, headers: securityHeaders })
+      return NextResponse.json({ error: "Team with this name already exists" }, { status: 409, headers: securityHeaders() })
     }
 
     // Create team
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
           updated_at: team.updated_at,
         },
       },
-      { status: 201, headers: securityHeaders }
+      { status: 201, headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error creating team:", error)

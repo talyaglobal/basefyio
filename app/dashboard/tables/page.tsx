@@ -1,17 +1,14 @@
+"use client"
+
 import { TableBrowser } from "@/components/table-browser"
-import DashboardHeader from "@/components/dashboard-header"
+import { DatabaseRequired } from "@/components/database-required"
 
-// Force dynamic rendering for tables with real-time data
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
-export default async function TablesPage() {
-  // const user = await getUser()
-
+export default function TablesPage() {
   return (
-    <div className="space-y-6">
-      <DashboardHeader />
-      <TableBrowser />
-    </div>
+    <DatabaseRequired message="Select or create a database to browse tables.">
+      <div className="space-y-6">
+        <TableBrowser />
+      </div>
+    </DatabaseRequired>
   )
 }

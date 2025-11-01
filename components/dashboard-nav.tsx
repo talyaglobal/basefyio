@@ -21,7 +21,9 @@ import {
   History,
   Zap,
   ChevronRight,
+  Building2,
 } from "lucide-react"
+import { useWorkspace } from "@/components/workspace-context"
 
 const navGroups = [
   {
@@ -111,6 +113,7 @@ interface DashboardNavProps {
 export function DashboardNav({ mobile = false, userEmail }: DashboardNavProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { selectedTeam, selectedProject, selectedDatabase } = useWorkspace()
 
   const handleSignOut = async () => {
     await fetch("/api/auth/sign-out", { method: "POST" })
@@ -141,6 +144,38 @@ export function DashboardNav({ mobile = false, userEmail }: DashboardNavProps) {
           </div>
         </div>
       </div>
+
+      {/* Workspace Breadcrumb */}
+      {(selectedTeam || selectedProject || selectedDatabase) && (
+        <div className="px-6 py-3 border-b border-sidebar-border bg-sidebar-accent/30">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground overflow-hidden">
+            {selectedTeam && (
+              <>
+                <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
+                  <Building2 className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate font-medium text-sidebar-foreground/90">{selectedTeam.name}</span>
+                </div>
+                {selectedProject && <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+              </>
+            )}
+            {selectedProject && (
+              <>
+                <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
+                  <FolderOpen className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate font-medium text-sidebar-foreground/90">{selectedProject.name}</span>
+                </div>
+                {selectedDatabase && <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+              </>
+            )}
+            {selectedDatabase && (
+              <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
+                <Database className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate font-medium text-sidebar-foreground/90">{selectedDatabase.name}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <div className="space-y-6">

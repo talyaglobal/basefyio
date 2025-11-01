@@ -5,14 +5,14 @@ import { neon } from "@neondatabase/serverless"
 const sql = neon(process.env.DATABASE_URL!)
 
 // GET /api/teams/[id] - Get a specific team
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const teamId = params.id
+    const { id: teamId } = await params
 
     // Check if user has access to this team
     const [team] = await sql`
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     return NextResponse.json(
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           updated_at: team.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching team:", error)
@@ -47,14 +47,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PUT /api/teams/[id] - Update a team
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const teamId = params.id
+    const { id: teamId } = await params
     const body = await request.json()
     const { name } = body
 
@@ -68,11 +68,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json({ error: "Team name is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "Team name is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Generate new slug
@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (existing.length > 0) {
-      return NextResponse.json({ error: "Team with this name already exists" }, { status: 409, headers: securityHeaders })
+      return NextResponse.json({ error: "Team with this name already exists" }, { status: 409, headers: securityHeaders() })
     }
 
     // Update team
@@ -109,7 +109,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
           updated_at: updated.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error updating team:", error)
@@ -118,14 +118,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/teams/[id] - Delete a team
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const teamId = params.id
+    const { id: teamId } = await params
 
     // Check if user is owner
     const [team] = await sql`
@@ -133,7 +133,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     `
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Delete team (cascade will handle related records)
@@ -141,7 +141,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       DELETE FROM organizations WHERE id = ${teamId}
     `
 
-    return NextResponse.json({ success: true }, { headers: securityHeaders })
+    return NextResponse.json({ success: true }, { headers: securityHeaders() })
   } catch (error: any) {
     console.error("Error deleting team:", error)
     return createInternalError(error)

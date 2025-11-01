@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const teamId = searchParams.get("team_id")
 
     if (!teamId) {
-      return NextResponse.json({ error: "team_id parameter is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "team_id parameter is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Check if user has access to this team
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     `
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Get projects for this team
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
           updated_at: p.updated_at,
         })),
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching projects:", error)
@@ -71,11 +71,11 @@ export async function POST(request: NextRequest) {
     const { name, team_id, description } = body
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json({ error: "Project name is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "Project name is required" }, { status: 400, headers: securityHeaders() })
     }
 
     if (!team_id) {
-      return NextResponse.json({ error: "team_id is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "team_id is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Check if user has access to this team
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     `
 
     if (!team) {
-      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Team not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Create project
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
           updated_at: project.updated_at,
         },
       },
-      { status: 201, headers: securityHeaders }
+      { status: 201, headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error creating project:", error)

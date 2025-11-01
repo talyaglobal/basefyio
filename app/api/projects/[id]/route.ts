@@ -5,14 +5,14 @@ import { neon } from "@neondatabase/serverless"
 const sql = neon(process.env.DATABASE_URL!)
 
 // GET /api/projects/[id] - Get a specific project
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const projectId = params.id
+    const { id: projectId } = await params
 
     // Check if user has access to this project's team
     const [project] = await sql`
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!project) {
-      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     return NextResponse.json(
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           updated_at: project.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching project:", error)
@@ -49,14 +49,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PUT /api/projects/[id] - Update a project
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const projectId = params.id
+    const { id: projectId } = await params
     const body = await request.json()
     const { name, description } = body
 
@@ -71,11 +71,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!project) {
-      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json({ error: "Project name is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "Project name is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Update project
@@ -98,7 +98,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
           updated_at: updated.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error updating project:", error)
@@ -107,14 +107,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/projects/[id] - Delete a project
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const projectId = params.id
+    const { id: projectId } = await params
 
     // Check if user has access (owner or admin)
     const [project] = await sql`
@@ -127,7 +127,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     `
 
     if (!project) {
-      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Delete project (cascade will handle related records)
@@ -135,7 +135,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       DELETE FROM projects WHERE id = ${projectId}
     `
 
-    return NextResponse.json({ success: true }, { headers: securityHeaders })
+    return NextResponse.json({ success: true }, { headers: securityHeaders() })
   } catch (error: any) {
     console.error("Error deleting project:", error)
     return createInternalError(error)

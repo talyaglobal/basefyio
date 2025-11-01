@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { DatabaseRequired } from "@/components/database-required"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -157,7 +158,8 @@ export default function RLSPage() {
   const filteredPolicies = policies.filter((p) => p.table === selectedTable)
 
   return (
-    <div className="space-y-6">
+    <DatabaseRequired message="Select or create a database to manage RLS policies.">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Row Level Security</h1>
@@ -499,6 +501,7 @@ export default function RLSPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </DatabaseRequired>
   )
 }

@@ -51,6 +51,7 @@ export const sqlExecuteSchema = z.object({
   query: z.string().min(1, "Query is required"),
   params: z.array(z.any()).optional(),
   readOnly: z.boolean().default(false),
+  database_id: z.string().optional(), // Optional database ID to target a specific database
 })
 
 export const saveSqlQuerySchema = z.object({

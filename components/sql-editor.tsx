@@ -9,6 +9,7 @@ import { Play, Save, Trash2, Clock, Download } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useWorkspace } from "@/components/workspace-context"
 
 interface QueryResult {
   columns: string[]
@@ -25,6 +26,7 @@ interface SavedQuery {
 }
 
 export function SqlEditor() {
+  const { selectedDatabase } = useWorkspace()
   const [query, setQuery] = useState("SELECT * FROM users LIMIT 10;")
   const [result, setResult] = useState<QueryResult | null>(null)
   const [error, setError] = useState("")
@@ -59,7 +61,10 @@ export function SqlEditor() {
       const response = await fetch("/api/sql/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ 
+          query,
+          database_id: selectedDatabase?.id 
+        }),
       })
 
       const data = await response.json()

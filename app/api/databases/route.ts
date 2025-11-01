@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const projectId = searchParams.get("project_id")
 
     if (!projectId) {
-      return NextResponse.json({ error: "project_id parameter is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "project_id parameter is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Check if user has access to this project's team
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     `
 
     if (!project) {
-      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Get databases for this project
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
           updated_at: d.updated_at,
         })),
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching databases:", error)
@@ -75,15 +75,15 @@ export async function POST(request: NextRequest) {
     const { name, project_id, description, database_url, provider = "postgres" } = body
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json({ error: "Database name is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "Database name is required" }, { status: 400, headers: securityHeaders() })
     }
 
     if (!project_id) {
-      return NextResponse.json({ error: "project_id is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "project_id is required" }, { status: 400, headers: securityHeaders() })
     }
 
     if (!database_url || typeof database_url !== "string") {
-      return NextResponse.json({ error: "database_url is required" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "database_url is required" }, { status: 400, headers: securityHeaders() })
     }
 
     // Check if user has access to this project's team
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     `
 
     if (!project) {
-      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Project not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Check if database name already exists in this project
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     `
 
     if (existing.length > 0) {
-      return NextResponse.json({ error: "Database with this name already exists in this project" }, { status: 409, headers: securityHeaders })
+      return NextResponse.json({ error: "Database with this name already exists in this project" }, { status: 409, headers: securityHeaders() })
     }
 
     // Create database
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
           updated_at: database.updated_at,
         },
       },
-      { status: 201, headers: securityHeaders }
+      { status: 201, headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error creating database:", error)

@@ -1,13 +1,19 @@
-import { NextResponse } from "next/server"
-import { requireScopes, createInternalError, securityHeaders } from "@/lib/api-utils"
-import { safeDb } from "@/lib/db-safety"
+import { NextRequest, NextResponse } from "next/server"
+import { requireScopes, createInternalError, securityHeaders, getDatabaseConnection } from "@/lib/api-utils"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const auth = await requireScopes(["read:tables"])
     if (!auth.success) {
       return auth.error
     }
+
+    // Get database_id from query params
+    const { searchParams } = new URL(request.url)
+    const databaseId = searchParams.get('database_id')
+
+    // Get database connection (dynamic or default)
+    const { safeDb } = await getDatabaseConnection(databaseId)
 
     // Get all tables from public schema
     const tablesResult = await safeDb.safeSelect(`

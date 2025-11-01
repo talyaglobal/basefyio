@@ -5,14 +5,14 @@ import { neon } from "@neondatabase/serverless"
 const sql = neon(process.env.DATABASE_URL!)
 
 // GET /api/databases/[id] - Get a specific database
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const databaseId = params.id
+    const { id: databaseId } = await params
 
     // Check if user has access to this database's project's team
     const [database] = await sql`
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!database) {
-      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     return NextResponse.json(
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           updated_at: database.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error fetching database:", error)
@@ -52,14 +52,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PUT /api/databases/[id] - Update a database
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const databaseId = params.id
+    const { id: databaseId } = await params
     const body = await request.json()
     const { name, description, database_url, status } = body
 
@@ -75,7 +75,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     `
 
     if (!database) {
-      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Build update query dynamically
@@ -84,7 +84,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     if (name !== undefined) {
       if (typeof name !== "string" || name.trim().length === 0) {
-        return NextResponse.json({ error: "Database name cannot be empty" }, { status: 400, headers: securityHeaders })
+        return NextResponse.json({ error: "Database name cannot be empty" }, { status: 400, headers: securityHeaders() })
       }
       updates.push(`name = $${values.length + 1}`)
       values.push(name.trim())
@@ -97,7 +97,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     if (database_url !== undefined) {
       if (typeof database_url !== "string") {
-        return NextResponse.json({ error: "database_url must be a string" }, { status: 400, headers: securityHeaders })
+        return NextResponse.json({ error: "database_url must be a string" }, { status: 400, headers: securityHeaders() })
       }
       updates.push(`database_url = $${values.length + 1}`)
       values.push(database_url)
@@ -105,14 +105,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     if (status !== undefined) {
       if (!["active", "inactive", "maintenance"].includes(status)) {
-        return NextResponse.json({ error: "Invalid status" }, { status: 400, headers: securityHeaders })
+        return NextResponse.json({ error: "Invalid status" }, { status: 400, headers: securityHeaders() })
       }
       updates.push(`status = $${values.length + 1}`)
       values.push(status)
     }
 
     if (updates.length === 0) {
-      return NextResponse.json({ error: "No fields to update" }, { status: 400, headers: securityHeaders })
+      return NextResponse.json({ error: "No fields to update" }, { status: 400, headers: securityHeaders() })
     }
 
     // Update database using COALESCE to only update provided fields
@@ -142,7 +142,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
           updated_at: result.updated_at,
         },
       },
-      { headers: securityHeaders }
+      { headers: securityHeaders() }
     )
   } catch (error: any) {
     console.error("Error updating database:", error)
@@ -151,14 +151,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/databases/[id] - Delete a database
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireScopesWithRateLimit(request, [])
     if (!auth.success) {
       return auth.error
     }
 
-    const databaseId = params.id
+    const { id: databaseId } = await params
 
     // Check if user has access (owner or admin)
     const [database] = await sql`
@@ -172,7 +172,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     `
 
     if (!database) {
-      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders })
+      return NextResponse.json({ error: "Database not found or access denied" }, { status: 404, headers: securityHeaders() })
     }
 
     // Delete database
@@ -180,7 +180,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       DELETE FROM databases WHERE id = ${databaseId}
     `
 
-    return NextResponse.json({ success: true }, { headers: securityHeaders })
+    return NextResponse.json({ success: true }, { headers: securityHeaders() })
   } catch (error: any) {
     console.error("Error deleting database:", error)
     return createInternalError(error)

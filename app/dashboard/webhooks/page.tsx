@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { DatabaseRequired } from "@/components/database-required"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -89,7 +90,8 @@ export default function WebhooksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <DatabaseRequired message="Select or create a database to manage webhooks.">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Webhooks</h1>
@@ -244,6 +246,7 @@ export default function WebhooksPage() {
           ))
         )}
       </div>
-    </div>
+      </div>
+    </DatabaseRequired>
   )
 }

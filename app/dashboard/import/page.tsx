@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
+import { DatabaseRequired } from "@/components/database-required"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -55,7 +56,8 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <DatabaseRequired message="Select or create a database to import data.">
+      <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Data Import</h1>
         <p className="text-muted-foreground mt-1">Import data from CSV or JSON files into your tables</p>
@@ -191,6 +193,7 @@ export default function ImportPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+    </DatabaseRequired>
   )
 }

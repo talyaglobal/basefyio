@@ -3,6 +3,9 @@ import { z } from "zod"
 import { getUser, type User } from "./auth"
 import { hasScope, checkScopePermissions, type ApiScope } from "./api-key-utils"
 import { rateLimitByIp, rateLimitByApiKey, type RateLimitResult } from "./rate-limit"
+import { dynamicConnectionManager } from "./dynamic-connection-manager"
+import { safeDb as defaultSafeDb } from "./db-safety"
+import { neon } from "@neondatabase/serverless"
 
 export interface ApiError {
   code: string
@@ -357,4 +360,50 @@ export async function requireScopesWithRateLimit(
   }
 
   return authResult
+}
+
+/**
+ * Get database connection based on database_id
+ * This function retrieves the database URL and ensures the connection is registered
+ */
+export async function getDatabaseConnection(databaseId?: string | null): Promise<{
+  safeDb: any
+  sql: any
+}> {
+  if (!databaseId) {
+    // Use default database connection
+    return {
+      safeDb: defaultSafeDb,
+      sql: neon(process.env.DATABASE_URL!),
+    }
+  }
+
+  // Check if database is already registered
+  if (!dynamicConnectionManager.isRegistered(databaseId)) {
+    // Need to fetch database metadata from the default database
+    const dbMetadata = await defaultSafeDb.safeSelect(
+      `SELECT id, database_url, provider FROM databases WHERE id = $1 AND status = 'active'`,
+      [databaseId]
+    )
+
+    if (dbMetadata.rows.length === 0) {
+      console.warn(`Database ${databaseId} not found, using default connection`)
+      return {
+        safeDb: defaultSafeDb,
+        sql: neon(process.env.DATABASE_URL!),
+      }
+    }
+
+    const db = dbMetadata.rows[0]
+    await dynamicConnectionManager.registerDatabase(
+      databaseId,
+      db.database_url,
+      db.provider
+    )
+  }
+
+  return {
+    safeDb: dynamicConnectionManager.getSafeDatabase(databaseId),
+    sql: dynamicConnectionManager.getSQL(databaseId),
+  }
 }

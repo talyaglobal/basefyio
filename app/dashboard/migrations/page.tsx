@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { DatabaseRequired } from "@/components/database-required"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -90,7 +91,8 @@ export default function MigrationsPage() {
   const appliedCount = migrations.filter((m) => m.status === "applied").length
 
   return (
-    <div className="space-y-6">
+    <DatabaseRequired message="Select or create a database to manage migrations.">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Database Migrations</h1>
@@ -235,6 +237,7 @@ export default function MigrationsPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </DatabaseRequired>
   )
 }

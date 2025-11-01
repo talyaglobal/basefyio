@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { DatabaseRequired } from "@/components/database-required"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -69,7 +70,8 @@ print(response.json())`,
   }
 
   return (
-    <div className="space-y-6">
+    <DatabaseRequired message="Select or create a database to test API endpoints.">
+      <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">API Playground</h1>
         <p className="text-muted-foreground mt-1">Test your API endpoints and generate code snippets</p>
@@ -186,6 +188,7 @@ print(response.json())`,
           </Tabs>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </DatabaseRequired>
   )
 }

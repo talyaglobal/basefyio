@@ -1,16 +1,14 @@
-import { getUser } from "@/lib/auth"
+"use client"
+
 import { SqlEditor } from "@/components/sql-editor"
+import { DatabaseRequired } from "@/components/database-required"
 
-// Force dynamic rendering for SQL editor with real-time query results
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
-export default async function SqlPage() {
-  const user = await getUser()
-
+export default function SqlPage() {
   return (
-    <div className="space-y-6">
-      <SqlEditor />
-    </div>
+    <DatabaseRequired message="Select or create a database to execute SQL queries.">
+      <div className="space-y-6">
+        <SqlEditor />
+      </div>
+    </DatabaseRequired>
   )
 }
