@@ -22,6 +22,7 @@ import {
   Zap,
   ChevronRight,
   Building2,
+  Plug2,
 } from "lucide-react"
 import { useWorkspace } from "@/components/workspace-context"
 
@@ -100,6 +101,16 @@ const navGroups = [
         title: "Migrations",
         href: "/dashboard/migrations",
         icon: History,
+      },
+    ],
+  },
+  {
+    title: "Integrations",
+    items: [
+      {
+        title: "Integrations",
+        href: "/dashboard/integrations",
+        icon: Plug2,
       },
     ],
   },
