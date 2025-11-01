@@ -1,7 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useState } from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +24,8 @@ import {
 } from "@/components/ui/select"
 import { ChevronDown, Plus, Building2, FolderOpen, Database, Loader2 } from "lucide-react"
 import { Team, Project, Database as DatabaseType } from "@/types"
+import { useWorkspace } from "@/components/workspace-context"
+import { useToast } from "@/hooks/use-toast"
 
 interface TeamProjectSelectorProps {
   selectedTeam: Team | null
@@ -49,7 +50,8 @@ export function TeamProjectSelector({
   onProjectChange,
   onDatabaseChange,
 }: TeamProjectSelectorProps) {
-  const router = useRouter()
+  const workspace = useWorkspace()
+  const { toast } = useToast()
   const [isCreatingTeam, setIsCreatingTeam] = useState(false)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false)
@@ -68,15 +70,40 @@ export function TeamProjectSelector({
         body: JSON.stringify({ name: newTeamName }),
       })
       
-      if (res.ok) {
-        const data = await res.json()
+      const data = await res.json()
+      
+      if (res.ok && data.team) {
+        // Select the newly created team immediately
         onTeamChange(data.team)
+        
         setNewTeamName("")
         setIsCreatingTeam(false)
-        router.refresh()
+        
+        // Refresh workspace in background to update the teams list
+        workspace.refreshWorkspace().catch((err) => {
+          console.error("Error refreshing workspace:", err)
+        })
+        
+        toast({
+          title: "Team created",
+          description: `${newTeamName} has been created successfully.`,
+        })
+      } else {
+        // Show error message
+        const errorMessage = data.error || data.message || "Failed to create team"
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error creating team:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while creating the team.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
@@ -100,16 +127,40 @@ export function TeamProjectSelector({
         }),
       })
       
-      if (res.ok) {
-        const data = await res.json()
+      const data = await res.json()
+      
+      if (res.ok && data.project) {
+        // Select the newly created project immediately
         onProjectChange(data.project)
+        
         setNewProjectName("")
         setNewProjectDescription("")
         setIsCreatingProject(false)
-        router.refresh()
+        
+        // Refresh workspace in background to update the projects list
+        workspace.refreshWorkspace().catch((err) => {
+          console.error("Error refreshing workspace:", err)
+        })
+        
+        toast({
+          title: "Project created",
+          description: `${newProjectName} has been created successfully.`,
+        })
+      } else {
+        const errorMessage = data.error || data.message || "Failed to create project"
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error creating project:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while creating the project.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
@@ -137,17 +188,41 @@ export function TeamProjectSelector({
         }),
       })
       
-      if (res.ok) {
-        const data = await res.json()
+      const data = await res.json()
+      
+      if (res.ok && data.database) {
+        // Select the newly created database immediately
         onDatabaseChange(data.database)
+        
         setNewDatabaseName("")
         setNewDatabaseDescription("")
         setNewDatabaseUrl("")
         setIsCreatingDatabase(false)
-        router.refresh()
+        
+        // Refresh workspace in background to update the databases list
+        workspace.refreshWorkspace().catch((err) => {
+          console.error("Error refreshing workspace:", err)
+        })
+        
+        toast({
+          title: "Database created",
+          description: `${newDatabaseName} has been created successfully.`,
+        })
+      } else {
+        const errorMessage = data.error || data.message || "Failed to create database"
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error creating database:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while creating the database.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
