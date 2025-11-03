@@ -27,6 +27,56 @@ export async function POST(request: Request) {
     if (email === "admin@kolaybase.com" && password === "bypass") {
       console.log("[v0] Bypass mode activated")
 
+      // Ensure bypass user exists in database
+      try {
+        // Check if bypass user already exists
+        const existingUsers = await sql`
+          SELECT id FROM users WHERE id = 'bypass-user-id' LIMIT 1
+        `
+        
+        if (existingUsers.length === 0) {
+          // Create bypass user
+          const hashedPassword = await bcrypt.hash("bypass", 10)
+          await sql`
+            INSERT INTO users (id, email, password_hash, created_at)
+            VALUES ('bypass-user-id', 'admin@kolaybase.com', ${hashedPassword}, NOW())
+          `
+          console.log("[v0] Bypass user created in database")
+          
+          // Create default team for bypass user
+          const [team] = await sql`
+            INSERT INTO organizations (id, name, slug, owner_id, created_at)
+            VALUES ('bypass-team-id', 'Development Team', 'development-team', 'bypass-user-id', NOW())
+            RETURNING id, name
+          `
+          console.log("[v0] Default team created for bypass user:", team?.name)
+          
+          // Add user as admin member
+          await sql`
+            INSERT INTO organization_memberships (organization_id, user_id, role)
+            VALUES ('bypass-team-id', 'bypass-user-id', 'admin')
+            ON CONFLICT (organization_id, user_id) DO NOTHING
+          `
+          
+          // Create default project for bypass user
+          const [project] = await sql`
+            INSERT INTO projects (id, name, org_id, description, created_at)
+            VALUES ('bypass-project-id', 'Default Project', 'bypass-team-id', 'Default development project', NOW())
+            RETURNING id, name
+          `
+          console.log("[v0] Default project created for bypass user:", project?.name)
+          
+          // Create default database for bypass user
+          await sql`
+            INSERT INTO databases (id, project_id, name, description, database_url, provider, status, created_at)
+            VALUES ('bypass-db-id', 'bypass-project-id', 'default_db', 'Default development database', ${process.env.DATABASE_URL || ''}, 'postgres', 'active', NOW())
+          `
+          console.log("[v0] Default database created for bypass user")
+        }
+      } catch (error) {
+        console.error("[v0] Error setting up bypass user:", error)
+      }
+
       const accessSecret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key")
       const refreshSecret = new TextEncoder().encode(process.env.REFRESH_SECRET || process.env.JWT_SECRET || "your-secret-key")
       const accessToken = await new SignJWT({
