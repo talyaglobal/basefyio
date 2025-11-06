@@ -26,6 +26,11 @@ export default function HomePage() {
                 Sign In
               </Button>
             </Link>
+            <Link href="/sign-in">
+              <Button size="lg" className="px-8 bg-orange-500 hover:bg-orange-600 text-white border-orange-500">
+                KolayLogin
+              </Button>
+            </Link>
           </div>
           
           <div className="mt-16 grid md:grid-cols-3 gap-8">
