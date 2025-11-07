@@ -13,6 +13,7 @@
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "db:setup": "node scripts/setup-db.js",
     "db:init": "node scripts/setup-db.js",
+    "db:setup:kolaykey": "node scripts/setup-kolaykey-db.js",
     "generate:sdk": "npx tsx scripts/generate-sdk.ts"
   },
   "dependencies": {
