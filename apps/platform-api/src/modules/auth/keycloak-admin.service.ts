@@ -147,6 +147,52 @@ export class KeycloakAdminService implements OnModuleInit {
     return { message: 'User deleted' };
   }
 
+  async createPlatformUser(data: {
+    username: string;
+    email: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<string> {
+    await this.ensureAuth();
+
+    const { id } = await this.client.users.create({
+      realm: 'master',
+      username: data.username,
+      email: data.email,
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      enabled: true,
+      emailVerified: true,
+      credentials: [
+        { type: 'password', value: data.password, temporary: false },
+      ],
+    });
+
+    this.logger.log(`Platform user "${data.username}" created (${id})`);
+    return id;
+  }
+
+  async findPlatformUserByUsername(username: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({
+      realm: 'master',
+      username,
+      exact: true,
+    });
+    return users[0] || null;
+  }
+
+  async findPlatformUserByEmail(email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({
+      realm: 'master',
+      email,
+      exact: true,
+    });
+    return users[0] || null;
+  }
+
   async getRealmInfo(realmName: string) {
     await this.ensureAuth();
     const realm = await this.client.realms.findOne({ realm: realmName });

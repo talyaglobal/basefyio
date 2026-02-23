@@ -1,10 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Cookies from 'js-cookie';
 import { isAuthenticated, parseJwt, getAccessToken } from '@/lib/auth';
+import { api } from '@/lib/api';
 import type { UserInfo } from '@/lib/types';
 import { Header } from '@/components/header';
+
+interface DashboardContextValue {
+  activeTeamId: string;
+  setActiveTeamId: (id: string) => void;
+}
+
+export const DashboardContext = createContext<DashboardContextValue>({
+  activeTeamId: '',
+  setActiveTeamId: () => {},
+});
+
+export function useActiveTeam() {
+  return useContext(DashboardContext);
+}
 
 export default function DashboardLayout({
   children,
@@ -13,6 +29,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -24,9 +41,40 @@ export default function DashboardLayout({
     if (token) {
       setUser(parseJwt(token));
     }
+
+    async function init() {
+      await api.auth.me().catch(() => {});
+
+      const cachedTeam = Cookies.get('kb_active_team');
+
+      if (cachedTeam) {
+        try {
+          const teams = await api.teams.list();
+          const valid = teams.some((t) => t.id === cachedTeam);
+          if (valid) {
+            setActiveTeamId(cachedTeam);
+            return;
+          }
+        } catch {}
+        Cookies.remove('kb_active_team');
+      }
+
+      try {
+        const { teamId } = await api.teams.getActive();
+        setActiveTeamId(teamId);
+        Cookies.set('kb_active_team', teamId, { expires: 365 });
+      } catch {}
+    }
+
+    init();
   }, [router]);
 
-  if (!user) {
+  const handleTeamChange = useCallback((id: string) => {
+    setActiveTeamId(id);
+    Cookies.set('kb_active_team', id, { expires: 365 });
+  }, []);
+
+  if (!user || !activeTeamId) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -35,9 +83,11 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <Header user={user} />
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
-    </div>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange }}>
+      <div className="flex h-screen flex-col overflow-hidden">
+        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} />
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      </div>
+    </DashboardContext.Provider>
   );
 }

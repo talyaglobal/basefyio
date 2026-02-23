@@ -7,7 +7,9 @@ async function proxy(
   request: NextRequest,
   { params }: { params: { path: string[] } },
 ) {
-  const target = `${BACKEND_URL}/api/${params.path.join('/')}`;
+  const url = new URL(request.url);
+  const query = url.search;
+  const target = `${BACKEND_URL}/api/${params.path.join('/')}${query}`;
 
   const headers = new Headers(request.headers);
   headers.delete('host');

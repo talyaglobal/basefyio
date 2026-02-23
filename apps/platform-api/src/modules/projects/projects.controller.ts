@@ -4,6 +4,7 @@ import {
   Post,
   Delete,
   Param,
+  Query,
   Body,
   UseGuards,
   UseInterceptors,
@@ -25,15 +26,18 @@ export class ProjectsController {
 
   @Post()
   async create(
-    @Body() dto: CreateProjectDto,
+    @Body() body: CreateProjectDto & { teamId: string },
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.projectsService.create(dto, user.sub);
+    return this.projectsService.create(body, user.sub);
   }
 
   @Get()
-  async findAll(@CurrentUser() user: JwtPayload) {
-    return this.projectsService.findAll(user.sub);
+  async findAll(
+    @Query('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.findAll(teamId, user.sub);
   }
 
   @Get(':id')

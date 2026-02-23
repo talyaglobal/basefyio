@@ -28,11 +28,16 @@ export class ProjectDataService {
     private readonly config: ConfigService,
   ) {}
 
-  private async getProjectPool(projectId: string, ownerId: string): Promise<{ pool: Pool; project: any }> {
+  private async getProjectPool(projectId: string, userId: string): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, ownerId, status: 'ACTIVE' },
+      where: { id: projectId, status: 'ACTIVE' },
     });
     if (!project) throw new NotFoundException('Project not found');
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) throw new NotFoundException('Project not found');
 
     const pool = new Pool({
       host: project.dbHost,

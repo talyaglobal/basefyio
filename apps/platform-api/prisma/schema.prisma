@@ -8,10 +8,89 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
 enum ProjectStatus {
   ACTIVE
   PAUSED
   DELETED
+}
+
+enum TeamMemberRole {
+  OWNER
+  MEMBER
+}
+
+model User {
+  id            String   @id
+  username      String   @unique
+  email         String   @unique
+  role          UserRole @default(USER)
+  activeTeamId  String?  @map("active_team_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  activeTeam      Team?        @relation("ActiveTeam", fields: [activeTeamId], references: [id])
+  personalTeam    Team?        @relation("PersonalTeam")
+  teamMembers     TeamMember[]
+  receivedInvites TeamInvite[] @relation("ReceivedInvites")
+  sentInvites     TeamInvite[] @relation("SentInvites")
+
+  @@map("users")
+}
+
+model Team {
+  id                String   @id @default(uuid())
+  name              String
+  slug              String   @unique
+  personalForUserId String?  @unique @map("personal_for_user_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  personalForUser   User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
+  activeForUsers    User[]       @relation("ActiveTeam")
+  members           TeamMember[]
+  invites           TeamInvite[]
+  projects          Project[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String         @id @default(uuid())
+  teamId    String         @map("team_id")
+  userId    String         @map("user_id")
+  role      TeamMemberRole @default(MEMBER)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model TeamInvite {
+  id            String       @id @default(uuid())
+  teamId        String       @map("team_id")
+  invitedUserId String       @map("invited_user_id")
+  invitedById   String       @map("invited_by_id")
+  status        InviteStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  team        Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedUser User @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy   User @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, invitedUserId])
+  @@map("team_invites")
 }
 
 model Project {
@@ -27,11 +106,12 @@ model Project {
   keycloakRealm String        @map("keycloak_realm")
   anonKey       String        @map("anon_key")
   serviceKey    String        @map("service_key")
-  ownerId       String        @map("owner_id")
+  teamId        String        @map("team_id")
   status        ProjectStatus @default(ACTIVE)
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
+  team         Team          @relation(fields: [teamId], references: [id])
   sqlAuditLogs SqlAuditLog[]
 
   @@map("projects")

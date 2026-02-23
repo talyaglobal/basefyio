@@ -37,6 +37,13 @@ export class SqlService {
       throw new NotFoundException('Project not found');
     }
 
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) {
+      throw new NotFoundException('Project not found');
+    }
+
     this.validateQuery(query);
 
     const pool = new Pool({

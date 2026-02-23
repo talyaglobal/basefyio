@@ -12,23 +12,32 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Database } from 'lucide-react';
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [form, setForm] = useState({
+    username: '',
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+  });
   const [loading, setLoading] = useState(false);
+
+  function update(field: string, value: string) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const tokens = await api.auth.login(username, password);
+      const tokens = await api.auth.signup(form);
       setTokens(tokens);
-      toast.success('Welcome back');
+      toast.success('Account created');
       router.push('/dashboard');
     } catch (err: any) {
-      toast.error(err.message || 'Login failed');
+      toast.error(err.message || 'Signup failed');
     } finally {
       setLoading(false);
     }
@@ -43,20 +52,53 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Kolaybase</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to the control plane
+            Create your account
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="firstName">First Name</Label>
+              <Input
+                id="firstName"
+                value={form.firstName}
+                onChange={(e) => update('firstName', e.target.value)}
+                placeholder="John"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Last Name</Label>
+              <Input
+                id="lastName"
+                value={form.lastName}
+                onChange={(e) => update('lastName', e.target.value)}
+                placeholder="Doe"
+              />
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>
             <Input
               id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
+              value={form.username}
+              onChange={(e) => update('username', e.target.value)}
+              placeholder="johndoe"
               required
               autoFocus
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={form.email}
+              onChange={(e) => update('email', e.target.value)}
+              placeholder="john@example.com"
+              required
             />
           </div>
 
@@ -64,22 +106,23 @@ export default function LoginPage() {
             <Label htmlFor="password">Password</Label>
             <PasswordInput
               id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
+              value={form.password}
+              onChange={(e) => update('password', e.target.value)}
+              placeholder="Min 6 characters"
               required
+              minLength={6}
             />
           </div>
 
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Creating account...' : 'Sign up'}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{' '}
-          <Link href="/signup" className="font-medium text-primary hover:underline">
-            Sign up
+          Already have an account?{' '}
+          <Link href="/login" className="font-medium text-primary hover:underline">
+            Sign in
           </Link>
         </p>
       </div>

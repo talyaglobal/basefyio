@@ -4,20 +4,23 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { ProjectListItem } from '@/lib/types';
+import { useActiveTeam } from './layout';
 import { ProjectList } from '@/components/project-list';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { Button } from '@/components/ui/button';
 import { Plus, RefreshCw } from 'lucide-react';
 
 export default function DashboardPage() {
+  const { activeTeamId } = useActiveTeam();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   async function loadProjects() {
+    if (!activeTeamId) return;
     setLoading(true);
     try {
-      const data = await api.projects.list();
+      const data = await api.projects.list(activeTeamId);
       setProjects(data);
     } catch (err: any) {
       toast.error(err.message);
@@ -28,7 +31,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [activeTeamId]);
 
   function handleCreated() {
     setDialogOpen(false);
@@ -57,11 +60,14 @@ export default function DashboardPage() {
 
       <ProjectList projects={projects} loading={loading} onRefresh={loadProjects} />
 
-      <CreateProjectDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCreated={handleCreated}
-      />
+      {activeTeamId && (
+        <CreateProjectDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onCreated={handleCreated}
+          teamId={activeTeamId}
+        />
+      )}
     </div>
   );
 }

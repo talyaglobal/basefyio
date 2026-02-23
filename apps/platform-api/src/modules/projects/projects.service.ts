@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,7 +22,9 @@ export class ProjectsService {
     private readonly config: ConfigService,
   ) {}
 
-  async create(dto: CreateProjectDto, ownerId: string) {
+  async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
+    await this.assertTeamMember(dto.teamId, userId);
+
     const slug = this.toSlug(dto.name);
     const dbName = `kb_${slug}`;
     const dbUser = `kb_user_${slug}`;
@@ -63,30 +66,19 @@ export class ProjectsService {
         keycloakRealm: realmName,
         anonKey,
         serviceKey,
-        ownerId,
+        teamId: dto.teamId,
       },
     });
 
     this.logger.log(`Project "${project.name}" created (${project.id})`);
-
-    return {
-      id: project.id,
-      name: project.name,
-      slug: project.slug,
-      description: project.description,
-      dbName: project.dbName,
-      dbUser: project.dbUser,
-      keycloakRealm: project.keycloakRealm,
-      anonKey: project.anonKey,
-      serviceKey: project.serviceKey,
-      status: project.status,
-      createdAt: project.createdAt,
-    };
+    return project;
   }
 
-  async findAll(ownerId: string) {
+  async findAll(teamId: string, userId: string) {
+    await this.assertTeamMember(teamId, userId);
+
     return this.prisma.project.findMany({
-      where: { ownerId, status: { not: 'DELETED' } },
+      where: { teamId, status: { not: 'DELETED' } },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -100,20 +92,26 @@ export class ProjectsService {
     });
   }
 
-  async findOne(id: string, ownerId: string) {
+  async findOne(id: string, userId: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id, ownerId, status: { not: 'DELETED' } },
+      where: { id, status: { not: 'DELETED' } },
     });
 
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
+    if (!project) throw new NotFoundException('Project not found');
 
+    await this.assertTeamMember(project.teamId, userId);
     return project;
   }
 
-  async remove(id: string, ownerId: string) {
-    const project = await this.findOne(id, ownerId);
+  async remove(id: string, userId: string) {
+    const project = await this.findOne(id, userId);
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership || membership.role !== 'OWNER') {
+      throw new ForbiddenException('Only the team owner can delete projects');
+    }
 
     try {
       await this.keycloak.deleteRealm(project.keycloakRealm);
@@ -131,6 +129,14 @@ export class ProjectsService {
 
     this.logger.log(`Project "${project.name}" deleted`);
     return { message: 'Project deleted' };
+  }
+
+  private async assertTeamMember(teamId: string, userId: string) {
+    if (!teamId) throw new ForbiddenException('No team specified');
+    const m = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!m) throw new ForbiddenException('Not a member of this team');
   }
 
   private async createDatabase(dbName: string) {
@@ -197,7 +203,6 @@ export class ProjectsService {
     const pool = this.getAdminPool();
     const client = await pool.connect();
     const sanitized = username.replace(/[^a-z0-9_]/g, '');
-
     try {
       await client.query(`DROP USER IF EXISTS "${sanitized}"`);
       this.logger.log(`User "${sanitized}" dropped`);

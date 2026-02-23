@@ -19,12 +19,14 @@ interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  teamId: string;
 }
 
 export function CreateProjectDialog({
   open,
   onOpenChange,
   onCreated,
+  teamId,
 }: CreateProjectDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -38,6 +40,7 @@ export function CreateProjectDialog({
       const project = await api.projects.create({
         name,
         description: description || undefined,
+        teamId,
       });
       toast.success(`Project "${project.name}" created`);
       setName('');

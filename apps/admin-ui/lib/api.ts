@@ -3,6 +3,7 @@ import type {
   AuthTokens,
   ColumnInfo,
   ConnectionStrings,
+  PendingInvite,
   Project,
   ProjectListItem,
   RealmInfo,
@@ -10,6 +11,9 @@ import type {
   SqlResult,
   TableInfo,
   TableRows,
+  Team,
+  TeamInvite,
+  TeamMember,
   UserInfo,
 } from './types';
 
@@ -46,6 +50,12 @@ async function request<T>(
 
 export const api = {
   auth: {
+    signup(data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) {
+      return request<AuthTokens>('/auth/signup', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
     login(username: string, password: string) {
       return request<AuthTokens>('/auth/login', {
         method: 'POST',
@@ -57,14 +67,70 @@ export const api = {
     },
   },
 
-  projects: {
+  teams: {
     list() {
-      return request<ProjectListItem[]>('/projects');
+      return request<Team[]>('/teams');
+    },
+    create(name: string) {
+      return request<Team>('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+    },
+    getActive() {
+      return request<{ teamId: string }>('/teams/active');
+    },
+    setActive(teamId: string) {
+      return request<{ teamId: string }>('/teams/active', {
+        method: 'PUT',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    listMembers(teamId: string) {
+      return request<TeamMember[]>(`/teams/${teamId}/members`);
+    },
+    removeMember(teamId: string, userId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/members/${userId}`, {
+        method: 'DELETE',
+      });
+    },
+    sendInvite(teamId: string, usernameOrEmail: string) {
+      return request<{ message: string }>(`/teams/${teamId}/invites`, {
+        method: 'POST',
+        body: JSON.stringify({ usernameOrEmail }),
+      });
+    },
+    listTeamInvites(teamId: string) {
+      return request<PendingInvite[]>(`/teams/${teamId}/invites`);
+    },
+    cancelInvite(teamId: string, inviteId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/invites/${inviteId}`, {
+        method: 'DELETE',
+      });
+    },
+    myInvites() {
+      return request<TeamInvite[]>('/teams/invites');
+    },
+    acceptInvite(inviteId: string) {
+      return request<{ message: string }>(`/teams/invites/${inviteId}/accept`, {
+        method: 'POST',
+      });
+    },
+    declineInvite(inviteId: string) {
+      return request<{ message: string }>(`/teams/invites/${inviteId}/decline`, {
+        method: 'POST',
+      });
+    },
+  },
+
+  projects: {
+    list(teamId: string) {
+      return request<ProjectListItem[]>(`/projects?teamId=${teamId}`);
     },
     get(id: string) {
       return request<Project>(`/projects/${id}`);
     },
-    create(data: { name: string; description?: string }) {
+    create(data: { name: string; description?: string; teamId: string }) {
       return request<Project>('/projects', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -85,7 +151,6 @@ export const api = {
     rows(projectId: string, tableName: string, page = 1, limit = 50) {
       return request<TableRows>(`/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}`);
     },
-
     createTable(projectId: string, data: {
       name: string;
       columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[];
@@ -118,11 +183,9 @@ export const api = {
         body: JSON.stringify({ pkWhere }),
       });
     },
-
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
     },
-
     realmInfo(projectId: string) {
       return request<RealmInfo>(`/projects/${projectId}/auth`);
     },

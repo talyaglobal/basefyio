@@ -24,6 +24,38 @@ export interface ProjectListItem {
   updatedAt: string;
 }
 
+export interface Team {
+  id: string;
+  name: string;
+  slug: string;
+  isPersonal: boolean;
+  role: 'OWNER' | 'MEMBER';
+  memberCount: number;
+  projectCount: number;
+}
+
+export interface TeamMember {
+  id: string;
+  username: string;
+  email: string;
+  role: 'OWNER' | 'MEMBER';
+  joinedAt: string;
+}
+
+export interface TeamInvite {
+  id: string;
+  teamId: string;
+  teamName: string;
+  teamSlug: string;
+  invitedBy: string;
+  createdAt: string;
+}
+
+export interface PendingInvite {
+  id: string;
+  invitedUser: { id: string; username: string; email: string };
+}
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
