@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  # ── Infrastructure ───────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      POSTGRES_DB: kolaybase
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kolaybase}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-kolaybase}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    command: start-dev
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kolaybase}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-kolaybase_secret}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+
+  # ── Applications ─────────────────────────────────────────
+
+  platform-api:
+    build:
+      context: ./apps/platform-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kolaybase}:${POSTGRES_PASSWORD:-kolaybase_secret}@postgres:5432/kolaybase
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      POSTGRES_DB: kolaybase
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "${PLATFORM_API_PORT:-4000}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  admin-ui:
+    build:
+      context: ./apps/admin-ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://platform-api:4000
+    ports:
+      - "${ADMIN_UI_PORT:-3000}:3000"
+    depends_on:
+      - platform-api
+
+volumes:
+  postgres_data:
+  minio_data:

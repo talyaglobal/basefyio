@@ -1,0 +1,55 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+model Project {
+  id            String        @id @default(uuid())
+  name          String
+  slug          String        @unique
+  description   String?
+  dbName        String        @map("db_name")
+  dbHost        String        @default("localhost") @map("db_host")
+  dbPort        Int           @default(5432) @map("db_port")
+  dbUser        String        @map("db_user")
+  dbPassword    String        @map("db_password")
+  keycloakRealm String        @map("keycloak_realm")
+  anonKey       String        @map("anon_key")
+  serviceKey    String        @map("service_key")
+  ownerId       String        @map("owner_id")
+  status        ProjectStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  sqlAuditLogs SqlAuditLog[]
+
+  @@map("projects")
+}
+
+model SqlAuditLog {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  query     String
+  rowCount  Int?     @map("row_count")
+  duration  Int?
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("sql_audit_logs")
+}

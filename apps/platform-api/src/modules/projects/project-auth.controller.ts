@@ -1,0 +1,63 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
+import { ProjectsService } from './projects.service';
+import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import {
+  CurrentUser,
+  JwtPayload,
+} from '../../common/decorators/current-user.decorator';
+
+@Controller('projects/:projectId/auth')
+@UseGuards(JwtAuthGuard)
+export class ProjectAuthController {
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly keycloak: KeycloakAdminService,
+  ) {}
+
+  @Get()
+  async getRealmInfo(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user.sub);
+    return this.keycloak.getRealmInfo(project.keycloakRealm);
+  }
+
+  @Get('users')
+  async listUsers(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user.sub);
+    return this.keycloak.listUsers(project.keycloakRealm);
+  }
+
+  @Post('users')
+  async createUser(
+    @Param('projectId') projectId: string,
+    @Body() body: { username: string; email: string; password: string; firstName?: string; lastName?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user.sub);
+    return this.keycloak.createUser(project.keycloakRealm, body);
+  }
+
+  @Delete('users/:userId')
+  async deleteUser(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user.sub);
+    return this.keycloak.deleteUser(project.keycloakRealm, userId);
+  }
+}
