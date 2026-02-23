@@ -1,0 +1,50 @@
+{
+  "name": "kolaybase-js",
+  "version": "0.1.0",
+  "description": "Kolaybase JavaScript/TypeScript SDK — database, auth & storage client",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "rimraf": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kolaybase/kolaybase",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/kolaybase/kolaybase/tree/main/packages/sdk",
+  "bugs": {
+    "url": "https://github.com/kolaybase/kolaybase/issues"
+  },
+  "keywords": [
+    "kolaybase",
+    "baas",
+    "database",
+    "storage",
+    "auth",
+    "sdk",
+    "supabase-alternative",
+    "backend-as-a-service"
+  ],
+  "license": "MIT"
+}
