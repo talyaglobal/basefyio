@@ -137,3 +137,20 @@ export interface ConnectionStrings {
   anonKey: string;
   serviceKey: string;
 }
+
+export interface StorageBucket {
+  id: string;
+  name: string;
+  public: boolean;
+  createdAt: string;
+  objectCount: number;
+  totalSize: number;
+}
+
+export interface StorageObject {
+  name: string;
+  prefix?: string;
+  size: number;
+  lastModified: string;
+  etag?: string;
+}

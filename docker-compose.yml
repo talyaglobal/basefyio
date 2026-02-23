@@ -72,6 +72,13 @@ services:
       KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-kolaybase}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-kolaybase_secret}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost}
+      MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-9000}
       CORS_ORIGIN: http://localhost:3000
     ports:
       - "${PLATFORM_API_PORT:-4000}:4000"
@@ -79,6 +86,8 @@ services:
       postgres:
         condition: service_healthy
       keycloak:
+        condition: service_started
+      minio:
         condition: service_started
 
   admin-ui:

@@ -5,6 +5,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
+import { StorageModule } from './modules/storage/storage.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -18,6 +19,7 @@ import configuration from './config/configuration';
     TeamsModule,
     ProjectsModule,
     SqlModule,
+    StorageModule,
   ],
 })
 export class AppModule {}

@@ -15,21 +15,46 @@ async function proxy(
   headers.delete('host');
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
+  const contentType = request.headers.get('content-type') || '';
+  const isMultipart = contentType.includes('multipart/form-data');
 
   try {
+    let body: BodyInit | null = null;
+    if (hasBody) {
+      if (isMultipart) {
+        body = await request.arrayBuffer();
+      } else {
+        body = await request.text();
+      }
+    }
+
     const upstream = await fetch(target, {
       method: request.method,
       headers,
-      body: hasBody ? await request.text() : null,
+      body,
     });
 
-    const body = await upstream.text();
+    const upstreamCt = upstream.headers.get('content-type') || '';
 
-    return new NextResponse(body, {
+    if (upstreamCt.includes('application/octet-stream') || upstreamCt.includes('image/')) {
+      const blob = await upstream.arrayBuffer();
+      return new NextResponse(blob, {
+        status: upstream.status,
+        headers: {
+          'content-type': upstreamCt,
+          ...(upstream.headers.get('content-disposition')
+            ? { 'content-disposition': upstream.headers.get('content-disposition')! }
+            : {}),
+        },
+      });
+    }
+
+    const responseBody = await upstream.text();
+
+    return new NextResponse(responseBody, {
       status: upstream.status,
       headers: {
-        'content-type':
-          upstream.headers.get('content-type') || 'application/json',
+        'content-type': upstreamCt || 'application/json',
       },
     });
   } catch (err: any) {

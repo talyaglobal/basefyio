@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
   Database,
+  FolderOpen,
   Key,
   Link2,
   Shield,
@@ -22,6 +23,7 @@ const navItems = [
   { label: 'Overview', href: '', icon: Database },
   { label: 'Table Viewer', href: '/tables', icon: Table2 },
   { label: 'SQL Editor', href: '/sql', icon: Terminal },
+  { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
   { label: 'Connection', href: '/connect', icon: Link2 },
 ];

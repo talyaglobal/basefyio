@@ -41,6 +41,30 @@ Each project gets its own PostgreSQL database and Keycloak authentication realm.
 - Node.js 20+
 - npm or pnpm
 
+### Option 1: Using CLI (Recommended)
+
+```bash
+# Install CLI
+npm install -g @kolaybase/cli
+
+# Clone repository
+git clone <repo-url> kolaybase && cd kolaybase
+
+# Start everything with one command
+kb start
+```
+
+The CLI will:
+- Start Docker services (PostgreSQL, Keycloak, MinIO)
+- Install dependencies
+- Run migrations
+- Start Platform API (http://localhost:4000)
+- Start Admin UI (http://localhost:3000)
+
+Login at `http://localhost:3000/login` with credentials: `admin` / `admin`
+
+### Option 2: Manual Setup
+
 ### 1. Clone & configure
 
 ```bash
@@ -83,6 +107,30 @@ The UI runs on `http://localhost:3000`.
 
 Sign in at `http://localhost:3000/login` with your Keycloak master-realm admin credentials (default: `admin` / `admin`).
 
+## Kolaybase CLI
+
+We provide a powerful CLI tool (similar to Supabase CLI) for managing your Kolaybase projects:
+
+```bash
+# Install CLI globally
+npm install -g @kolaybase/cli
+
+# Quick start
+kb login
+kb init
+kb start
+```
+
+**Key features:**
+- 🚀 Project initialization and management
+- 🐳 Local development environment (Docker)
+- 🗄️ Database operations (push, pull, reset, seed)
+- 🔧 Code generation (TypeScript types, API clients)
+- 📊 Logs and monitoring
+- 🔑 Secrets management
+
+See [CLI documentation](./packages/cli/README.md) for details.
+
 ## Project Structure
 
 ```
@@ -111,6 +159,12 @@ kolaybase/
 │       ├── components/
 │       │   └── ui/            # shadcn/ui primitives
 │       └── lib/               # API client, auth, types
+├── packages/
+│   └── cli/                   # Kolaybase CLI
+│       ├── src/
+│       │   ├── commands/      # All CLI commands
+│       │   └── lib/           # Utilities and API client
+│       └── README.md
 └── README.md
 ```
 

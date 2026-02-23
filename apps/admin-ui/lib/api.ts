@@ -9,6 +9,8 @@ import type {
   RealmInfo,
   RealmUser,
   SqlResult,
+  StorageBucket,
+  StorageObject,
   TableInfo,
   TableRows,
   Team,
@@ -210,6 +212,65 @@ export const api = {
       return request<SqlResult>('/sql/execute', {
         method: 'POST',
         body: JSON.stringify({ projectId, query }),
+      });
+    },
+  },
+
+  storage: {
+    listBuckets(projectId: string) {
+      return request<StorageBucket[]>(`/projects/${projectId}/storage/buckets`);
+    },
+    createBucket(projectId: string, name: string, isPublic = false) {
+      return request<StorageBucket>(`/projects/${projectId}/storage/buckets`, {
+        method: 'POST',
+        body: JSON.stringify({ name, public: isPublic }),
+      });
+    },
+    deleteBucket(projectId: string, bucketName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}`, {
+        method: 'DELETE',
+      });
+    },
+    updateBucket(projectId: string, bucketName: string, isPublic: boolean) {
+      return request<{ public: boolean }>(`/projects/${projectId}/storage/buckets/${bucketName}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ public: isPublic }),
+      });
+    },
+    listObjects(projectId: string, bucketName: string, prefix = '') {
+      const p = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
+      return request<StorageObject[]>(`/projects/${projectId}/storage/buckets/${bucketName}/objects${p}`);
+    },
+    async upload(projectId: string, bucketName: string, path: string, file: File) {
+      const token = getAccessToken();
+      const form = new FormData();
+      form.append('file', file);
+
+      const res = await fetch(
+        `/api/proxy/projects/${projectId}/storage/buckets/${bucketName}/objects?path=${encodeURIComponent(path)}`,
+        {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: form,
+        },
+      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Upload failed: ${res.status}`);
+      }
+
+      return res.json();
+    },
+    downloadUrl(projectId: string, bucketName: string, path: string) {
+      return request<{ url: string; expiresIn: number }>(
+        `/projects/${projectId}/storage/buckets/${bucketName}/objects/url?path=${encodeURIComponent(path)}`,
+      );
+    },
+    deleteObjects(projectId: string, bucketName: string, paths: string[]) {
+      return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}/objects`, {
+        method: 'DELETE',
+        body: JSON.stringify({ paths }),
       });
     },
   },
