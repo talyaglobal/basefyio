@@ -78,8 +78,10 @@ export function clearUserConfig(): void {
   userConfig.clear();
 }
 
+export const DEFAULT_API_URL = 'https://api.kolaybase.com';
+
 export function getApiUrl(): string {
-  return userConfig.get('apiUrl') || 'http://localhost:4000';
+  return userConfig.get('apiUrl') || DEFAULT_API_URL;
 }
 
 export function getAccessToken(): string | undefined {

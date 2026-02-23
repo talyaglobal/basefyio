@@ -1,7 +1,9 @@
 // ── Client options ──────────────────────────────────────
 
+export const KOLAYBASE_DEFAULT_API_URL = 'https://api.kolaybase.com';
+
 export interface KolaybaseClientOptions {
-  apiUrl: string;
+  apiUrl?: string;
   projectId: string;
   autoRefreshToken?: boolean;
   headers?: Record<string, string>;

@@ -35,6 +35,7 @@ export class StorageService {
   private client: Minio.Client;
   private publicEndpoint: string;
   private publicPort: number;
+  private publicSsl: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,6 +51,7 @@ export class StorageService {
 
     this.publicEndpoint = this.config.get<string>('minio.publicEndpoint') || 'localhost';
     this.publicPort = this.config.get<number>('minio.publicPort') || 9000;
+    this.publicSsl = this.config.get<string>('minio.publicSsl') === 'true';
   }
 
   private minioBucketName(projectSlug: string, bucketName: string): string {
@@ -301,8 +303,9 @@ export class StorageService {
     const internalUrl = await this.client.presignedGetObject(minioBucket, objectName, expiry);
 
     const parsed = new URL(internalUrl);
+    parsed.protocol = this.publicSsl ? 'https:' : 'http:';
     parsed.hostname = this.publicEndpoint;
-    parsed.port = String(this.publicPort);
+    parsed.port = this.publicSsl && this.publicPort === 443 ? '' : String(this.publicPort);
 
     return { url: parsed.toString(), expiresIn: expiry };
   }

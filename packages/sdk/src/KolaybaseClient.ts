@@ -1,5 +1,6 @@
 import { KolaybaseFetchClient } from './lib/fetch.js';
 import type { KolaybaseClientOptions, KolaybaseResponse } from './lib/types.js';
+import { KOLAYBASE_DEFAULT_API_URL } from './lib/types.js';
 import { AuthClient } from './modules/auth.js';
 import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
@@ -13,7 +14,7 @@ export class KolaybaseClient {
   private projectId: string;
 
   constructor(options: KolaybaseClientOptions) {
-    const apiUrl = options.apiUrl.replace(/\/+$/, '');
+    const apiUrl = (options.apiUrl || KOLAYBASE_DEFAULT_API_URL).replace(/\/+$/, '');
     const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
 
     this.projectId = options.projectId;
@@ -69,15 +70,15 @@ export class KolaybaseClient {
  *
  * @example
  * ```ts
- * import { createClient } from '@kolaybase/sdk'
+ * import { createClient } from 'kolaybase-js'
  *
- * const kb = createClient({
- *   apiUrl: 'http://localhost:4000',
- *   projectId: 'your-project-id',
- * })
+ * // Uses https://api.kolaybase.com by default
+ * const kb = createClient({ projectId: 'your-project-id' })
+ *
+ * // Or self-hosted
+ * const kb = createClient({ apiUrl: 'https://api.myserver.com', projectId: '...' })
  *
  * await kb.auth.signIn({ username: 'admin', password: 'pass' })
- *
  * const { data } = await kb.from('users').select('*')
  * ```
  */
