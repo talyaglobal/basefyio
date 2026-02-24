@@ -18,7 +18,7 @@ program
 program
   .command('login')
   .description('Authenticate with the Kolaybase platform')
-  .option('--api-url <url>', 'Platform API URL (default: http://localhost:4000)')
+  .option('--api-url <url>', 'Platform API URL (default: https://api.kolaybase.com)')
   .action(loginCommand);
 
 // ── Project lifecycle ───────────────────────────────────────

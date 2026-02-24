@@ -78,35 +78,41 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             <span>{result.duration}ms</span>
           </div>
 
-          <div className="overflow-auto rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  {result.fields?.map((field) => (
-                    <th
-                      key={field.name}
-                      className="px-4 py-2 text-left font-medium"
-                    >
-                      {field.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((row, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    {result.fields?.map((field) => (
-                      <td key={field.name} className="px-4 py-2 font-mono">
-                        {row[field.name] === null
-                          ? 'NULL'
-                          : String(row[field.name])}
-                      </td>
+          {result.fields?.length ? (
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    {result.fields.map((field) => (
+                      <th
+                        key={field.name}
+                        className="px-4 py-2 text-left font-medium"
+                      >
+                        {field.name}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {(result.rows ?? []).map((row, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      {result.fields!.map((field) => (
+                        <td key={field.name} className="px-4 py-2 font-mono">
+                          {row[field.name] === null
+                            ? 'NULL'
+                            : String(row[field.name])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
+              Query executed successfully.
+            </div>
+          )}
         </div>
       )}
     </div>
