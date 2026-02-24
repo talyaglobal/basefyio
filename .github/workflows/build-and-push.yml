@@ -84,6 +84,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
           script: |
+            mkdir -p ${{ secrets.DEPLOY_PATH }}
             cd ${{ secrets.DEPLOY_PATH }}
-            docker compose -f docker-compose.prod.yml pull platform-api admin-ui
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
+            docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans

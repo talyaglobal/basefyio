@@ -1,6 +1,6 @@
 {
   "name": "kolaybase-js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Kolaybase JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",
   "main": "./dist/index.cjs",
