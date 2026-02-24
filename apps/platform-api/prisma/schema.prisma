@@ -133,3 +133,32 @@ model SqlAuditLog {
   @@index([userId])
   @@map("sql_audit_logs")
 }
+
+enum FeedbackType {
+  BUG
+  FEATURE
+  GENERAL
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CLOSED
+}
+
+model Feedback {
+  id          String         @id @default(uuid())
+  userId      String         @map("user_id")
+  username    String
+  email       String
+  url         String
+  title       String
+  description String?
+  type        FeedbackType   @default(GENERAL)
+  status      FeedbackStatus @default(OPEN)
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("feedbacks")
+}

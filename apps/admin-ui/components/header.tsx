@@ -14,10 +14,12 @@ import {
   ChevronDown,
   Database,
   LogOut,
+  MessageSquarePlus,
   Settings,
   User,
   Users,
 } from 'lucide-react';
+import { FeedbackModal } from '@/components/feedback-modal';
 
 interface HeaderProps {
   user: UserInfo;
@@ -30,6 +32,7 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [inviteCount, setInviteCount] = useState(0);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
@@ -124,6 +127,16 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
             </>
           )}
         </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+          onClick={() => setFeedbackOpen(true)}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Feedback</span>
+        </Button>
       </div>
 
       <div className="flex items-center gap-3">
@@ -152,6 +165,8 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
+
+      <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </header>
   );
 }

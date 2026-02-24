@@ -4,6 +4,7 @@ import { Resend } from 'resend';
 import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
 import { inviteTemplate } from './templates/invite.template';
+import { feedbackTemplate } from './templates/feedback.template';
 
 @Injectable()
 export class EmailService {
@@ -80,6 +81,26 @@ export class EmailService {
     return this.send({
       to,
       subject: `${inviterUsername} invited you to join ${teamName} on Kolaybase`,
+      html,
+    });
+  }
+
+  async sendFeedbackNotification(
+    to: string,
+    data: {
+      username: string;
+      email: string;
+      url: string;
+      title: string;
+      description?: string;
+      type: string;
+      createdAt: string;
+    },
+  ) {
+    const html = feedbackTemplate(data);
+    return this.send({
+      to,
+      subject: `[Feedback] ${data.title} — by ${data.username}`,
       html,
     });
   }

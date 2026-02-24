@@ -239,6 +239,35 @@ export const api = {
     },
   },
 
+  feedback: {
+    create(data: { url: string; title: string; description?: string; type?: string }) {
+      return request<{ id: string }>('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    list() {
+      return request<{
+        id: string;
+        userId: string;
+        username: string;
+        email: string;
+        url: string;
+        title: string;
+        description: string | null;
+        type: string;
+        status: string;
+        createdAt: string;
+      }[]>('/feedback');
+    },
+    updateStatus(id: string, status: string) {
+      return request<{ id: string; status: string }>(`/feedback/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+    },
+  },
+
   storage: {
     listBuckets(projectId: string) {
       return request<StorageBucket[]>(`/projects/${projectId}/storage/buckets`);

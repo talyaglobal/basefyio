@@ -7,6 +7,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -22,6 +23,7 @@ import configuration from './config/configuration';
     ProjectsModule,
     SqlModule,
     StorageModule,
+    FeedbackModule,
   ],
 })
 export class AppModule {}
