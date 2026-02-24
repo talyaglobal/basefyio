@@ -31,10 +31,24 @@ npm install kolaybase-js
 
 ### Setup
 
+After `kb link` or `kb init`, your `.env` will contain:
+
+```
+KOLAYBASE_PROJECT_ID=...
+KOLAYBASE_ANON_KEY=...
+KOLAYBASE_SERVICE_KEY=...
+KOLAYBASE_API_URL=https://api.kolaybase.com
+```
+
+The SDK reads these automatically:
+
 ```js
 import { createClient } from 'kolaybase-js'
 
-const kb = createClient({ projectId: 'your-project-id' })
+const kb = createClient()   // reads from .env
+
+// or pass explicitly
+const kb2 = createClient({ projectId: '...', apiKey: '...' })
 ```
 
 ### Auth

@@ -1,9 +1,10 @@
 import { createClient } from './dist/index.js';
 
-const API_URL = 'http://localhost:4000';
-const PROJECT_ID = '5c136820-8052-4737-8c2f-82164c1de90b';
-
-const kb = createClient({ apiUrl: API_URL, projectId: PROJECT_ID });
+const kb = createClient({
+  apiUrl: process.env.KOLAYBASE_API_URL || 'http://localhost:4000',
+  projectId: process.env.KOLAYBASE_PROJECT_ID || '5c136820-8052-4737-8c2f-82164c1de90b',
+  apiKey: process.env.KOLAYBASE_ANON_KEY || 'your-anon-key',
+});
 
 async function run() {
   console.log('═══════════════════════════════════════');

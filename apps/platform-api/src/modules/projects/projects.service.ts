@@ -92,14 +92,16 @@ export class ProjectsService {
     });
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id, status: { not: 'DELETED' } },
     });
 
     if (!project) throw new NotFoundException('Project not found');
 
-    await this.assertTeamMember(project.teamId, userId);
+    if (userId) {
+      await this.assertTeamMember(project.teamId, userId);
+    }
     return project;
   }
 

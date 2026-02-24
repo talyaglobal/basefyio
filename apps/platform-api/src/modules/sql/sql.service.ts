@@ -28,7 +28,7 @@ export class SqlService {
     private readonly config: ConfigService,
   ) {}
 
-  async execute(projectId: string, query: string, userId: string) {
+  async execute(projectId: string, query: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
     });
@@ -37,11 +37,13 @@ export class SqlService {
       throw new NotFoundException('Project not found');
     }
 
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership) {
-      throw new NotFoundException('Project not found');
+    if (userId) {
+      const membership = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: project.teamId, userId } },
+      });
+      if (!membership) {
+        throw new NotFoundException('Project not found');
+      }
     }
 
     this.validateQuery(query);
@@ -65,7 +67,7 @@ export class SqlService {
       await this.prisma.sqlAuditLog.create({
         data: {
           projectId,
-          userId,
+          userId: userId || 'sdk',
           query,
           rowCount: result.rowCount,
           duration,
@@ -87,7 +89,7 @@ export class SqlService {
       await this.prisma.sqlAuditLog.create({
         data: {
           projectId,
-          userId,
+          userId: userId || 'sdk',
           query,
           error: err.message,
           duration,

@@ -10,19 +10,23 @@ export class KolaybaseFetchClient {
   private baseUrl: string;
   private globalHeaders: Record<string, string>;
   private tokenAccessor: () => string | null;
+  private apiKey: string;
 
   constructor(
     baseUrl: string,
+    apiKey: string,
     globalHeaders: Record<string, string>,
     tokenAccessor: () => string | null,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.apiKey = apiKey;
     this.globalHeaders = globalHeaders;
     this.tokenAccessor = tokenAccessor;
   }
 
   private buildHeaders(custom?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
+      apikey: this.apiKey,
       ...this.globalHeaders,
       ...custom,
     };

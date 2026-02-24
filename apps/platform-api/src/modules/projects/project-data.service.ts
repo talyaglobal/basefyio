@@ -28,16 +28,18 @@ export class ProjectDataService {
     private readonly config: ConfigService,
   ) {}
 
-  private async getProjectPool(projectId: string, userId: string): Promise<{ pool: Pool; project: any }> {
+  private async getProjectPool(projectId: string, userId?: string): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership) throw new NotFoundException('Project not found');
+    if (userId) {
+      const membership = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: project.teamId, userId } },
+      });
+      if (!membership) throw new NotFoundException('Project not found');
+    }
 
     const pool = new Pool({
       host: project.dbHost,
@@ -51,7 +53,7 @@ export class ProjectDataService {
     return { pool, project };
   }
 
-  async listTables(projectId: string, ownerId: string): Promise<TableInfo[]> {
+  async listTables(projectId: string, ownerId?: string): Promise<TableInfo[]> {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
@@ -74,7 +76,7 @@ export class ProjectDataService {
     }
   }
 
-  async getColumns(projectId: string, ownerId: string, tableName: string): Promise<ColumnInfo[]> {
+  async getColumns(projectId: string, ownerId: string | undefined, tableName: string): Promise<ColumnInfo[]> {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
@@ -111,7 +113,7 @@ export class ProjectDataService {
 
   async getRows(
     projectId: string,
-    ownerId: string,
+    ownerId: string | undefined,
     tableName: string,
     page = 1,
     limit = 50,
@@ -154,7 +156,7 @@ export class ProjectDataService {
 
   async createTable(
     projectId: string,
-    ownerId: string,
+    ownerId: string | undefined,
     tableName: string,
     columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[],
   ) {
@@ -221,7 +223,7 @@ export class ProjectDataService {
     }
   }
 
-  async dropTable(projectId: string, ownerId: string, tableName: string) {
+  async dropTable(projectId: string, ownerId: string | undefined, tableName: string) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
       throw new BadRequestException('Invalid table name');
     }
@@ -240,7 +242,7 @@ export class ProjectDataService {
 
   async insertRow(
     projectId: string,
-    ownerId: string,
+    ownerId: string | undefined,
     tableName: string,
     data: Record<string, unknown>,
   ) {
@@ -271,7 +273,7 @@ export class ProjectDataService {
 
   async updateRow(
     projectId: string,
-    ownerId: string,
+    ownerId: string | undefined,
     tableName: string,
     pkWhere: Record<string, unknown>,
     data: Record<string, unknown>,
@@ -317,7 +319,7 @@ export class ProjectDataService {
 
   async deleteRow(
     projectId: string,
-    ownerId: string,
+    ownerId: string | undefined,
     tableName: string,
     pkWhere: Record<string, unknown>,
   ) {

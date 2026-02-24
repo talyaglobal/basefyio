@@ -9,14 +9,14 @@ import {
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 
 @Controller('projects/:projectId/auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrApiKeyGuard)
 export class ProjectAuthController {
   constructor(
     private readonly projectsService: ProjectsService,
@@ -26,18 +26,18 @@ export class ProjectAuthController {
   @Get()
   async getRealmInfo(
     @Param('projectId') projectId: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    const project = await this.projectsService.findOne(projectId, user.sub);
+    const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.keycloak.getRealmInfo(project.keycloakRealm);
   }
 
   @Get('users')
   async listUsers(
     @Param('projectId') projectId: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    const project = await this.projectsService.findOne(projectId, user.sub);
+    const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.keycloak.listUsers(project.keycloakRealm);
   }
 
@@ -45,9 +45,9 @@ export class ProjectAuthController {
   async createUser(
     @Param('projectId') projectId: string,
     @Body() body: { username: string; email: string; password: string; firstName?: string; lastName?: string },
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    const project = await this.projectsService.findOne(projectId, user.sub);
+    const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.keycloak.createUser(project.keycloakRealm, body);
   }
 
@@ -55,9 +55,9 @@ export class ProjectAuthController {
   async deleteUser(
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    const project = await this.projectsService.findOne(projectId, user.sub);
+    const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.keycloak.deleteUser(project.keycloakRealm, userId);
   }
 }

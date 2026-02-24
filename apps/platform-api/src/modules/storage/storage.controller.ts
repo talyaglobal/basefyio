@@ -17,7 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { StorageService } from './storage.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
   JwtPayload,
@@ -26,7 +26,7 @@ import {
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 @Controller('projects/:projectId/storage')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrApiKeyGuard)
 export class StorageController {
   constructor(private readonly storage: StorageService) {}
 
@@ -35,27 +35,27 @@ export class StorageController {
   @Get('buckets')
   async listBuckets(
     @Param('projectId') projectId: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.listBuckets(projectId, user.sub);
+    return this.storage.listBuckets(projectId, user?.sub);
   }
 
   @Post('buckets')
   async createBucket(
     @Param('projectId') projectId: string,
     @Body() body: { name: string; public?: boolean },
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.createBucket(projectId, user.sub, body.name, body.public);
+    return this.storage.createBucket(projectId, user?.sub, body.name, body.public);
   }
 
   @Delete('buckets/:bucketName')
   async deleteBucket(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.deleteBucket(projectId, user.sub, bucketName);
+    return this.storage.deleteBucket(projectId, user?.sub, bucketName);
   }
 
   @Patch('buckets/:bucketName')
@@ -63,9 +63,9 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Body() body: { public: boolean },
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.toggleBucketPublic(projectId, user.sub, bucketName, body.public);
+    return this.storage.toggleBucketPublic(projectId, user?.sub, bucketName, body.public);
   }
 
   // ── Objects ────────────────────────────────────────────
@@ -75,9 +75,9 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Query('prefix') prefix: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.listObjects(projectId, user.sub, bucketName, prefix || '');
+    return this.storage.listObjects(projectId, user?.sub, bucketName, prefix || '');
   }
 
   @Post('buckets/:bucketName/objects')
@@ -93,12 +93,12 @@ export class StorageController {
       }),
     )
     file: Express.Multer.File,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
     const objectPath = filePath || file.originalname;
     return this.storage.uploadObject(
       projectId,
-      user.sub,
+      user?.sub,
       bucketName,
       objectPath,
       file.buffer,
@@ -111,12 +111,12 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Query('path') objectPath: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user: JwtPayload | undefined,
     @Res() res: Response,
   ) {
     const { stream, stat } = await this.storage.getObject(
       projectId,
-      user.sub,
+      user?.sub,
       bucketName,
       objectPath,
     );
@@ -139,11 +139,11 @@ export class StorageController {
     @Param('bucketName') bucketName: string,
     @Query('path') objectPath: string,
     @Query('expiry') expiry: string,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
     return this.storage.getPresignedUrl(
       projectId,
-      user.sub,
+      user?.sub,
       bucketName,
       objectPath,
       expiry ? parseInt(expiry, 10) : 3600,
@@ -155,8 +155,8 @@ export class StorageController {
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
     @Body() body: { paths: string[] },
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.storage.deleteObjects(projectId, user.sub, bucketName, body.paths);
+    return this.storage.deleteObjects(projectId, user?.sub, bucketName, body.paths);
   }
 }

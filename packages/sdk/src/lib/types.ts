@@ -3,8 +3,12 @@
 export const KOLAYBASE_DEFAULT_API_URL = 'https://api.kolaybase.com';
 
 export interface KolaybaseClientOptions {
+  /** Platform API URL. Defaults to KOLAYBASE_API_URL env or https://api.kolaybase.com */
   apiUrl?: string;
-  projectId: string;
+  /** Project ID. Defaults to KOLAYBASE_PROJECT_ID env. */
+  projectId?: string;
+  /** Anon or service key. Defaults to KOLAYBASE_ANON_KEY env. */
+  apiKey?: string;
   autoRefreshToken?: boolean;
   headers?: Record<string, string>;
 }

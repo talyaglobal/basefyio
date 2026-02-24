@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { SqlService } from './sql.service';
 import { ExecuteSqlDto } from './dto/execute-sql.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
   JwtPayload,
@@ -15,7 +15,7 @@ import {
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 
 @Controller('sql')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrApiKeyGuard)
 @UseInterceptors(AuditLogInterceptor)
 export class SqlController {
   constructor(private readonly sqlService: SqlService) {}
@@ -23,8 +23,8 @@ export class SqlController {
   @Post('execute')
   async execute(
     @Body() dto: ExecuteSqlDto,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.sqlService.execute(dto.projectId, dto.query, user.sub);
+    return this.sqlService.execute(dto.projectId, dto.query, user?.sub);
   }
 }

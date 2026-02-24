@@ -58,23 +58,25 @@ export class StorageService {
     return `kb-${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
-  private async assertProjectAccess(projectId: string, userId: string) {
+  private async assertProjectAccess(projectId: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership) throw new ForbiddenException('Not a member of this team');
+    if (userId) {
+      const membership = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: project.teamId, userId } },
+      });
+      if (!membership) throw new ForbiddenException('Not a member of this team');
+    }
 
     return project;
   }
 
   // ── Bucket operations ──────────────────────────────────
 
-  async listBuckets(projectId: string, userId: string): Promise<BucketSummary[]> {
+  async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
     const prefix = `kb-${project.slug}-`;
 
@@ -100,7 +102,7 @@ export class StorageService {
     return results;
   }
 
-  async createBucket(projectId: string, userId: string, name: string, isPublic = false) {
+  async createBucket(projectId: string, userId: string | undefined, name: string, isPublic = false) {
     const project = await this.assertProjectAccess(projectId, userId);
 
     if (!name || !/^[a-z0-9][a-z0-9-]{1,60}[a-z0-9]$/.test(name)) {
@@ -143,7 +145,7 @@ export class StorageService {
     };
   }
 
-  async deleteBucket(projectId: string, userId: string, bucketName: string) {
+  async deleteBucket(projectId: string, userId: string | undefined, bucketName: string) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.slug, bucketName);
 
@@ -161,7 +163,7 @@ export class StorageService {
     return { message: `Bucket "${bucketName}" deleted` };
   }
 
-  async toggleBucketPublic(projectId: string, userId: string, bucketName: string, isPublic: boolean) {
+  async toggleBucketPublic(projectId: string, userId: string | undefined, bucketName: string, isPublic: boolean) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.slug, bucketName);
 
@@ -192,7 +194,7 @@ export class StorageService {
 
   async listObjects(
     projectId: string,
-    userId: string,
+    userId: string | undefined,
     bucketName: string,
     prefix = '',
     recursive = false,
@@ -222,7 +224,7 @@ export class StorageService {
 
   async uploadObject(
     projectId: string,
-    userId: string,
+    userId: string | undefined,
     bucketName: string,
     path: string,
     buffer: Buffer,
@@ -258,7 +260,7 @@ export class StorageService {
 
   async getObject(
     projectId: string,
-    userId: string,
+    userId: string | undefined,
     bucketName: string,
     objectName: string,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
@@ -279,7 +281,7 @@ export class StorageService {
 
   async deleteObjects(
     projectId: string,
-    userId: string,
+    userId: string | undefined,
     bucketName: string,
     objectNames: string[],
   ) {
@@ -293,7 +295,7 @@ export class StorageService {
 
   async getPresignedUrl(
     projectId: string,
-    userId: string,
+    userId: string | undefined,
     bucketName: string,
     objectName: string,
     expiry = 3600,

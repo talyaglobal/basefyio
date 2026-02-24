@@ -5,6 +5,15 @@ import { AuthClient } from './modules/auth.js';
 import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
 
+function getEnv(key: string): string | undefined {
+  try {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
+      return (globalThis as any).process.env[key];
+    }
+  } catch {}
+  return undefined;
+}
+
 export class KolaybaseClient {
   readonly auth: AuthClient;
   readonly storage: StorageClient;
@@ -13,14 +22,24 @@ export class KolaybaseClient {
   private http: KolaybaseFetchClient;
   private projectId: string;
 
-  constructor(options: KolaybaseClientOptions) {
-    const apiUrl = (options.apiUrl || KOLAYBASE_DEFAULT_API_URL).replace(/\/+$/, '');
-    const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
+  constructor(options: KolaybaseClientOptions = {}) {
+    const projectId = options.projectId || getEnv('KOLAYBASE_PROJECT_ID');
+    const apiKey = options.apiKey || getEnv('KOLAYBASE_ANON_KEY');
+    const apiUrl = (options.apiUrl || getEnv('KOLAYBASE_API_URL') || KOLAYBASE_DEFAULT_API_URL).replace(/\/+$/, '');
 
-    this.projectId = options.projectId;
+    if (!projectId) {
+      throw new Error('Missing projectId. Pass it to createClient() or set KOLAYBASE_PROJECT_ID env variable.');
+    }
+    if (!apiKey) {
+      throw new Error('Missing apiKey. Pass it to createClient() or set KOLAYBASE_ANON_KEY env variable.');
+    }
+
+    const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
+    this.projectId = projectId;
 
     this.http = new KolaybaseFetchClient(
       baseUrl,
+      apiKey,
       options.headers ?? {},
       () => this.auth.getAccessToken(),
     );
@@ -72,16 +91,13 @@ export class KolaybaseClient {
  * ```ts
  * import { createClient } from 'kolaybase-js'
  *
- * // Uses https://api.kolaybase.com by default
- * const kb = createClient({ projectId: 'your-project-id' })
+ * // Reads KOLAYBASE_PROJECT_ID and KOLAYBASE_ANON_KEY from .env automatically
+ * const kb = createClient()
  *
- * // Or self-hosted
- * const kb = createClient({ apiUrl: 'https://api.myserver.com', projectId: '...' })
- *
- * await kb.auth.signIn({ username: 'admin', password: 'pass' })
- * const { data } = await kb.from('users').select('*')
+ * // Or pass explicitly
+ * const kb2 = createClient({ projectId: '...', apiKey: '...' })
  * ```
  */
-export function createClient(options: KolaybaseClientOptions): KolaybaseClient {
+export function createClient(options?: KolaybaseClientOptions): KolaybaseClient {
   return new KolaybaseClient(options);
 }
