@@ -1,6 +1,6 @@
 # Kolaybase CLI
 
-The official command-line interface for [Kolaybase](https://github.com/yourusername/kolaybase) - a self-hosted, multi-tenant backend platform.
+The official command-line interface for [Kolaybase](https://github.com/fsipka/kolaybase-new) - a self-hosted, multi-tenant backend platform.
 
 ## Features
 
@@ -24,7 +24,7 @@ npm install -g @kolaybase/cli
 ### Build from source
 
 ```bash
-git clone https://github.com/yourusername/v0-kolaybase.git
+git clone https://github.com/fsipka/kolaybase-new.git
 cd v0-kolaybase/packages/cli
 npm install
 npm run build

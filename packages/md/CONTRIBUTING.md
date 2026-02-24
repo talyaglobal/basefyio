@@ -14,7 +14,7 @@ Thank you for your interest in contributing to Kolaybase CLI!
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/v0-kolaybase.git
+git clone https://github.com/fsipka/kolaybase-new.git
 cd v0-kolaybase/packages/cli
 
 # Install dependencies

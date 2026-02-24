@@ -2,7 +2,7 @@
 
 ## 🎯 What is Kolaybase CLI?
 
-Kolaybase CLI is a command-line interface tool for managing [Kolaybase](https://github.com/yourusername/v0-kolaybase) projects. It provides a developer-friendly way to interact with the Kolaybase platform, similar to how Supabase CLI works for Supabase.
+Kolaybase CLI is a command-line interface tool for managing [Kolaybase](https://github.com/fsipka/kolaybase-new) projects. It provides a developer-friendly way to interact with the Kolaybase platform, similar to how Supabase CLI works for Supabase.
 
 ## 🚀 Key Features
 
@@ -281,8 +281,8 @@ We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for:
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/v0-kolaybase/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/v0-kolaybase/discussions)
+- **Issues**: [GitHub Issues](https://github.com/fsipka/kolaybase-new/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fsipka/kolaybase-new/discussions)
 - **Documentation**: [Full Docs](https://kolaybase.dev/docs)
 - **Email**: support@kolaybase.dev
 
