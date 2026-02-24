@@ -2,7 +2,7 @@ name: Build & Push to GHCR
 
 on:
   push:
-    branches: [production]
+    branches: [fatih]
 
 env:
   REGISTRY: ghcr.io
