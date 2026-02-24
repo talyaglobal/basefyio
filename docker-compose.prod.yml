@@ -173,6 +173,7 @@ services:
     image: ghcr.io/${GHCR_OWNER}/kolaybase-ui:latest
     restart: always
     environment:
+      HOSTNAME: 0.0.0.0
       API_INTERNAL_URL: http://platform-api:4000
       NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
     networks:
