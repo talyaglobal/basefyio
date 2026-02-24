@@ -77,6 +77,18 @@ jobs:
     if: github.ref == 'refs/heads/production'
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy deploy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          source: "docker-compose.prod.yml,scripts/init-db.sql"
+          target: ${{ secrets.DEPLOY_PATH }}
+          overwrite: true
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -84,7 +96,6 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
           script: |
-            mkdir -p ${{ secrets.DEPLOY_PATH }}
             cd ${{ secrets.DEPLOY_PATH }}
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
             docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui
