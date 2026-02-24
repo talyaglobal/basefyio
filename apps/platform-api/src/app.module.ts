@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -15,6 +16,7 @@ import configuration from './config/configuration';
       load: [configuration],
     }),
     PrismaModule,
+    EmailModule,
     AuthModule,
     TeamsModule,
     ProjectsModule,

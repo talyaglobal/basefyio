@@ -9,6 +9,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly http: HttpService,
     private readonly keycloak: KeycloakAdminService,
     private readonly prisma: PrismaService,
+    private readonly email: EmailService,
   ) {}
 
   async signup(data: {
@@ -66,6 +68,8 @@ export class AuthService {
       data: { activeTeamId: team.id },
     });
 
+    this.email.sendWelcome(data.email, data.username).catch(() => {});
+
     return this.login(data.username, data.password);
   }
 
@@ -105,7 +109,11 @@ export class AuthService {
     }
   }
 
-  async login(username: string, password: string) {
+  async login(
+    username: string,
+    password: string,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ) {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const clientId = this.config.get<string>('keycloak.adminClientId');
 
@@ -124,6 +132,16 @@ export class AuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+
+      const user = await this.prisma.user.findFirst({
+        where: { OR: [{ username }, { email: username }] },
+        select: { email: true, username: true },
+      });
+      if (user?.email) {
+        this.email
+          .sendSignInNotification(user.email, user.username, meta)
+          .catch(() => {});
+      }
 
       return {
         accessToken: data.access_token,

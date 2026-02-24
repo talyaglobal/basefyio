@@ -6,12 +6,16 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class TeamsService {
   private readonly logger = new Logger(TeamsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   async createPersonalTeam(userId: string, username: string) {
     const team = await this.prisma.team.create({
@@ -173,6 +177,27 @@ export class TeamsService {
       await this.prisma.teamInvite.create({
         data: { teamId, invitedUserId: targetUser.id, invitedById: ownerUserId },
       });
+    }
+
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { name: true },
+    });
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: ownerUserId },
+      select: { username: true },
+    });
+
+    if (targetUser.email && team && inviter) {
+      this.email
+        .sendTeamInvite(
+          targetUser.email,
+          targetUser.username,
+          inviter.username,
+          team.name,
+        )
+        .catch(() => {});
     }
 
     this.logger.log(`Invite sent to "${targetUser.username}" for team ${teamId}`);

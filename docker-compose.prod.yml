@@ -147,6 +147,10 @@ services:
       MINIO_PUBLIC_ENDPOINT: storage.${DOMAIN}
       MINIO_PUBLIC_PORT: 443
       MINIO_PUBLIC_SSL: "true"
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Kolaybase <noreply@kolaybase.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
+      APP_URL: https://app.${DOMAIN}
       CORS_ORIGIN: https://app.${DOMAIN}
     networks:
       - internal
