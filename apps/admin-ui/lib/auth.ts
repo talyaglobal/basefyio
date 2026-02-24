@@ -10,7 +10,7 @@ export function getAccessToken(): string | undefined {
 
 export function setTokens(tokens: AuthTokens) {
   Cookies.set(TOKEN_KEY, tokens.accessToken, {
-    expires: tokens.expiresIn / 86400,
+    expires: 7,
     sameSite: 'lax',
   });
   Cookies.set(REFRESH_KEY, tokens.refreshToken, {

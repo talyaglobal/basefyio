@@ -1,4 +1,4 @@
-import { getAccessToken, clearTokens } from './auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type {
   AuthTokens,
   ColumnInfo,
@@ -35,6 +35,29 @@ async function request<T>(
   });
 
   if (res.status === 401) {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      try {
+        const refreshRes = await fetch('/api/proxy/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (refreshRes.ok) {
+          const tokens: AuthTokens = await refreshRes.json();
+          setTokens(tokens);
+          const retry = await fetch(`/api/proxy${path}`, {
+            ...options,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${tokens.accessToken}`,
+              ...options.headers,
+            },
+          });
+          if (retry.ok) return retry.json();
+        }
+      } catch {}
+    }
     clearTokens();
     if (typeof window !== 'undefined') {
       window.location.href = '/login';
