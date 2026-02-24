@@ -23,9 +23,9 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "rimraf": "^5.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0",
-    "rimraf": "^5.0.0"
+    "typescript": "^5.3.0"
   },
   "repository": {
     "type": "git",
@@ -46,5 +46,8 @@
     "supabase-alternative",
     "backend-as-a-service"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "kolaybase-cli": "^0.2.0"
+  }
 }

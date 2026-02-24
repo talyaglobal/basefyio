@@ -1,4 +1,7 @@
 import { Command } from 'commander';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 import { loginCommand } from './commands/login.js';
 import { initCommand } from './commands/init.js';
 import { projectsCommand, createProject, deleteProject } from './commands/projects.js';
@@ -6,12 +9,15 @@ import { statusCommand } from './commands/status.js';
 import { linkCommand, unlinkProject } from './commands/link.js';
 import { logsCommand } from './commands/logs.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
+
 const program = new Command();
 
 program
   .name('kb')
   .description('Kolaybase CLI — manage your Kolaybase projects')
-  .version('0.1.0');
+  .version(pkg.version);
 
 // ── Authentication ──────────────────────────────────────────
 
