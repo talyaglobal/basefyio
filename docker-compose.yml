@@ -79,6 +79,10 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-kolaybase_secret}
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost}
       MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-9000}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Kolaybase <noreply@kolaybase.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
+      APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       CORS_ORIGIN: http://localhost:3000
     ports:
       - "${PLATFORM_API_PORT:-4000}:4000"

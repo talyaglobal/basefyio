@@ -1,5 +1,6 @@
 export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
+  appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
 
   database: {
     host: process.env.POSTGRES_HOST || 'localhost',
@@ -26,5 +27,11 @@ export default () => ({
     publicEndpoint: process.env.MINIO_PUBLIC_ENDPOINT || 'localhost',
     publicPort: parseInt(process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000', 10),
     publicSsl: process.env.MINIO_PUBLIC_SSL || 'false',
+  },
+
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'Kolaybase <noreply@kolaybase.com>',
+    replyTo: process.env.RESEND_REPLY_TO || 'support@kolaybase.com',
   },
 });
