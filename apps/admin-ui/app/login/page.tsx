@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { setTokens } from '@/lib/auth';
+import { setTokens, startProactiveRefresh } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -25,6 +25,7 @@ export default function LoginPage() {
     try {
       const tokens = await api.auth.login(username, password);
       setTokens(tokens);
+      startProactiveRefresh();
       toast.success('Welcome back');
       router.push('/dashboard');
     } catch (err: any) {

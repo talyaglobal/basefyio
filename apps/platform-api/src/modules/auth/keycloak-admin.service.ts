@@ -26,6 +26,22 @@ export class KeycloakAdminService implements OnModuleInit {
     });
     await this.authenticate();
     this.logger.log('Keycloak admin client initialized');
+    await this.ensureRealmTokenLifespan();
+  }
+
+  private async ensureRealmTokenLifespan() {
+    try {
+      const realm = await this.client.realms.findOne({ realm: 'master' });
+      if (realm && realm.accessTokenLifespan && realm.accessTokenLifespan < 1800) {
+        await this.client.realms.update(
+          { realm: 'master' },
+          { accessTokenLifespan: 1800 },
+        );
+        this.logger.log('Master realm accessTokenLifespan updated to 1800s (30min)');
+      }
+    } catch (err) {
+      this.logger.warn('Could not update realm token lifespan', err);
+    }
   }
 
   private async authenticate() {
@@ -58,6 +74,8 @@ export class KeycloakAdminService implements OnModuleInit {
       registrationAllowed: true,
       loginWithEmailAllowed: true,
       duplicateEmailsAllowed: false,
+      accessTokenLifespan: 1800,
+      ssoSessionIdleTimeout: 86400,
     });
 
     this.logger.log(`Realm "${realmName}" created`);

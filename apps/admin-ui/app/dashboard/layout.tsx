@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
-import { isAuthenticated, parseJwt, getAccessToken } from '@/lib/auth';
+import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { UserInfo } from '@/lib/types';
 import { Header } from '@/components/header';
@@ -40,6 +40,7 @@ export default function DashboardLayout({
     const token = getAccessToken();
     if (token) {
       setUser(parseJwt(token));
+      startProactiveRefresh();
     }
 
     async function init() {
@@ -67,6 +68,8 @@ export default function DashboardLayout({
     }
 
     init();
+
+    return () => stopProactiveRefresh();
   }, [router]);
 
   const handleTeamChange = useCallback((id: string) => {

@@ -46,3 +46,54 @@ export function parseJwt(token: string): UserInfo | null {
 export function isAuthenticated(): boolean {
   return !!getAccessToken();
 }
+
+export function getTokenExpiry(): number | null {
+  const token = getAccessToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return (payload.exp as number) * 1000;
+  } catch {
+    return null;
+  }
+}
+
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function startProactiveRefresh() {
+  stopProactiveRefresh();
+
+  function schedule() {
+    const expiry = getTokenExpiry();
+    if (!expiry) return;
+
+    // Refresh 60 seconds before expiry
+    const delay = Math.max(expiry - Date.now() - 60_000, 5_000);
+
+    refreshTimer = setTimeout(async () => {
+      const rt = getRefreshToken();
+      if (!rt) return;
+      try {
+        const res = await fetch('/api/proxy/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: rt }),
+        });
+        if (res.ok) {
+          const tokens: AuthTokens = await res.json();
+          setTokens(tokens);
+          schedule();
+        }
+      } catch {}
+    }, delay);
+  }
+
+  schedule();
+}
+
+export function stopProactiveRefresh() {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+}
