@@ -22,6 +22,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   Key,
   Pencil,
   Plus,
@@ -204,57 +205,64 @@ function AddColumnDialog({
   );
 }
 
-// ── Edit Column Dialog ─────────────────────────────────────
+// ── Column Side Panel ──────────────────────────────────────
 
-function EditColumnDialog({
-  open,
-  onOpenChange,
+function ColumnSidePanel({
+  columns,
   projectId,
   tableName,
-  column,
+  onClose,
   onUpdated,
+  onAddColumn,
 }: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
+  columns: ColumnInfo[];
   projectId: string;
   tableName: string;
-  column: ColumnInfo;
+  onClose: () => void;
   onUpdated: () => void;
+  onAddColumn: () => void;
 }) {
-  const [name, setName] = useState(column.name);
-  const [type, setType] = useState(column.type);
-  const [nullable, setNullable] = useState(column.nullable);
-  const [defaultValue, setDefaultValue] = useState(column.defaultValue ?? '');
+  const [editingCol, setEditingCol] = useState<ColumnInfo | null>(null);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('');
+  const [nullable, setNullable] = useState(true);
+  const [defaultValue, setDefaultValue] = useState('');
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  useEffect(() => {
-    setName(column.name);
-    setType(column.type);
-    setNullable(column.nullable);
-    setDefaultValue(column.defaultValue ?? '');
-    setConfirmDelete(false);
-  }, [column, open]);
+  function startEdit(col: ColumnInfo) {
+    setEditingCol(col);
+    setName(col.name);
+    setType(col.type);
+    setNullable(col.nullable);
+    setDefaultValue(col.defaultValue ?? '');
+    setConfirmDelete(null);
+  }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function cancelEdit() {
+    setEditingCol(null);
+    setConfirmDelete(null);
+  }
+
+  async function saveEdit() {
+    if (!editingCol) return;
     setSaving(true);
     try {
       const changes: Record<string, unknown> = {};
-      if (name !== column.name) changes.name = name;
-      if (type !== column.type) changes.type = type;
-      if (nullable !== column.nullable) changes.nullable = nullable;
+      if (name !== editingCol.name) changes.name = name;
+      if (type !== editingCol.type) changes.type = type;
+      if (nullable !== editingCol.nullable) changes.nullable = nullable;
       const newDefault = defaultValue || null;
-      if (newDefault !== column.defaultValue) changes.defaultValue = newDefault;
+      if (newDefault !== editingCol.defaultValue) changes.defaultValue = newDefault;
 
       if (Object.keys(changes).length === 0) {
-        onOpenChange(false);
+        setEditingCol(null);
         return;
       }
 
-      await api.projects.editColumn(projectId, tableName, column.name, changes);
-      toast.success(`Column "${column.name}" updated`);
-      onOpenChange(false);
+      await api.projects.editColumn(projectId, tableName, editingCol.name, changes);
+      toast.success(`Column "${editingCol.name}" updated`);
+      setEditingCol(null);
       onUpdated();
     } catch (err: any) {
       toast.error(err.message);
@@ -263,120 +271,164 @@ function EditColumnDialog({
     }
   }
 
-  async function handleDelete() {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
+  async function handleDelete(colName: string) {
+    if (confirmDelete !== colName) {
+      setConfirmDelete(colName);
       return;
     }
     setSaving(true);
     try {
-      await api.projects.deleteColumn(projectId, tableName, column.name);
-      toast.success(`Column "${column.name}" deleted`);
-      onOpenChange(false);
+      await api.projects.deleteColumn(projectId, tableName, colName);
+      toast.success(`Column "${colName}" deleted`);
+      if (editingCol?.name === colName) setEditingCol(null);
+      setConfirmDelete(null);
       onUpdated();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setSaving(false);
-      setConfirmDelete(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Column</DialogTitle>
-          <DialogDescription>
-            Modify <span className="font-mono font-semibold">{column.name}</span> on{' '}
-            <span className="font-mono font-semibold">{tableName}</span>
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>Name</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="column_name"
-              pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
-              required
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {PG_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-              {!PG_TYPES.some((t) => t.value === type) && (
-                <option value={type}>{type}</option>
-              )}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Default Value</Label>
-            <Input
-              value={defaultValue}
-              onChange={(e) => setDefaultValue(e.target.value)}
-              placeholder="none"
-              list="edit-col-defaults"
-            />
-            {DEFAULT_SUGGESTIONS[type] && (
-              <datalist id="edit-col-defaults">
-                {DEFAULT_SUGGESTIONS[type].map((s) => (
-                  <option key={s} value={s} />
+    <div className="w-72 shrink-0 border-l bg-card flex flex-col">
+      {/* Panel header */}
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Columns3 className="h-4 w-4" />
+          Columns
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onAddColumn} title="Add column">
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Column list or edit form */}
+      <div className="flex-1 overflow-y-auto">
+        {editingCol ? (
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Editing column</span>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>
+                Back
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Name</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-8 text-sm"
+                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Type</Label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+              >
+                {PG_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
-              </datalist>
-            )}
-          </div>
-          <div className="flex gap-4">
+                {!PG_TYPES.some((t) => t.value === type) && (
+                  <option value={type}>{type}</option>
+                )}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Default Value</Label>
+              <Input
+                value={defaultValue}
+                onChange={(e) => setDefaultValue(e.target.value)}
+                placeholder="none"
+                className="h-8 text-sm"
+                list={`edit-col-defaults-${editingCol.name}`}
+              />
+              {DEFAULT_SUGGESTIONS[type] && (
+                <datalist id={`edit-col-defaults-${editingCol.name}`}>
+                  {DEFAULT_SUGGESTIONS[type].map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={nullable}
                 onChange={(e) => setNullable(e.target.checked)}
                 className="rounded"
-                disabled={column.isPrimary}
+                disabled={editingCol.isPrimary}
               />
               Nullable
             </label>
-            {column.isPrimary && (
-              <Badge variant="secondary" className="text-amber-600">
+
+            {editingCol.isPrimary && (
+              <Badge variant="secondary" className="text-amber-600 text-xs">
                 <Key className="mr-1 h-3 w-3" /> Primary Key
               </Badge>
             )}
-          </div>
 
-          <div className="flex items-center justify-between border-t pt-4">
-            <Button
-              type="button"
-              variant={confirmDelete ? 'destructive' : 'outline'}
-              size="sm"
-              onClick={handleDelete}
-              disabled={saving}
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              {confirmDelete ? 'Confirm Delete' : 'Delete Column'}
-            </Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
+            <div className="flex flex-col gap-2 pt-2 border-t">
+              <Button size="sm" onClick={saveEdit} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <Button
+                size="sm"
+                variant={confirmDelete === editingCol.name ? 'destructive' : 'outline'}
+                onClick={() => handleDelete(editingCol.name)}
+                disabled={saving}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                {confirmDelete === editingCol.name ? 'Confirm Delete' : 'Delete Column'}
               </Button>
             </div>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        ) : (
+          <div className="p-1 space-y-0.5">
+            {columns.map((col) => (
+              <button
+                key={col.name}
+                onClick={() => startEdit(col)}
+                className="group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {col.isPrimary && <Key className="h-3 w-3 shrink-0 text-amber-500" />}
+                    <span className="font-medium truncate">{col.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">{col.type}</span>
+                    {col.nullable && (
+                      <span className="text-[10px] text-blue-500 font-mono">nullable</span>
+                    )}
+                    {col.defaultValue && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
+                        = {col.defaultValue}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -399,8 +451,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const editRef = useRef<HTMLInputElement>(null);
 
   const [addColumnOpen, setAddColumnOpen] = useState(false);
-  const [editColumnOpen, setEditColumnOpen] = useState(false);
-  const [editingColumn, setEditingColumn] = useState<ColumnInfo | null>(null);
+  const [columnPanelOpen, setColumnPanelOpen] = useState(false);
 
   const [filterText, setFilterText] = useState('');
 
@@ -620,11 +671,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
     }
   }
 
-  function openEditColumn(col: ColumnInfo) {
-    setEditingColumn(col);
-    setEditColumnOpen(true);
-  }
-
   const filteredRows = data?.rows?.filter((row) => {
     if (!filterText) return true;
     const lower = filterText.toLowerCase();
@@ -673,15 +719,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
         <div className="flex gap-0 rounded-lg border overflow-hidden" style={{ minHeight: 480 }}>
           {/* Sidebar: table list */}
           <div className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
-            <div className="p-2 border-b">
-              <Input
-                placeholder="Search tables..."
-                className="h-8 text-xs"
-                value={filterText}
-                onChange={() => {}}
-                onFocus={() => {}}
-              />
-            </div>
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
               {tables.map((t) => (
                 <div key={t.name} className="group relative">
@@ -761,231 +798,237 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   </div>
                 </div>
 
-                {/* Column chips */}
-                <div className="flex flex-wrap gap-1.5 border-b px-4 py-2 bg-muted/20">
-                  {columns.map((col) => (
-                    <button
-                      key={col.name}
-                      onClick={() => openEditColumn(col)}
-                      className="group/chip flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs transition-colors hover:border-primary/40 hover:bg-primary/5"
-                      title={`Click to edit "${col.name}"`}
-                    >
-                      {col.isPrimary && <Key className="h-3 w-3 text-amber-500" />}
-                      <span className="font-medium">{col.name}</span>
-                      <span className="text-muted-foreground">{col.type}</span>
-                      {col.nullable && (
-                        <span className="text-blue-500 font-mono text-[10px]">?</span>
-                      )}
-                      <Pencil className="h-2.5 w-2.5 text-muted-foreground/0 group-hover/chip:text-muted-foreground transition-colors" />
-                    </button>
-                  ))}
-                </div>
-
-                {/* Data table */}
-                {dataLoading ? (
-                  <div className="flex flex-1 items-center justify-center">
-                    <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                  </div>
-                ) : (
-                  <div className="flex-1 overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10">
-                        <tr className="border-b bg-muted/50">
-                          <th className="w-10 px-2 py-2 text-center text-xs font-medium text-muted-foreground">
-                            #
-                          </th>
-                          {data?.fields?.map((f) => (
-                            <th
-                              key={f.name}
-                              className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium cursor-pointer hover:bg-muted/80 transition-colors"
-                              onClick={() => {
+                {/* Data area + optional column panel */}
+                <div className="flex-1 flex min-h-0">
+                  {/* Table */}
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    {dataLoading ? (
+                      <div className="flex flex-1 items-center justify-center">
+                        <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-auto">
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 z-10">
+                            <tr className="border-b bg-muted/50">
+                              <th className="w-10 px-2 py-2 text-center text-xs font-medium text-muted-foreground">
+                                #
+                              </th>
+                              {data?.fields?.map((f) => {
                                 const col = columns.find((c) => c.name === f.name);
-                                if (col) openEditColumn(col);
-                              }}
-                            >
-                              <span className="flex items-center gap-1">
-                                {pkColumns.includes(f.name) && (
-                                  <Key className="h-3 w-3 text-amber-500" />
-                                )}
-                                {f.name}
-                              </span>
-                            </th>
-                          ))}
-                          <th className="w-12 px-2 py-2 text-xs font-medium" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* New row input */}
-                        {addingRow && (
-                          <tr className="border-b bg-green-50/50 dark:bg-green-950/20">
-                            <td className="px-2 py-1 text-center">
-                              <span className="text-xs text-green-600 font-medium">NEW</span>
-                            </td>
-                            {data?.fields?.map((f) => {
-                              const col = columns.find((c) => c.name === f.name);
-                              const hasDefault = !!col?.defaultValue;
-                              return (
-                                <td key={f.name} className="px-1 py-1">
-                                  <Input
-                                    value={newRow[f.name] ?? ''}
-                                    onChange={(e) =>
-                                      setNewRow((prev) => ({ ...prev, [f.name]: e.target.value }))
-                                    }
-                                    placeholder={hasDefault ? `(${col?.defaultValue})` : col?.nullable ? 'NULL' : ''}
-                                    className="h-7 text-xs font-mono"
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') commitNewRow();
-                                      if (e.key === 'Escape') {
-                                        setAddingRow(false);
-                                        setNewRow({});
-                                      }
-                                    }}
-                                  />
-                                </td>
-                              );
-                            })}
-                            <td className="px-1 py-1">
-                              <div className="flex gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-green-600"
-                                  onClick={commitNewRow}
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={() => {
-                                    setAddingRow(false);
-                                    setNewRow({});
-                                  }}
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-
-                        {/* Existing rows */}
-                        {filteredRows && filteredRows.length > 0 ? (
-                          filteredRows.map((row, rowIdx) => {
-                            const actualIdx = data!.rows.indexOf(row);
-                            return (
-                              <tr
-                                key={rowIdx}
-                                className="group border-b last:border-0 hover:bg-muted/30"
-                              >
-                                <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
-                                  {(page - 1) * (data?.limit ?? 50) + actualIdx + 1}
+                                return (
+                                  <th
+                                    key={f.name}
+                                    className="group/th whitespace-nowrap px-3 py-2 text-left text-xs font-medium"
+                                  >
+                                    <span className="flex items-center gap-1">
+                                      {pkColumns.includes(f.name) && (
+                                        <Key className="h-3 w-3 text-amber-500" />
+                                      )}
+                                      {f.name}
+                                      <span className="text-[10px] text-muted-foreground font-normal ml-1">
+                                        {col?.type}
+                                      </span>
+                                      <button
+                                        onClick={() => setColumnPanelOpen(true)}
+                                        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/th:opacity-100 transition-opacity hover:bg-accent"
+                                        title={`Edit columns`}
+                                      >
+                                        <Pencil className="h-3 w-3 text-muted-foreground" />
+                                      </button>
+                                    </span>
+                                  </th>
+                                );
+                              })}
+                              <th className="w-12 px-2 py-2 text-xs font-medium" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* New row input */}
+                            {addingRow && (
+                              <tr className="border-b bg-green-50/50 dark:bg-green-950/20">
+                                <td className="px-2 py-1 text-center">
+                                  <span className="text-xs text-green-600 font-medium">NEW</span>
                                 </td>
                                 {data?.fields?.map((f) => {
-                                  const isEditing =
-                                    editingCell?.rowIdx === actualIdx &&
-                                    editingCell?.field === f.name;
-                                  const isPk = pkColumns.includes(f.name);
-
-                                  if (isEditing) {
-                                    return (
-                                      <td key={f.name} className="px-1 py-0.5">
-                                        <Input
-                                          ref={editRef}
-                                          value={editValue}
-                                          onChange={(e) => setEditValue(e.target.value)}
-                                          onKeyDown={handleEditKeyDown}
-                                          onBlur={commitEdit}
-                                          className="h-7 text-xs font-mono"
-                                        />
-                                      </td>
-                                    );
-                                  }
-
+                                  const col = columns.find((c) => c.name === f.name);
+                                  const hasDefault = !!col?.defaultValue;
                                   return (
-                                    <td
-                                      key={f.name}
-                                      className={cn(
-                                        'max-w-[250px] truncate whitespace-nowrap px-3 py-1.5 font-mono text-xs',
-                                        !isPk && 'cursor-pointer hover:bg-primary/5',
-                                        isPk && 'text-muted-foreground',
-                                      )}
-                                      onDoubleClick={() => startEdit(actualIdx, f.name)}
-                                      title={isPk ? 'Primary key (read-only)' : 'Double-click to edit'}
-                                    >
-                                      {row[f.name] === null ? (
-                                        <span className="text-muted-foreground/40 italic">NULL</span>
-                                      ) : typeof row[f.name] === 'boolean' ? (
-                                        <Badge variant={row[f.name] ? 'default' : 'secondary'} className="text-[10px]">
-                                          {String(row[f.name])}
-                                        </Badge>
-                                      ) : (
-                                        String(row[f.name])
-                                      )}
+                                    <td key={f.name} className="px-1 py-1">
+                                      <Input
+                                        value={newRow[f.name] ?? ''}
+                                        onChange={(e) =>
+                                          setNewRow((prev) => ({ ...prev, [f.name]: e.target.value }))
+                                        }
+                                        placeholder={hasDefault ? `(${col?.defaultValue})` : col?.nullable ? 'NULL' : ''}
+                                        className="h-7 text-xs font-mono"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') commitNewRow();
+                                          if (e.key === 'Escape') {
+                                            setAddingRow(false);
+                                            setNewRow({});
+                                          }
+                                        }}
+                                      />
                                     </td>
                                   );
                                 })}
-                                <td className="px-1 py-0.5 text-right">
-                                  <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <td className="px-1 py-1">
+                                  <div className="flex gap-0.5">
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-6 w-6 text-destructive/70 hover:text-destructive"
-                                      onClick={() => handleDeleteRow(row)}
+                                      className="h-7 w-7 text-green-600"
+                                      onClick={commitNewRow}
                                     >
-                                      <Trash2 className="h-3 w-3" />
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        setAddingRow(false);
+                                        setNewRow({});
+                                      }}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
                                 </td>
                               </tr>
-                            );
-                          })
-                        ) : !addingRow ? (
-                          <tr>
-                            <td
-                              colSpan={(data?.fields?.length ?? 0) + 2}
-                              className="py-12 text-center text-sm text-muted-foreground"
-                            >
-                              {filterText
-                                ? 'No rows match your filter'
-                                : 'No rows — click "Row" to insert data'}
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                            )}
 
-                {/* Pagination */}
-                {data && data.totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
-                    <span>
-                      {data.total} rows — page {data.page}/{data.totalPages}
-                    </span>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        disabled={page <= 1}
-                        onClick={() => loadPage(page - 1)}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        disabled={page >= (data.totalPages || 1)}
-                        onClick={() => loadPage(page + 1)}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+                            {/* Existing rows */}
+                            {filteredRows && filteredRows.length > 0 ? (
+                              filteredRows.map((row, rowIdx) => {
+                                const actualIdx = data!.rows.indexOf(row);
+                                return (
+                                  <tr
+                                    key={rowIdx}
+                                    className="group border-b last:border-0 hover:bg-muted/30"
+                                  >
+                                    <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
+                                      {(page - 1) * (data?.limit ?? 50) + actualIdx + 1}
+                                    </td>
+                                    {data?.fields?.map((f) => {
+                                      const isEditing =
+                                        editingCell?.rowIdx === actualIdx &&
+                                        editingCell?.field === f.name;
+                                      const isPk = pkColumns.includes(f.name);
+
+                                      if (isEditing) {
+                                        return (
+                                          <td key={f.name} className="px-1 py-0.5">
+                                            <Input
+                                              ref={editRef}
+                                              value={editValue}
+                                              onChange={(e) => setEditValue(e.target.value)}
+                                              onKeyDown={handleEditKeyDown}
+                                              onBlur={commitEdit}
+                                              className="h-7 text-xs font-mono"
+                                            />
+                                          </td>
+                                        );
+                                      }
+
+                                      return (
+                                        <td
+                                          key={f.name}
+                                          className={cn(
+                                            'max-w-[250px] truncate whitespace-nowrap px-3 py-1.5 font-mono text-xs',
+                                            !isPk && 'cursor-pointer hover:bg-primary/5',
+                                            isPk && 'text-muted-foreground',
+                                          )}
+                                          onDoubleClick={() => startEdit(actualIdx, f.name)}
+                                          title={isPk ? 'Primary key (read-only)' : 'Double-click to edit'}
+                                        >
+                                          {row[f.name] === null ? (
+                                            <span className="text-muted-foreground/40 italic">NULL</span>
+                                          ) : typeof row[f.name] === 'boolean' ? (
+                                            <Badge variant={row[f.name] ? 'default' : 'secondary'} className="text-[10px]">
+                                              {String(row[f.name])}
+                                            </Badge>
+                                          ) : (
+                                            String(row[f.name])
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-1 py-0.5 text-right">
+                                      <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 text-destructive/70 hover:text-destructive"
+                                          onClick={() => handleDeleteRow(row)}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : !addingRow ? (
+                              <tr>
+                                <td
+                                  colSpan={(data?.fields?.length ?? 0) + 2}
+                                  className="py-12 text-center text-sm text-muted-foreground"
+                                >
+                                  {filterText
+                                    ? 'No rows match your filter'
+                                    : 'No rows — click "Row" to insert data'}
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Pagination */}
+                    {data && data.totalPages > 1 && (
+                      <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
+                        <span>
+                          {data.total} rows — page {data.page}/{data.totalPages}
+                        </span>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page <= 1}
+                            onClick={() => loadPage(page - 1)}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page >= (data.totalPages || 1)}
+                            onClick={() => loadPage(page + 1)}
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* Column side panel */}
+                  {columnPanelOpen && selected && (
+                    <ColumnSidePanel
+                      columns={columns}
+                      projectId={projectId}
+                      tableName={selected}
+                      onClose={() => setColumnPanelOpen(false)}
+                      onUpdated={reloadTableData}
+                      onAddColumn={() => setAddColumnOpen(true)}
+                    />
+                  )}
+                </div>
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -1011,17 +1054,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
           projectId={projectId}
           tableName={selected}
           onAdded={reloadTableData}
-        />
-      )}
-
-      {selected && editingColumn && (
-        <EditColumnDialog
-          open={editColumnOpen}
-          onOpenChange={setEditColumnOpen}
-          projectId={projectId}
-          tableName={selected}
-          column={editingColumn}
-          onUpdated={reloadTableData}
         />
       )}
     </div>
