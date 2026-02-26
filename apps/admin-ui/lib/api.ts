@@ -274,6 +274,23 @@ export const api = {
         body: JSON.stringify({ pkWhere }),
       });
     },
+    addColumn(projectId: string, tableName: string, column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns`, {
+        method: 'POST',
+        body: JSON.stringify(column),
+      });
+    },
+    editColumn(projectId: string, tableName: string, columnName: string, changes: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+        method: 'PUT',
+        body: JSON.stringify(changes),
+      });
+    },
+    deleteColumn(projectId: string, tableName: string, columnName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+        method: 'DELETE',
+      });
+    },
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
     },

@@ -355,6 +355,151 @@ export class ProjectDataService {
     }
   }
 
+  private validateColumnName(name: string) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      throw new BadRequestException(`Invalid column name: ${name}`);
+    }
+  }
+
+  private validateColumnType(type: string) {
+    const ALLOWED_TYPES = [
+      'uuid', 'serial', 'bigserial',
+      'integer', 'bigint', 'smallint',
+      'text', 'varchar(255)', 'char(1)',
+      'boolean',
+      'timestamp', 'timestamptz', 'date', 'time',
+      'numeric', 'decimal', 'real', 'double precision',
+      'jsonb', 'json',
+      'bytea',
+    ];
+    if (!ALLOWED_TYPES.includes(type)) {
+      throw new BadRequestException(`Unsupported column type: ${type}`);
+    }
+  }
+
+  async addColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(column.name);
+    this.validateColumnType(column.type);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      let sql = `ALTER TABLE "${tableName}" ADD COLUMN "${column.name}" ${column.type}`;
+      if (!column.nullable) sql += ' NOT NULL';
+      if (column.defaultValue) {
+        const SAFE_DEFAULTS = ['gen_random_uuid()', 'now()', 'true', 'false', 'CURRENT_TIMESTAMP'];
+        if (SAFE_DEFAULTS.includes(column.defaultValue)) {
+          sql += ` DEFAULT ${column.defaultValue}`;
+        } else {
+          const safe = column.defaultValue.replace(/'/g, "''");
+          sql += ` DEFAULT '${safe}'`;
+        }
+      }
+      if (column.isUnique) sql += ' UNIQUE';
+
+      await client.query(sql);
+      return { message: `Column "${column.name}" added to "${tableName}"` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to add column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async editColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    columnName: string,
+    changes: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(columnName);
+    if (changes.name) this.validateColumnName(changes.name);
+    if (changes.type) this.validateColumnType(changes.type);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      const statements: string[] = [];
+
+      if (changes.type) {
+        statements.push(
+          `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" TYPE ${changes.type} USING "${columnName}"::${changes.type}`,
+        );
+      }
+
+      if (changes.nullable === true) {
+        statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" DROP NOT NULL`);
+      } else if (changes.nullable === false) {
+        statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" SET NOT NULL`);
+      }
+
+      if (changes.defaultValue !== undefined) {
+        if (changes.defaultValue === null || changes.defaultValue === '') {
+          statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" DROP DEFAULT`);
+        } else {
+          const SAFE_DEFAULTS = ['gen_random_uuid()', 'now()', 'true', 'false', 'CURRENT_TIMESTAMP'];
+          const defaultExpr = SAFE_DEFAULTS.includes(changes.defaultValue)
+            ? changes.defaultValue
+            : `'${changes.defaultValue.replace(/'/g, "''")}'`;
+          statements.push(
+            `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" SET DEFAULT ${defaultExpr}`,
+          );
+        }
+      }
+
+      if (changes.name && changes.name !== columnName) {
+        statements.push(
+          `ALTER TABLE "${tableName}" RENAME COLUMN "${columnName}" TO "${changes.name}"`,
+        );
+      }
+
+      for (const sql of statements) {
+        await client.query(sql);
+      }
+
+      return { message: `Column "${columnName}" updated` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to edit column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async deleteColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    columnName: string,
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(columnName);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(`ALTER TABLE "${tableName}" DROP COLUMN "${columnName}" CASCADE`);
+      return { message: `Column "${columnName}" deleted from "${tableName}"` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to delete column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
   getConnectionStrings(project: any) {
     const host = project.dbHost;
     const port = project.dbPort;

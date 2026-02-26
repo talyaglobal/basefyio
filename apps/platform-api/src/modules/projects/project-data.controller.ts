@@ -109,6 +109,37 @@ export class ProjectDataController {
     return this.dataService.dropTable(projectId, user?.sub, tableName);
   }
 
+  @Post('tables/:tableName/columns')
+  async addColumn(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Body() body: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.addColumn(projectId, user?.sub, tableName, body);
+  }
+
+  @Put('tables/:tableName/columns/:columnName')
+  async editColumn(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Param('columnName') columnName: string,
+    @Body() body: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.editColumn(projectId, user?.sub, tableName, columnName, body);
+  }
+
+  @Delete('tables/:tableName/columns/:columnName')
+  async deleteColumn(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Param('columnName') columnName: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.deleteColumn(projectId, user?.sub, tableName, columnName);
+  }
+
   @Get('connect')
   async getConnectionStrings(
     @Param('projectId') projectId: string,

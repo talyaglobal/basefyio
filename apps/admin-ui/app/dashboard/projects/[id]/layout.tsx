@@ -21,7 +21,7 @@ import {
 
 const navItems = [
   { label: 'Overview', href: '', icon: Database },
-  { label: 'Table Viewer', href: '/tables', icon: Table2 },
+  { label: 'Table Editor', href: '/tables', icon: Table2 },
   { label: 'SQL Editor', href: '/sql', icon: Terminal },
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
