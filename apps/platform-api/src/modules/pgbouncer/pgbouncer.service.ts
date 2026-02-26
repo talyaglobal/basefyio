@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { createHash } from 'crypto';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { Socket } from 'net';
@@ -65,7 +64,7 @@ ${dbEntries}
 [pgbouncer]
 listen_addr = 0.0.0.0
 listen_port = 6432
-auth_type = md5
+auth_type = plain
 auth_file = /etc/pgbouncer/userlist.txt
 pool_mode = transaction
 max_client_conn = 1000
@@ -87,21 +86,11 @@ ignore_startup_parameters = extra_float_digits,search_path
   private buildUserlist(
     projects: { dbUser: string; dbPassword: string }[],
   ): string {
-    const lines = projects.map((p) => {
-      const md5 = this.md5Password(p.dbUser, p.dbPassword);
-      return `"${p.dbUser}" "${md5}"`;
-    });
+    const lines = projects.map((p) => `"${p.dbUser}" "${p.dbPassword}"`);
 
     lines.push(`"pgbouncer_admin" "pgbouncer_admin_pass"`);
 
     return lines.join('\n') + '\n';
-  }
-
-  private md5Password(user: string, password: string): string {
-    const hash = createHash('md5')
-      .update(password + user)
-      .digest('hex');
-    return `md5${hash}`;
   }
 
   private async sendReload(): Promise<void> {
