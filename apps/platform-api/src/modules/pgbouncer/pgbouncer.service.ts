@@ -103,7 +103,7 @@ ignore_startup_parameters = extra_float_digits,search_path
       database: 'pgbouncer',
       user: 'pgbouncer_admin',
       password: 'pgbouncer_admin_pass',
-      statement_timeout: 5000,
+      connectionTimeoutMillis: 5000,
     });
 
     try {
