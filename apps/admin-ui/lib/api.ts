@@ -3,6 +3,7 @@ import type {
   AuthTokens,
   ColumnInfo,
   ConnectionStrings,
+  ImportJobProgressEvent,
   PendingInvite,
   Project,
   ProjectListItem,
@@ -11,6 +12,9 @@ import type {
   SqlResult,
   StorageBucket,
   StorageObject,
+  SupabaseImportRequest,
+  SupabaseImportJobResponse,
+  SupabaseValidateResult,
   TableInfo,
   TableRows,
   Team,
@@ -165,6 +169,68 @@ export const api = {
       return request<{ message: string }>(`/projects/${id}`, {
         method: 'DELETE',
       });
+    },
+    importFromSupabase(data: SupabaseImportRequest) {
+      return request<SupabaseImportJobResponse>('/projects/import-supabase', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    validateSupabase(supabaseUrl: string, serviceRoleKey: string) {
+      return request<SupabaseValidateResult>('/projects/import-supabase/validate', {
+        method: 'POST',
+        body: JSON.stringify({ supabaseUrl, serviceRoleKey }),
+      });
+    },
+
+    streamImportProgress(
+      jobId: string,
+      callbacks: {
+        onProgress: (data: ImportJobProgressEvent) => void;
+        onCompleted: (data: any) => void;
+        onFailed: (error: string) => void;
+        onError?: (error: Event) => void;
+      },
+    ): EventSource {
+      const token = getAccessToken();
+      const url = `/api/proxy/projects/import-supabase/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+      const es = new EventSource(url);
+
+      es.addEventListener('progress', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onProgress(data);
+        } catch {}
+      });
+
+      es.addEventListener('completed', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onCompleted(data);
+        } catch {}
+        es.close();
+      });
+
+      es.addEventListener('failed', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onFailed(data.error || 'Import failed');
+        } catch {
+          callbacks.onFailed('Import failed');
+        }
+        es.close();
+      });
+
+      es.addEventListener('error', (e) => {
+        // EventSource native error - not a named event from backend
+      });
+
+      es.onerror = (e) => {
+        callbacks.onError?.(e);
+      };
+
+      return es;
     },
 
     tables(projectId: string) {

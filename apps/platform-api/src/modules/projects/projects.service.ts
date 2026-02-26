@@ -25,7 +25,7 @@ export class ProjectsService {
   async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
     await this.assertTeamMember(dto.teamId, userId);
 
-    const slug = this.toSlug(dto.name);
+    const slug = await this.uniqueSlug(this.toSlug(dto.name));
     const dbName = `kb_${slug}`;
     const dbUser = `kb_user_${slug}`;
     const dbPassword = randomBytes(24).toString('base64url');
@@ -247,5 +247,23 @@ export class ProjectsService {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_|_$/g, '');
+  }
+
+  private async uniqueSlug(base: string): Promise<string> {
+    const existing = await this.prisma.project.findFirst({
+      where: { slug: base },
+      select: { id: true },
+    });
+    if (!existing) return base;
+
+    for (let i = 2; i <= 100; i++) {
+      const candidate = `${base}_${i}`;
+      const found = await this.prisma.project.findFirst({
+        where: { slug: candidate },
+        select: { id: true },
+      });
+      if (!found) return candidate;
+    }
+    return `${base}_${Date.now()}`;
   }
 }

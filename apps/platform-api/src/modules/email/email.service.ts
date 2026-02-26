@@ -5,6 +5,7 @@ import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
 import { inviteTemplate } from './templates/invite.template';
 import { feedbackTemplate } from './templates/feedback.template';
+import { passwordResetTemplate } from './templates/password-reset.template';
 
 @Injectable()
 export class EmailService {
@@ -101,6 +102,26 @@ export class EmailService {
     return this.send({
       to,
       subject: `[Feedback] ${data.title} — by ${data.username}`,
+      html,
+    });
+  }
+
+  async sendImportedUserCredentials(
+    to: string,
+    username: string,
+    tempPassword: string,
+    projectName: string,
+  ) {
+    const html = passwordResetTemplate({
+      username,
+      tempPassword,
+      projectName,
+      loginUrl: `${this.appUrl}/login`,
+    });
+
+    return this.send({
+      to,
+      subject: `Your ${projectName} account has been migrated to Kolaybase`,
       html,
     });
   }

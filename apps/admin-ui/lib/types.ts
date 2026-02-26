@@ -154,3 +154,40 @@ export interface StorageObject {
   lastModified: string;
   etag?: string;
 }
+
+export interface SupabaseImportRequest {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  name: string;
+  teamId: string;
+}
+
+export interface SupabaseImportJobResponse {
+  jobId: string;
+  project: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+}
+
+export interface ImportProgressData {
+  database: { tables: number; rows: number; failedTables: string[] };
+  auth: { users: number; skipped: number; emailsSent: number };
+  storage: { buckets: number; objects: number };
+  warnings: string[];
+}
+
+export interface ImportJobProgressEvent {
+  step: 'database' | 'auth' | 'storage' | 'completed' | 'failed';
+  detail: string;
+  percent: number;
+  progress?: ImportProgressData;
+  error?: string;
+}
+
+export interface SupabaseValidateResult {
+  valid: boolean;
+  projectName: string;
+  tableCount: number;
+}

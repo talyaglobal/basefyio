@@ -40,6 +40,19 @@ services:
       postgres:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -83,6 +96,7 @@ services:
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Kolaybase <noreply@kolaybase.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      REDIS_URL: redis://redis:6379
       CORS_ORIGIN: http://localhost:3000
     ports:
       - "${PLATFORM_API_PORT:-4000}:4000"
@@ -93,6 +107,8 @@ services:
         condition: service_started
       minio:
         condition: service_started
+      redis:
+        condition: service_healthy
 
   admin-ui:
     build:
@@ -108,4 +124,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   minio_data:

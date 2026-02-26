@@ -92,6 +92,19 @@ services:
       - traefik.http.routers.keycloak.tls.certresolver=le
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   minio:
     image: minio/minio:latest
     restart: always
@@ -150,6 +163,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Kolaybase <noreply@kolaybase.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
+      REDIS_URL: redis://redis:6379
       APP_URL: https://app.${DOMAIN}
       CORS_ORIGIN: https://app.${DOMAIN}
     networks:
@@ -162,6 +176,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      redis:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
@@ -190,6 +206,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   minio_data:
   letsencrypt_data:
 

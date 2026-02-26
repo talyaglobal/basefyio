@@ -29,6 +29,10 @@ export default () => ({
     publicSsl: process.env.MINIO_PUBLIC_SSL || 'false',
   },
 
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+  },
+
   resend: {
     apiKey: process.env.RESEND_API_KEY || '',
     fromEmail: process.env.RESEND_FROM_EMAIL || 'Kolaybase <noreply@kolaybase.com>',
