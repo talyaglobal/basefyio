@@ -127,11 +127,15 @@ export interface RealmInfo {
 
 export interface ConnectionStrings {
   uri: string;
+  poolerUri: string;
   host: string;
   port: number;
   database: string;
   user: string;
   password: string;
+  poolerHost: string;
+  poolerPort: number;
+  restUrl: string;
   keycloakRealm: string;
   keycloakUrl: string;
   anonKey: string;

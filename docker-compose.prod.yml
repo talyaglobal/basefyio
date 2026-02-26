@@ -133,6 +133,25 @@ services:
       - traefik.http.routers.minio-console.service=minio-console
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: always
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
+    networks:
+      - internal
+      - web
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 || true"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Applications (pulled from GHCR) ────────────────────
 
   platform-api:
@@ -166,6 +185,14 @@ services:
       REDIS_URL: redis://redis:6379
       APP_URL: https://app.${DOMAIN}
       CORS_ORIGIN: https://app.${DOMAIN}
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}
+      PGBOUNCER_EXTERNAL_PORT: 6432
+      PUBLIC_API_URL: https://api.${DOMAIN}
+      PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
     networks:
       - internal
       - web
@@ -208,6 +235,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  pgbouncer_config:
   letsencrypt_data:
 
 networks:

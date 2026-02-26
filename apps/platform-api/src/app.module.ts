@@ -10,6 +10,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -28,6 +29,7 @@ import configuration from './config/configuration';
     SqlModule,
     StorageModule,
     FeedbackModule,
+    PgBouncerModule,
   ],
 })
 export class AppModule {}

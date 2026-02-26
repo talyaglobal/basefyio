@@ -10,6 +10,7 @@ import { Pool } from 'pg';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly keycloak: KeycloakAdminService,
     private readonly config: ConfigService,
+    private readonly pgbouncer: PgBouncerService,
   ) {}
 
   async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
@@ -71,6 +73,11 @@ export class ProjectsService {
     });
 
     this.logger.log(`Project "${project.name}" created (${project.id})`);
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
     return project;
   }
 
@@ -130,6 +137,11 @@ export class ProjectsService {
     });
 
     this.logger.log(`Project "${project.name}" deleted`);
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
     return { message: 'Project deleted' };
   }
 

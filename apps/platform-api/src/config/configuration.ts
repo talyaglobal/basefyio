@@ -29,6 +29,16 @@ export default () => ({
     publicSsl: process.env.MINIO_PUBLIC_SSL || 'false',
   },
 
+  pgbouncer: {
+    host: process.env.PGBOUNCER_HOST || 'pgbouncer',
+    port: parseInt(process.env.PGBOUNCER_PORT || '6432', 10),
+    externalHost: process.env.PGBOUNCER_EXTERNAL_HOST || 'localhost',
+    externalPort: parseInt(process.env.PGBOUNCER_EXTERNAL_PORT || '6432', 10),
+    configDir: process.env.PGBOUNCER_CONFIG_DIR || '/etc/pgbouncer',
+  },
+
+  publicApiUrl: process.env.PUBLIC_API_URL || 'http://localhost:4000',
+
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },

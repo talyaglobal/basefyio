@@ -1,0 +1,3 @@
+;; User credentials are managed dynamically by PgBouncerService
+;; Format: "username" "md5<hash>"
+"pgbouncer_admin" "pgbouncer_admin_pass"
