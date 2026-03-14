@@ -79,16 +79,16 @@ async function request<T>(
 
 export const api = {
   auth: {
-    signup(data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) {
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<AuthTokens>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
-    login(username: string, password: string) {
+    login(email: string, password: string) {
       return request<AuthTokens>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
     },
     me() {
@@ -300,7 +300,7 @@ export const api = {
     realmUsers(projectId: string) {
       return request<RealmUser[]>(`/projects/${projectId}/auth/users`);
     },
-    createRealmUser(projectId: string, data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) {
+    createRealmUser(projectId: string, data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users`, {
         method: 'POST',
         body: JSON.stringify(data),

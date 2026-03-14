@@ -36,7 +36,6 @@ export interface AuthTokens {
 }
 
 export interface SignUpCredentials {
-  username: string;
   email: string;
   password: string;
   firstName?: string;
@@ -44,7 +43,7 @@ export interface SignUpCredentials {
 }
 
 export interface SignInCredentials {
-  username: string;
+  email: string;
   password: string;
 }
 

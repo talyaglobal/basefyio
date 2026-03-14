@@ -21,26 +21,34 @@ export class AuthService {
     private readonly email: EmailService,
   ) {}
 
+  private generateUsername(firstName?: string, lastName?: string, email?: string): string {
+    let base: string;
+    if (firstName || lastName) {
+      base = `${firstName || ''}${lastName || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+    } else {
+      base = (email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    if (!base) base = 'user';
+    const suffix = Math.random().toString(36).substring(2, 7);
+    return `${base}${suffix}`;
+  }
+
   async signup(data: {
-    username: string;
     email: string;
     password: string;
     firstName?: string;
     lastName?: string;
   }) {
-    const existingUser = await this.keycloak.findPlatformUserByUsername(data.username);
-    if (existingUser) {
-      throw new ConflictException('Username already taken');
-    }
-
     const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
     if (existingEmail) {
       throw new ConflictException('Email already registered');
     }
 
+    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+
     let keycloakId: string;
     try {
-      keycloakId = await this.keycloak.createPlatformUser(data);
+      keycloakId = await this.keycloak.createPlatformUser({ ...data, username });
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to create account: ${err.message}`);
     }
@@ -48,16 +56,19 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         id: keycloakId,
-        username: data.username,
+        username,
         email: data.email,
         role: 'USER',
       },
     });
 
+    const displayName = data.firstName || data.email.split('@')[0];
+    const teamSlug = `personal-${username}-${keycloakId.slice(0, 8)}`;
+
     const team = await this.prisma.team.create({
       data: {
-        name: `${data.username}'s Team`,
-        slug: `personal-${data.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        name: `${displayName}'s Team`,
+        slug: teamSlug,
         personalForUserId: user.id,
         members: { create: { userId: user.id, role: 'OWNER' } },
       },
@@ -68,9 +79,9 @@ export class AuthService {
       data: { activeTeamId: team.id },
     });
 
-    this.email.sendWelcome(data.email, data.username).catch(() => {});
+    this.email.sendWelcome(data.email, displayName).catch(() => {});
 
-    return this.login(data.username, data.password);
+    return this.login(data.email, data.password);
   }
 
   async ensureUserProfile(sub: string, email: string, username: string) {
@@ -110,7 +121,7 @@ export class AuthService {
   }
 
   async login(
-    username: string,
+    email: string,
     password: string,
     meta?: { ipAddress?: string; userAgent?: string },
   ) {
@@ -122,7 +133,7 @@ export class AuthService {
     const params = new URLSearchParams({
       grant_type: 'password',
       client_id: clientId!,
-      username,
+      username: email,
       password,
     });
 
@@ -134,7 +145,7 @@ export class AuthService {
       );
 
       const user = await this.prisma.user.findFirst({
-        where: { OR: [{ username }, { email: username }] },
+        where: { email },
         select: { email: true, username: true },
       });
       if (user?.email) {

@@ -15,7 +15,6 @@ import { Database } from 'lucide-react';
 export default function SignupPage() {
   const router = useRouter();
   const [form, setForm] = useState({
-    username: '',
     email: '',
     password: '',
     firstName: '',
@@ -79,18 +78,6 @@ export default function SignupPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
-              value={form.username}
-              onChange={(e) => update('username', e.target.value)}
-              placeholder="johndoe"
-              required
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
@@ -99,6 +86,7 @@ export default function SignupPage() {
               onChange={(e) => update('email', e.target.value)}
               placeholder="john@example.com"
               required
+              autoFocus
             />
           </div>
 

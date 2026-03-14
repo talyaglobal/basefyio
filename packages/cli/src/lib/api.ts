@@ -59,13 +59,12 @@ export class ApiClient {
   }
 
   // Auth endpoints
-  async login(username: string, password: string) {
-    const { data } = await this.client.post('/api/auth/login', { username, password });
+  async login(email: string, password: string) {
+    const { data } = await this.client.post('/api/auth/login', { email, password });
     return data;
   }
 
   async signup(userData: {
-    username: string;
     email: string;
     password: string;
     firstName?: string;
@@ -103,7 +102,7 @@ export class ApiClient {
   }
 
   // SQL endpoints
-  async executeSQL(projectId: string, query: string) {
+  async executeSQL(projectId: string, query: string): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
     const { data } = await this.client.post('/api/sql/execute', {
       projectId,
       query,

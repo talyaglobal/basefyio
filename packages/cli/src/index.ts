@@ -115,6 +115,22 @@ db.command('dump')
     await dbDump(options);
   });
 
+db.command('diff')
+  .description('Show schema differences between local Prisma schema and remote database')
+  .action(async () => {
+    const { dbDiff } = await import('./commands/db.js');
+    await dbDiff();
+  });
+
+db.command('execute')
+  .description('Execute a SQL file or inline query against the project database')
+  .option('-f, --file <path>', 'SQL file to execute')
+  .option('-q, --query <sql>', 'SQL query to run directly')
+  .action(async (options) => {
+    const { dbExecute } = await import('./commands/db.js');
+    await dbExecute(options);
+  });
+
 // ── Inspect ─────────────────────────────────────────────────
 
 program
@@ -147,6 +163,60 @@ gen.command('client')
   .action(async (options) => {
     const { genClient } = await import('./commands/gen.js');
     await genClient(options);
+  });
+
+// ── Migrations ──────────────────────────────────────────────
+
+const migration = program
+  .command('migration')
+  .alias('migrate')
+  .description('Manage database migrations');
+
+migration
+  .command('new <name>')
+  .description('Create a new migration file')
+  .action(async (name) => {
+    const { migrationNew } = await import('./commands/migration.js');
+    await migrationNew(name);
+  });
+
+migration
+  .command('up')
+  .description('Apply pending migrations')
+  .option('-s, --step <n>', 'Apply at most N migrations')
+  .option('--dry-run', 'Preview without applying')
+  .action(async (options) => {
+    const { migrationUp } = await import('./commands/migration.js');
+    await migrationUp(options);
+  });
+
+migration
+  .command('down')
+  .description('Rollback the last applied migration')
+  .option('-s, --step <n>', 'Roll back N migrations (default: 1)')
+  .option('--dry-run', 'Preview without rolling back')
+  .action(async (options) => {
+    const { migrationDown } = await import('./commands/migration.js');
+    await migrationDown(options);
+  });
+
+migration
+  .command('status')
+  .alias('list')
+  .description('Show applied and pending migrations')
+  .action(async () => {
+    const { migrationStatus } = await import('./commands/migration.js');
+    await migrationStatus();
+  });
+
+// ── Top-level shortcuts ──────────────────────────────────────
+
+program
+  .command('push')
+  .description('Shortcut for: kb db push')
+  .action(async () => {
+    const { dbPush } = await import('./commands/db.js');
+    await dbPush();
   });
 
 // ── Logs ────────────────────────────────────────────────────

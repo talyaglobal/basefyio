@@ -29,18 +29,34 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureRealmTokenLifespan();
   }
 
+  private generateUsername(firstName?: string, lastName?: string, email?: string): string {
+    let base: string;
+    if (firstName || lastName) {
+      base = `${firstName || ''}${lastName || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+    } else {
+      base = (email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    if (!base) base = 'user';
+    const suffix = Math.random().toString(36).substring(2, 7);
+    return `${base}${suffix}`;
+  }
+
   private async ensureRealmTokenLifespan() {
     try {
       const realm = await this.client.realms.findOne({ realm: 'master' });
+      const updates: Record<string, unknown> = {};
       if (realm && realm.accessTokenLifespan && realm.accessTokenLifespan < 1800) {
-        await this.client.realms.update(
-          { realm: 'master' },
-          { accessTokenLifespan: 1800 },
-        );
-        this.logger.log('Master realm accessTokenLifespan updated to 1800s (30min)');
+        updates.accessTokenLifespan = 1800;
+      }
+      if (realm && !realm.loginWithEmailAllowed) {
+        updates.loginWithEmailAllowed = true;
+      }
+      if (Object.keys(updates).length > 0) {
+        await this.client.realms.update({ realm: 'master' }, updates);
+        this.logger.log('Master realm settings updated');
       }
     } catch (err) {
-      this.logger.warn('Could not update realm token lifespan', err);
+      this.logger.warn('Could not update realm settings', err);
     }
   }
 
@@ -138,24 +154,27 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createUser(
     realmName: string,
-    data: { username: string; email: string; password: string; firstName?: string; lastName?: string },
+    data: { email: string; password: string; firstName?: string; lastName?: string },
   ) {
     await this.ensureAuth();
 
+    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+
     await this.client.users.create({
       realm: realmName,
-      username: data.username,
+      username,
       email: data.email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       enabled: true,
+      emailVerified: true,
       credentials: [
         { type: 'password', value: data.password, temporary: false },
       ],
     });
 
-    this.logger.log(`User "${data.username}" created in realm "${realmName}"`);
-    return { message: `User "${data.username}" created` };
+    this.logger.log(`User "${username}" created in realm "${realmName}"`);
+    return { message: `User created in realm` };
   }
 
   async deleteUser(realmName: string, userId: string) {

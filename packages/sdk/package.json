@@ -1,6 +1,6 @@
 {
   "name": "kolaybase-js",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Kolaybase JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -47,7 +47,5 @@
     "backend-as-a-service"
   ],
   "license": "MIT",
-  "dependencies": {
-    "kolaybase-cli": "^0.2.0"
-  }
+  "dependencies": {}
 }

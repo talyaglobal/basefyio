@@ -24,7 +24,7 @@ export class AuthController {
       (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
       req.ip;
     const userAgent = req.headers['user-agent'];
-    return this.authService.login(dto.username, dto.password, {
+    return this.authService.login(dto.email, dto.password, {
       ipAddress,
       userAgent,
     });

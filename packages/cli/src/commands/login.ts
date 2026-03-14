@@ -18,9 +18,9 @@ export async function loginCommand(options: LoginOptions) {
   const answers = await inquirer.prompt([
     {
       type: 'input',
-      name: 'username',
-      message: 'Username:',
-      validate: (v: string) => v.length > 0 || 'Required',
+      name: 'email',
+      message: 'Email:',
+      validate: (v: string) => (v.includes('@') && v.length > 3) || 'Please enter a valid email',
     },
     {
       type: 'password',
@@ -34,15 +34,15 @@ export async function loginCommand(options: LoginOptions) {
   const spinner = createSpinner('Authenticating…');
 
   try {
-    const data = await apiClient.login(answers.username, answers.password);
+    const data = await apiClient.login(answers.email, answers.password);
 
     setAccessToken(data.accessToken);
     setRefreshToken(data.refreshToken);
-    setUserConfig({ username: answers.username });
+    setUserConfig({ email: answers.email });
 
     spinner.succeed('Logged in');
     console.log();
-    success(`Welcome, ${chalk.cyan(answers.username)}`);
+    success(`Welcome, ${chalk.cyan(answers.email)}`);
     console.log(chalk.gray('  Run  kb init  to create a project or  kb link  to connect to one'));
   } catch (err) {
     spinner.fail('Authentication failed');

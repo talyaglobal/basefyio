@@ -48,11 +48,11 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
     }
   }
 
-  async function handleDelete(userId: string, username: string) {
-    if (!confirm(`Delete user "${username}"?`)) return;
+  async function handleDelete(userId: string, email: string) {
+    if (!confirm(`Delete user "${email}"?`)) return;
     try {
       await api.projects.deleteRealmUser(projectId, userId);
-      toast.success(`User "${username}" deleted`);
+      toast.success(`User deleted`);
       loadAll();
     } catch (err: any) {
       toast.error(err.message);
@@ -126,7 +126,6 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2 text-left font-medium">Username</th>
                 <th className="px-4 py-2 text-left font-medium">Email</th>
                 <th className="px-4 py-2 text-left font-medium">Name</th>
                 <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -136,8 +135,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
-                  <td className="px-4 py-2 font-medium">{u.username}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{u.email}</td>
+                  <td className="px-4 py-2 font-medium">{u.email}</td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
                   </td>
@@ -151,7 +149,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive"
-                      onClick={() => handleDelete(u.id, u.username)}
+                      onClick={() => handleDelete(u.id, u.email)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -185,7 +183,6 @@ function CreateUserDialog({
   onCreated: () => void;
 }) {
   const [form, setForm] = useState({
-    username: '',
     email: '',
     password: '',
     firstName: '',
@@ -202,8 +199,8 @@ function CreateUserDialog({
     setSaving(true);
     try {
       await api.projects.createRealmUser(projectId, form);
-      toast.success(`User "${form.username}" created`);
-      setForm({ username: '', email: '', password: '', firstName: '', lastName: '' });
+      toast.success(`User created`);
+      setForm({ email: '', password: '', firstName: '', lastName: '' });
       onOpenChange(false);
       onCreated();
     } catch (err: any) {
@@ -232,10 +229,6 @@ function CreateUserDialog({
               <Label htmlFor="cu-last">Last Name</Label>
               <Input id="cu-last" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} />
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cu-user">Username *</Label>
-            <Input id="cu-user" value={form.username} onChange={(e) => update('username', e.target.value)} required />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cu-email">Email *</Label>

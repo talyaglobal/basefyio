@@ -44,7 +44,7 @@ export class ProjectAuthController {
   @Post('users')
   async createUser(
     @Param('projectId') projectId: string,
-    @Body() body: { username: string; email: string; password: string; firstName?: string; lastName?: string },
+    @Body() body: { email: string; password: string; firstName?: string; lastName?: string },
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
