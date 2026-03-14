@@ -29,7 +29,10 @@ export async function dbPush() {
 
     if (!schemaPath) {
       spinner.fail('No schema file found');
-      error('Could not find schema.prisma, schema.sql, or migrations directory');
+      error('Could not find prisma/schema.prisma, db/schema.sql, or schema.sql');
+      console.log('');
+      console.log('  To push SQL directly use:  kb db execute --file <file>');
+      console.log('  To apply migrations use:   kb migration up');
       process.exit(1);
     }
 
@@ -439,15 +442,14 @@ async function findSchemaFile(): Promise<string | null> {
     'prisma/schema.prisma',
     'db/schema.sql',
     'schema.sql',
-    'migrations',
   ];
 
   for (const p of paths) {
     try {
-      await fs.access(p);
-      return p;
+      const stat = await fs.stat(p);
+      if (stat.isFile()) return p;
     } catch {
-      // Continue searching
+      // not found, continue
     }
   }
 
