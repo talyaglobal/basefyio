@@ -79,6 +79,13 @@ export class ProjectAuthConfigService {
       result[field] = config[field] ?? null;
     }
 
+    result.googleEnabled = config.googleEnabled ?? false;
+    result.googleClientId = config.googleClientId ?? null;
+    result.googleClientSecret = config.googleClientSecret ? '••••••••' : null;
+    result.githubEnabled = config.githubEnabled ?? false;
+    result.githubClientId = config.githubClientId ?? null;
+    result.githubClientSecret = config.githubClientSecret ? '••••••••' : null;
+
     return result;
   }
 }

@@ -327,6 +327,17 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    getProviders(projectId: string) {
+      return request<{ callbackUrls: Record<string, string>; providers: any[] }>(
+        `/projects/${projectId}/auth/providers`,
+      );
+    },
+    saveProvider(projectId: string, provider: string, data: { clientId: string; clientSecret?: string; enabled: boolean }) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/providers/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
   },
 
   sql: {

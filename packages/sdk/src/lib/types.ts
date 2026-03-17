@@ -110,6 +110,13 @@ export interface InviteUserResult {
   message: string;
 }
 
+export interface OAuthRedirectResult {
+  url: string;
+  provider: string;
+}
+
+export type OAuthProvider = 'google' | 'github';
+
 export type AuthChangeEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED' | 'EMAIL_VERIFIED' | 'EMAIL_CHANGED';
 export type AuthChangeListener = (event: AuthChangeEvent, session: Session | null) => void;
 

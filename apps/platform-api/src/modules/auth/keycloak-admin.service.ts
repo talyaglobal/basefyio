@@ -319,6 +319,74 @@ export class KeycloakAdminService implements OnModuleInit {
     };
   }
 
+  async upsertIdentityProvider(
+    realmName: string,
+    provider: 'google' | 'github',
+    clientId: string,
+    clientSecret: string,
+    redirectUri: string,
+  ) {
+    await this.ensureAuth();
+
+    const alias = provider;
+    const providerId = provider === 'github' ? 'github' : 'google';
+
+    const existing = await this.client.identityProviders.findOne({ realm: realmName, alias })
+      .catch(() => null);
+
+    const config: Record<string, string> = {
+      clientId,
+      clientSecret,
+      defaultScope: provider === 'google' ? 'openid email profile' : 'user:email',
+    };
+
+    if (existing) {
+      await this.client.identityProviders.update(
+        { realm: realmName, alias },
+        {
+          alias,
+          providerId,
+          enabled: true,
+          trustEmail: true,
+          firstBrokerLoginFlowAlias: 'first broker login',
+          config,
+        },
+      );
+      this.logger.log(`Updated ${provider} identity provider in realm "${realmName}"`);
+    } else {
+      await this.client.identityProviders.create({
+        realm: realmName,
+        alias,
+        providerId,
+        enabled: true,
+        trustEmail: true,
+        firstBrokerLoginFlowAlias: 'first broker login',
+        config,
+      });
+      this.logger.log(`Created ${provider} identity provider in realm "${realmName}"`);
+    }
+  }
+
+  async deleteIdentityProvider(realmName: string, provider: 'google' | 'github') {
+    await this.ensureAuth();
+    try {
+      await this.client.identityProviders.del({ realm: realmName, alias: provider });
+      this.logger.log(`Deleted ${provider} identity provider from realm "${realmName}"`);
+    } catch {
+      // not found is fine
+    }
+  }
+
+  async listIdentityProviders(realmName: string) {
+    await this.ensureAuth();
+    const providers = await this.client.identityProviders.find({ realm: realmName });
+    return providers.map((p) => ({
+      alias: p.alias,
+      providerId: p.providerId,
+      enabled: p.enabled,
+    }));
+  }
+
   async getRealmInfo(realmName: string) {
     await this.ensureAuth();
     const realm = await this.client.realms.findOne({ realm: realmName });

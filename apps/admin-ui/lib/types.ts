@@ -152,6 +152,12 @@ export interface ProjectAuthConfig {
   changeEmailBody: string | null;
   reauthSubject: string | null;
   reauthBody: string | null;
+  googleEnabled: boolean;
+  googleClientId: string | null;
+  googleClientSecret: string | null;
+  githubEnabled: boolean;
+  githubClientId: string | null;
+  githubClientSecret: string | null;
 }
 
 export interface ConnectionStrings {

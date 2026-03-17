@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
@@ -24,6 +25,7 @@ export class ProjectAuthController {
     private readonly projectsService: ProjectsService,
     private readonly keycloak: KeycloakAdminService,
     private readonly authConfigService: ProjectAuthConfigService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Get()
@@ -81,5 +83,62 @@ export class ProjectAuthController {
   ) {
     await this.projectsService.findOne(projectId, user?.sub);
     return this.authConfigService.update(projectId, body);
+  }
+
+  @Put('providers/:provider')
+  async saveProvider(
+    @Param('projectId') projectId: string,
+    @Param('provider') provider: 'google' | 'github',
+    @Body() body: { clientId: string; clientSecret?: string; enabled: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const publicApiUrl = this.configService.get<string>('publicApiUrl');
+    const redirectUri = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+
+    const enabledField = provider === 'google' ? 'googleEnabled' : 'githubEnabled';
+    const clientIdField = provider === 'google' ? 'googleClientId' : 'githubClientId';
+    const secretField = provider === 'google' ? 'googleClientSecret' : 'githubClientSecret';
+
+    const updateData: Record<string, any> = {
+      [enabledField]: body.enabled,
+      [clientIdField]: body.clientId,
+    };
+    if (body.clientSecret) {
+      updateData[secretField] = body.clientSecret;
+    }
+
+    const updated = await this.authConfigService.update(projectId, updateData);
+
+    if (body.enabled && body.clientId) {
+      const rawCfg = await this.authConfigService.getRaw(projectId);
+      const secret = (rawCfg as any)[secretField];
+      if (secret) {
+        await this.keycloak.upsertIdentityProvider(
+          project.keycloakRealm, provider, body.clientId, secret, redirectUri,
+        );
+      }
+    } else if (!body.enabled) {
+      await this.keycloak.deleteIdentityProvider(project.keycloakRealm, provider);
+    }
+
+    return updated;
+  }
+
+  @Get('providers')
+  async listProviders(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const publicApiUrl = this.configService.get<string>('publicApiUrl');
+
+    return {
+      callbackUrls: {
+        google: `${publicApiUrl}/rest/v1/auth/callback/${projectId}/google`,
+        github: `${publicApiUrl}/rest/v1/auth/callback/${projectId}/github`,
+      },
+      providers: await this.keycloak.listIdentityProviders(project.keycloakRealm),
+    };
   }
 }

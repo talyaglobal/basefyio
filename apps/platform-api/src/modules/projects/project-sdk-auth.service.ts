@@ -298,6 +298,68 @@ export class ProjectSdkAuthService {
     return { message: `Invitation sent to ${email}` };
   }
 
+  /* ───────── OAuth Provider Sign In ───────── */
+  async getOAuthRedirectUrl(projectId: string, provider: string, redirectTo?: string) {
+    const project = await this.getProject(projectId);
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+
+    const stateData = JSON.stringify({
+      redirectTo: redirectTo || '/',
+    });
+    const state = Buffer.from(stateData).toString('base64url');
+
+    const authUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/auth`;
+    const params = new URLSearchParams({
+      client_id: project.anonKey,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: callbackUrl,
+      state,
+      kc_idp_hint: provider,
+    });
+
+    return { url: `${authUrl}?${params.toString()}`, provider };
+  }
+
+  async handleOAuthCallback(projectId: string, provider: string, code: string, state: string) {
+    const project = await this.getProject(projectId);
+    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
+    const { redirectTo } = stateData;
+
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+    const tokenUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/token`;
+
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: project.anonKey,
+      code,
+      redirect_uri: callbackUrl,
+    });
+
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        tokenType: data.token_type,
+        redirectTo,
+      };
+    } catch (err: any) {
+      this.logger.error(`OAuth callback failed: ${err.message}`);
+      throw new InternalServerErrorException('OAuth authentication failed');
+    }
+  }
+
   /* ───────── Refresh & Me ───────── */
   async refresh(projectId: string, refreshToken: string) {
     const project = await this.getProject(projectId);

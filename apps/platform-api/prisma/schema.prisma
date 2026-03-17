@@ -147,6 +147,12 @@ model ProjectAuthConfig {
   changeEmailBody       String? @map("change_email_body") @db.Text
   reauthSubject         String? @map("reauth_subject")
   reauthBody            String? @map("reauth_body") @db.Text
+  googleEnabled         Boolean @default(false) @map("google_enabled")
+  googleClientId        String? @map("google_client_id")
+  googleClientSecret    String? @map("google_client_secret")
+  githubEnabled         Boolean @default(false) @map("github_enabled")
+  githubClientId        String? @map("github_client_id")
+  githubClientSecret    String? @map("github_client_secret")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

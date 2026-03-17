@@ -18,6 +18,8 @@ import type {
   ReauthResult,
   ReauthVerifyResult,
   InviteUserResult,
+  OAuthRedirectResult,
+  OAuthProvider,
 } from '../lib/types.js';
 
 export class AuthClient {
@@ -181,6 +183,49 @@ export class AuthClient {
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
     }
+  }
+
+  async signInWithProvider(
+    provider: OAuthProvider,
+    options?: { redirectTo?: string },
+  ): Promise<KolaybaseResponse<OAuthRedirectResult>> {
+    try {
+      const params = new URLSearchParams();
+      if (options?.redirectTo) params.set('redirect_to', options.redirectTo);
+      const qs = params.toString();
+      const url = `/rest/v1/auth/signin/${provider}${qs ? `?${qs}` : ''}`;
+      const data = await this.http.json<OAuthRedirectResult>(url);
+      if (typeof window !== 'undefined' && data.url) {
+        window.location.href = data.url;
+      }
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  handleProviderCallback(): AuthTokens | null {
+    if (typeof window === 'undefined') return null;
+    const hash = window.location.hash.substring(1);
+    if (!hash) return null;
+
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    const expiresIn = params.get('expires_in');
+
+    if (!accessToken || !refreshToken) return null;
+
+    const tokens: AuthTokens = {
+      accessToken,
+      refreshToken,
+      expiresIn: parseInt(expiresIn || '300', 10),
+      tokenType: params.get('token_type') || 'Bearer',
+    };
+
+    this.setSession(tokens);
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return tokens;
   }
 
   async getUser(): Promise<KolaybaseResponse<User>> {

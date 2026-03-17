@@ -2,14 +2,16 @@ import {
   Controller,
   Post,
   Get,
+  Param,
   Body,
   Req,
+  Res,
   Query,
   Headers,
   UseGuards,
   ForbiddenException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 
@@ -179,6 +181,36 @@ export class ProjectSdkAuthController {
     const token = auth?.replace('Bearer ', '');
     if (!token) throw new ForbiddenException('Missing Authorization header');
     return this.sdkAuth.me(projectId, token);
+  }
+
+  @Get('signin/:provider')
+  async signinWithProvider(
+    @Req() req: Request,
+    @Param('provider') provider: string,
+    @Query('redirect_to') redirectTo?: string,
+  ) {
+    const { projectId } = this.getPayload(req);
+    return this.sdkAuth.getOAuthRedirectUrl(projectId, provider, redirectTo);
+  }
+
+  @UseGuards()
+  @Get('callback/:projectId/:provider')
+  async oauthCallback(
+    @Res() res: Response,
+    @Param('projectId') projectId: string,
+    @Param('provider') provider: string,
+    @Query('code') code: string,
+    @Query('state') state: string,
+  ) {
+    const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
+    const params = new URLSearchParams({
+      access_token: result.accessToken,
+      refresh_token: result.refreshToken,
+      expires_in: String(result.expiresIn),
+      token_type: result.tokenType || 'Bearer',
+      provider,
+    });
+    res.redirect(`${result.redirectTo}#${params.toString()}`);
   }
 
   private getPayload(req: Request): ApiKeyPayload {
