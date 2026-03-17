@@ -27,6 +27,7 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.authenticate();
     this.logger.log('Keycloak admin client initialized');
     await this.ensureRealmTokenLifespan();
+    await this.ensureAutoLinkFlow('master');
     await this.ensurePlatformOAuthClient();
     await this.ensurePlatformIdentityProviders();
   }
@@ -60,6 +61,53 @@ export class KeycloakAdminService implements OnModuleInit {
     } catch (err) {
       this.logger.warn('Could not update realm settings', err);
     }
+  }
+
+  private static AUTO_LINK_FLOW_ALIAS = 'auto-link-broker';
+
+  async ensureAutoLinkFlow(realmName: string): Promise<string> {
+    const alias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
+    try {
+      const flows = await this.client.authenticationManagement.getFlows({
+        realm: realmName,
+      });
+      if (flows.find((f: any) => f.alias === alias)) return alias;
+
+      await this.client.authenticationManagement.createFlow({
+        realm: realmName,
+        alias,
+        description: 'Auto-link brokered accounts to existing accounts with same email',
+        providerId: 'basic-flow',
+        topLevel: true,
+        builtIn: false,
+      });
+
+      await this.client.authenticationManagement.addExecution(
+        { realm: realmName, flow: alias },
+        { providerId: 'idp-create-user-if-unique' },
+      );
+
+      await this.client.authenticationManagement.addExecution(
+        { realm: realmName, flow: alias },
+        { providerId: 'idp-auto-link' },
+      );
+
+      const executions = await this.client.authenticationManagement.getExecutions({
+        realm: realmName,
+        flow: alias,
+      });
+      for (const exec of executions) {
+        await this.client.authenticationManagement.updateExecution(
+          { realm: realmName, flow: alias },
+          { ...exec, requirement: 'ALTERNATIVE' },
+        );
+      }
+
+      this.logger.log(`Auto-link broker flow created for realm "${realmName}"`);
+    } catch (err: any) {
+      this.logger.warn(`Could not ensure auto-link flow for "${realmName}": ${err.message}`);
+    }
+    return alias;
   }
 
   private async ensurePlatformOAuthClient() {
@@ -101,6 +149,7 @@ export class KeycloakAdminService implements OnModuleInit {
   }
 
   private async ensurePlatformIdentityProviders() {
+    const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
     const providers: { alias: string; providerId: string; envId: string; envSecret: string; scope: string }[] = [
       {
         alias: 'google',
@@ -133,7 +182,7 @@ export class KeycloakAdminService implements OnModuleInit {
           providerId: p.providerId,
           enabled: true,
           trustEmail: true,
-          firstBrokerLoginFlowAlias: 'first broker login',
+          firstBrokerLoginFlowAlias: flowAlias,
           config: { clientId, clientSecret, defaultScope: p.scope },
         };
 
@@ -434,9 +483,11 @@ export class KeycloakAdminService implements OnModuleInit {
     redirectUri: string,
   ) {
     await this.ensureAuth();
+    await this.ensureAutoLinkFlow(realmName);
 
     const alias = provider;
     const providerId = provider === 'github' ? 'github' : 'google';
+    const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
 
     const existing = await this.client.identityProviders.findOne({ realm: realmName, alias })
       .catch(() => null);
@@ -455,7 +506,7 @@ export class KeycloakAdminService implements OnModuleInit {
           providerId,
           enabled: true,
           trustEmail: true,
-          firstBrokerLoginFlowAlias: 'first broker login',
+          firstBrokerLoginFlowAlias: flowAlias,
           config,
         },
       );
@@ -467,7 +518,7 @@ export class KeycloakAdminService implements OnModuleInit {
         providerId,
         enabled: true,
         trustEmail: true,
-        firstBrokerLoginFlowAlias: 'first broker login',
+        firstBrokerLoginFlowAlias: flowAlias,
         config,
       });
       this.logger.log(`Created ${provider} identity provider in realm "${realmName}"`);
