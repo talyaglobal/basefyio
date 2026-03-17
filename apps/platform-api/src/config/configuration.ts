@@ -48,4 +48,11 @@ export default () => ({
     fromEmail: process.env.RESEND_FROM_EMAIL || 'Kolaybase <noreply@kolaybase.com>',
     replyTo: process.env.RESEND_REPLY_TO || 'support@kolaybase.com',
   },
+
+  platformOAuth: {
+    googleClientId: process.env.PLATFORM_GOOGLE_CLIENT_ID || '',
+    googleClientSecret: process.env.PLATFORM_GOOGLE_CLIENT_SECRET || '',
+    githubClientId: process.env.PLATFORM_GITHUB_CLIENT_ID || '',
+    githubClientSecret: process.env.PLATFORM_GITHUB_CLIENT_SECRET || '',
+  },
 });

@@ -27,6 +27,8 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.authenticate();
     this.logger.log('Keycloak admin client initialized');
     await this.ensureRealmTokenLifespan();
+    await this.ensurePlatformOAuthClient();
+    await this.ensurePlatformIdentityProviders();
   }
 
   private generateUsername(firstName?: string, lastName?: string, email?: string): string {
@@ -58,6 +60,111 @@ export class KeycloakAdminService implements OnModuleInit {
     } catch (err) {
       this.logger.warn('Could not update realm settings', err);
     }
+  }
+
+  private async ensurePlatformOAuthClient() {
+    try {
+      const clientId = 'kolaybase-platform';
+      const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
+      const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
+      const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+      const existing = await this.client.clients.find({ realm: 'master', clientId });
+      if (existing.length > 0) {
+        await this.client.clients.update(
+          { realm: 'master', id: existing[0].id! },
+          {
+            clientId,
+            publicClient: true,
+            standardFlowEnabled: true,
+            directAccessGrantsEnabled: false,
+            redirectUris: [callbackUrl],
+            webOrigins: [appUrl, publicApiUrl, '+'],
+          },
+        );
+        this.logger.log('Platform OAuth client updated');
+      } else {
+        await this.client.clients.create({
+          realm: 'master',
+          clientId,
+          publicClient: true,
+          standardFlowEnabled: true,
+          directAccessGrantsEnabled: false,
+          redirectUris: [callbackUrl],
+          webOrigins: [appUrl, publicApiUrl, '+'],
+        });
+        this.logger.log('Platform OAuth client created');
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not ensure platform OAuth client: ${err.message}`);
+    }
+  }
+
+  private async ensurePlatformIdentityProviders() {
+    const providers: { alias: string; providerId: string; envId: string; envSecret: string; scope: string }[] = [
+      {
+        alias: 'google',
+        providerId: 'google',
+        envId: 'platformOAuth.googleClientId',
+        envSecret: 'platformOAuth.googleClientSecret',
+        scope: 'openid email profile',
+      },
+      {
+        alias: 'github',
+        providerId: 'github',
+        envId: 'platformOAuth.githubClientId',
+        envSecret: 'platformOAuth.githubClientSecret',
+        scope: 'user:email',
+      },
+    ];
+
+    for (const p of providers) {
+      const clientId = this.config.get<string>(p.envId);
+      const clientSecret = this.config.get<string>(p.envSecret);
+      if (!clientId || !clientSecret) continue;
+
+      try {
+        const existing = await this.client.identityProviders
+          .findOne({ realm: 'master', alias: p.alias })
+          .catch(() => null);
+
+        const idpConfig = {
+          alias: p.alias,
+          providerId: p.providerId,
+          enabled: true,
+          trustEmail: true,
+          firstBrokerLoginFlowAlias: 'first broker login',
+          config: { clientId, clientSecret, defaultScope: p.scope },
+        };
+
+        if (existing) {
+          await this.client.identityProviders.update(
+            { realm: 'master', alias: p.alias },
+            idpConfig,
+          );
+          this.logger.log(`Platform ${p.alias} identity provider updated`);
+        } else {
+          await this.client.identityProviders.create({
+            realm: 'master',
+            ...idpConfig,
+          });
+          this.logger.log(`Platform ${p.alias} identity provider created`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not configure platform ${p.alias} IdP: ${err.message}`);
+      }
+    }
+  }
+
+  getPlatformOAuthClientId(): string {
+    return 'kolaybase-platform';
+  }
+
+  getEnabledPlatformProviders(): string[] {
+    const result: string[] = [];
+    if (this.config.get<string>('platformOAuth.googleClientId')) result.push('google');
+    if (this.config.get<string>('platformOAuth.githubClientId')) result.push('github');
+    return result;
   }
 
   private async authenticate() {

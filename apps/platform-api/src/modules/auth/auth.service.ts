@@ -230,4 +230,63 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
+
+  getOAuthRedirectUrl(provider: string, redirectTo?: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const state = Buffer.from(
+      JSON.stringify({ redirectTo: redirectTo || '/' }),
+    ).toString('base64url');
+
+    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
+    const params = new URLSearchParams({
+      client_id: platformClientId,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: callbackUrl,
+      state,
+      kc_idp_hint: provider,
+    });
+
+    return { url: `${authUrl}?${params.toString()}`, provider };
+  }
+
+  async handleOAuthCallback(code: string, state: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
+    const { redirectTo } = stateData;
+
+    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: platformClientId,
+      code,
+      redirect_uri: callbackUrl,
+    });
+
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        tokenType: data.token_type,
+        redirectTo,
+      };
+    } catch (err: any) {
+      throw new InternalServerErrorException('OAuth authentication failed');
+    }
+  }
 }

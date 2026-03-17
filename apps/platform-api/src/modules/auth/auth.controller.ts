@@ -1,6 +1,7 @@
-import { Controller, Post, Body, Get, UseGuards, Req } from '@nestjs/common';
-import { Request } from 'express';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { KeycloakAdminService } from './keycloak-admin.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -11,7 +12,10 @@ import {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly keycloak: KeycloakAdminService,
+  ) {}
 
   @Post('signup')
   async signup(@Body() dto: SignupDto) {
@@ -58,5 +62,40 @@ export class AuthController {
       body.currentPassword,
       body.newPassword,
     );
+  }
+
+  @Get('oauth/providers')
+  getOAuthProviders() {
+    return { providers: this.keycloak.getEnabledPlatformProviders() };
+  }
+
+  @Get('oauth/callback')
+  async oauthCallback(
+    @Res() res: Response,
+    @Query('code') code: string,
+    @Query('state') state: string,
+  ) {
+    const result = await this.authService.handleOAuthCallback(code, state);
+
+    const appUrl = result.redirectTo?.startsWith('http')
+      ? result.redirectTo
+      : `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}${result.redirectTo || '/login'}`;
+
+    const params = new URLSearchParams({
+      access_token: result.accessToken,
+      refresh_token: result.refreshToken,
+      expires_in: String(result.expiresIn),
+      token_type: result.tokenType || 'Bearer',
+    });
+
+    res.redirect(`${appUrl}#${params.toString()}`);
+  }
+
+  @Get('oauth/:provider')
+  getOAuthRedirect(
+    @Param('provider') provider: string,
+    @Query('redirect_to') redirectTo?: string,
+  ) {
+    return this.authService.getOAuthRedirectUrl(provider, redirectTo);
   }
 }

@@ -101,6 +101,13 @@ export const api = {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
     },
+    getOAuthProviders() {
+      return request<{ providers: string[] }>('/auth/oauth/providers');
+    },
+    getOAuthRedirect(provider: string, redirectTo?: string) {
+      const qs = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
+      return request<{ url: string; provider: string }>(`/auth/oauth/${provider}${qs}`);
+    },
   },
 
   teams: {
