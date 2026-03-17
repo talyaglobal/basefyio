@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -179,6 +180,26 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Invalid credentials');
     }
+  }
+
+  async changePassword(userId: string, email: string, currentPassword: string, newPassword: string) {
+    if (newPassword.length < 6) {
+      throw new BadRequestException('New password must be at least 6 characters');
+    }
+
+    try {
+      await this.login(email, currentPassword);
+    } catch {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    try {
+      await this.keycloak.resetPlatformUserPassword(userId, newPassword);
+    } catch (err: any) {
+      throw new InternalServerErrorException(`Failed to change password: ${err.message}`);
+    }
+
+    return { message: 'Password changed successfully' };
   }
 
   async refresh(refreshToken: string) {

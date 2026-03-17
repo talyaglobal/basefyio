@@ -13,6 +13,7 @@ import {
   Bell,
   ChevronDown,
   Database,
+  KeyRound,
   LogOut,
   MessageSquarePlus,
   Settings,
@@ -25,9 +26,10 @@ interface HeaderProps {
   user: UserInfo;
   activeTeamId: string | null;
   onTeamChange: (teamId: string) => void;
+  refreshKey?: number;
 }
 
-export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
+export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: HeaderProps) {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -37,7 +39,7 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
-  }, [activeTeamId]);
+  }, [activeTeamId, refreshKey]);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
 
@@ -152,21 +154,64 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
           </Button>
         )}
 
-        <div className="flex items-center gap-2 text-sm">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-            <User className="h-4 w-4 text-primary" />
-          </div>
-          <span className="hidden font-medium sm:inline">
-            {user.preferred_username || user.email}
-          </span>
-        </div>
-
-        <Button variant="ghost" size="icon" onClick={handleLogout}>
-          <LogOut className="h-4 w-4" />
-        </Button>
+        <UserMenu user={user} onLogout={handleLogout} />
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </header>
+  );
+}
+
+function UserMenu({ user, onLogout }: { user: UserInfo; onLogout: () => void }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+      >
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+          <User className="h-4 w-4 text-primary" />
+        </div>
+        <span className="hidden max-w-[120px] truncate font-medium sm:inline">
+          {user.email}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
+            <div className="border-b px-3 py-2.5">
+              <p className="truncate text-sm font-medium">{user.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {user.preferred_username}
+              </p>
+            </div>
+            <div className="p-1">
+              <button
+                onClick={() => { setOpen(false); router.push('/dashboard/account'); }}
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Account Settings
+              </button>
+            </div>
+            <div className="border-t p-1">
+              <button
+                onClick={() => { setOpen(false); onLogout(); }}
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

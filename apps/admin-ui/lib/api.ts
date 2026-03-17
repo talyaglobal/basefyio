@@ -94,6 +94,12 @@ export const api = {
     me() {
       return request<UserInfo>('/auth/me');
     },
+    changePassword(currentPassword: string, newPassword: string) {
+      return request<{ message: string }>('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+    },
   },
 
   teams: {

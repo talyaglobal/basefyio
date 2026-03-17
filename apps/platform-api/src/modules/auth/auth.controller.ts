@@ -45,4 +45,18 @@ export class AuthController {
     );
     return user;
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  async changePassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    return this.authService.changePassword(
+      user.sub,
+      user.email,
+      body.currentPassword,
+      body.newPassword,
+    );
+  }
 }

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { SqlResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, Trash2, Copy, Check } from 'lucide-react';
 
 interface SqlEditorProps {
   projectId: string;
@@ -16,6 +16,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function execute() {
     if (!query.trim()) return;
@@ -53,7 +54,16 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
           placeholder="SELECT * FROM ..."
           spellCheck={false}
         />
-        <div className="absolute bottom-3 right-3">
+        <div className="absolute bottom-3 right-3 flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setQuery(''); setResult(null); setError(null); }}
+            disabled={running || (!query && !result && !error)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear
+          </Button>
           <Button onClick={execute} disabled={running || !query.trim()} size="sm">
             {running ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -66,8 +76,21 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
       </div>
 
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
+        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          <span className="flex-1 whitespace-pre-wrap">{error}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+            onClick={() => {
+              navigator.clipboard.writeText(error);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            title="Copy error"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
         </div>
       )}
 

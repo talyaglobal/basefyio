@@ -220,6 +220,16 @@ export class KeycloakAdminService implements OnModuleInit {
     return users[0] || null;
   }
 
+  async resetPlatformUserPassword(userId: string, newPassword: string) {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm: 'master',
+      id: userId,
+      credential: { type: 'password', value: newPassword, temporary: false },
+    });
+    this.logger.log(`Password reset for platform user ${userId}`);
+  }
+
   async findPlatformUserByEmail(email: string) {
     await this.ensureAuth();
     const users = await this.client.users.find({

@@ -51,11 +51,21 @@ export function inviteTemplate(data: InviteData): string {
           </div>
         </div>
 
-        <div style="text-align: center; margin: 32px 0;">
-          <a href="${data.acceptUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff !important; text-decoration: none; padding: 14px 36px; border-radius: 10px; font-size: 15px; font-weight: 600; letter-spacing: 0.2px; mso-padding-alt: 14px 36px;">
-            ${ctaText}
-          </a>
-        </div>
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin: 32px auto;">
+          <tr>
+            <td align="center" bgcolor="#2563eb" style="border-radius: 10px;">
+              <!--[if mso]>
+              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${data.acceptUrl}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="21%" strokecolor="#2563eb" fillcolor="#2563eb">
+                <w:anchorlock/>
+                <center style="color:#ffffff;font-family:sans-serif;font-size:15px;font-weight:bold;">${ctaText}</center>
+              </v:roundrect>
+              <![endif]-->
+              <!--[if !mso]><!-->
+              <a href="${data.acceptUrl}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: 0.2px;">${ctaText}</a>
+              <!--<![endif]-->
+            </td>
+          </tr>
+        </table>
 
         <p class="text" style="text-align: center; font-size: 13px; color: #94a3b8;">
           ${footerText}
