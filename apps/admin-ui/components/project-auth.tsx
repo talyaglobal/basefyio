@@ -545,12 +545,18 @@ function EmailTab({
   config: ProjectAuthConfig;
   onSaved: (c: ProjectAuthConfig) => void;
 }) {
+  const [provider, setProvider] = useState(config.emailProvider || '');
   const [smtpHost, setSmtpHost] = useState(config.smtpHost || '');
   const [smtpPort, setSmtpPort] = useState(String(config.smtpPort || 587));
   const [smtpUser, setSmtpUser] = useState(config.smtpUser || '');
   const [smtpPass, setSmtpPass] = useState('');
   const [senderEmail, setSenderEmail] = useState(config.senderEmail || '');
   const [senderName, setSenderName] = useState(config.senderName || '');
+  const [resendApiKey, setResendApiKey] = useState('');
+  const [sendgridApiKey, setSendgridApiKey] = useState('');
+  const [sesAccessKey, setSesAccessKey] = useState('');
+  const [sesSecretKey, setSesSecretKey] = useState('');
+  const [sesRegion, setSesRegion] = useState(config.sesRegion || 'us-east-1');
   const [saving, setSaving] = useState(false);
 
   const [editingTemplate, setEditingTemplate] = useState<{
@@ -670,73 +676,162 @@ function EmailTab({
 
   return (
     <div className="space-y-6">
-      {/* SMTP Configuration */}
+      {/* Email Provider */}
       <div className="rounded-lg border p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <Server className="h-4 w-4 text-muted-foreground" />
-            SMTP Configuration
+            Email Provider
           </h3>
           <Badge variant="secondary">Optional</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          By default, emails are sent via Kolaybase&apos;s built-in email service (Resend).
-          Configure custom SMTP to send emails from your own domain.
+          By default, emails are sent via Kolaybase&apos;s built-in email service.
+          Configure a custom provider to send emails from your own domain.
         </p>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>SMTP Host</Label>
-            <Input placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>SMTP Port</Label>
-            <Input placeholder="587" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Username</Label>
-            <Input placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Password</Label>
-            <Input type="password" placeholder={config.smtpPass ? '••••••••  (saved)' : 'Enter password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Sender Email</Label>
-            <Input placeholder="noreply@yourapp.com" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Sender Name</Label>
-            <Input placeholder="My App" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
-          </div>
+        <div className="space-y-1.5">
+          <Label>Provider</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+          >
+            <option value="">Platform Default (Kolaybase)</option>
+            <option value="smtp">Custom SMTP</option>
+            <option value="resend">Resend</option>
+            <option value="sendgrid">SendGrid</option>
+            <option value="ses">Amazon SES</option>
+          </select>
         </div>
 
-        <Button
-          disabled={!smtpHost || saving}
-          onClick={async () => {
-            setSaving(true);
-            try {
-              const payload: Record<string, any> = {
-                smtpHost: smtpHost || null,
-                smtpPort: parseInt(smtpPort, 10) || 587,
-                smtpUser: smtpUser || null,
-                senderEmail: senderEmail || null,
-                senderName: senderName || null,
-              };
-              if (smtpPass) payload.smtpPass = smtpPass;
-              const updated = await api.projects.updateAuthConfig(projectId, payload);
-              onSaved(updated);
-              setSmtpPass('');
-              toast.success('SMTP settings saved');
-            } catch (err: any) {
-              toast.error(err.message);
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          {saving ? 'Saving...' : 'Save SMTP Settings'}
-        </Button>
+        {provider === 'smtp' && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>SMTP Host</Label>
+              <Input placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>SMTP Port</Label>
+              <Input placeholder="587" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Username</Label>
+              <Input placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Password</Label>
+              <Input type="password" placeholder={config.smtpPass ? '••••••••  (saved)' : 'Enter password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {provider === 'resend' && (
+          <div className="space-y-1.5">
+            <Label>Resend API Key</Label>
+            <Input type="password" placeholder={config.resendApiKey ? '••••••••  (saved)' : 're_xxxx...'} value={resendApiKey} onChange={(e) => setResendApiKey(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Get your API key from <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">resend.com/api-keys</a></p>
+          </div>
+        )}
+
+        {provider === 'sendgrid' && (
+          <div className="space-y-1.5">
+            <Label>SendGrid API Key</Label>
+            <Input type="password" placeholder={config.sendgridApiKey ? '••••••••  (saved)' : 'SG.xxxx...'} value={sendgridApiKey} onChange={(e) => setSendgridApiKey(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Get your API key from <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">SendGrid Settings</a></p>
+          </div>
+        )}
+
+        {provider === 'ses' && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Access Key</Label>
+              <Input type="password" placeholder={config.sesAccessKey ? '••••••••  (saved)' : 'AKIA...'} value={sesAccessKey} onChange={(e) => setSesAccessKey(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Secret Key</Label>
+              <Input type="password" placeholder={config.sesSecretKey ? '••••••••  (saved)' : 'Enter secret key'} value={sesSecretKey} onChange={(e) => setSesSecretKey(e.target.value)} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Region</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={sesRegion}
+                onChange={(e) => setSesRegion(e.target.value)}
+              >
+                <option value="us-east-1">US East (N. Virginia)</option>
+                <option value="us-east-2">US East (Ohio)</option>
+                <option value="us-west-2">US West (Oregon)</option>
+                <option value="eu-west-1">EU (Ireland)</option>
+                <option value="eu-central-1">EU (Frankfurt)</option>
+                <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+                <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {provider && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t">
+              <div className="space-y-1.5">
+                <Label>Sender Email</Label>
+                <Input placeholder="noreply@yourapp.com" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Sender Name</Label>
+                <Input placeholder="My App" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
+              </div>
+            </div>
+
+            <Button
+              disabled={saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  const payload: Record<string, any> = {
+                    emailProvider: provider || null,
+                    senderEmail: senderEmail || null,
+                    senderName: senderName || null,
+                  };
+                  if (provider === 'smtp') {
+                    payload.smtpHost = smtpHost || null;
+                    payload.smtpPort = parseInt(smtpPort, 10) || 587;
+                    payload.smtpUser = smtpUser || null;
+                    if (smtpPass) payload.smtpPass = smtpPass;
+                  }
+                  if (provider === 'resend' && resendApiKey) payload.resendApiKey = resendApiKey;
+                  if (provider === 'sendgrid' && sendgridApiKey) payload.sendgridApiKey = sendgridApiKey;
+                  if (provider === 'ses') {
+                    if (sesAccessKey) payload.sesAccessKey = sesAccessKey;
+                    if (sesSecretKey) payload.sesSecretKey = sesSecretKey;
+                    payload.sesRegion = sesRegion;
+                  }
+                  const updated = await api.projects.updateAuthConfig(projectId, payload);
+                  onSaved(updated);
+                  setSmtpPass(''); setResendApiKey(''); setSendgridApiKey('');
+                  setSesAccessKey(''); setSesSecretKey('');
+                  toast.success('Email provider settings saved');
+                } catch (err: any) {
+                  toast.error(err.message);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              {saving ? 'Saving...' : 'Save Email Settings'}
+            </Button>
+          </>
+        )}
+
+        {!provider && (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+            <Info className="h-4 w-4 shrink-0" />
+            <p>Emails are sent using Kolaybase&apos;s built-in service. Select a provider above to use your own.</p>
+          </div>
+        )}
       </div>
 
       {/* Email Templates */}

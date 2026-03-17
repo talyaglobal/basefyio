@@ -67,12 +67,18 @@ export class ProjectAuthConfigService {
       requireEmailVerify: config.requireEmailVerify,
       minPasswordLength: config.minPasswordLength,
       tokenExpirySeconds: config.tokenExpirySeconds,
+      emailProvider: config.emailProvider ?? null,
       smtpHost: config.smtpHost,
       smtpPort: config.smtpPort,
       smtpUser: config.smtpUser,
       smtpPass: config.smtpPass ? '••••••••' : null,
       senderEmail: config.senderEmail,
       senderName: config.senderName,
+      resendApiKey: config.resendApiKey ? '••••••••' : null,
+      sendgridApiKey: config.sendgridApiKey ? '••••••••' : null,
+      sesAccessKey: config.sesAccessKey ? '••••••••' : null,
+      sesSecretKey: config.sesSecretKey ? '••••••••' : null,
+      sesRegion: config.sesRegion ?? null,
     };
 
     for (const field of TEMPLATE_FIELDS) {

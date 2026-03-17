@@ -478,8 +478,10 @@ export class ProjectSdkAuthService {
     const resolvedSubject = this.applyVars(customSubject || DEFAULT_SUBJECTS[type], vars);
     const resolvedBody = customBody ? this.applyVars(customBody, vars) : null;
 
-    if (rawCfg.smtpHost) {
-      await this.sendViaSmtp(rawCfg, to, projectName, resolvedSubject, resolvedBody, type, extraVars);
+    const smtpOpts = this.resolveSmtpConfig(rawCfg);
+
+    if (smtpOpts) {
+      await this.sendViaSmtp(rawCfg, smtpOpts, to, projectName, resolvedSubject, resolvedBody, type, extraVars);
       return;
     }
 
@@ -491,15 +493,35 @@ export class ProjectSdkAuthService {
     await this.sendDefaultEmail(to, projectName, type, extraVars);
   }
 
+  private resolveSmtpConfig(rawCfg: any): { host: string; port: number; user: string; pass: string } | null {
+    const provider = rawCfg.emailProvider as string | null;
+
+    if (provider === 'resend' && rawCfg.resendApiKey) {
+      return { host: 'smtp.resend.com', port: 465, user: 'resend', pass: rawCfg.resendApiKey };
+    }
+    if (provider === 'sendgrid' && rawCfg.sendgridApiKey) {
+      return { host: 'smtp.sendgrid.net', port: 465, user: 'apikey', pass: rawCfg.sendgridApiKey };
+    }
+    if (provider === 'ses' && rawCfg.sesAccessKey && rawCfg.sesSecretKey) {
+      const region = rawCfg.sesRegion || 'us-east-1';
+      return { host: `email-smtp.${region}.amazonaws.com`, port: 465, user: rawCfg.sesAccessKey, pass: rawCfg.sesSecretKey };
+    }
+    if ((provider === 'smtp' || !provider) && rawCfg.smtpHost) {
+      return { host: rawCfg.smtpHost, port: rawCfg.smtpPort || 587, user: rawCfg.smtpUser, pass: rawCfg.smtpPass };
+    }
+    return null;
+  }
+
   private async sendViaSmtp(
-    rawCfg: any, to: string, projectName: string,
+    rawCfg: any, smtp: { host: string; port: number; user: string; pass: string },
+    to: string, projectName: string,
     subject: string, htmlBody: string | null, type: EmailType, vars: Record<string, string>,
   ) {
     const transporter = nodemailer.createTransport({
-      host: rawCfg.smtpHost,
-      port: rawCfg.smtpPort || 587,
-      secure: rawCfg.smtpPort === 465,
-      auth: rawCfg.smtpPass ? { user: rawCfg.smtpUser, pass: rawCfg.smtpPass } : undefined,
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.port === 465,
+      auth: smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined,
     } as nodemailer.TransportOptions);
 
     const from = rawCfg.senderEmail
