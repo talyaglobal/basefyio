@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { TableInfo, ColumnInfo, TableRows } from '@/lib/types';
+import type { TableInfo, ColumnInfo, TableRows, ForeignKeyInfo } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,8 @@ import {
   ChevronRight,
   Columns3,
   Key,
+  Link2,
+  MoreVertical,
   Pencil,
   Plus,
   RefreshCw,
@@ -31,6 +33,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const PG_TYPES = [
   { value: 'uuid', label: 'UUID' },
@@ -209,6 +217,7 @@ function AddColumnDialog({
 
 function ColumnSidePanel({
   columns,
+  tables,
   projectId,
   tableName,
   onClose,
@@ -216,6 +225,7 @@ function ColumnSidePanel({
   onAddColumn,
 }: {
   columns: ColumnInfo[];
+  tables: TableInfo[];
   projectId: string;
   tableName: string;
   onClose: () => void;
@@ -229,6 +239,24 @@ function ColumnSidePanel({
   const [defaultValue, setDefaultValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[]>([]);
+  const [fkLoading, setFkLoading] = useState(false);
+  const [addFkOpen, setAddFkOpen] = useState(false);
+
+  useEffect(() => {
+    api.projects.getForeignKeys(projectId, tableName).then(setForeignKeys).catch(() => setForeignKeys([]));
+  }, [projectId, tableName]);
+
+  async function reloadFks() {
+    setFkLoading(true);
+    try {
+      const fks = await api.projects.getForeignKeys(projectId, tableName);
+      setForeignKeys(fks);
+    } finally {
+      setFkLoading(false);
+    }
+  }
 
   function startEdit(col: ColumnInfo) {
     setEditingCol(col);
@@ -427,8 +455,204 @@ function ColumnSidePanel({
             ))}
           </div>
         )}
+
+        {/* Relations (Foreign Keys) */}
+        <div className="border-t mt-2 pt-3">
+          <div className="flex items-center justify-between px-3 mb-2">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Link2 className="h-4 w-4 text-muted-foreground" />
+              Relations
+            </div>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setAddFkOpen(true)} title="Add foreign key">
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="p-1 space-y-1 max-h-32 overflow-y-auto">
+            {fkLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : foreignKeys.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No foreign keys</p>
+            ) : (
+              foreignKeys.map((fk) => (
+                <div key={fk.constraintName} className="group flex items-center justify-between rounded-md px-3 py-2 text-xs hover:bg-accent">
+                  <span className="truncate">
+                    <span className="font-medium">{fk.columnName}</span>
+                    <span className="text-muted-foreground"> → </span>
+                    <span className="font-mono">{fk.foreignTableName}.{fk.foreignColumnName}</span>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                    onClick={async () => {
+                      try {
+                        await api.projects.deleteForeignKey(projectId, tableName, fk.constraintName);
+                        toast.success('Foreign key removed');
+                        reloadFks();
+                        onUpdated();
+                      } catch (err: any) {
+                        toast.error(err.message);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
+
+      <AddForeignKeyDialog
+        open={addFkOpen}
+        onOpenChange={setAddFkOpen}
+        projectId={projectId}
+        tableName={tableName}
+        tables={tables}
+        columns={columns}
+        onAdded={() => {
+          reloadFks();
+          onUpdated();
+        }}
+      />
     </div>
+  );
+}
+
+// ── Add Foreign Key Dialog ─────────────────────────────────────────────────
+
+function AddForeignKeyDialog({
+  open,
+  onOpenChange,
+  projectId,
+  tableName,
+  tables,
+  columns,
+  onAdded,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  projectId: string;
+  tableName: string;
+  tables: TableInfo[];
+  columns: ColumnInfo[];
+  onAdded: () => void;
+}) {
+  const [columnName, setColumnName] = useState('');
+  const [foreignTableName, setForeignTableName] = useState('');
+  const [foreignColumns, setForeignColumns] = useState<ColumnInfo[]>([]);
+  const [foreignColumnName, setForeignColumnName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setColumnName('');
+    setForeignTableName('');
+    setForeignColumns([]);
+    setForeignColumnName('');
+  }
+
+  useEffect(() => {
+    if (foreignTableName && foreignTableName !== tableName) {
+      api.projects.columns(projectId, foreignTableName).then(setForeignColumns);
+    } else {
+      setForeignColumns([]);
+      setForeignColumnName('');
+    }
+  }, [projectId, foreignTableName, tableName]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!columnName || !foreignTableName || !foreignColumnName) {
+      toast.error('Column, foreign table, and foreign column are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.projects.addForeignKey(projectId, tableName, {
+        columnName,
+        foreignTableName,
+        foreignColumnName,
+      });
+      toast.success('Foreign key added');
+      reset();
+      onOpenChange(false);
+      onAdded();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const otherTables = tables.filter((t) => t.name !== tableName);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Foreign Key</DialogTitle>
+          <DialogDescription>
+            Add a relation from <span className="font-mono font-semibold">{tableName}</span> to another table.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Column</Label>
+            <select
+              value={columnName}
+              onChange={(e) => setColumnName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Select column</option>
+              {columns.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>References table</Label>
+            <select
+              value={foreignTableName}
+              onChange={(e) => setForeignTableName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Select table</option>
+              {otherTables.map((t) => (
+                <option key={t.name} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>References column</Label>
+            <select
+              value={foreignColumnName}
+              onChange={(e) => setForeignColumnName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+              disabled={!foreignTableName}
+            >
+              <option value="">Select column</option>
+              {foreignColumns.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Adding...' : 'Add Foreign Key'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -723,7 +947,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
               {tables.map((t) => (
                 <div key={t.name} className="group relative">
                   <button
-                    onClick={() => selectTable(t.name)}
+                    onClick={() => {
+                      selectTable(t.name);
+                      setColumnPanelOpen(true);
+                    }}
                     className={cn(
                       'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors pr-9',
                       selected === t.name
@@ -739,13 +966,35 @@ export function TableEditor({ projectId }: TableEditorProps) {
                       {t.rowCount}
                     </Badge>
                   </button>
-                  <button
-                    onClick={() => handleDropTable(t.name)}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
-                    title="Drop table"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+                        title="Table options"
+                      >
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          selectTable(t.name);
+                          setColumnPanelOpen(true);
+                        }}
+                      >
+                        <Pencil className="mr-2 h-3.5 w-3.5" />
+                        Edit table
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => handleDropTable(t.name)}
+                      >
+                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                        Delete table
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ))}
             </div>
@@ -1021,6 +1270,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   {columnPanelOpen && selected && (
                     <ColumnSidePanel
                       columns={columns}
+                      tables={tables}
                       projectId={projectId}
                       tableName={selected}
                       onClose={() => setColumnPanelOpen(false)}

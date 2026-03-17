@@ -21,6 +21,13 @@ export interface ColumnInfo {
   isPrimary: boolean;
 }
 
+export interface ForeignKeyInfo {
+  constraintName: string;
+  columnName: string;
+  foreignTableName: string;
+  foreignColumnName: string;
+}
+
 @Injectable()
 export class ProjectDataService {
   constructor(
@@ -494,6 +501,94 @@ export class ProjectDataService {
       return { message: `Column "${columnName}" deleted from "${tableName}"` };
     } catch (err: any) {
       throw new BadRequestException(`Failed to delete column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async getForeignKeys(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+  ): Promise<ForeignKeyInfo[]> {
+    this.validateTableName(tableName);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      const result = await client.query(
+        `
+        SELECT
+          tc.constraint_name AS "constraintName",
+          kcu.column_name AS "columnName",
+          ccu.table_name AS "foreignTableName",
+          ccu.column_name AS "foreignColumnName"
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_name = $1
+          AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY kcu.ordinal_position
+        `,
+        [tableName],
+      );
+      return result.rows;
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async addForeignKey(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    body: { columnName: string; foreignTableName: string; foreignColumnName: string },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(body.columnName);
+    this.validateTableName(body.foreignTableName);
+    this.validateColumnName(body.foreignColumnName);
+
+    const constraintName = `fk_${tableName}_${body.columnName}_${body.foreignTableName}`.slice(0, 63);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(
+        `ALTER TABLE "${tableName}" ADD CONSTRAINT "${constraintName}" ` +
+          `FOREIGN KEY ("${body.columnName}") REFERENCES "${body.foreignTableName}" ("${body.foreignColumnName}")`,
+      );
+      return { message: 'Foreign key added' };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to add foreign key: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async deleteForeignKey(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    constraintName: string,
+  ) {
+    this.validateTableName(tableName);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+      return { message: 'Foreign key removed' };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to remove foreign key: ${err.message}`);
     } finally {
       client.release();
       await pool.end();

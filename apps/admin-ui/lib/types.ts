@@ -99,6 +99,13 @@ export interface ColumnInfo {
   isPrimary: boolean;
 }
 
+export interface ForeignKeyInfo {
+  constraintName: string;
+  columnName: string;
+  foreignTableName: string;
+  foreignColumnName: string;
+}
+
 export interface TableRows {
   rows: Record<string, unknown>[];
   fields: { name: string; dataTypeId: number }[];

@@ -3,6 +3,7 @@ import type {
   AuthTokens,
   ColumnInfo,
   ConnectionStrings,
+  ForeignKeyInfo,
   ImportJobProgressEvent,
   PendingInvite,
   Project,
@@ -302,6 +303,20 @@ export const api = {
     },
     deleteColumn(projectId: string, tableName: string, columnName: string) {
       return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+        method: 'DELETE',
+      });
+    },
+    getForeignKeys(projectId: string, tableName: string) {
+      return request<ForeignKeyInfo[]>(`/projects/${projectId}/tables/${tableName}/foreign-keys`);
+    },
+    addForeignKey(projectId: string, tableName: string, body: { columnName: string; foreignTableName: string; foreignColumnName: string }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/foreign-keys`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    deleteForeignKey(projectId: string, tableName: string, constraintName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/foreign-keys/${encodeURIComponent(constraintName)}`, {
         method: 'DELETE',
       });
     },

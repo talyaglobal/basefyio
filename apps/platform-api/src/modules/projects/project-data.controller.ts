@@ -140,6 +140,35 @@ export class ProjectDataController {
     return this.dataService.deleteColumn(projectId, user?.sub, tableName, columnName);
   }
 
+  @Get('tables/:tableName/foreign-keys')
+  async getForeignKeys(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.getForeignKeys(projectId, user?.sub, tableName);
+  }
+
+  @Post('tables/:tableName/foreign-keys')
+  async addForeignKey(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Body() body: { columnName: string; foreignTableName: string; foreignColumnName: string },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.addForeignKey(projectId, user?.sub, tableName, body);
+  }
+
+  @Delete('tables/:tableName/foreign-keys/:constraintName')
+  async deleteForeignKey(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Param('constraintName') constraintName: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.dataService.deleteForeignKey(projectId, user?.sub, tableName, constraintName);
+  }
+
   @Get('connect')
   async getConnectionStrings(
     @Param('projectId') projectId: string,
