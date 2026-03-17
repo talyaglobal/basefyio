@@ -6,6 +6,7 @@ import type {
   ImportJobProgressEvent,
   PendingInvite,
   Project,
+  ProjectAuthConfig,
   ProjectListItem,
   RealmInfo,
   RealmUser,
@@ -315,6 +316,15 @@ export const api = {
     deleteRealmUser(projectId: string, userId: string) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'DELETE',
+      });
+    },
+    getAuthConfig(projectId: string) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/config`);
+    },
+    updateAuthConfig(projectId: string, data: Partial<ProjectAuthConfig>) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/config`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
       });
     },
   },

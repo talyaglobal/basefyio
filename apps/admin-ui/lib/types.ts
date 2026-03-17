@@ -127,6 +127,33 @@ export interface RealmInfo {
   loginWithEmailAllowed: boolean;
 }
 
+export interface ProjectAuthConfig {
+  allowSignup: boolean;
+  requireEmailVerify: boolean;
+  minPasswordLength: number;
+  tokenExpirySeconds: number;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpPass: string | null;
+  senderEmail: string | null;
+  senderName: string | null;
+  verifyEmailSubject: string | null;
+  verifyEmailBody: string | null;
+  resetPasswordSubject: string | null;
+  resetPasswordBody: string | null;
+  welcomeSubject: string | null;
+  welcomeBody: string | null;
+  inviteUserSubject: string | null;
+  inviteUserBody: string | null;
+  magicLinkSubject: string | null;
+  magicLinkBody: string | null;
+  changeEmailSubject: string | null;
+  changeEmailBody: string | null;
+  reauthSubject: string | null;
+  reauthBody: string | null;
+}
+
 export interface ConnectionStrings {
   uri: string;
   poolerUri: string;

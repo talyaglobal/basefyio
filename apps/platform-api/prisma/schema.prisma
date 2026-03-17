@@ -113,10 +113,44 @@ model Project {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  team         Team          @relation(fields: [teamId], references: [id])
+  team         Team              @relation(fields: [teamId], references: [id])
   sqlAuditLogs SqlAuditLog[]
+  authConfig   ProjectAuthConfig?
 
   @@map("projects")
+}
+
+model ProjectAuthConfig {
+  id                    String  @id @default(uuid())
+  projectId             String  @unique @map("project_id")
+  allowSignup           Boolean @default(true) @map("allow_signup")
+  requireEmailVerify    Boolean @default(true) @map("require_email_verify")
+  minPasswordLength     Int     @default(6) @map("min_password_length")
+  tokenExpirySeconds    Int     @default(1800) @map("token_expiry_seconds")
+  smtpHost              String? @map("smtp_host")
+  smtpPort              Int?    @map("smtp_port")
+  smtpUser              String? @map("smtp_user")
+  smtpPass              String? @map("smtp_pass")
+  senderEmail           String? @map("sender_email")
+  senderName            String? @map("sender_name")
+  verifyEmailSubject    String? @map("verify_email_subject")
+  verifyEmailBody       String? @map("verify_email_body") @db.Text
+  resetPasswordSubject  String? @map("reset_password_subject")
+  resetPasswordBody     String? @map("reset_password_body") @db.Text
+  welcomeSubject        String? @map("welcome_subject")
+  welcomeBody           String? @map("welcome_body") @db.Text
+  inviteUserSubject     String? @map("invite_user_subject")
+  inviteUserBody        String? @map("invite_user_body") @db.Text
+  magicLinkSubject      String? @map("magic_link_subject")
+  magicLinkBody         String? @map("magic_link_body") @db.Text
+  changeEmailSubject    String? @map("change_email_subject")
+  changeEmailBody       String? @map("change_email_body") @db.Text
+  reauthSubject         String? @map("reauth_subject")
+  reauthBody            String? @map("reauth_body") @db.Text
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_auth_configs")
 }
 
 model SqlAuditLog {

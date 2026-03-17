@@ -8,6 +8,16 @@ import type {
   Session,
   AuthChangeEvent,
   AuthChangeListener,
+  VerifyEmailResult,
+  ForgotPasswordResult,
+  ResetPasswordResult,
+  MagicLinkResult,
+  MagicLinkVerifyResult,
+  ChangeEmailResult,
+  ConfirmChangeEmailResult,
+  ReauthResult,
+  ReauthVerifyResult,
+  InviteUserResult,
 } from '../lib/types.js';
 
 export class AuthClient {
@@ -24,7 +34,7 @@ export class AuthClient {
 
   async signUp(credentials: SignUpCredentials): Promise<KolaybaseResponse<AuthTokens>> {
     try {
-      const data = await this.http.json<AuthTokens>('/auth/signup', {
+      const data = await this.http.json<AuthTokens>('/rest/v1/auth/signup', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
@@ -37,7 +47,7 @@ export class AuthClient {
 
   async signIn(credentials: SignInCredentials): Promise<KolaybaseResponse<AuthTokens>> {
     try {
-      const data = await this.http.json<AuthTokens>('/auth/login', {
+      const data = await this.http.json<AuthTokens>('/rest/v1/auth/signin', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
@@ -52,9 +62,130 @@ export class AuthClient {
     this.clearSession();
   }
 
+  async verifyEmail(otp: string): Promise<KolaybaseResponse<VerifyEmailResult>> {
+    try {
+      const data = await this.http.json<VerifyEmailResult>('/rest/v1/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ otp }),
+      });
+      this.emit('EMAIL_VERIFIED');
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async forgotPassword(email: string): Promise<KolaybaseResponse<ForgotPasswordResult>> {
+    try {
+      const data = await this.http.json<ForgotPasswordResult>('/rest/v1/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async resetPassword(otp: string, newPassword: string): Promise<KolaybaseResponse<ResetPasswordResult>> {
+    try {
+      const data = await this.http.json<ResetPasswordResult>('/rest/v1/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ otp, newPassword }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async sendMagicLink(email: string): Promise<KolaybaseResponse<MagicLinkResult>> {
+    try {
+      const data = await this.http.json<MagicLinkResult>('/rest/v1/auth/magic-link', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async verifyMagicLink(otp: string): Promise<KolaybaseResponse<MagicLinkVerifyResult>> {
+    try {
+      const data = await this.http.json<MagicLinkVerifyResult>('/rest/v1/auth/magic-link/verify', {
+        method: 'POST',
+        body: JSON.stringify({ otp }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async changeEmail(newEmail: string): Promise<KolaybaseResponse<ChangeEmailResult>> {
+    try {
+      const data = await this.http.json<ChangeEmailResult>('/rest/v1/auth/change-email', {
+        method: 'POST',
+        body: JSON.stringify({ newEmail }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async confirmChangeEmail(otp: string): Promise<KolaybaseResponse<ConfirmChangeEmailResult>> {
+    try {
+      const data = await this.http.json<ConfirmChangeEmailResult>('/rest/v1/auth/change-email/verify', {
+        method: 'POST',
+        body: JSON.stringify({ otp }),
+      });
+      this.emit('EMAIL_CHANGED');
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async requestReauth(): Promise<KolaybaseResponse<ReauthResult>> {
+    try {
+      const data = await this.http.json<ReauthResult>('/rest/v1/auth/reauth', {
+        method: 'POST',
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async verifyReauth(otp: string): Promise<KolaybaseResponse<ReauthVerifyResult>> {
+    try {
+      const data = await this.http.json<ReauthVerifyResult>('/rest/v1/auth/reauth/verify', {
+        method: 'POST',
+        body: JSON.stringify({ otp }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async inviteUser(email: string): Promise<KolaybaseResponse<InviteUserResult>> {
+    try {
+      const data = await this.http.json<InviteUserResult>('/rest/v1/auth/invite', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
   async getUser(): Promise<KolaybaseResponse<User>> {
     try {
-      const data = await this.http.json<User>('/auth/me');
+      const data = await this.http.json<User>('/rest/v1/auth/me');
       if (this.session) {
         this.session.user = data;
       }
@@ -77,7 +208,7 @@ export class AuthClient {
       return { data: null, error: { message: 'No refresh token available' } };
     }
     try {
-      const data = await this.http.json<AuthTokens>('/auth/refresh', {
+      const data = await this.http.json<AuthTokens>('/rest/v1/auth/refresh', {
         method: 'POST',
         body: JSON.stringify({ refreshToken: this.session.refreshToken }),
       });
@@ -125,8 +256,6 @@ export class AuthClient {
 
     this.emit('SIGNED_IN');
     this.scheduleRefresh(tokens.expiresIn);
-
-    // Fetch user profile in background
     this.getUser().catch(() => {});
   }
 
@@ -143,7 +272,6 @@ export class AuthClient {
     if (!this.autoRefresh) return;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
 
-    // Refresh 30 seconds before expiry
     const delay = Math.max((expiresInSec - 30) * 1000, 5000);
     this.refreshTimer = setTimeout(() => this.refreshSession(), delay);
   }

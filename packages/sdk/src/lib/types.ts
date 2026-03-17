@@ -33,6 +33,8 @@ export interface AuthTokens {
   refreshToken: string;
   expiresIn: number;
   tokenType: string;
+  userId?: string;
+  emailVerified?: boolean;
 }
 
 export interface SignUpCredentials {
@@ -62,7 +64,53 @@ export interface Session {
   expiresAt: number;
 }
 
-export type AuthChangeEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED';
+export interface VerifyEmailResult {
+  message: string;
+}
+
+export interface ForgotPasswordResult {
+  message: string;
+}
+
+export interface ResetPasswordResult {
+  message: string;
+}
+
+export interface MagicLinkResult {
+  message: string;
+}
+
+export interface MagicLinkVerifyResult {
+  message: string;
+  userId: string;
+  email: string;
+  emailVerified: boolean;
+}
+
+export interface ChangeEmailResult {
+  message: string;
+}
+
+export interface ConfirmChangeEmailResult {
+  message: string;
+  newEmail: string;
+}
+
+export interface ReauthResult {
+  message: string;
+}
+
+export interface ReauthVerifyResult {
+  message: string;
+  userId: string;
+  verified: boolean;
+}
+
+export interface InviteUserResult {
+  message: string;
+}
+
+export type AuthChangeEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED' | 'EMAIL_VERIFIED' | 'EMAIL_CHANGED';
 export type AuthChangeListener = (event: AuthChangeEvent, session: Session | null) => void;
 
 // ── Database types ──────────────────────────────────────

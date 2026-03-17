@@ -240,6 +240,85 @@ export class KeycloakAdminService implements OnModuleInit {
     return users[0] || null;
   }
 
+  async createProjectUser(
+    realmName: string,
+    data: { email: string; password: string; firstName?: string; lastName?: string },
+  ): Promise<string> {
+    await this.ensureAuth();
+
+    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+
+    const { id } = await this.client.users.create({
+      realm: realmName,
+      username,
+      email: data.email,
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      enabled: true,
+      emailVerified: false,
+      credentials: [
+        { type: 'password', value: data.password, temporary: false },
+      ],
+    });
+
+    this.logger.log(`Project user "${username}" created in realm "${realmName}" (${id})`);
+    return id;
+  }
+
+  async findUserInRealm(realmName: string, email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({
+      realm: realmName,
+      email,
+      exact: true,
+    });
+    return users[0] || null;
+  }
+
+  async setEmailVerified(realmName: string, userId: string) {
+    await this.ensureAuth();
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { emailVerified: true },
+    );
+    this.logger.log(`Email verified for user ${userId} in realm "${realmName}"`);
+  }
+
+  async resetRealmUserPassword(realmName: string, userId: string, newPassword: string) {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm: realmName,
+      id: userId,
+      credential: { type: 'password', value: newPassword, temporary: false },
+    });
+    this.logger.log(`Password reset for user ${userId} in realm "${realmName}"`);
+  }
+
+  async updateRealmUserEmail(realmName: string, userId: string, newEmail: string) {
+    await this.ensureAuth();
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { email: newEmail, emailVerified: true },
+    );
+    this.logger.log(`Email changed for user ${userId} in realm "${realmName}" to "${newEmail}"`);
+  }
+
+  async getRealmUserById(realmName: string, userId: string) {
+    await this.ensureAuth();
+    const user = await this.client.users.findOne({ realm: realmName, id: userId });
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      emailVerified: user.emailVerified,
+      enabled: user.enabled,
+      createdTimestamp: user.createdTimestamp,
+    };
+  }
+
   async getRealmInfo(realmName: string) {
     await this.ensureAuth();
     const realm = await this.client.realms.findOne({ realm: realmName });
