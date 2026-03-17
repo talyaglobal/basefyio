@@ -81,7 +81,23 @@ export class AuthService {
 
     this.email.sendWelcome(data.email, displayName).catch(() => {});
 
-    return this.login(data.email, data.password);
+    const linkedCount = await this.linkEmailInvitesToUser(data.email, user.id);
+
+    const tokens = await this.login(data.email, data.password);
+    return { ...tokens, hasPendingInvites: linkedCount > 0 };
+  }
+
+  private async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
+    const pending = await this.prisma.teamInvite.findMany({
+      where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },
+    });
+    if (pending.length === 0) return 0;
+
+    await this.prisma.teamInvite.updateMany({
+      where: { id: { in: pending.map((i) => i.id) } },
+      data: { invitedUserId: userId },
+    });
+    return pending.length;
   }
 
   async ensureUserProfile(sub: string, email: string, username: string) {

@@ -53,7 +53,8 @@ export interface TeamInvite {
 
 export interface PendingInvite {
   id: string;
-  invitedUser: { id: string; username: string; email: string };
+  invitedEmail?: string | null;
+  invitedUser: { id: string | null; username: string; email: string | null };
 }
 
 export interface AuthTokens {
@@ -61,6 +62,7 @@ export interface AuthTokens {
   refreshToken: string;
   expiresIn: number;
   tokenType?: string;
+  hasPendingInvites?: boolean;
 }
 
 export interface UserInfo {

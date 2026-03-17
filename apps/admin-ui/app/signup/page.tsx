@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -13,7 +13,16 @@ import { Label } from '@/components/ui/label';
 import { Database } from 'lucide-react';
 
 export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -21,6 +30,13 @@ export default function SignupPage() {
     lastName: '',
   });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const emailParam = searchParams.get('email');
+    if (emailParam) {
+      setForm((prev) => ({ ...prev, email: emailParam }));
+    }
+  }, [searchParams]);
 
   function update(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -31,10 +47,16 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const tokens = await api.auth.signup(form);
-      setTokens(tokens);
+      const result = await api.auth.signup(form);
+      setTokens(result);
       toast.success('Account created');
-      router.push('/dashboard');
+
+      if (result.hasPendingInvites) {
+        toast.info('You have pending team invites!');
+        router.push('/dashboard/team');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       toast.error(err.message || 'Signup failed');
     } finally {

@@ -70,13 +70,19 @@ export class EmailService {
     invitedUsername: string,
     inviterUsername: string,
     teamName: string,
+    isNewUser = false,
   ) {
+    const acceptUrl = isNewUser
+      ? `${this.appUrl}/signup?email=${encodeURIComponent(to)}`
+      : `${this.appUrl}/dashboard/team`;
+
     const html = inviteTemplate({
       invitedUsername,
       inviterUsername,
       teamName,
-      acceptUrl: `${this.appUrl}/dashboard/team`,
+      acceptUrl,
       dashboardUrl: `${this.appUrl}/dashboard/team`,
+      isNewUser,
     });
 
     return this.send({

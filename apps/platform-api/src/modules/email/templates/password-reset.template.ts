@@ -39,8 +39,8 @@ export function passwordResetTemplate(data: PasswordResetData): string {
         </p>
       </div>
 
-      <div class="cta-wrapper">
-        <a href="${data.loginUrl}" class="cta-button">Sign In Now</a>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${data.loginUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff !important; text-decoration: none; padding: 14px 36px; border-radius: 10px; font-size: 15px; font-weight: 600; letter-spacing: 0.2px; mso-padding-alt: 14px 36px;">Sign In Now</a>
       </div>
 
       <div class="divider"></div>

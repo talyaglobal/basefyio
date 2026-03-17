@@ -224,35 +224,43 @@ export default function TeamSettingsPage() {
                 ))}
 
                 {/* Pending invites in same table */}
-                {pendingInvites.map((inv) => (
-                  <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium text-muted-foreground">
-                          {inv.invitedUser.username}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {inv.invitedUser.email}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline">PENDING</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                        onClick={() => handleCancelInvite(inv.id)}
-                        title="Cancel invite"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {pendingInvites.map((inv) => {
+                  const isEmailOnly = !inv.invitedUser.id;
+                  return (
+                    <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium text-muted-foreground">
+                            {inv.invitedUser.username}
+                          </span>
+                          {isEmailOnly && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              Not registered
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {inv.invitedUser.email || inv.invitedEmail}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">PENDING</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
+                          onClick={() => handleCancelInvite(inv.id)}
+                          title="Cancel invite"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -307,8 +315,8 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite Member</DialogTitle>
           <DialogDescription>
-            Enter the username or email of a Kolaybase user. They will receive
-            an invite they can accept or decline.
+            Enter a username or email address. If they don't have an account yet,
+            they'll receive an email to sign up and join your team.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -6,9 +6,27 @@ interface InviteData {
   teamName: string;
   acceptUrl: string;
   dashboardUrl: string;
+  isNewUser?: boolean;
 }
 
 export function inviteTemplate(data: InviteData): string {
+  const ctaText = data.isNewUser
+    ? 'Create Account &amp; Join &rarr;'
+    : 'Accept Invitation &rarr;';
+
+  const nextStepText = data.isNewUser
+    ? `Create your free Kolaybase account and you'll automatically see
+       the invitation to join <strong>${data.teamName}</strong>. Accept it
+       from your dashboard and you're in!`
+    : `Once you accept, you'll have access to all projects and resources
+       shared within the <strong>${data.teamName}</strong> team. You can
+       also decline the invitation from your dashboard.`;
+
+  const footerText = data.isNewUser
+    ? `Don't have an account yet? No worries — signing up takes less than a minute.`
+    : `Or go to your <a href="${data.dashboardUrl}" style="color: #2563eb; text-decoration: none; font-weight: 500;">dashboard</a>
+       to view all pending invitations.`;
+
   const content = `
       <div class="body">
         <div style="text-align: center;">
@@ -33,15 +51,14 @@ export function inviteTemplate(data: InviteData): string {
           </div>
         </div>
 
-        <div class="cta-wrapper">
-          <a href="${data.acceptUrl}" class="cta-button">
-            Accept Invitation &rarr;
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${data.acceptUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff !important; text-decoration: none; padding: 14px 36px; border-radius: 10px; font-size: 15px; font-weight: 600; letter-spacing: 0.2px; mso-padding-alt: 14px 36px;">
+            ${ctaText}
           </a>
         </div>
 
         <p class="text" style="text-align: center; font-size: 13px; color: #94a3b8;">
-          Or go to your <a href="${data.dashboardUrl}" style="color: #2563eb; text-decoration: none; font-weight: 500;">dashboard</a>
-          to view all pending invitations.
+          ${footerText}
         </p>
 
         <div class="divider"></div>
@@ -49,9 +66,7 @@ export function inviteTemplate(data: InviteData): string {
         <div class="info-card">
           <div class="info-card-title">What happens next?</div>
           <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0;">
-            Once you accept, you'll have access to all projects and resources
-            shared within the <strong>${data.teamName}</strong> team. You can
-            also decline the invitation from your dashboard.
+            ${nextStepText}
           </p>
         </div>
       </div>`;

@@ -80,16 +80,18 @@ enum InviteStatus {
 model TeamInvite {
   id            String       @id @default(uuid())
   teamId        String       @map("team_id")
-  invitedUserId String       @map("invited_user_id")
+  invitedUserId String?      @map("invited_user_id")
+  invitedEmail  String?      @map("invited_email")
   invitedById   String       @map("invited_by_id")
   status        InviteStatus @default(PENDING)
   createdAt     DateTime     @default(now()) @map("created_at")
 
-  team        Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedUser User @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
-  invitedBy   User @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
+  team        Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedUser User? @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy   User  @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
 
   @@unique([teamId, invitedUserId])
+  @@unique([teamId, invitedEmail])
   @@map("team_invites")
 }
 
