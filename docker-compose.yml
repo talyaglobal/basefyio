@@ -151,6 +151,16 @@ services:
     depends_on:
       - platform-api
 
+  website:
+    build:
+      context: ./apps/website
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEBSITE_PORT:-3002}:3000"
+    environment:
+      HOSTNAME: 0.0.0.0
+
 volumes:
   postgres_data:
   redis_data:

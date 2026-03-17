@@ -70,10 +70,41 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+  # ── Build Website ────────────────────────────────────────
+  build-website:
+    name: Build Website
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/kolaybase-website
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./apps/website
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   # ── Deploy (her production push'unda, build'lerden sonra) ──
   deploy:
     name: Deploy to Production
-    needs: [build-api, build-ui]
+    needs: [build-api, build-ui, build-website]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
 
@@ -100,6 +131,6 @@ jobs:
             cd ${{ secrets.DEPLOY_PATH }}
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
 
-            # Her zaman iki servisi de pull et
-            docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui
+            # Her zaman tüm servisleri pull et
+            docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui website
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
