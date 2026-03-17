@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Kolaybase | Backend as a Service",
   description:
-    "Kolaybase ile veritabanı, kimlik doğrulama ve REST API'yi dakikalar içinde kurun. No-code backend platformu.",
+    "Set up database, authentication, and REST API in minutes. No-code backend platform.",
 };
 
 export default function RootLayout({
@@ -13,8 +13,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="tr">
-      <body className="antialiased min-h-screen bg-[#0a0f1a] text-slate-200">
+    <html lang="en">
+      <body className="antialiased min-h-screen bg-background text-foreground">
         {children}
       </body>
     </html>
