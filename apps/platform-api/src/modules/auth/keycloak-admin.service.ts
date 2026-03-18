@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import KcAdminClient from '@keycloak/keycloak-admin-client';
 import { v4 as uuid } from 'uuid';
+import axios from 'axios';
 
 export interface ProjectClients {
   anonKey: string;
@@ -68,39 +69,39 @@ export class KeycloakAdminService implements OnModuleInit {
   async ensureAutoLinkFlow(realmName: string): Promise<string> {
     const alias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
     try {
-      const flows = await this.client.authenticationManagement.getFlows({
-        realm: realmName,
-      });
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      const authBase = `${baseUrl}/admin/realms/${realmName}/authentication`;
+
+      const { data: flows } = await axios.get(`${authBase}/flows`, { headers });
       if (flows.find((f: any) => f.alias === alias)) return alias;
 
-      await this.client.authenticationManagement.createFlow({
-        realm: realmName,
+      await axios.post(`${authBase}/flows`, {
         alias,
         description: 'Auto-link brokered accounts to existing accounts with same email',
         providerId: 'basic-flow',
         topLevel: true,
         builtIn: false,
-      });
+      }, { headers });
 
-      await this.client.authenticationManagement.addExecution(
-        { realm: realmName, flow: alias },
-        { providerId: 'idp-create-user-if-unique' },
+      await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
+        provider: 'idp-create-user-if-unique',
+      }, { headers });
+
+      await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
+        provider: 'idp-auto-link',
+      }, { headers });
+
+      const { data: executions } = await axios.get(
+        `${authBase}/flows/${alias}/executions`,
+        { headers },
       );
-
-      await this.client.authenticationManagement.addExecution(
-        { realm: realmName, flow: alias },
-        { providerId: 'idp-auto-link' },
-      );
-
-      const executions = await this.client.authenticationManagement.getExecutions({
-        realm: realmName,
-        flow: alias,
-      });
       for (const exec of executions) {
-        await this.client.authenticationManagement.updateExecution(
-          { realm: realmName, flow: alias },
-          { ...exec, requirement: 'ALTERNATIVE' },
-        );
+        await axios.put(`${authBase}/flows/${alias}/executions`, {
+          ...exec,
+          requirement: 'ALTERNATIVE',
+        }, { headers });
       }
 
       this.logger.log(`Auto-link broker flow created for realm "${realmName}"`);
@@ -108,6 +109,22 @@ export class KeycloakAdminService implements OnModuleInit {
       this.logger.warn(`Could not ensure auto-link flow for "${realmName}": ${err.message}`);
     }
     return alias;
+  }
+
+  private async getAdminAccessToken(): Promise<string> {
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const params = new URLSearchParams({
+      grant_type: 'password',
+      client_id: this.config.get<string>('keycloak.adminClientId')!,
+      username: this.config.get<string>('keycloak.adminUser')!,
+      password: this.config.get<string>('keycloak.adminPassword')!,
+    });
+    const { data } = await axios.post(
+      `${baseUrl}/realms/master/protocol/openid-connect/token`,
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    return data.access_token;
   }
 
   private async ensurePlatformOAuthClient() {
