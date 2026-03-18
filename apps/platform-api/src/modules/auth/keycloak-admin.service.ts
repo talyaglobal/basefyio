@@ -74,36 +74,42 @@ export class KeycloakAdminService implements OnModuleInit {
       const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
       const authBase = `${baseUrl}/admin/realms/${realmName}/authentication`;
 
-      // List available authenticator providers for diagnostics
-      try {
-        const { data: providerList } = await axios.get(`${authBase}/authenticator-providers`, { headers });
-        const providerIds = providerList.map((p: any) => p.id);
-        this.logger.log(`Available authenticator providers: ${providerIds.join(', ')}`);
-        if (!providerIds.includes('idp-auto-link')) {
-          this.logger.error('idp-auto-link NOT available in this Keycloak version!');
-        }
-      } catch (e: any) {
-        this.logger.warn(`Could not list authenticator providers: ${e.message}`);
-      }
-
       const { data: flows } = await axios.get(`${authBase}/flows`, { headers });
       const existing = flows.find((f: any) => f.alias === alias);
 
-      // Always delete and recreate to ensure correct state
       if (existing) {
-        this.logger.log(`Deleting existing "${alias}" flow (id: ${existing.id}) to recreate`);
-        await axios.delete(`${authBase}/flows/${existing.id}`, { headers });
+        // Flow exists — check if it already has the correct executions
+        const { data: executions } = await axios.get(
+          `${authBase}/flows/${alias}/executions`, { headers },
+        );
+        const hasCreateUnique = executions.some((e: any) => e.providerId === 'idp-create-user-if-unique');
+        const hasAutoLink = executions.some((e: any) => e.providerId === 'idp-auto-link');
+
+        if (hasCreateUnique && hasAutoLink) {
+          this.logger.log(`Flow "${alias}" already correct: ${executions.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`);
+          return alias;
+        }
+
+        // Flow exists but executions are wrong — delete all existing executions
+        this.logger.log(`Flow "${alias}" has wrong executions (${executions.length}), fixing...`);
+        for (const exec of executions) {
+          try {
+            await axios.delete(`${authBase}/executions/${exec.id}`, { headers });
+          } catch { /* ignore */ }
+        }
+      } else {
+        // Flow doesn't exist — create it
+        this.logger.log(`Creating "${alias}" flow...`);
+        await axios.post(`${authBase}/flows`, {
+          alias,
+          description: 'Auto-link brokered accounts to existing accounts with same email',
+          providerId: 'basic-flow',
+          topLevel: true,
+          builtIn: false,
+        }, { headers });
       }
 
-      this.logger.log(`Creating "${alias}" flow...`);
-      await axios.post(`${authBase}/flows`, {
-        alias,
-        description: 'Auto-link brokered accounts to existing accounts with same email',
-        providerId: 'basic-flow',
-        topLevel: true,
-        builtIn: false,
-      }, { headers });
-
+      // Add the two required executions
       this.logger.log('Adding idp-create-user-if-unique execution...');
       await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
         provider: 'idp-create-user-if-unique',
@@ -114,12 +120,10 @@ export class KeycloakAdminService implements OnModuleInit {
         provider: 'idp-auto-link',
       }, { headers });
 
+      // Set both to ALTERNATIVE
       const { data: executions } = await axios.get(
-        `${authBase}/flows/${alias}/executions`,
-        { headers },
+        `${authBase}/flows/${alias}/executions`, { headers },
       );
-      this.logger.log(`Flow "${alias}" has ${executions.length} executions: ${executions.map((e: any) => `${e.providerId}(${e.requirement})`).join(', ')}`);
-
       for (const exec of executions) {
         await axios.put(`${authBase}/flows/${alias}/executions`, {
           ...exec,
@@ -127,10 +131,10 @@ export class KeycloakAdminService implements OnModuleInit {
         }, { headers });
       }
 
-      // Verify final state
+      // Verify
       const { data: finalExecs } = await axios.get(`${authBase}/flows/${alias}/executions`, { headers });
       this.logger.log(
-        `Flow "${alias}" final state: ${finalExecs.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`,
+        `Flow "${alias}" final: ${finalExecs.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`,
       );
     } catch (err: any) {
       this.logger.error(
