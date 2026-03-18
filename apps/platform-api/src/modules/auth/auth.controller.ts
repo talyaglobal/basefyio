@@ -74,21 +74,36 @@ export class AuthController {
     @Res() res: Response,
     @Query('code') code: string,
     @Query('state') state: string,
+    @Query('error') error: string,
+    @Query('error_description') errorDescription: string,
   ) {
-    const result = await this.authService.handleOAuthCallback(code, state);
+    const baseAppUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-    const appUrl = result.redirectTo?.startsWith('http')
-      ? result.redirectTo
-      : `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}${result.redirectTo || '/login'}`;
+    if (error || !code) {
+      const msg = errorDescription || error || 'OAuth authentication failed';
+      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent(msg)}`;
+      return res.redirect(loginUrl);
+    }
 
-    const params = new URLSearchParams({
-      access_token: result.accessToken,
-      refresh_token: result.refreshToken,
-      expires_in: String(result.expiresIn),
-      token_type: result.tokenType || 'Bearer',
-    });
+    try {
+      const result = await this.authService.handleOAuthCallback(code, state);
 
-    res.redirect(`${appUrl}#${params.toString()}`);
+      const appUrl = result.redirectTo?.startsWith('http')
+        ? result.redirectTo
+        : `${baseAppUrl}${result.redirectTo || '/login'}`;
+
+      const params = new URLSearchParams({
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_in: String(result.expiresIn),
+        token_type: result.tokenType || 'Bearer',
+      });
+
+      res.redirect(`${appUrl}#${params.toString()}`);
+    } catch (err: any) {
+      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent('OAuth authentication failed')}`;
+      res.redirect(loginUrl);
+    }
   }
 
   @Get('oauth/:provider')

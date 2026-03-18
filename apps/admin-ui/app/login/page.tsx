@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -32,7 +32,16 @@ function GitHubIcon({ className }: { className?: string }) {
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,6 +49,12 @@ export default function LoginPage() {
   const [providers, setProviders] = useState<string[]>([]);
 
   useEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam) {
+      toast.error(errorParam);
+      window.history.replaceState(null, '', '/login');
+    }
+
     const hash = window.location.hash.substring(1);
     if (hash) {
       const params = new URLSearchParams(hash);
@@ -65,7 +80,7 @@ export default function LoginPage() {
     api.auth.getOAuthProviders()
       .then((data) => setProviders(data.providers))
       .catch(() => {});
-  }, [router]);
+  }, [router, searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
