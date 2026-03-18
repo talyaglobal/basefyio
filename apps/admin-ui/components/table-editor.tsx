@@ -678,6 +678,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [columnPanelOpen, setColumnPanelOpen] = useState(false);
 
   const [filterText, setFilterText] = useState('');
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
 
   const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
 
@@ -718,6 +719,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     setEditingCell(null);
     setAddingRow(false);
     setFilterText('');
+    setSelectedRows(new Set());
     setDataLoading(true);
 
     try {
@@ -768,6 +770,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     if (!selected) return;
     setPage(p);
     setEditingCell(null);
+    setSelectedRows(new Set());
     setDataLoading(true);
     try {
       const rows = await api.projects.rows(projectId, selected, p);
@@ -893,6 +896,47 @@ export function TableEditor({ projectId }: TableEditorProps) {
     } catch (err: any) {
       toast.error(err.message);
     }
+  }
+
+  function toggleRowSelect(idx: number) {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  }
+
+  function toggleSelectAllRows() {
+    if (!filteredRows) return;
+    if (selectedRows.size === filteredRows.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(filteredRows.map((_, i) => i)));
+    }
+  }
+
+  async function handleDeleteSelectedRows() {
+    if (!selected || !filteredRows || selectedRows.size === 0) return;
+    if (pkColumns.length === 0) {
+      toast.error('Cannot delete: table has no primary key');
+      return;
+    }
+    if (!confirm(`Delete ${selectedRows.size} row(s)?`)) return;
+
+    let deleted = 0;
+    for (const idx of selectedRows) {
+      const row = filteredRows[idx];
+      if (!row) continue;
+      try {
+        await api.projects.deleteRow(projectId, selected, getPkWhere(row));
+        deleted++;
+      } catch {}
+    }
+
+    toast.success(`Deleted ${deleted} row(s)`);
+    setSelectedRows(new Set());
+    reloadRows();
+    loadTables();
   }
 
   const filteredRows = data?.rows?.filter((row) => {
@@ -1056,10 +1100,31 @@ export function TableEditor({ projectId }: TableEditorProps) {
                         <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                       </div>
                     ) : (
-                      <div className="flex-1 overflow-auto">
+                      <div className="flex-1 overflow-auto relative">
+                        {/* Bulk action bar */}
+                        {selectedRows.size > 0 && (
+                          <div className="sticky top-0 z-20 flex items-center gap-3 border-b bg-primary/10 px-4 py-2">
+                            <span className="text-sm font-medium">{selectedRows.size} row(s) selected</span>
+                            <Button size="sm" variant="destructive" onClick={handleDeleteSelectedRows}>
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              Delete selected
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setSelectedRows(new Set())}>
+                              Clear
+                            </Button>
+                          </div>
+                        )}
                         <table className="w-full text-sm">
-                          <thead className="sticky top-0 z-10">
+                          <thead className="sticky top-0 z-10" style={selectedRows.size > 0 ? { top: 41 } : undefined}>
                             <tr className="border-b bg-muted/50">
+                              <th className="sticky left-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5 rounded"
+                                  checked={!!filteredRows && filteredRows.length > 0 && selectedRows.size === filteredRows.length}
+                                  onChange={toggleSelectAllRows}
+                                />
+                              </th>
                               <th className="w-10 px-2 py-2 text-center text-xs font-medium text-muted-foreground">
                                 #
                               </th>
@@ -1089,13 +1154,14 @@ export function TableEditor({ projectId }: TableEditorProps) {
                                   </th>
                                 );
                               })}
-                              <th className="w-12 px-2 py-2 text-xs font-medium" />
+                              <th className="sticky right-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-xs font-medium" />
                             </tr>
                           </thead>
                           <tbody>
                             {/* New row input */}
                             {addingRow && (
                               <tr className="border-b bg-green-50/50 dark:bg-green-950/20">
+                                <td className="sticky left-0 bg-green-50/50 dark:bg-green-950/20 px-2 py-1" />
                                 <td className="px-2 py-1 text-center">
                                   <span className="text-xs text-green-600 font-medium">NEW</span>
                                 </td>
@@ -1122,7 +1188,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                                     </td>
                                   );
                                 })}
-                                <td className="px-1 py-1">
+                                <td className="sticky right-0 bg-green-50/50 dark:bg-green-950/20 px-1 py-1">
                                   <div className="flex gap-0.5">
                                     <Button
                                       variant="ghost"
@@ -1152,11 +1218,26 @@ export function TableEditor({ projectId }: TableEditorProps) {
                             {filteredRows && filteredRows.length > 0 ? (
                               filteredRows.map((row, rowIdx) => {
                                 const actualIdx = data!.rows.indexOf(row);
+                                const isRowSelected = selectedRows.has(rowIdx);
                                 return (
                                   <tr
                                     key={rowIdx}
-                                    className="group border-b last:border-0 hover:bg-muted/30"
+                                    className={cn(
+                                      'group border-b last:border-0',
+                                      isRowSelected ? 'bg-primary/5' : 'hover:bg-muted/30',
+                                    )}
                                   >
+                                    <td className={cn(
+                                      'sticky left-0 z-[1] px-2 py-1.5 text-center',
+                                      isRowSelected ? 'bg-primary/5' : 'bg-card group-hover:bg-muted/30',
+                                    )}>
+                                      <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 rounded"
+                                        checked={isRowSelected}
+                                        onChange={() => toggleRowSelect(rowIdx)}
+                                      />
+                                    </td>
                                     <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
                                       {(page - 1) * (data?.limit ?? 50) + actualIdx + 1}
                                     </td>
@@ -1204,7 +1285,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
                                         </td>
                                       );
                                     })}
-                                    <td className="px-1 py-0.5 text-right">
+                                    <td className={cn(
+                                      'sticky right-0 z-[1] px-1 py-0.5 text-right',
+                                      isRowSelected ? 'bg-primary/5' : 'bg-card group-hover:bg-muted/30',
+                                    )}>
                                       <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Button
                                           variant="ghost"
@@ -1222,7 +1306,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                             ) : !addingRow ? (
                               <tr>
                                 <td
-                                  colSpan={(data?.fields?.length ?? 0) + 2}
+                                  colSpan={(data?.fields?.length ?? 0) + 3}
                                   className="py-12 text-center text-sm text-muted-foreground"
                                 >
                                   {filterText
