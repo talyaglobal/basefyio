@@ -601,21 +601,18 @@ export class ProjectDataService {
     const db = project.dbName;
     const user = project.dbUser;
     const password = project.dbPassword;
-
-    const poolerHost = this.config.get<string>('pgbouncer.externalHost') || 'localhost';
-    const poolerPort = this.config.get<number>('pgbouncer.externalPort') || 6432;
     const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
 
     return {
       uri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
-      poolerUri: `postgresql://${user}:${password}@${poolerHost}:${poolerPort}/${db}`,
+      poolerUri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
       host,
       port,
       database: db,
       user,
       password,
-      poolerHost,
-      poolerPort,
+      poolerHost: host,
+      poolerPort: port,
       restUrl: `${publicApiUrl}/rest/v1`,
       keycloakRealm: project.keycloakRealm,
       keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),

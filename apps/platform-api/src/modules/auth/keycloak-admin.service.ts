@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import KcAdminClient from '@keycloak/keycloak-admin-client';
 import { v4 as uuid } from 'uuid';
+import { randomBytes } from 'crypto';
 import axios from 'axios';
 
 export interface ProjectClients {
@@ -338,10 +339,10 @@ export class KeycloakAdminService implements OnModuleInit {
 
     this.logger.log(`Clients created for realm "${realmName}"`);
 
-    return {
-      anonKey: anonClientId,
-      serviceKey: `${serviceClientId}:${serviceSecret}`,
-    };
+    const anonKey = `kb_anon_${randomBytes(32).toString('base64url')}`;
+    const serviceKey = `kb_service_${randomBytes(32).toString('base64url')}`;
+
+    return { anonKey, serviceKey };
   }
 
   async deleteRealm(realmName: string): Promise<void> {

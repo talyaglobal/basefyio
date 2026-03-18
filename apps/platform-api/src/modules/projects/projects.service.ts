@@ -109,7 +109,15 @@ export class ProjectsService {
     if (userId) {
       await this.assertTeamMember(project.teamId, userId);
     }
-    return project;
+
+    const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
+    const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
+
+    return {
+      ...project,
+      dbHost: externalHost,
+      dbPort: externalPort,
+    };
   }
 
   async remove(id: string, userId: string) {
