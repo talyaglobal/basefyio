@@ -74,22 +74,28 @@ export class KeycloakAdminService implements OnModuleInit {
       const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
       const authBase = `${baseUrl}/admin/realms/${realmName}/authentication`;
 
+      // List available authenticator providers for diagnostics
+      try {
+        const { data: providerList } = await axios.get(`${authBase}/authenticator-providers`, { headers });
+        const providerIds = providerList.map((p: any) => p.id);
+        this.logger.log(`Available authenticator providers: ${providerIds.join(', ')}`);
+        if (!providerIds.includes('idp-auto-link')) {
+          this.logger.error('idp-auto-link NOT available in this Keycloak version!');
+        }
+      } catch (e: any) {
+        this.logger.warn(`Could not list authenticator providers: ${e.message}`);
+      }
+
       const { data: flows } = await axios.get(`${authBase}/flows`, { headers });
       const existing = flows.find((f: any) => f.alias === alias);
 
+      // Always delete and recreate to ensure correct state
       if (existing) {
-        const { data: executions } = await axios.get(
-          `${authBase}/flows/${alias}/executions`,
-          { headers },
-        );
-        const hasCreateUnique = executions.some((e: any) => e.providerId === 'idp-create-user-if-unique');
-        const hasAutoLink = executions.some((e: any) => e.providerId === 'idp-auto-link');
-        if (hasCreateUnique && hasAutoLink) return alias;
-
-        this.logger.log(`Deleting broken auto-link flow in realm "${realmName}"`);
+        this.logger.log(`Deleting existing "${alias}" flow (id: ${existing.id}) to recreate`);
         await axios.delete(`${authBase}/flows/${existing.id}`, { headers });
       }
 
+      this.logger.log(`Creating "${alias}" flow...`);
       await axios.post(`${authBase}/flows`, {
         alias,
         description: 'Auto-link brokered accounts to existing accounts with same email',
@@ -98,10 +104,12 @@ export class KeycloakAdminService implements OnModuleInit {
         builtIn: false,
       }, { headers });
 
+      this.logger.log('Adding idp-create-user-if-unique execution...');
       await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
         provider: 'idp-create-user-if-unique',
       }, { headers });
 
+      this.logger.log('Adding idp-auto-link execution...');
       await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
         provider: 'idp-auto-link',
       }, { headers });
@@ -110,6 +118,8 @@ export class KeycloakAdminService implements OnModuleInit {
         `${authBase}/flows/${alias}/executions`,
         { headers },
       );
+      this.logger.log(`Flow "${alias}" has ${executions.length} executions: ${executions.map((e: any) => `${e.providerId}(${e.requirement})`).join(', ')}`);
+
       for (const exec of executions) {
         await axios.put(`${authBase}/flows/${alias}/executions`, {
           ...exec,
@@ -117,9 +127,15 @@ export class KeycloakAdminService implements OnModuleInit {
         }, { headers });
       }
 
-      this.logger.log(`Auto-link broker flow created for realm "${realmName}"`);
+      // Verify final state
+      const { data: finalExecs } = await axios.get(`${authBase}/flows/${alias}/executions`, { headers });
+      this.logger.log(
+        `Flow "${alias}" final state: ${finalExecs.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`,
+      );
     } catch (err: any) {
-      this.logger.warn(`Could not ensure auto-link flow for "${realmName}": ${err.message}`);
+      this.logger.error(
+        `FAILED to ensure auto-link flow for "${realmName}": ${err.response?.data?.errorMessage || err.response?.data?.error || err.message}`,
+      );
     }
     return alias;
   }
@@ -180,7 +196,12 @@ export class KeycloakAdminService implements OnModuleInit {
 
   private async ensurePlatformIdentityProviders() {
     const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
-    const providers: { alias: string; providerId: string; envId: string; envSecret: string; scope: string }[] = [
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const adminToken = await this.getAdminAccessToken();
+    const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+    const idpBase = `${baseUrl}/admin/realms/master/identity-provider/instances`;
+
+    const providers = [
       {
         alias: 'google',
         providerId: 'google',
@@ -202,35 +223,36 @@ export class KeycloakAdminService implements OnModuleInit {
       const clientSecret = this.config.get<string>(p.envSecret);
       if (!clientId || !clientSecret) continue;
 
+      const idpBody = {
+        alias: p.alias,
+        providerId: p.providerId,
+        enabled: true,
+        trustEmail: true,
+        firstBrokerLoginFlowAlias: flowAlias,
+        config: {
+          clientId,
+          clientSecret,
+          defaultScope: p.scope,
+        },
+      };
+
       try {
-        const existing = await this.client.identityProviders
-          .findOne({ realm: 'master', alias: p.alias })
-          .catch(() => null);
+        const existing = await axios.get(`${idpBase}/${p.alias}`, { headers }).catch(() => null);
 
-        const idpConfig = {
-          alias: p.alias,
-          providerId: p.providerId,
-          enabled: true,
-          trustEmail: true,
-          firstBrokerLoginFlowAlias: flowAlias,
-          config: { clientId, clientSecret, defaultScope: p.scope },
-        };
-
-        if (existing) {
-          await this.client.identityProviders.update(
-            { realm: 'master', alias: p.alias },
-            idpConfig,
-          );
-          this.logger.log(`Platform ${p.alias} identity provider updated`);
+        if (existing?.data) {
+          await axios.put(`${idpBase}/${p.alias}`, idpBody, { headers });
+          this.logger.log(`Platform ${p.alias} IdP updated (flow: ${flowAlias})`);
         } else {
-          await this.client.identityProviders.create({
-            realm: 'master',
-            ...idpConfig,
-          });
-          this.logger.log(`Platform ${p.alias} identity provider created`);
+          await axios.post(idpBase, idpBody, { headers });
+          this.logger.log(`Platform ${p.alias} IdP created (flow: ${flowAlias})`);
         }
+
+        const verify = await axios.get(`${idpBase}/${p.alias}`, { headers });
+        this.logger.log(
+          `Platform ${p.alias} IdP verified — firstBrokerLoginFlowAlias: ${verify.data.firstBrokerLoginFlowAlias}`,
+        );
       } catch (err: any) {
-        this.logger.warn(`Could not configure platform ${p.alias} IdP: ${err.message}`);
+        this.logger.error(`Could not configure platform ${p.alias} IdP: ${err.response?.data?.errorMessage || err.message}`);
       }
     }
   }
@@ -518,40 +540,32 @@ export class KeycloakAdminService implements OnModuleInit {
     const alias = provider;
     const providerId = provider === 'github' ? 'github' : 'google';
     const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const adminToken = await this.getAdminAccessToken();
+    const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+    const idpBase = `${baseUrl}/admin/realms/${realmName}/identity-provider/instances`;
 
-    const existing = await this.client.identityProviders.findOne({ realm: realmName, alias })
-      .catch(() => null);
-
-    const config: Record<string, string> = {
-      clientId,
-      clientSecret,
-      defaultScope: provider === 'google' ? 'openid email profile' : 'user:email',
+    const idpBody = {
+      alias,
+      providerId,
+      enabled: true,
+      trustEmail: true,
+      firstBrokerLoginFlowAlias: flowAlias,
+      config: {
+        clientId,
+        clientSecret,
+        defaultScope: provider === 'google' ? 'openid email profile' : 'user:email',
+      },
     };
 
-    if (existing) {
-      await this.client.identityProviders.update(
-        { realm: realmName, alias },
-        {
-          alias,
-          providerId,
-          enabled: true,
-          trustEmail: true,
-          firstBrokerLoginFlowAlias: flowAlias,
-          config,
-        },
-      );
-      this.logger.log(`Updated ${provider} identity provider in realm "${realmName}"`);
+    const existing = await axios.get(`${idpBase}/${alias}`, { headers }).catch(() => null);
+
+    if (existing?.data) {
+      await axios.put(`${idpBase}/${alias}`, idpBody, { headers });
+      this.logger.log(`Updated ${provider} IdP in realm "${realmName}" (flow: ${flowAlias})`);
     } else {
-      await this.client.identityProviders.create({
-        realm: realmName,
-        alias,
-        providerId,
-        enabled: true,
-        trustEmail: true,
-        firstBrokerLoginFlowAlias: flowAlias,
-        config,
-      });
-      this.logger.log(`Created ${provider} identity provider in realm "${realmName}"`);
+      await axios.post(idpBase, idpBody, { headers });
+      this.logger.log(`Created ${provider} IdP in realm "${realmName}" (flow: ${flowAlias})`);
     }
   }
 
