@@ -11,14 +11,18 @@ import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft,
   ChevronRight,
+  Copy,
   Download,
+  ExternalLink,
   File,
   Folder,
   Globe,
   HardDrive,
+  Link2,
   Lock,
   Plus,
   RefreshCw,
+  Settings,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -43,6 +47,11 @@ function formatDate(d: string): string {
   });
 }
 
+function copyToClipboard(text: string, label = 'URL') {
+  navigator.clipboard.writeText(text);
+  toast.success(`${label} copied`);
+}
+
 // ── main component ───────────────────────────────────────
 
 export function StorageBrowser({ projectId }: { projectId: string }) {
@@ -50,7 +59,7 @@ export function StorageBrowser({ projectId }: { projectId: string }) {
 
   if (activeBucket) {
     return (
-      <ObjectBrowser
+      <BucketDetail
         projectId={projectId}
         bucketName={activeBucket}
         onBack={() => setActiveBucket(null)}
@@ -108,21 +117,12 @@ function BucketList({
     }
   }
 
-  async function handleDelete(name: string) {
+  async function handleDelete(e: React.MouseEvent, name: string) {
+    e.stopPropagation();
     if (!confirm(`Delete bucket "${name}" and all its contents?`)) return;
     try {
       await api.storage.deleteBucket(projectId, name);
       toast.success(`Bucket "${name}" deleted`);
-      await load();
-    } catch (err: any) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleTogglePublic(name: string, current: boolean) {
-    try {
-      await api.storage.updateBucket(projectId, name, !current);
-      toast.success(`Bucket "${name}" is now ${!current ? 'public' : 'private'}`);
       await load();
     } catch (err: any) {
       toast.error(err.message);
@@ -150,7 +150,6 @@ function BucketList({
         </div>
       </div>
 
-      {/* Create bucket form */}
       {creating && (
         <div className="flex items-end gap-3 rounded-md border bg-muted/30 p-4">
           <div className="flex-1 space-y-1.5">
@@ -181,7 +180,6 @@ function BucketList({
         </div>
       )}
 
-      {/* Bucket table */}
       <div className="rounded-md border">
         <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
           <span className="flex-1">Bucket</span>
@@ -212,31 +210,24 @@ function BucketList({
           buckets.map((bucket) => (
             <div
               key={bucket.id}
-              className="flex items-center gap-3 border-b px-4 py-3 text-sm hover:bg-muted/30 transition-colors group"
+              onClick={() => onSelect(bucket.name)}
+              className="flex items-center gap-3 border-b px-4 py-3 text-sm hover:bg-muted/30 transition-colors cursor-pointer group"
             >
-              <button
-                className="flex flex-1 items-center gap-2.5 text-left"
-                onClick={() => onSelect(bucket.name)}
-              >
+              <div className="flex flex-1 items-center gap-2.5">
                 <HardDrive className="h-4 w-4 text-primary" />
                 <span className="font-medium">{bucket.name}</span>
-              </button>
+              </div>
 
               <div className="w-20 flex justify-center">
-                <button
-                  onClick={() => handleTogglePublic(bucket.name, bucket.public)}
-                  title={bucket.public ? 'Click to make private' : 'Click to make public'}
-                >
-                  {bucket.public ? (
-                    <Badge variant="secondary" className="gap-1 text-[10px]">
-                      <Globe className="h-3 w-3" /> Public
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="gap-1 text-[10px]">
-                      <Lock className="h-3 w-3" /> Private
-                    </Badge>
-                  )}
-                </button>
+                {bucket.public ? (
+                  <Badge variant="secondary" className="gap-1 text-[10px]">
+                    <Globe className="h-3 w-3" /> Public
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="gap-1 text-[10px]">
+                    <Lock className="h-3 w-3" /> Private
+                  </Badge>
+                )}
               </div>
 
               <span className="w-20 text-right text-muted-foreground">
@@ -253,7 +244,7 @@ function BucketList({
                 variant="ghost"
                 size="icon"
                 className="w-10 h-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
-                onClick={() => handleDelete(bucket.name)}
+                onClick={(e) => handleDelete(e, bucket.name)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -265,9 +256,9 @@ function BucketList({
   );
 }
 
-// ── Object browser inside a bucket ───────────────────────
+// ── Bucket detail (tabs: Files / Settings) ───────────────
 
-function ObjectBrowser({
+function BucketDetail({
   projectId,
   bucketName,
   onBack,
@@ -276,11 +267,249 @@ function ObjectBrowser({
   bucketName: string;
   onBack: () => void;
 }) {
+  const [tab, setTab] = useState<'files' | 'settings'>('files');
+  const [bucketInfo, setBucketInfo] = useState<StorageBucket | null>(null);
+
+  const loadBucketInfo = useCallback(async () => {
+    try {
+      const buckets = await api.storage.listBuckets(projectId);
+      const found = buckets.find((b: StorageBucket) => b.name === bucketName);
+      if (found) setBucketInfo(found);
+    } catch {}
+  }, [projectId, bucketName]);
+
+  useEffect(() => { loadBucketInfo(); }, [loadBucketInfo]);
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+            Buckets
+          </Button>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">{bucketName}</h2>
+            {bucketInfo && (
+              bucketInfo.public ? (
+                <Badge variant="secondary" className="gap-1 text-[10px]">
+                  <Globe className="h-3 w-3" /> Public
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="gap-1 text-[10px]">
+                  <Lock className="h-3 w-3" /> Private
+                </Badge>
+              )
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        <button
+          onClick={() => setTab('files')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'files'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Files
+        </button>
+        <button
+          onClick={() => setTab('settings')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'settings'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Settings className="h-3.5 w-3.5" />
+          Settings
+        </button>
+      </div>
+
+      {tab === 'files' ? (
+        <ObjectBrowser
+          projectId={projectId}
+          bucketName={bucketName}
+          bucketInfo={bucketInfo}
+        />
+      ) : (
+        <BucketSettings
+          projectId={projectId}
+          bucketName={bucketName}
+          bucketInfo={bucketInfo}
+          onUpdate={loadBucketInfo}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Bucket settings ──────────────────────────────────────
+
+function BucketSettings({
+  projectId,
+  bucketName,
+  bucketInfo,
+  onUpdate,
+}: {
+  projectId: string;
+  bucketName: string;
+  bucketInfo: StorageBucket | null;
+  onUpdate: () => void;
+}) {
+  const [toggling, setToggling] = useState(false);
+
+  async function handleTogglePublic() {
+    if (!bucketInfo) return;
+    setToggling(true);
+    try {
+      await api.storage.updateBucket(projectId, bucketName, !bucketInfo.public);
+      toast.success(`Bucket is now ${!bucketInfo.public ? 'public' : 'private'}`);
+      onUpdate();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  if (!bucketInfo) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {/* General info */}
+      <section className="rounded-md border">
+        <div className="border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">General</h3>
+        </div>
+        <div className="divide-y">
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-muted-foreground">Bucket name</span>
+            <span className="text-sm font-medium">{bucketName}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-muted-foreground">Objects</span>
+            <span className="text-sm font-medium">{bucketInfo.objectCount}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-muted-foreground">Total size</span>
+            <span className="text-sm font-medium">{formatBytes(bucketInfo.totalSize)}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-muted-foreground">Created</span>
+            <span className="text-sm font-medium">{formatDate(bucketInfo.createdAt)}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Access */}
+      <section className="rounded-md border">
+        <div className="border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">Access Control</h3>
+        </div>
+        <div className="px-4 py-4 space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium">
+                {bucketInfo.public ? 'Public access' : 'Private access'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {bucketInfo.public
+                  ? 'Anyone with the URL can read files in this bucket.'
+                  : 'Files require a signed URL or API key to access.'}
+              </p>
+            </div>
+            <button
+              onClick={handleTogglePublic}
+              disabled={toggling}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${
+                bucketInfo.public ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform ${
+                  bucketInfo.public ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {bucketInfo.public && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs dark:border-amber-800 dark:bg-amber-950">
+              <p className="font-medium text-amber-800 dark:text-amber-200">
+                Public bucket
+              </p>
+              <p className="mt-0.5 text-amber-700 dark:text-amber-300">
+                All files in this bucket are publicly readable. Do not store sensitive data.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Danger zone */}
+      <section className="rounded-md border border-red-200 dark:border-red-800">
+        <div className="border-b border-red-200 dark:border-red-800 px-4 py-3">
+          <h3 className="text-sm font-semibold text-red-600 dark:text-red-400">Danger Zone</h3>
+        </div>
+        <div className="flex items-center justify-between px-4 py-4">
+          <div>
+            <p className="text-sm font-medium">Delete bucket</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Permanently delete this bucket and all its files.
+            </p>
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={async () => {
+              if (!confirm(`Delete bucket "${bucketName}" and all its contents? This cannot be undone.`)) return;
+              try {
+                await api.storage.deleteBucket(projectId, bucketName);
+                toast.success(`Bucket "${bucketName}" deleted`);
+                window.location.reload();
+              } catch (err: any) {
+                toast.error(err.message);
+              }
+            }}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete bucket
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── Object browser inside a bucket ───────────────────────
+
+function ObjectBrowser({
+  projectId,
+  bucketName,
+  bucketInfo,
+}: {
+  projectId: string;
+  bucketName: string;
+  bucketInfo: StorageBucket | null;
+}) {
   const [objects, setObjects] = useState<StorageObject[]>([]);
   const [prefix, setPrefix] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [urlLoading, setUrlLoading] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -336,6 +565,18 @@ function ObjectBrowser({
     }
   }
 
+  async function handleCopyUrl(objectName: string) {
+    setUrlLoading(objectName);
+    try {
+      const { url } = await api.storage.downloadUrl(projectId, bucketName, objectName);
+      copyToClipboard(url);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setUrlLoading(null);
+    }
+  }
+
   async function handleDeleteSelected() {
     if (selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} item(s)?`)) return;
@@ -362,40 +603,29 @@ function ObjectBrowser({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-            Buckets
+      {/* Toolbar */}
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+        {selected.size > 0 && (
+          <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete ({selected.size})
           </Button>
-          <div>
-            <h2 className="text-lg font-semibold">{bucketName}</h2>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          {selected.size > 0 && (
-            <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Delete ({selected.size})
-            </Button>
-          )}
-          <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
-            {uploading ? 'Uploading…' : 'Upload'}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => handleUpload(e.target.files)}
-          />
-        </div>
+        )}
+        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {uploading ? 'Uploading…' : 'Upload'}
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleUpload(e.target.files)}
+        />
       </div>
 
       {/* Breadcrumbs */}
@@ -432,7 +662,7 @@ function ObjectBrowser({
           <span className="flex-1">Name</span>
           <span className="w-24 text-right">Size</span>
           <span className="w-44 text-right">Last Modified</span>
-          <span className="w-20" />
+          <span className="w-28" />
         </div>
 
         {loading ? (
@@ -463,7 +693,7 @@ function ObjectBrowser({
                 </span>
                 <span className="w-24 text-right text-muted-foreground">—</span>
                 <span className="w-44 text-right text-muted-foreground">—</span>
-                <span className="w-20" />
+                <span className="w-28" />
               </button>
             ))}
 
@@ -485,7 +715,21 @@ function ObjectBrowser({
                   <span className="flex-1 truncate">{fileName}</span>
                   <span className="w-24 text-right text-muted-foreground">{formatBytes(file.size)}</span>
                   <span className="w-44 text-right text-muted-foreground">{formatDate(file.lastModified)}</span>
-                  <div className="flex w-20 justify-end gap-1">
+                  <div className="flex w-28 justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Copy URL"
+                      disabled={urlLoading === file.name}
+                      onClick={() => handleCopyUrl(file.name)}
+                    >
+                      {urlLoading === file.name ? (
+                        <div className="h-3 w-3 animate-spin rounded-full border border-muted-foreground border-t-transparent" />
+                      ) : (
+                        <Link2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" title="Download" onClick={() => handleDownload(file.name)}>
                       <Download className="h-3.5 w-3.5" />
                     </Button>
