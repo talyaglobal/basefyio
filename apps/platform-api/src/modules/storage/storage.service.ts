@@ -78,7 +78,7 @@ export class StorageService {
 
   async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = `kb-${project.slug}-`;
+    const prefix = `kb-${project.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
     const allBuckets = await this.client.listBuckets();
     const projectBuckets = allBuckets.filter((b) => b.name.startsWith(prefix));
