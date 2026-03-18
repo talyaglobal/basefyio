@@ -11,12 +11,17 @@ import type { Team, UserInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
+  Book,
   ChevronDown,
+  Code,
   Database,
+  ExternalLink,
   KeyRound,
   LogOut,
   MessageSquarePlus,
+  Server,
   Settings,
+  Terminal,
   User,
   Users,
 } from 'lucide-react';
@@ -139,6 +144,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: Hea
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
         </Button>
+
+        <DocsMenu />
       </div>
 
       <div className="flex items-center gap-3">
@@ -159,6 +166,58 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: Hea
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </header>
+  );
+}
+
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com';
+
+const docsLinks = [
+  { label: 'Overview', href: '/docs', icon: Book },
+  { label: 'API Reference', href: '/docs/api', icon: Server },
+  { label: 'SDK', href: '/docs/sdk', icon: Code },
+  { label: 'CLI', href: '/docs/cli', icon: Terminal },
+];
+
+function DocsMenu() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen(!open)}
+      >
+        <Book className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Docs</span>
+        <ChevronDown className="h-3 w-3" />
+      </Button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-md border bg-card shadow-lg">
+            <div className="p-1">
+              {docsLinks.map((item) => (
+                <a
+                  key={item.href}
+                  href={`${docsBaseUrl}${item.href}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
+                >
+                  <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  {item.label}
+                  <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
+                </a>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

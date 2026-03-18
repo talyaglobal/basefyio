@@ -20,6 +20,12 @@ export default function Home() {
           </Link>
           <nav className="flex items-center gap-6">
             <Link
+              href="/docs"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Docs
+            </Link>
+            <Link
               href="https://app.kolaybase.com"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -144,24 +150,34 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border py-12 px-6">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
-          <span className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Kolaybase
-          </span>
-          <div className="flex gap-8">
-            <Link
-              href="https://app.kolaybase.com"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              App
-            </Link>
-            <Link
-              href="https://app.kolaybase.com/signup"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Sign Up
-            </Link>
+      <footer className="border-t border-border py-16 px-6">
+        <div className="mx-auto max-w-6xl grid grid-cols-2 sm:grid-cols-4 gap-8">
+          <div>
+            <span className="text-sm font-semibold text-foreground">Product</span>
+            <ul className="mt-3 space-y-2">
+              <li><Link href="https://app.kolaybase.com" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Dashboard</Link></li>
+              <li><Link href="https://app.kolaybase.com/signup" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Sign Up</Link></li>
+            </ul>
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-foreground">Docs</span>
+            <ul className="mt-3 space-y-2">
+              <li><Link href="/docs/api" className="text-sm text-muted-foreground hover:text-foreground transition-colors">API Reference</Link></li>
+              <li><Link href="/docs/sdk" className="text-sm text-muted-foreground hover:text-foreground transition-colors">SDK</Link></li>
+              <li><Link href="/docs/cli" className="text-sm text-muted-foreground hover:text-foreground transition-colors">CLI</Link></li>
+            </ul>
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-foreground">Resources</span>
+            <ul className="mt-3 space-y-2">
+              <li><Link href="/docs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Documentation</Link></li>
+            </ul>
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-foreground">Kolaybase</span>
+            <p className="mt-3 text-sm text-muted-foreground">
+              © {new Date().getFullYear()} Kolaybase
+            </p>
           </div>
         </div>
       </footer>

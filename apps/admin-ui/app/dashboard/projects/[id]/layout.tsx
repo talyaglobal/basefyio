@@ -10,7 +10,9 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
+  Book,
   Database,
+  ExternalLink,
   FolderOpen,
   Key,
   Link2,
@@ -116,6 +118,19 @@ export default function ProjectLayout({
           <p className="mt-1.5 truncate font-mono text-[10px] text-muted-foreground" title={project.anonKey}>
             anon: {project.anonKey}
           </p>
+        </div>
+
+        <div className="mx-2 mt-3">
+          <a
+            href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <Book className="h-4 w-4" />
+            Documentation
+            <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
+          </a>
         </div>
       </aside>
 

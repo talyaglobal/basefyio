@@ -86,7 +86,7 @@ export class StorageService {
     const results: BucketSummary[] = [];
 
     for (const b of projectBuckets) {
-      const displayName = b.name.slice(prefix.length);
+      const displayName = b.name.substring(prefix.length);
       const stats = await this.bucketStats(b.name);
 
       results.push({
