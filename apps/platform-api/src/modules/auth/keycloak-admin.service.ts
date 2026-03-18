@@ -75,7 +75,20 @@ export class KeycloakAdminService implements OnModuleInit {
       const authBase = `${baseUrl}/admin/realms/${realmName}/authentication`;
 
       const { data: flows } = await axios.get(`${authBase}/flows`, { headers });
-      if (flows.find((f: any) => f.alias === alias)) return alias;
+      const existing = flows.find((f: any) => f.alias === alias);
+
+      if (existing) {
+        const { data: executions } = await axios.get(
+          `${authBase}/flows/${alias}/executions`,
+          { headers },
+        );
+        const hasCreateUnique = executions.some((e: any) => e.providerId === 'idp-create-user-if-unique');
+        const hasAutoLink = executions.some((e: any) => e.providerId === 'idp-auto-link');
+        if (hasCreateUnique && hasAutoLink) return alias;
+
+        this.logger.log(`Deleting broken auto-link flow in realm "${realmName}"`);
+        await axios.delete(`${authBase}/flows/${existing.id}`, { headers });
+      }
 
       await axios.post(`${authBase}/flows`, {
         alias,
