@@ -924,7 +924,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     if (!confirm(`Delete ${selectedRows.size} row(s)?`)) return;
 
     let deleted = 0;
-    for (const idx of selectedRows) {
+    for (const idx of Array.from(selectedRows)) {
       const row = filteredRows[idx];
       if (!row) continue;
       try {
