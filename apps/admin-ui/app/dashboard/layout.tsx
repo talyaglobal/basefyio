@@ -11,14 +11,20 @@ import { Header } from '@/components/header';
 interface DashboardContextValue {
   activeTeamId: string;
   setActiveTeamId: (id: string) => void;
+  refreshUser: () => void;
 }
 
 export const DashboardContext = createContext<DashboardContextValue>({
   activeTeamId: '',
   setActiveTeamId: () => {},
+  refreshUser: () => {},
 });
 
 export function useActiveTeam() {
+  return useContext(DashboardContext);
+}
+
+export function useDashboard() {
   return useContext(DashboardContext);
 }
 
@@ -77,6 +83,14 @@ export default function DashboardLayout({
     Cookies.set('kb_active_team', id, { expires: 365 });
   }, []);
 
+  const refreshUser = useCallback(() => {
+    api.auth.getProfile().then((p) => {
+      setUser((prev) =>
+        prev ? { ...prev, preferred_username: p.username, email: p.email } : prev,
+      );
+    }).catch(() => {});
+  }, []);
+
   if (!user || !activeTeamId) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -86,7 +100,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange }}>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshUser }}>
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>

@@ -5,6 +5,7 @@ interface PasswordResetData {
   tempPassword: string;
   projectName: string;
   loginUrl: string;
+  setPasswordUrl: string;
 }
 
 export function passwordResetTemplate(data: PasswordResetData): string {
@@ -35,12 +36,17 @@ export function passwordResetTemplate(data: PasswordResetData): string {
 
       <div style="background-color: #fef3c7; border-radius: 12px; padding: 16px 20px; margin: 24px 0; border-left: 4px solid #f59e0b;">
         <p style="font-size: 14px; color: #92400e; margin: 0;">
-          <strong>Important:</strong> Please change your password after your first login for security reasons.
+          <strong>Important:</strong> We recommend setting a new password for your account.
         </p>
       </div>
 
-      <div class="cta-wrapper">
-        <a href="${data.loginUrl}" class="cta-button">Sign In Now</a>
+      <div class="cta-wrapper" style="text-align: center;">
+        <a href="${data.setPasswordUrl}" class="cta-button" style="margin-bottom: 12px;">Set New Password</a>
+        <div style="margin-top: 12px;">
+          <a href="${data.loginUrl}" style="font-size: 14px; color: #2563eb; text-decoration: none;">
+            Or sign in with temporary password &rarr;
+          </a>
+        </div>
       </div>
 
       <div class="divider"></div>

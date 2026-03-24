@@ -31,6 +31,7 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [inviteCount, setInviteCount] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -152,18 +153,73 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
           </Button>
         )}
 
-        <div className="flex items-center gap-2 text-sm">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-            <User className="h-4 w-4 text-primary" />
-          </div>
-          <span className="hidden font-medium sm:inline">
-            {user.preferred_username || user.email}
-          </span>
-        </div>
+        <div className="relative">
+          <button
+            onClick={() => setUserMenuOpen(!userMenuOpen)}
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <User className="h-4 w-4 text-primary" />
+            </div>
+            <span className="hidden font-medium sm:inline">
+              {user.preferred_username || user.email}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
 
-        <Button variant="ghost" size="icon" onClick={handleLogout}>
-          <LogOut className="h-4 w-4" />
-        </Button>
+          {userMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setUserMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
+                <div className="p-2 border-b">
+                  <p className="text-sm font-medium truncate">
+                    {user.preferred_username || user.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {user.email}
+                  </p>
+                </div>
+                <div className="p-1">
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      router.push('/dashboard/profile');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    Profile Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      router.push('/dashboard/team');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                    Team Settings
+                  </button>
+                </div>
+                <div className="border-t p-1">
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      handleLogout();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />

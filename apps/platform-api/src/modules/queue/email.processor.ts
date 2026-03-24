@@ -10,6 +10,7 @@ export interface EmailJobData {
   username: string;
   tempPassword: string;
   projectName: string;
+  resetToken?: string;
 }
 
 @Processor(EMAIL_QUEUE)
@@ -21,7 +22,7 @@ export class EmailProcessor extends WorkerHost {
   }
 
   async process(job: Job<EmailJobData>): Promise<void> {
-    const { type, to, username, tempPassword, projectName } = job.data;
+    const { type, to, username, tempPassword, projectName, resetToken } = job.data;
 
     this.logger.log(`Processing email job ${job.id}: ${type} -> ${to}`);
 
@@ -32,6 +33,7 @@ export class EmailProcessor extends WorkerHost {
           username,
           tempPassword,
           projectName,
+          resetToken,
         );
         break;
       default:

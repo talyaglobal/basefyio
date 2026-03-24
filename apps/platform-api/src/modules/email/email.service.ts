@@ -6,6 +6,7 @@ import { signInTemplate } from './templates/signin.template';
 import { inviteTemplate } from './templates/invite.template';
 import { feedbackTemplate } from './templates/feedback.template';
 import { passwordResetTemplate } from './templates/password-reset.template';
+import { forgotPasswordTemplate } from './templates/forgot-password.template';
 
 @Injectable()
 export class EmailService {
@@ -106,17 +107,42 @@ export class EmailService {
     });
   }
 
+  async sendPasswordResetLink(
+    to: string,
+    username: string,
+    resetToken: string,
+  ) {
+    const resetUrl = `${this.appUrl}/reset-password?token=${resetToken}`;
+    const html = forgotPasswordTemplate({
+      username,
+      resetUrl,
+      expiresInMinutes: 60,
+    });
+
+    return this.send({
+      to,
+      subject: 'Reset your Kolaybase password',
+      html,
+    });
+  }
+
   async sendImportedUserCredentials(
     to: string,
     username: string,
     tempPassword: string,
     projectName: string,
+    resetToken?: string,
   ) {
+    const setPasswordUrl = resetToken
+      ? `${this.appUrl}/reset-password?token=${resetToken}`
+      : `${this.appUrl}/forgot-password`;
+
     const html = passwordResetTemplate({
       username,
       tempPassword,
       projectName,
       loginUrl: `${this.appUrl}/login`,
+      setPasswordUrl,
     });
 
     return this.send({

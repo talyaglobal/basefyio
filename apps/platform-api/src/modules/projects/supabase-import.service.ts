@@ -65,6 +65,7 @@ interface SupabaseStorageObject {
 @Injectable()
 export class SupabaseImportService {
   private readonly logger = new Logger(SupabaseImportService.name);
+  private readonly cancelledJobs = new Set<string>();
 
   constructor(
     private readonly http: HttpService,
@@ -77,6 +78,15 @@ export class SupabaseImportService {
     @InjectQueue(EMAIL_QUEUE) private readonly emailQueue: Queue,
   ) {}
 
+  isJobCancelled(jobId: string): boolean {
+    return this.cancelledJobs.has(jobId);
+  }
+
+  private markJobCancelled(jobId: string) {
+    this.cancelledJobs.add(jobId);
+    setTimeout(() => this.cancelledJobs.delete(jobId), 5 * 60 * 1000);
+  }
+
   /**
    * Enqueue a Supabase import job. Returns immediately with jobId + project.
    */
@@ -86,6 +96,7 @@ export class SupabaseImportService {
     projectName: string,
     teamId: string,
     userId: string,
+    sendNotificationEmails = false,
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -113,6 +124,7 @@ export class SupabaseImportService {
       dbPassword: project.dbPassword,
       dbName: project.dbName,
       keycloakRealm: project.keycloakRealm,
+      sendNotificationEmails,
     };
 
     const job = await this.importQueue.add('supabase-import', jobData, {
@@ -137,6 +149,48 @@ export class SupabaseImportService {
     baseUrl: string,
     headers: Record<string, string>,
   ): Promise<string> {
+    // Try fetching project name from Supabase auth settings
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get(`${baseUrl}/auth/v1/settings`, {
+          headers: { ...headers, Accept: 'application/json' },
+          timeout: 10000,
+        }),
+      );
+      // Some Supabase projects expose site_url or external_url with the project name
+      const siteUrl: string = data?.SITE_URL || data?.site_url || '';
+      if (siteUrl) {
+        const host = new URL(siteUrl).hostname;
+        if (host && host !== 'localhost' && !host.includes('supabase')) {
+          return host.split('.')[0];
+        }
+      }
+    } catch {
+      // auth/v1/settings may not be accessible
+    }
+
+    // Try decoding the service role JWT to extract the 'ref' field
+    try {
+      const token = headers['Authorization']?.replace('Bearer ', '') || headers['apikey'];
+      if (token) {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        if (payload.ref) {
+          return payload.ref;
+        }
+        // iss is like https://ref.supabase.co/auth/v1
+        if (payload.iss) {
+          const issHost = new URL(payload.iss).hostname;
+          const ref = issHost.split('.')[0];
+          if (ref && ref.length < 30) {
+            return ref;
+          }
+        }
+      }
+    } catch {
+      // JWT decode failed
+    }
+
+    // Fallback: extract ref from URL hostname
     try {
       const ref = new URL(baseUrl).hostname.split('.')[0];
       return ref || 'imported-project';
@@ -156,9 +210,15 @@ export class SupabaseImportService {
     };
 
     await this.validateConnection(baseUrl, headers);
-    const projectName = await this.fetchProjectName(baseUrl, headers);
     const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
     const tables = this.extractTablesFromOpenApi(openApi);
+
+    const genericTitles = ['standard public schema', 'postgrest api', 'public', 'postgres'];
+    const openApiTitle = openApi?.info?.title?.trim();
+    const isGenericTitle = !openApiTitle || genericTitles.includes(openApiTitle.toLowerCase());
+    const projectName = isGenericTitle
+      ? await this.fetchProjectName(baseUrl, headers)
+      : openApiTitle;
 
     return {
       valid: true,
@@ -181,6 +241,38 @@ export class SupabaseImportService {
     };
   }
 
+  async cancelImport(jobId: string, userId: string) {
+    const job = await this.importQueue.getJob(String(jobId));
+    if (!job) throw new Error('Job not found');
+
+    const projectId = (job.data as ImportJobData).projectId;
+
+    this.markJobCancelled(String(jobId));
+    this.logger.log(`Marked job ${jobId} as cancelled, waiting for processor to stop...`);
+
+    const state = await job.getState();
+    if (state === 'waiting' || state === 'delayed') {
+      await job.remove();
+    } else if (state === 'active') {
+      // Give the processor up to 3s to notice the cancellation flag and exit
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        await job.moveToFailed(new Error('Cancelled by user'), job.token || '0', true);
+      } catch {
+        // Job may have already finished or been moved
+      }
+    }
+
+    try {
+      await this.projectsService.forceDelete(projectId);
+      this.logger.log(`Cancelled import job ${jobId}, project ${projectId} deleted`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to clean up project ${projectId}: ${err.message}`);
+    }
+
+    return { message: 'Import cancelled' };
+  }
+
   // ── Public methods called by ImportProcessor ─────────────
 
   async runDatabaseImport(
@@ -199,8 +291,9 @@ export class SupabaseImportService {
     project: any,
     progress: ImportProgress,
     projectName: string,
+    sendNotificationEmails = false,
   ) {
-    return this.importAuth(baseUrl, headers, project, progress, projectName);
+    return this.importAuth(baseUrl, headers, project, progress, projectName, sendNotificationEmails);
   }
 
   async runStorageImport(
@@ -688,6 +781,7 @@ export class SupabaseImportService {
     project: any,
     progress: ImportProgress,
     projectName: string,
+    sendNotificationEmails = false,
   ) {
     let allUsers: SupabaseUser[] = [];
     let page = 1;
@@ -752,20 +846,29 @@ export class SupabaseImportService {
 
         progress.auth.users++;
 
-        // Enqueue credential email
-        const emailJob: EmailJobData = {
-          type: 'imported-user-credentials',
-          to: email,
-          username,
-          tempPassword,
-          projectName,
-        };
-        await this.emailQueue.add('send-credentials', emailJob, {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: { age: 3600 },
-        });
-        progress.auth.emailsSent++;
+        if (sendNotificationEmails) {
+          const resetToken = randomBytes(32).toString('hex');
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days for imported users
+
+          await this.prisma.passwordResetToken.create({
+            data: { email, token: resetToken, expiresAt, realm: project.keycloakRealm },
+          });
+
+          const emailJob: EmailJobData = {
+            type: 'imported-user-credentials',
+            to: email,
+            username,
+            tempPassword,
+            projectName,
+            resetToken,
+          };
+          await this.emailQueue.add('send-credentials', emailJob, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: { age: 3600 },
+          });
+          progress.auth.emailsSent++;
+        }
       } catch (err: any) {
         if (
           err.response?.status === 409 ||

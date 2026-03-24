@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsUrl, MinLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsUrl, MinLength, IsBoolean, IsOptional } from 'class-validator';
 
 export class ImportSupabaseDto {
   @IsUrl({ require_tld: false }, { message: 'Invalid Supabase URL' })
@@ -16,4 +16,8 @@ export class ImportSupabaseDto {
   @IsString()
   @IsNotEmpty()
   teamId: string;
+
+  @IsBoolean()
+  @IsOptional()
+  sendNotificationEmails?: boolean;
 }

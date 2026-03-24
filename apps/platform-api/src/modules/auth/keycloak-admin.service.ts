@@ -211,6 +211,51 @@ export class KeycloakAdminService implements OnModuleInit {
     return users[0] || null;
   }
 
+  async resetPlatformUserPassword(
+    keycloakUserId: string,
+    newPassword: string,
+  ): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm: 'master',
+      id: keycloakUserId,
+      credential: {
+        type: 'password',
+        value: newPassword,
+        temporary: false,
+      },
+    });
+    this.logger.log(`Password reset for platform user ${keycloakUserId}`);
+  }
+
+  async findUserByEmailInRealm(realm: string, email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({
+      realm,
+      email,
+      exact: true,
+    });
+    return users[0] || null;
+  }
+
+  async resetUserPasswordInRealm(
+    realm: string,
+    keycloakUserId: string,
+    newPassword: string,
+  ): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm,
+      id: keycloakUserId,
+      credential: {
+        type: 'password',
+        value: newPassword,
+        temporary: false,
+      },
+    });
+    this.logger.log(`Password reset for user ${keycloakUserId} in realm "${realm}"`);
+  }
+
   async getRealmInfo(realmName: string) {
     await this.ensureAuth();
     const realm = await this.client.realms.findOne({ realm: realmName });

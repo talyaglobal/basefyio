@@ -11,6 +11,7 @@ import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -30,6 +31,7 @@ import configuration from './config/configuration';
     StorageModule,
     FeedbackModule,
     PgBouncerModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}

@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Key,
   Link2,
+  Plug,
   Shield,
   Table2,
   Terminal,
@@ -26,6 +27,7 @@ const navItems = [
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
   { label: 'Connection', href: '/connect', icon: Link2 },
+  { label: 'Integrations', href: '/integrations', icon: Plug },
 ];
 
 export default function ProjectLayout({

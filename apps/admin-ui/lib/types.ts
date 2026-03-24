@@ -1,3 +1,65 @@
+export interface GitHubIntegration {
+  connected: boolean;
+  owner?: string;
+  repo?: string;
+  branch?: string;
+  repoUrl?: string;
+  token?: string;
+}
+
+export interface VercelIntegration {
+  connected: boolean;
+  projectId?: string;
+  projectName?: string;
+  projectUrl?: string;
+  dashboardUrl?: string;
+  token?: string;
+  teamId?: string;
+}
+
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  author: string;
+  authorAvatar: string | null;
+  date: string;
+  url: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  full_name: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  html_url: string;
+  default_branch: string;
+  description: string | null;
+  updated_at: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+  protected: boolean;
+}
+
+export interface VercelProject {
+  id: string;
+  name: string;
+  framework: string | null;
+  url: string | null;
+  updatedAt: number;
+}
+
+export interface VercelDeployment {
+  id: string;
+  state: 'READY' | 'ERROR' | 'BUILDING' | 'QUEUED' | 'CANCELED';
+  url: string | null;
+  commitMessage: string | null;
+  branch: string | null;
+  createdAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -12,6 +74,8 @@ export interface Project {
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   createdAt: string;
   updatedAt: string;
+  github?: GitHubIntegration;
+  vercel?: VercelIntegration;
 }
 
 export interface ProjectListItem {
@@ -68,6 +132,18 @@ export interface UserInfo {
   email: string;
   preferred_username: string;
   roles: string[];
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  avatarUrl: string | null;
+  githubUsername: string | null;
+  notifySignIn: boolean;
+  notifyTeamInvite: boolean;
+  role: string;
+  createdAt: string;
 }
 
 export interface SqlResult {
@@ -164,6 +240,7 @@ export interface SupabaseImportRequest {
   serviceRoleKey: string;
   name: string;
   teamId: string;
+  sendNotificationEmails?: boolean;
 }
 
 export interface SupabaseImportJobResponse {

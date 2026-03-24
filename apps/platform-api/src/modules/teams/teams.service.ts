@@ -67,7 +67,12 @@ export class TeamsService {
       include: {
         team: {
           include: {
-            _count: { select: { members: true, projects: true } },
+            _count: {
+              select: {
+                members: true,
+                projects: { where: { status: { not: 'DELETED' } } },
+              },
+            },
           },
         },
       },

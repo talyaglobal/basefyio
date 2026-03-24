@@ -50,6 +50,7 @@ export class ProjectsController {
       body.name,
       body.teamId,
       user.sub,
+      body.sendNotificationEmails ?? false,
     );
   }
 
@@ -61,6 +62,14 @@ export class ProjectsController {
       body.supabaseUrl,
       body.serviceRoleKey,
     );
+  }
+
+  @Post('import-supabase/jobs/:jobId/cancel')
+  async cancelImport(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.supabaseImport.cancelImport(jobId, user.sub);
   }
 
   @Get('import-supabase/jobs/:jobId/status')

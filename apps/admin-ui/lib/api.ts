@@ -3,6 +3,10 @@ import type {
   AuthTokens,
   ColumnInfo,
   ConnectionStrings,
+  GitHubBranch,
+  GitHubCommit,
+  GitHubIntegration,
+  GitHubRepo,
   ImportJobProgressEvent,
   PendingInvite,
   Project,
@@ -21,6 +25,10 @@ import type {
   TeamInvite,
   TeamMember,
   UserInfo,
+  UserProfile,
+  VercelDeployment,
+  VercelIntegration,
+  VercelProject,
 } from './types';
 
 async function request<T>(
@@ -93,6 +101,40 @@ export const api = {
     },
     me() {
       return request<UserInfo>('/auth/me');
+    },
+    forgotPassword(email: string) {
+      return request<{ message: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    },
+    resetPassword(token: string, password: string) {
+      return request<{ message: string }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, password }),
+      });
+    },
+    getProfile() {
+      return request<UserProfile>('/auth/profile');
+    },
+    updateProfile(data: {
+      username?: string;
+      email?: string;
+      githubUsername?: string;
+      avatarUrl?: string;
+      notifySignIn?: boolean;
+      notifyTeamInvite?: boolean;
+    }) {
+      return request<UserProfile>('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    changePassword(currentPassword: string, newPassword: string) {
+      return request<{ message: string }>('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
     },
   },
 
@@ -180,6 +222,11 @@ export const api = {
       return request<SupabaseValidateResult>('/projects/import-supabase/validate', {
         method: 'POST',
         body: JSON.stringify({ supabaseUrl, serviceRoleKey }),
+      });
+    },
+    cancelImport(jobId: string) {
+      return request<{ message: string }>(`/projects/import-supabase/jobs/${jobId}/cancel`, {
+        method: 'POST',
       });
     },
 
@@ -293,6 +340,59 @@ export const api = {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'DELETE',
       });
+    },
+  },
+
+  integrations: {
+    getGitHub(projectId: string) {
+      return request<GitHubIntegration>(`/projects/${projectId}/integrations/github`);
+    },
+    connectGitHub(projectId: string, data: { token: string; owner: string; repo: string; branch?: string }) {
+      return request<GitHubIntegration>(`/projects/${projectId}/integrations/github`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    disconnectGitHub(projectId: string) {
+      return request<{ connected: false }>(`/projects/${projectId}/integrations/github`, {
+        method: 'DELETE',
+      });
+    },
+    listGitHubRepos(projectId: string, token: string) {
+      return request<GitHubRepo[]>(`/projects/${projectId}/integrations/github/repos?token=${encodeURIComponent(token)}`);
+    },
+    getGitHubCommits(projectId: string) {
+      return request<GitHubCommit[]>(`/projects/${projectId}/integrations/github/commits`);
+    },
+    getGitHubBranches(projectId: string) {
+      return request<GitHubBranch[]>(`/projects/${projectId}/integrations/github/branches`);
+    },
+    previewGitHubBranches(projectId: string, token: string, owner: string, repo: string) {
+      return request<GitHubBranch[]>(
+        `/projects/${projectId}/integrations/github/branches/preview?token=${encodeURIComponent(token)}&owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`,
+      );
+    },
+    getVercel(projectId: string) {
+      return request<VercelIntegration>(`/projects/${projectId}/integrations/vercel`);
+    },
+    connectVercel(projectId: string, data: { token: string; projectId: string; teamId?: string }) {
+      return request<VercelIntegration>(`/projects/${projectId}/integrations/vercel`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    disconnectVercel(projectId: string) {
+      return request<{ connected: false }>(`/projects/${projectId}/integrations/vercel`, {
+        method: 'DELETE',
+      });
+    },
+    listVercelProjects(projectId: string, token: string, teamId?: string) {
+      const params = new URLSearchParams({ token });
+      if (teamId) params.set('teamId', teamId);
+      return request<VercelProject[]>(`/projects/${projectId}/integrations/vercel/projects?${params}`);
+    },
+    getVercelDeployments(projectId: string) {
+      return request<VercelDeployment[]>(`/projects/${projectId}/integrations/vercel/deployments`);
     },
   },
 
