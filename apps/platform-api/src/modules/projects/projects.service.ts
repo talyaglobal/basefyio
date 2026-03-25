@@ -119,6 +119,13 @@ export class ProjectsService {
       vercel: project.vercelProjectId
         ? { connected: true, projectId: project.vercelProjectId }
         : { connected: false },
+    const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
+    const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
+
+    return {
+      ...project,
+      dbHost: externalHost,
+      dbPort: externalPort,
     };
   }
 

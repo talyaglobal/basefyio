@@ -21,6 +21,13 @@ export interface ColumnInfo {
   isPrimary: boolean;
 }
 
+export interface ForeignKeyInfo {
+  constraintName: string;
+  columnName: string;
+  foreignTableName: string;
+  foreignColumnName: string;
+}
+
 @Injectable()
 export class ProjectDataService {
   constructor(
@@ -355,27 +362,257 @@ export class ProjectDataService {
     }
   }
 
+  private validateColumnName(name: string) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      throw new BadRequestException(`Invalid column name: ${name}`);
+    }
+  }
+
+  private validateColumnType(type: string) {
+    const ALLOWED_TYPES = [
+      'uuid', 'serial', 'bigserial',
+      'integer', 'bigint', 'smallint',
+      'text', 'varchar(255)', 'char(1)',
+      'boolean',
+      'timestamp', 'timestamptz', 'date', 'time',
+      'numeric', 'decimal', 'real', 'double precision',
+      'jsonb', 'json',
+      'bytea',
+    ];
+    if (!ALLOWED_TYPES.includes(type)) {
+      throw new BadRequestException(`Unsupported column type: ${type}`);
+    }
+  }
+
+  async addColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(column.name);
+    this.validateColumnType(column.type);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      let sql = `ALTER TABLE "${tableName}" ADD COLUMN "${column.name}" ${column.type}`;
+      if (!column.nullable) sql += ' NOT NULL';
+      if (column.defaultValue) {
+        const SAFE_DEFAULTS = ['gen_random_uuid()', 'now()', 'true', 'false', 'CURRENT_TIMESTAMP'];
+        if (SAFE_DEFAULTS.includes(column.defaultValue)) {
+          sql += ` DEFAULT ${column.defaultValue}`;
+        } else {
+          const safe = column.defaultValue.replace(/'/g, "''");
+          sql += ` DEFAULT '${safe}'`;
+        }
+      }
+      if (column.isUnique) sql += ' UNIQUE';
+
+      await client.query(sql);
+      return { message: `Column "${column.name}" added to "${tableName}"` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to add column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async editColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    columnName: string,
+    changes: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(columnName);
+    if (changes.name) this.validateColumnName(changes.name);
+    if (changes.type) this.validateColumnType(changes.type);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      const statements: string[] = [];
+
+      if (changes.type) {
+        statements.push(
+          `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" TYPE ${changes.type} USING "${columnName}"::${changes.type}`,
+        );
+      }
+
+      if (changes.nullable === true) {
+        statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" DROP NOT NULL`);
+      } else if (changes.nullable === false) {
+        statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" SET NOT NULL`);
+      }
+
+      if (changes.defaultValue !== undefined) {
+        if (changes.defaultValue === null || changes.defaultValue === '') {
+          statements.push(`ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" DROP DEFAULT`);
+        } else {
+          const SAFE_DEFAULTS = ['gen_random_uuid()', 'now()', 'true', 'false', 'CURRENT_TIMESTAMP'];
+          const defaultExpr = SAFE_DEFAULTS.includes(changes.defaultValue)
+            ? changes.defaultValue
+            : `'${changes.defaultValue.replace(/'/g, "''")}'`;
+          statements.push(
+            `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" SET DEFAULT ${defaultExpr}`,
+          );
+        }
+      }
+
+      if (changes.name && changes.name !== columnName) {
+        statements.push(
+          `ALTER TABLE "${tableName}" RENAME COLUMN "${columnName}" TO "${changes.name}"`,
+        );
+      }
+
+      for (const sql of statements) {
+        await client.query(sql);
+      }
+
+      return { message: `Column "${columnName}" updated` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to edit column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async deleteColumn(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    columnName: string,
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(columnName);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(`ALTER TABLE "${tableName}" DROP COLUMN "${columnName}" CASCADE`);
+      return { message: `Column "${columnName}" deleted from "${tableName}"` };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to delete column: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async getForeignKeys(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+  ): Promise<ForeignKeyInfo[]> {
+    this.validateTableName(tableName);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      const result = await client.query(
+        `
+        SELECT
+          tc.constraint_name AS "constraintName",
+          kcu.column_name AS "columnName",
+          ccu.table_name AS "foreignTableName",
+          ccu.column_name AS "foreignColumnName"
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_name = $1
+          AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY kcu.ordinal_position
+        `,
+        [tableName],
+      );
+      return result.rows;
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async addForeignKey(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    body: { columnName: string; foreignTableName: string; foreignColumnName: string },
+  ) {
+    this.validateTableName(tableName);
+    this.validateColumnName(body.columnName);
+    this.validateTableName(body.foreignTableName);
+    this.validateColumnName(body.foreignColumnName);
+
+    const constraintName = `fk_${tableName}_${body.columnName}_${body.foreignTableName}`.slice(0, 63);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(
+        `ALTER TABLE "${tableName}" ADD CONSTRAINT "${constraintName}" ` +
+          `FOREIGN KEY ("${body.columnName}") REFERENCES "${body.foreignTableName}" ("${body.foreignColumnName}")`,
+      );
+      return { message: 'Foreign key added' };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to add foreign key: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async deleteForeignKey(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    constraintName: string,
+  ) {
+    this.validateTableName(tableName);
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      await client.query(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+      return { message: 'Foreign key removed' };
+    } catch (err: any) {
+      throw new BadRequestException(`Failed to remove foreign key: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
   getConnectionStrings(project: any) {
     const host = project.dbHost;
     const port = project.dbPort;
     const db = project.dbName;
     const user = project.dbUser;
     const password = project.dbPassword;
-
-    const poolerHost = this.config.get<string>('pgbouncer.externalHost') || 'localhost';
-    const poolerPort = this.config.get<number>('pgbouncer.externalPort') || 6432;
     const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
 
     return {
       uri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
-      poolerUri: `postgresql://${user}:${password}@${poolerHost}:${poolerPort}/${db}`,
+      poolerUri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
       host,
       port,
       database: db,
       user,
       password,
-      poolerHost,
-      poolerPort,
+      poolerHost: host,
+      poolerPort: port,
       restUrl: `${publicApiUrl}/rest/v1`,
       keycloakRealm: project.keycloakRealm,
       keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),

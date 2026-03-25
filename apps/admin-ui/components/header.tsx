@@ -11,11 +11,17 @@ import type { Team, UserInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
+  Book,
   ChevronDown,
+  Code,
   Database,
+  ExternalLink,
+  KeyRound,
   LogOut,
   MessageSquarePlus,
+  Server,
   Settings,
+  Terminal,
   User,
   Users,
 } from 'lucide-react';
@@ -25,9 +31,10 @@ interface HeaderProps {
   user: UserInfo;
   activeTeamId: string | null;
   onTeamChange: (teamId: string) => void;
+  refreshKey?: number;
 }
 
-export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
+export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: HeaderProps) {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -38,7 +45,7 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
-  }, [activeTeamId]);
+  }, [activeTeamId, refreshKey]);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
 
@@ -138,6 +145,8 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
         </Button>
+
+        <DocsMenu />
       </div>
 
       <div className="flex items-center gap-3">
@@ -153,76 +162,116 @@ export function Header({ user, activeTeamId, onTeamChange }: HeaderProps) {
           </Button>
         )}
 
-        <div className="relative">
-          <button
-            onClick={() => setUserMenuOpen(!userMenuOpen)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-          >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-              <User className="h-4 w-4 text-primary" />
-            </div>
-            <span className="hidden font-medium sm:inline">
-              {user.preferred_username || user.email}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-
-          {userMenuOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setUserMenuOpen(false)}
-              />
-              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
-                <div className="p-2 border-b">
-                  <p className="text-sm font-medium truncate">
-                    {user.preferred_username || user.email}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {user.email}
-                  </p>
-                </div>
-                <div className="p-1">
-                  <button
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      router.push('/dashboard/profile');
-                    }}
-                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
-                  >
-                    <User className="h-3.5 w-3.5" />
-                    Profile Settings
-                  </button>
-                  <button
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      router.push('/dashboard/team');
-                    }}
-                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                    Team Settings
-                  </button>
-                </div>
-                <div className="border-t p-1">
-                  <button
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      handleLogout();
-                    }}
-                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Sign Out
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <UserMenu user={user} onLogout={handleLogout} />
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </header>
+  );
+}
+
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com';
+
+const docsLinks = [
+  { label: 'Overview', href: '/docs', icon: Book },
+  { label: 'API Reference', href: '/docs/api', icon: Server },
+  { label: 'SDK', href: '/docs/sdk', icon: Code },
+  { label: 'CLI', href: '/docs/cli', icon: Terminal },
+];
+
+function DocsMenu() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen(!open)}
+      >
+        <Book className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Docs</span>
+        <ChevronDown className="h-3 w-3" />
+      </Button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-md border bg-card shadow-lg">
+            <div className="p-1">
+              {docsLinks.map((item) => (
+                <a
+                  key={item.href}
+                  href={`${docsBaseUrl}${item.href}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
+                >
+                  <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  {item.label}
+                  <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
+                </a>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserMenu({ user, onLogout }: { user: UserInfo; onLogout: () => void }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+      >
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+          <User className="h-4 w-4 text-primary" />
+        </div>
+        <span className="hidden max-w-[120px] truncate font-medium sm:inline">
+          {user.email}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
+            <div className="border-b px-3 py-2.5">
+              <p className="truncate text-sm font-medium">{user.email}</p>
+              <p className="text-xs text-muted-foreground">
+                {user.preferred_username}
+              </p>
+            </div>
+            <div className="p-1">
+              <button
+                onClick={() => { setOpen(false); router.push('/dashboard/account'); }}
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Account Settings
+              </button>
+            </div>
+            <div className="border-t p-1">
+              <button
+                onClick={() => { setOpen(false); onLogout(); }}
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

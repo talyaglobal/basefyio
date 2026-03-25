@@ -190,6 +190,10 @@ services:
       PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}
       PGBOUNCER_EXTERNAL_PORT: 6432
       PUBLIC_API_URL: https://api.${DOMAIN}
+      PLATFORM_GOOGLE_CLIENT_ID: ${PLATFORM_GOOGLE_CLIENT_ID:-}
+      PLATFORM_GOOGLE_CLIENT_SECRET: ${PLATFORM_GOOGLE_CLIENT_SECRET:-}
+      PLATFORM_GITHUB_CLIENT_ID: ${PLATFORM_GITHUB_CLIENT_ID:-}
+      PLATFORM_GITHUB_CLIENT_SECRET: ${PLATFORM_GITHUB_CLIENT_SECRET:-}
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
     volumes:
       - pgbouncer_config:/etc/pgbouncer
@@ -230,6 +234,20 @@ services:
       - traefik.http.routers.ui.entrypoints=websecure
       - traefik.http.routers.ui.tls.certresolver=le
       - traefik.http.services.ui.loadbalancer.server.port=3000
+
+  website:
+    image: ghcr.io/${GHCR_OWNER}/kolaybase-website:latest
+    restart: always
+    environment:
+      HOSTNAME: 0.0.0.0
+    networks:
+      - web
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.website.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.website.entrypoints=websecure
+      - traefik.http.routers.website.tls.certresolver=le
+      - traefik.http.services.website.loadbalancer.server.port=3000
 
 volumes:
   postgres_data:

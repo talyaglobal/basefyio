@@ -84,16 +84,18 @@ enum InviteStatus {
 model TeamInvite {
   id            String       @id @default(uuid())
   teamId        String       @map("team_id")
-  invitedUserId String       @map("invited_user_id")
+  invitedUserId String?      @map("invited_user_id")
+  invitedEmail  String?      @map("invited_email")
   invitedById   String       @map("invited_by_id")
   status        InviteStatus @default(PENDING)
   createdAt     DateTime     @default(now()) @map("created_at")
 
-  team        Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedUser User @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
-  invitedBy   User @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
+  team        Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedUser User? @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy   User  @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
 
   @@unique([teamId, invitedUserId])
+  @@unique([teamId, invitedEmail])
   @@map("team_invites")
 }
 
@@ -128,8 +130,54 @@ model Project {
 
   team         Team          @relation(fields: [teamId], references: [id])
   sqlAuditLogs SqlAuditLog[]
+  authConfig   ProjectAuthConfig?
 
   @@map("projects")
+}
+
+model ProjectAuthConfig {
+  id                    String  @id @default(uuid())
+  projectId             String  @unique @map("project_id")
+  allowSignup           Boolean @default(true) @map("allow_signup")
+  requireEmailVerify    Boolean @default(true) @map("require_email_verify")
+  minPasswordLength     Int     @default(6) @map("min_password_length")
+  tokenExpirySeconds    Int     @default(1800) @map("token_expiry_seconds")
+  emailProvider         String? @map("email_provider")
+  smtpHost              String? @map("smtp_host")
+  smtpPort              Int?    @map("smtp_port")
+  smtpUser              String? @map("smtp_user")
+  smtpPass              String? @map("smtp_pass")
+  senderEmail           String? @map("sender_email")
+  senderName            String? @map("sender_name")
+  resendApiKey          String? @map("resend_api_key")
+  sendgridApiKey        String? @map("sendgrid_api_key")
+  sesAccessKey          String? @map("ses_access_key")
+  sesSecretKey          String? @map("ses_secret_key")
+  sesRegion             String? @map("ses_region")
+  verifyEmailSubject    String? @map("verify_email_subject")
+  verifyEmailBody       String? @map("verify_email_body") @db.Text
+  resetPasswordSubject  String? @map("reset_password_subject")
+  resetPasswordBody     String? @map("reset_password_body") @db.Text
+  welcomeSubject        String? @map("welcome_subject")
+  welcomeBody           String? @map("welcome_body") @db.Text
+  inviteUserSubject     String? @map("invite_user_subject")
+  inviteUserBody        String? @map("invite_user_body") @db.Text
+  magicLinkSubject      String? @map("magic_link_subject")
+  magicLinkBody         String? @map("magic_link_body") @db.Text
+  changeEmailSubject    String? @map("change_email_subject")
+  changeEmailBody       String? @map("change_email_body") @db.Text
+  reauthSubject         String? @map("reauth_subject")
+  reauthBody            String? @map("reauth_body") @db.Text
+  googleEnabled         Boolean @default(false) @map("google_enabled")
+  googleClientId        String? @map("google_client_id")
+  googleClientSecret    String? @map("google_client_secret")
+  githubEnabled         Boolean @default(false) @map("github_enabled")
+  githubClientId        String? @map("github_client_id")
+  githubClientSecret    String? @map("github_client_secret")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_auth_configs")
 }
 
 model SqlAuditLog {

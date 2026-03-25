@@ -33,6 +33,7 @@ export interface BucketSummary {
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private client: Minio.Client;
+  private publicClient: Minio.Client;
   private publicEndpoint: string;
   private publicPort: number;
   private publicSsl: boolean;
@@ -41,17 +42,28 @@ export class StorageService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {
+    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
+
     this.client = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,
       useSSL: this.config.get<boolean>('minio.useSsl') || false,
-      accessKey: this.config.get<string>('minio.accessKey') || 'kolaybase',
-      secretKey: this.config.get<string>('minio.secretKey') || 'kolaybase_secret',
+      accessKey,
+      secretKey,
     });
 
     this.publicEndpoint = this.config.get<string>('minio.publicEndpoint') || 'localhost';
     this.publicPort = this.config.get<number>('minio.publicPort') || 9000;
     this.publicSsl = this.config.get<string>('minio.publicSsl') === 'true';
+
+    this.publicClient = new Minio.Client({
+      endPoint: this.publicEndpoint,
+      port: this.publicPort,
+      useSSL: this.publicSsl,
+      accessKey,
+      secretKey,
+    });
   }
 
   private minioBucketName(projectSlug: string, bucketName: string): string {
@@ -78,7 +90,7 @@ export class StorageService {
 
   async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = `kb-${project.slug}-`;
+    const prefix = `kb-${project.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
     const allBuckets = await this.client.listBuckets();
     const projectBuckets = allBuckets.filter((b) => b.name.startsWith(prefix));
@@ -86,13 +98,14 @@ export class StorageService {
     const results: BucketSummary[] = [];
 
     for (const b of projectBuckets) {
-      const displayName = b.name.slice(prefix.length);
+      const displayName = b.name.substring(prefix.length);
       const stats = await this.bucketStats(b.name);
+      const isPublic = await this.isBucketPublic(b.name);
 
       results.push({
         id: b.name,
         name: displayName,
-        public: false,
+        public: isPublic,
         createdAt: b.creationDate.toISOString(),
         objectCount: stats.objectCount,
         totalSize: stats.totalSize,
@@ -302,14 +315,9 @@ export class StorageService {
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.slug, bucketName);
-    const internalUrl = await this.client.presignedGetObject(minioBucket, objectName, expiry);
+    const url = await this.publicClient.presignedGetObject(minioBucket, objectName, expiry);
 
-    const parsed = new URL(internalUrl);
-    parsed.protocol = this.publicSsl ? 'https:' : 'http:';
-    parsed.hostname = this.publicEndpoint;
-    parsed.port = this.publicSsl && this.publicPort === 443 ? '' : String(this.publicPort);
-
-    return { url: parsed.toString(), expiresIn: expiry };
+    return { url, expiresIn: expiry };
   }
 
   // ── Helpers ────────────────────────────────────────────
@@ -327,6 +335,22 @@ export class StorageService {
       stream.on('error', reject);
       stream.on('end', () => resolve({ totalSize, objectCount }));
     });
+  }
+
+  private async isBucketPublic(minioBucket: string): Promise<boolean> {
+    try {
+      const policy = await this.client.getBucketPolicy(minioBucket);
+      if (!policy) return false;
+      const parsed = JSON.parse(policy);
+      return (parsed.Statement || []).some(
+        (s: any) =>
+          s.Effect === 'Allow' &&
+          JSON.stringify(s.Principal) === JSON.stringify({ AWS: ['*'] }) &&
+          (s.Action || []).includes('s3:GetObject'),
+      );
+    } catch {
+      return false;
+    }
   }
 
   private async listAllObjects(minioBucket: string): Promise<StorageObject[]> {

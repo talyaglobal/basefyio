@@ -14,8 +14,8 @@ async function run() {
   // ── 1. Auth ─────────────────────────────────────
   console.log('▸ Auth: signIn');
   const { data: auth, error: authErr } = await kb.auth.signIn({
-    username: 'fatih',
-    password: '123456',
+    email: process.env.KOLAYBASE_TEST_EMAIL || 'test@example.com',
+    password: process.env.KOLAYBASE_TEST_PASSWORD || '123456',
   });
   if (authErr) {
     console.error('  ✗ signIn failed:', authErr.message);

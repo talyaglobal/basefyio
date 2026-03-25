@@ -151,38 +151,6 @@ export class TeamsService {
         ],
       },
     });
-    if (!targetUser) {
-      throw new NotFoundException(
-        `User "${usernameOrEmail}" not found. They must have a Kolaybase account first.`,
-      );
-    }
-
-    if (targetUser.id === ownerUserId) {
-      throw new ForbiddenException('Cannot invite yourself');
-    }
-
-    const existingMember = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId, userId: targetUser.id } },
-    });
-    if (existingMember) throw new ConflictException('User is already a member');
-
-    const existingInvite = await this.prisma.teamInvite.findUnique({
-      where: { teamId_invitedUserId: { teamId, invitedUserId: targetUser.id } },
-    });
-    if (existingInvite?.status === 'PENDING') {
-      throw new ConflictException('Invite already pending');
-    }
-
-    if (existingInvite) {
-      await this.prisma.teamInvite.update({
-        where: { id: existingInvite.id },
-        data: { status: 'PENDING', invitedById: ownerUserId },
-      });
-    } else {
-      await this.prisma.teamInvite.create({
-        data: { teamId, invitedUserId: targetUser.id, invitedById: ownerUserId },
-      });
-    }
 
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
@@ -194,19 +162,91 @@ export class TeamsService {
       select: { username: true },
     });
 
-    if (targetUser.email && team && inviter) {
+    if (targetUser) {
+      if (targetUser.id === ownerUserId) {
+        throw new ForbiddenException('Cannot invite yourself');
+      }
+
+      const existingMember = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId: targetUser.id } },
+      });
+      if (existingMember) throw new ConflictException('User is already a member');
+
+      const existingInvite = await this.prisma.teamInvite.findUnique({
+        where: { teamId_invitedUserId: { teamId, invitedUserId: targetUser.id } },
+      });
+      if (existingInvite?.status === 'PENDING') {
+        throw new ConflictException('Invite already pending');
+      }
+
+      if (existingInvite) {
+        await this.prisma.teamInvite.update({
+          where: { id: existingInvite.id },
+          data: { status: 'PENDING', invitedById: ownerUserId },
+        });
+      } else {
+        await this.prisma.teamInvite.create({
+          data: { teamId, invitedUserId: targetUser.id, invitedById: ownerUserId },
+        });
+      }
+
+      if (targetUser.email && team && inviter) {
+        this.email
+          .sendTeamInvite(
+            targetUser.email,
+            targetUser.username,
+            inviter.username,
+            team.name,
+            false,
+          )
+          .catch(() => {});
+      }
+
+      this.logger.log(`Invite sent to "${targetUser.username}" for team ${teamId}`);
+      return { message: `Invite sent to ${targetUser.username}` };
+    }
+
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameOrEmail);
+    if (!isEmail) {
+      throw new NotFoundException(
+        `User "${usernameOrEmail}" not found. Please enter a valid email address to invite someone who doesn't have an account yet.`,
+      );
+    }
+
+    const email = usernameOrEmail.toLowerCase();
+
+    const existingEmailInvite = await this.prisma.teamInvite.findUnique({
+      where: { teamId_invitedEmail: { teamId, invitedEmail: email } },
+    });
+    if (existingEmailInvite?.status === 'PENDING') {
+      throw new ConflictException('Invite already pending for this email');
+    }
+
+    if (existingEmailInvite) {
+      await this.prisma.teamInvite.update({
+        where: { id: existingEmailInvite.id },
+        data: { status: 'PENDING', invitedById: ownerUserId },
+      });
+    } else {
+      await this.prisma.teamInvite.create({
+        data: { teamId, invitedEmail: email, invitedById: ownerUserId },
+      });
+    }
+
+    if (team && inviter) {
       this.email
         .sendTeamInvite(
-          targetUser.email,
-          targetUser.username,
+          email,
+          email.split('@')[0],
           inviter.username,
           team.name,
+          true,
         )
         .catch(() => {});
     }
 
-    this.logger.log(`Invite sent to "${targetUser.username}" for team ${teamId}`);
-    return { message: `Invite sent to ${targetUser.username}` };
+    this.logger.log(`Invite sent to email "${email}" (not registered) for team ${teamId}`);
+    return { message: `Invite sent to ${email}. They will see the invite after signing up.` };
   }
 
   async listPendingInvites(userId: string) {
@@ -232,13 +272,22 @@ export class TeamsService {
   async listTeamInvites(teamId: string, userId: string) {
     await this.assertMember(teamId, userId);
 
-    return this.prisma.teamInvite.findMany({
+    const invites = await this.prisma.teamInvite.findMany({
       where: { teamId, status: 'PENDING' },
       include: {
         invitedUser: { select: { id: true, username: true, email: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return invites.map((inv) => ({
+      ...inv,
+      invitedUser: inv.invitedUser ?? {
+        id: null,
+        username: inv.invitedEmail?.split('@')[0] ?? 'unknown',
+        email: inv.invitedEmail,
+      },
+    }));
   }
 
   async acceptInvite(inviteId: string, userId: string) {
@@ -297,6 +346,24 @@ export class TeamsService {
     });
 
     return { message: 'Member removed' };
+  }
+
+  async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
+    const pending = await this.prisma.teamInvite.findMany({
+      where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },
+    });
+
+    if (pending.length === 0) return 0;
+
+    await this.prisma.teamInvite.updateMany({
+      where: {
+        id: { in: pending.map((i) => i.id) },
+      },
+      data: { invitedUserId: userId },
+    });
+
+    this.logger.log(`Linked ${pending.length} email invite(s) to user ${userId} (${email})`);
+    return pending.length;
   }
 
   async assertMember(teamId: string, userId: string) {

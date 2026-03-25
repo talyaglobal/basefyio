@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  BadRequestException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -26,26 +27,34 @@ export class AuthService {
     private readonly email: EmailService,
   ) {}
 
+  private generateUsername(firstName?: string, lastName?: string, email?: string): string {
+    let base: string;
+    if (firstName || lastName) {
+      base = `${firstName || ''}${lastName || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+    } else {
+      base = (email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    if (!base) base = 'user';
+    const suffix = Math.random().toString(36).substring(2, 7);
+    return `${base}${suffix}`;
+  }
+
   async signup(data: {
-    username: string;
     email: string;
     password: string;
     firstName?: string;
     lastName?: string;
   }) {
-    const existingUser = await this.keycloak.findPlatformUserByUsername(data.username);
-    if (existingUser) {
-      throw new ConflictException('Username already taken');
-    }
-
     const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
     if (existingEmail) {
       throw new ConflictException('Email already registered');
     }
 
+    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+
     let keycloakId: string;
     try {
-      keycloakId = await this.keycloak.createPlatformUser(data);
+      keycloakId = await this.keycloak.createPlatformUser({ ...data, username });
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to create account: ${err.message}`);
     }
@@ -53,16 +62,19 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         id: keycloakId,
-        username: data.username,
+        username,
         email: data.email,
         role: 'USER',
       },
     });
 
+    const displayName = data.firstName || data.email.split('@')[0];
+    const teamSlug = `personal-${username}-${keycloakId.slice(0, 8)}`;
+
     const team = await this.prisma.team.create({
       data: {
-        name: `${data.username}'s Team`,
-        slug: `personal-${data.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        name: `${displayName}'s Team`,
+        slug: teamSlug,
         personalForUserId: user.id,
         members: { create: { userId: user.id, role: 'OWNER' } },
       },
@@ -73,9 +85,25 @@ export class AuthService {
       data: { activeTeamId: team.id },
     });
 
-    this.email.sendWelcome(data.email, data.username).catch(() => {});
+    this.email.sendWelcome(data.email, displayName).catch(() => {});
 
-    return this.login(data.username, data.password);
+    const linkedCount = await this.linkEmailInvitesToUser(data.email, user.id);
+
+    const tokens = await this.login(data.email, data.password);
+    return { ...tokens, hasPendingInvites: linkedCount > 0 };
+  }
+
+  private async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
+    const pending = await this.prisma.teamInvite.findMany({
+      where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },
+    });
+    if (pending.length === 0) return 0;
+
+    await this.prisma.teamInvite.updateMany({
+      where: { id: { in: pending.map((i) => i.id) } },
+      data: { invitedUserId: userId },
+    });
+    return pending.length;
   }
 
   async ensureUserProfile(sub: string, email: string, username: string) {
@@ -115,7 +143,7 @@ export class AuthService {
   }
 
   async login(
-    username: string,
+    email: string,
     password: string,
     meta?: { ipAddress?: string; userAgent?: string },
   ) {
@@ -127,7 +155,7 @@ export class AuthService {
     const params = new URLSearchParams({
       grant_type: 'password',
       client_id: clientId!,
-      username,
+      username: email,
       password,
     });
 
@@ -157,6 +185,26 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Invalid credentials');
     }
+  }
+
+  async changePassword(userId: string, email: string, currentPassword: string, newPassword: string) {
+    if (newPassword.length < 6) {
+      throw new BadRequestException('New password must be at least 6 characters');
+    }
+
+    try {
+      await this.login(email, currentPassword);
+    } catch {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    try {
+      await this.keycloak.resetPlatformUserPassword(userId, newPassword);
+    } catch (err: any) {
+      throw new InternalServerErrorException(`Failed to change password: ${err.message}`);
+    }
+
+    return { message: 'Password changed successfully' };
   }
 
   async refresh(refreshToken: string) {
@@ -364,6 +412,48 @@ export class AuthService {
 
     try {
       await firstValueFrom(
+  getOAuthRedirectUrl(provider: string, redirectTo?: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const state = Buffer.from(
+      JSON.stringify({ redirectTo: redirectTo || '/' }),
+    ).toString('base64url');
+
+    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
+    const params = new URLSearchParams({
+      client_id: platformClientId,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: callbackUrl,
+      state,
+      kc_idp_hint: provider,
+    });
+
+    return { url: `${authUrl}?${params.toString()}`, provider };
+  }
+
+  async handleOAuthCallback(code: string, state: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
+    const { redirectTo } = stateData;
+
+    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: platformClientId,
+      code,
+      redirect_uri: callbackUrl,
+    });
+
+    try {
+      const { data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
@@ -375,5 +465,16 @@ export class AuthService {
     await this.keycloak.resetPlatformUserPassword(userId, newPassword);
     this.logger.log(`Password changed for user ${userId}`);
     return { message: 'Password updated successfully' };
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        tokenType: data.token_type,
+        redirectTo,
+      };
+    } catch (err: any) {
+      throw new InternalServerErrorException('OAuth authentication failed');
+    }
   }
 }

@@ -117,7 +117,8 @@ export interface TeamInvite {
 
 export interface PendingInvite {
   id: string;
-  invitedUser: { id: string; username: string; email: string };
+  invitedEmail?: string | null;
+  invitedUser: { id: string | null; username: string; email: string | null };
 }
 
 export interface AuthTokens {
@@ -125,6 +126,7 @@ export interface AuthTokens {
   refreshToken: string;
   expiresIn: number;
   tokenType?: string;
+  hasPendingInvites?: boolean;
 }
 
 export interface UserInfo {
@@ -173,6 +175,13 @@ export interface ColumnInfo {
   isPrimary: boolean;
 }
 
+export interface ForeignKeyInfo {
+  constraintName: string;
+  columnName: string;
+  foreignTableName: string;
+  foreignColumnName: string;
+}
+
 export interface TableRows {
   rows: Record<string, unknown>[];
   fields: { name: string; dataTypeId: number }[];
@@ -199,6 +208,45 @@ export interface RealmInfo {
   clientCount: number;
   registrationAllowed: boolean;
   loginWithEmailAllowed: boolean;
+}
+
+export interface ProjectAuthConfig {
+  allowSignup: boolean;
+  requireEmailVerify: boolean;
+  minPasswordLength: number;
+  tokenExpirySeconds: number;
+  emailProvider: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpPass: string | null;
+  senderEmail: string | null;
+  senderName: string | null;
+  resendApiKey: string | null;
+  sendgridApiKey: string | null;
+  sesAccessKey: string | null;
+  sesSecretKey: string | null;
+  sesRegion: string | null;
+  verifyEmailSubject: string | null;
+  verifyEmailBody: string | null;
+  resetPasswordSubject: string | null;
+  resetPasswordBody: string | null;
+  welcomeSubject: string | null;
+  welcomeBody: string | null;
+  inviteUserSubject: string | null;
+  inviteUserBody: string | null;
+  magicLinkSubject: string | null;
+  magicLinkBody: string | null;
+  changeEmailSubject: string | null;
+  changeEmailBody: string | null;
+  reauthSubject: string | null;
+  reauthBody: string | null;
+  googleEnabled: boolean;
+  googleClientId: string | null;
+  googleClientSecret: string | null;
+  githubEnabled: boolean;
+  githubClientId: string | null;
+  githubClientSecret: string | null;
 }
 
 export interface ConnectionStrings {

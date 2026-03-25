@@ -8,30 +8,9 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # ── Detect which apps changed ──────────────────────────
-  changes:
-    name: Detect Changes
-    runs-on: ubuntu-latest
-    outputs:
-      api: ${{ steps.filter.outputs.api }}
-      ui: ${{ steps.filter.outputs.ui }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            api:
-              - 'apps/platform-api/**'
-            ui:
-              - 'apps/admin-ui/**'
-
-  # ── Build API (only if apps/platform-api changed) ──────
+  # ── Build API ────────────────────────────────────────────
   build-api:
     name: Build Platform API
-    needs: changes
-    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,11 +39,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  # ── Build UI (only if apps/admin-ui changed) ───────────
+  # ── Build UI ─────────────────────────────────────────────
   build-ui:
     name: Build Admin UI
-    needs: changes
-    if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,10 +70,41 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  # ── Deploy (always runs unless a build failed) ─────────
+  # ── Build Website ────────────────────────────────────────
+  build-website:
+    name: Build Website
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/kolaybase-website
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./apps/website
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ── Deploy (her production push'unda, build'lerden sonra) ──
   deploy:
     name: Deploy to Production
-    needs: [changes, build-api, build-ui]
+    needs: [build-api, build-ui, build-website]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
 
@@ -115,31 +123,14 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
-        env:
-          API_CHANGED: ${{ needs.changes.outputs.api }}
-          UI_CHANGED: ${{ needs.changes.outputs.ui }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
-          envs: API_CHANGED,UI_CHANGED
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
 
-            SERVICES=""
-            if [ "$API_CHANGED" = "true" ]; then
-              SERVICES="$SERVICES platform-api"
-            fi
-            if [ "$UI_CHANGED" = "true" ]; then
-              SERVICES="$SERVICES admin-ui"
-            fi
-
-            if [ -n "$SERVICES" ]; then
-              echo "Pulling changed images:$SERVICES"
-              docker compose -f docker-compose.prod.yml --env-file .env.production pull $SERVICES
-            else
-              echo "No image changes, skipping pull"
-            fi
-
+            # Her zaman tüm servisleri pull et
+            docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui website
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans

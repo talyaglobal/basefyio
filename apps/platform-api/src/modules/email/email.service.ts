@@ -7,6 +7,13 @@ import { inviteTemplate } from './templates/invite.template';
 import { feedbackTemplate } from './templates/feedback.template';
 import { passwordResetTemplate } from './templates/password-reset.template';
 import { forgotPasswordTemplate } from './templates/forgot-password.template';
+import { projectVerifyEmailTemplate } from './templates/project-verify-email.template';
+import { projectResetPasswordTemplate } from './templates/project-reset-password.template';
+import { projectWelcomeTemplate } from './templates/project-welcome.template';
+import { projectInviteUserTemplate } from './templates/project-invite-user.template';
+import { projectMagicLinkTemplate } from './templates/project-magic-link.template';
+import { projectChangeEmailTemplate } from './templates/project-change-email.template';
+import { projectReauthTemplate } from './templates/project-reauth.template';
 
 @Injectable()
 export class EmailService {
@@ -71,13 +78,19 @@ export class EmailService {
     invitedUsername: string,
     inviterUsername: string,
     teamName: string,
+    isNewUser = false,
   ) {
+    const acceptUrl = isNewUser
+      ? `${this.appUrl}/signup?email=${encodeURIComponent(to)}`
+      : `${this.appUrl}/dashboard/team`;
+
     const html = inviteTemplate({
       invitedUsername,
       inviterUsername,
       teamName,
-      acceptUrl: `${this.appUrl}/dashboard/team`,
+      acceptUrl,
       dashboardUrl: `${this.appUrl}/dashboard/team`,
+      isNewUser,
     });
 
     return this.send({
@@ -150,6 +163,73 @@ export class EmailService {
       subject: `Your ${projectName} account has been migrated to Kolaybase`,
       html,
     });
+  }
+
+  async sendProjectVerifyEmail(
+    to: string,
+    projectName: string,
+    otp: string,
+    verifyUrl: string,
+  ) {
+    const html = projectVerifyEmailTemplate({
+      email: to,
+      projectName,
+      otp,
+      verifyUrl,
+    });
+
+    return this.send({
+      to,
+      subject: `[${projectName}] Verify your email`,
+      html,
+    });
+  }
+
+  async sendProjectResetPassword(
+    to: string,
+    projectName: string,
+    otp: string,
+  ) {
+    const html = projectResetPasswordTemplate({
+      email: to,
+      projectName,
+      otp,
+    });
+
+    return this.send({
+      to,
+      subject: `[${projectName}] Reset your password`,
+      html,
+    });
+  }
+
+  async sendProjectWelcome(to: string, projectName: string) {
+    const html = projectWelcomeTemplate({ email: to, projectName });
+    return this.send({ to, subject: `Welcome to ${projectName}!`, html });
+  }
+
+  async sendProjectInviteUser(to: string, projectName: string, inviteUrl: string) {
+    const html = projectInviteUserTemplate({ email: to, projectName, inviteUrl });
+    return this.send({ to, subject: `You've been invited to ${projectName}`, html });
+  }
+
+  async sendProjectMagicLink(to: string, projectName: string, magicLinkUrl: string, otp: string) {
+    const html = projectMagicLinkTemplate({ email: to, projectName, magicLinkUrl, otp });
+    return this.send({ to, subject: `Sign in to ${projectName}`, html });
+  }
+
+  async sendProjectChangeEmail(to: string, newEmail: string, projectName: string, otp: string, confirmUrl: string) {
+    const html = projectChangeEmailTemplate({ email: to, newEmail, projectName, otp, confirmUrl });
+    return this.send({ to, subject: `[${projectName}] Confirm your new email`, html });
+  }
+
+  async sendProjectReauth(to: string, projectName: string, otp: string) {
+    const html = projectReauthTemplate({ email: to, projectName, otp });
+    return this.send({ to, subject: `[${projectName}] Confirm your identity`, html });
+  }
+
+  async sendRawHtml(to: string, subject: string, html: string) {
+    return this.send({ to, subject, html });
   }
 
   private async send(params: { to: string; subject: string; html: string }) {

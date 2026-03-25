@@ -12,6 +12,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { RedisModule } from './modules/redis/redis.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -32,6 +33,7 @@ import configuration from './config/configuration';
     FeedbackModule,
     PgBouncerModule,
     IntegrationsModule,
+    RedisModule,
   ],
 })
 export class AppModule {}

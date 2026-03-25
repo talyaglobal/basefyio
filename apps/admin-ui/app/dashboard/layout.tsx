@@ -12,12 +12,16 @@ interface DashboardContextValue {
   activeTeamId: string;
   setActiveTeamId: (id: string) => void;
   refreshUser: () => void;
+  refreshKey: number;
+  refreshTeams: () => void;
 }
 
 export const DashboardContext = createContext<DashboardContextValue>({
   activeTeamId: '',
   setActiveTeamId: () => {},
   refreshUser: () => {},
+  refreshKey: 0,
+  refreshTeams: () => {},
 });
 
 export function useActiveTeam() {
@@ -36,6 +40,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -91,6 +96,10 @@ export default function DashboardLayout({
     }).catch(() => {});
   }, []);
 
+  const refreshTeams = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
   if (!user || !activeTeamId) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -100,9 +109,9 @@ export default function DashboardLayout({
   }
 
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshUser }}>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser }}>
       <div className="flex h-screen flex-col overflow-hidden">
-        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} />
+        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </DashboardContext.Provider>

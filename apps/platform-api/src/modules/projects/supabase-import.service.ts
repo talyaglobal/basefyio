@@ -837,7 +837,6 @@ export class SupabaseImportService {
         const tempPassword = this.generateReadablePassword();
 
         await this.keycloak.createUser(project.keycloakRealm, {
-          username,
           email,
           password: tempPassword,
           firstName,

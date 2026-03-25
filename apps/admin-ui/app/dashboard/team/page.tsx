@@ -34,7 +34,7 @@ import {
 
 export default function TeamSettingsPage() {
   const router = useRouter();
-  const { activeTeamId, setActiveTeamId } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, refreshTeams } = useActiveTeam();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
@@ -91,6 +91,7 @@ export default function TeamSettingsPage() {
       await api.teams.acceptInvite(inviteId);
       toast.success('Invite accepted');
       loadAll();
+      refreshTeams();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -101,6 +102,7 @@ export default function TeamSettingsPage() {
       await api.teams.declineInvite(inviteId);
       toast.success('Invite declined');
       loadAll();
+      refreshTeams();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -187,7 +189,6 @@ export default function TeamSettingsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium">User</th>
                   <th className="px-4 py-2 text-left font-medium">Email</th>
                   <th className="px-4 py-2 text-left font-medium">Role</th>
                   <th className="px-4 py-2 text-right font-medium">Actions</th>
@@ -199,10 +200,9 @@ export default function TeamSettingsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {m.role === 'OWNER' && <Crown className="h-4 w-4 text-amber-500" />}
-                        <span className="font-medium">{m.username}</span>
+                        <span className="font-medium">{m.email}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{m.email}</td>
                     <td className="px-4 py-3">
                       <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'}>
                         {m.role}
@@ -224,35 +224,40 @@ export default function TeamSettingsPage() {
                 ))}
 
                 {/* Pending invites in same table */}
-                {pendingInvites.map((inv) => (
-                  <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium text-muted-foreground">
-                          {inv.invitedUser.username}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {inv.invitedUser.email}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline">PENDING</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                        onClick={() => handleCancelInvite(inv.id)}
-                        title="Cancel invite"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {pendingInvites.map((inv) => {
+                  const isEmailOnly = !inv.invitedUser.id;
+                  return (
+                    <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium text-muted-foreground">
+                            {inv.invitedUser.email || inv.invitedEmail}
+                          </span>
+                          {isEmailOnly && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              Not registered
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline">PENDING</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
+                          onClick={() => handleCancelInvite(inv.id)}
+                          title="Cancel invite"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -307,8 +312,8 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite Member</DialogTitle>
           <DialogDescription>
-            Enter the username or email of a Kolaybase user. They will receive
-            an invite they can accept or decline.
+            Enter a username or email address. If they don't have an account yet,
+            they'll receive an email to sign up and join your team.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">

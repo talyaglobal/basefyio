@@ -1,9 +1,9 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { TableViewer } from '@/components/table-viewer';
+import { TableEditor } from '@/components/table-editor';
 
 export default function TablesPage() {
   const { id } = useParams<{ id: string }>();
-  return <TableViewer projectId={id} />;
+  return <TableEditor projectId={id} />;
 }

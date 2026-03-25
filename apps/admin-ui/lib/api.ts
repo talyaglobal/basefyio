@@ -7,9 +7,11 @@ import type {
   GitHubCommit,
   GitHubIntegration,
   GitHubRepo,
+  ForeignKeyInfo,
   ImportJobProgressEvent,
   PendingInvite,
   Project,
+  ProjectAuthConfig,
   ProjectListItem,
   RealmInfo,
   RealmUser,
@@ -87,16 +89,16 @@ async function request<T>(
 
 export const api = {
   auth: {
-    signup(data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) {
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<AuthTokens>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
-    login(username: string, password: string) {
+    login(email: string, password: string) {
       return request<AuthTokens>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
     },
     me() {
@@ -135,6 +137,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword }),
       });
+    },
+    getOAuthProviders() {
+      return request<{ providers: string[] }>('/auth/oauth/providers');
+    },
+    getOAuthRedirect(provider: string, redirectTo?: string) {
+      const qs = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
+      return request<{ url: string; provider: string }>(`/auth/oauth/${provider}${qs}`);
     },
   },
 
@@ -321,6 +330,37 @@ export const api = {
         body: JSON.stringify({ pkWhere }),
       });
     },
+    addColumn(projectId: string, tableName: string, column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns`, {
+        method: 'POST',
+        body: JSON.stringify(column),
+      });
+    },
+    editColumn(projectId: string, tableName: string, columnName: string, changes: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+        method: 'PUT',
+        body: JSON.stringify(changes),
+      });
+    },
+    deleteColumn(projectId: string, tableName: string, columnName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns/${columnName}`, {
+        method: 'DELETE',
+      });
+    },
+    getForeignKeys(projectId: string, tableName: string) {
+      return request<ForeignKeyInfo[]>(`/projects/${projectId}/tables/${tableName}/foreign-keys`);
+    },
+    addForeignKey(projectId: string, tableName: string, body: { columnName: string; foreignTableName: string; foreignColumnName: string }) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/foreign-keys`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    deleteForeignKey(projectId: string, tableName: string, constraintName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/foreign-keys/${encodeURIComponent(constraintName)}`, {
+        method: 'DELETE',
+      });
+    },
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
     },
@@ -330,7 +370,7 @@ export const api = {
     realmUsers(projectId: string) {
       return request<RealmUser[]>(`/projects/${projectId}/auth/users`);
     },
-    createRealmUser(projectId: string, data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) {
+    createRealmUser(projectId: string, data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users`, {
         method: 'POST',
         body: JSON.stringify(data),
@@ -339,6 +379,26 @@ export const api = {
     deleteRealmUser(projectId: string, userId: string) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'DELETE',
+      });
+    },
+    getAuthConfig(projectId: string) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/config`);
+    },
+    updateAuthConfig(projectId: string, data: Partial<ProjectAuthConfig>) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/config`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    getProviders(projectId: string) {
+      return request<{ callbackUrls: Record<string, string>; providers: any[] }>(
+        `/projects/${projectId}/auth/providers`,
+      );
+    },
+    saveProvider(projectId: string, provider: string, data: { clientId: string; clientSecret?: string; enabled: boolean }) {
+      return request<ProjectAuthConfig>(`/projects/${projectId}/auth/providers/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
       });
     },
   },

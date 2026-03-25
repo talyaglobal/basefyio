@@ -5,10 +5,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { createHash } from 'crypto';
+import { Pool } from 'pg';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
-import { Socket } from 'net';
 
 @Injectable()
 export class PgBouncerService implements OnModuleInit {
@@ -65,7 +64,7 @@ ${dbEntries}
 [pgbouncer]
 listen_addr = 0.0.0.0
 listen_port = 6432
-auth_type = md5
+auth_type = plain
 auth_file = /etc/pgbouncer/userlist.txt
 pool_mode = transaction
 max_client_conn = 1000
@@ -87,49 +86,38 @@ ignore_startup_parameters = extra_float_digits,search_path
   private buildUserlist(
     projects: { dbUser: string; dbPassword: string }[],
   ): string {
-    const lines = projects.map((p) => {
-      const md5 = this.md5Password(p.dbUser, p.dbPassword);
-      return `"${p.dbUser}" "${md5}"`;
-    });
+    const lines = projects.map((p) => `"${p.dbUser}" "${p.dbPassword}"`);
 
     lines.push(`"pgbouncer_admin" "pgbouncer_admin_pass"`);
 
     return lines.join('\n') + '\n';
   }
 
-  private md5Password(user: string, password: string): string {
-    const hash = createHash('md5')
-      .update(password + user)
-      .digest('hex');
-    return `md5${hash}`;
-  }
-
   private async sendReload(): Promise<void> {
     const host = this.config.get<string>('pgbouncer.host') || 'pgbouncer';
     const port = this.config.get<number>('pgbouncer.port') || 6432;
 
-    return new Promise((resolve) => {
-      const socket = new Socket();
-      socket.setTimeout(3000);
-
-      socket.on('error', () => {
-        this.logger.warn('PgBouncer reload skipped (not reachable)');
-        socket.destroy();
-        resolve();
-      });
-
-      socket.on('timeout', () => {
-        this.logger.warn('PgBouncer reload timed out');
-        socket.destroy();
-        resolve();
-      });
-
-      socket.connect(port, host, () => {
-        socket.write('RELOAD;\n');
-        socket.end();
-        this.logger.log('PgBouncer RELOAD sent');
-        resolve();
-      });
+    const pool = new Pool({
+      host,
+      port,
+      database: 'pgbouncer',
+      user: 'pgbouncer_admin',
+      password: 'pgbouncer_admin_pass',
+      connectionTimeoutMillis: 5000,
     });
+
+    try {
+      const client = await pool.connect();
+      try {
+        await client.query('RELOAD');
+        this.logger.log('PgBouncer RELOAD sent via admin console');
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      this.logger.warn(`PgBouncer reload failed: ${err.message}`);
+    } finally {
+      await pool.end().catch(() => {});
+    }
   }
 }

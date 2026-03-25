@@ -29,7 +29,10 @@ export async function dbPush() {
 
     if (!schemaPath) {
       spinner.fail('No schema file found');
-      error('Could not find schema.prisma, schema.sql, or migrations directory');
+      error('Could not find prisma/schema.prisma, db/schema.sql, or schema.sql');
+      console.log('');
+      console.log('  To push SQL directly use:  kb db execute --file <file>');
+      console.log('  To apply migrations use:   kb migration up');
       process.exit(1);
     }
 
@@ -73,6 +76,14 @@ export async function dbPull() {
   try {
     const env = await getLocalEnv();
 
+    if (!env.DATABASE_URL && !env.KOLAYBASE_DATABASE_URL) {
+      spinner.fail('DATABASE_URL not found');
+      error('Run  kb link  to refresh credentials');
+      process.exit(1);
+    }
+
+    const dbUrl = env.DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
+
     // Check if Prisma is being used
     const prismaPath = path.join(process.cwd(), 'prisma', 'schema.prisma');
     
@@ -85,7 +96,7 @@ export async function dbPull() {
         stdio: 'inherit',
         env: {
           ...process.env,
-          DATABASE_URL: env.DATABASE_URL,
+          DATABASE_URL: dbUrl,
         },
       });
 
@@ -93,9 +104,9 @@ export async function dbPull() {
     } catch {
       // No Prisma, generate SQL dump
       spinner.text = 'Generating SQL dump...';
-      
+
       const pool = new Pool({
-        connectionString: env.DATABASE_URL,
+        connectionString: dbUrl,
       });
 
       const client = await pool.connect();
@@ -281,15 +292,85 @@ export async function dbDiff() {
     process.exit(1);
   }
 
+  const env = await getLocalEnv();
+  const dbUrl = env.DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
+
   info('Checking for schema differences...');
-  
+
   try {
     const { execa } = await import('execa');
-    await execa('npx', ['prisma', 'migrate', 'diff'], {
+    await execa('npx', ['prisma', 'migrate', 'diff', '--from-schema-datasource', 'prisma/schema.prisma', '--to-url', dbUrl || ''], {
       stdio: 'inherit',
     });
+  } catch {
+    warning('Could not generate diff. Make sure Prisma is configured and DATABASE_URL is set.');
+  }
+}
+
+interface ExecuteOptions {
+  file?: string;
+  query?: string;
+}
+
+export async function dbExecute(options: ExecuteOptions) {
+  console.log(chalk.bold.cyan('Execute SQL\n'));
+
+  const config = await getProjectConfig();
+  if (!config?.projectId) {
+    error('Not in a Kolaybase project. Run: kb init');
+    process.exit(1);
+  }
+
+  if (!options.file && !options.query) {
+    error('Provide --file <path> or --query <sql>');
+    process.exit(1);
+  }
+
+  let sql: string;
+
+  if (options.file) {
+    try {
+      sql = await fs.readFile(options.file, 'utf-8');
+      info(`Executing ${chalk.cyan(options.file)}…`);
+    } catch {
+      error(`Could not read file: ${options.file}`);
+      process.exit(1);
+    }
+  } else {
+    sql = options.query!;
+    info('Executing query…');
+  }
+
+  const spinner = createSpinner('Running…');
+
+  try {
+    const result = await apiClient.executeSQL(config.projectId, sql);
+    spinner.succeed('Done');
+
+    if (result?.rows?.length) {
+      console.log();
+      // Print column headers
+      const cols = Object.keys(result.rows[0]);
+      const colWidths = cols.map((c) =>
+        Math.max(c.length, ...result.rows.map((r: any) => String(r[c] ?? '').length)),
+      );
+
+      const header = cols.map((c, i) => c.padEnd(colWidths[i])).join('  ');
+      const divider = colWidths.map((w) => '─'.repeat(w)).join('  ');
+
+      console.log('  ' + chalk.bold(header));
+      console.log('  ' + chalk.gray(divider));
+      for (const row of result.rows) {
+        console.log('  ' + cols.map((c, i) => String(row[c] ?? '').padEnd(colWidths[i])).join('  '));
+      }
+      console.log();
+      console.log(chalk.gray(`  ${result.rows.length} row(s)`));
+    } else {
+      success(`Query executed. ${result?.rowCount ?? 0} row(s) affected.`);
+    }
   } catch (err) {
-    warning('Could not generate diff. Make sure Prisma is configured.');
+    spinner.fail('Execution failed');
+    handleApiError(err);
   }
 }
 
@@ -361,15 +442,14 @@ async function findSchemaFile(): Promise<string | null> {
     'prisma/schema.prisma',
     'db/schema.sql',
     'schema.sql',
-    'migrations',
   ];
 
   for (const p of paths) {
     try {
-      await fs.access(p);
-      return p;
+      const stat = await fs.stat(p);
+      if (stat.isFile()) return p;
     } catch {
-      // Continue searching
+      // not found, continue
     }
   }
 
