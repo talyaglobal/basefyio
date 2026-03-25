@@ -81,8 +81,6 @@ export function CreateProjectDialog({
   const [importPercent, setImportPercent] = useState(0);
   const [importResult, setImportResult] = useState<ImportProgressData | null>(null);
   const [importProjectName, setImportProjectName] = useState('');
-  const [sendEmails, setSendEmails] = useState(false);
-
   const eventSourceRef = useRef<EventSource | null>(null);
   const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } = useImportProgress();
   const [cancelling, setCancelling] = useState(false);
@@ -275,7 +273,6 @@ export function CreateProjectDialog({
         serviceRoleKey,
         name: importName,
         teamId,
-        sendNotificationEmails: sendEmails,
       });
 
       setImportProjectName(result.project.name);
@@ -507,29 +504,6 @@ export function CreateProjectDialog({
                   maxLength={64}
                 />
               </div>
-
-              <label
-                htmlFor="send-emails"
-                className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors hover:bg-muted/50"
-              >
-                <input
-                  type="checkbox"
-                  id="send-emails"
-                  checked={sendEmails}
-                  onChange={(e) => setSendEmails(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">Send email notifications to users</span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Imported users will receive an email with their temporary credentials.
-                    Original passwords cannot be migrated.
-                  </p>
-                </div>
-              </label>
 
               <DialogFooter>
                 <Button

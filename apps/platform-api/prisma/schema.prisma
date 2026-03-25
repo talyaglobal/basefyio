@@ -52,6 +52,16 @@ model Team {
   personalForUserId String?  @unique @map("personal_for_user_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
+  // GitHub OAuth (team-level)
+  githubOAuthToken  String?  @map("github_oauth_token")
+  githubOAuthLogin  String?  @map("github_oauth_login")
+  githubOAuthAvatar String?  @map("github_oauth_avatar")
+
+  // Vercel OAuth (team-level)
+  vercelOAuthToken  String?  @map("vercel_oauth_token")
+  vercelOAuthTeamId String?  @map("vercel_oauth_team_id")
+  vercelOAuthUser   String?  @map("vercel_oauth_user")
+
   personalForUser   User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
   activeForUsers    User[]       @relation("ActiveTeam")
   members           TeamMember[]

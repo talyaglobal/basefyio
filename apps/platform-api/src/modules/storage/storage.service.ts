@@ -315,7 +315,17 @@ export class StorageService {
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.slug, bucketName);
-    const url = await this.publicClient.presignedGetObject(minioBucket, objectName, expiry);
+
+    // Generate using the internal client (minio:9000), then rewrite the host
+    // to the public endpoint so the browser can reach it.
+    const internalUrl = await this.client.presignedGetObject(minioBucket, objectName, expiry);
+
+    const publicHost = this.publicSsl
+      ? `https://${this.publicEndpoint}:${this.publicPort}`
+      : `http://${this.publicEndpoint}:${this.publicPort}`;
+
+    const parsed = new URL(internalUrl);
+    const url = internalUrl.replace(`${parsed.protocol}//${parsed.host}`, publicHost);
 
     return { url, expiresIn: expiry };
   }

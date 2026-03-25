@@ -14,13 +14,12 @@ import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { IMPORT_QUEUE, EMAIL_QUEUE } from '../queue/queue.module';
+import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
-import type { EmailJobData } from '../queue/email.processor';
 
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: { users: number; skipped: number; emailsSent: number };
+  auth: { users: number; skipped: number };
   storage: { buckets: number; objects: number };
   warnings: string[];
 }
@@ -75,7 +74,6 @@ export class SupabaseImportService {
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
-    @InjectQueue(EMAIL_QUEUE) private readonly emailQueue: Queue,
   ) {}
 
   isJobCancelled(jobId: string): boolean {
@@ -96,7 +94,6 @@ export class SupabaseImportService {
     projectName: string,
     teamId: string,
     userId: string,
-    sendNotificationEmails = false,
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -124,7 +121,6 @@ export class SupabaseImportService {
       dbPassword: project.dbPassword,
       dbName: project.dbName,
       keycloakRealm: project.keycloakRealm,
-      sendNotificationEmails,
     };
 
     const job = await this.importQueue.add('supabase-import', jobData, {
@@ -291,9 +287,8 @@ export class SupabaseImportService {
     project: any,
     progress: ImportProgress,
     projectName: string,
-    sendNotificationEmails = false,
   ) {
-    return this.importAuth(baseUrl, headers, project, progress, projectName, sendNotificationEmails);
+    return this.importAuth(baseUrl, headers, project, progress, projectName);
   }
 
   async runStorageImport(
@@ -781,7 +776,6 @@ export class SupabaseImportService {
     project: any,
     progress: ImportProgress,
     projectName: string,
-    sendNotificationEmails = false,
   ) {
     let allUsers: SupabaseUser[] = [];
     let page = 1;
@@ -844,30 +838,6 @@ export class SupabaseImportService {
         });
 
         progress.auth.users++;
-
-        if (sendNotificationEmails) {
-          const resetToken = randomBytes(32).toString('hex');
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days for imported users
-
-          await this.prisma.passwordResetToken.create({
-            data: { email, token: resetToken, expiresAt, realm: project.keycloakRealm },
-          });
-
-          const emailJob: EmailJobData = {
-            type: 'imported-user-credentials',
-            to: email,
-            username,
-            tempPassword,
-            projectName,
-            resetToken,
-          };
-          await this.emailQueue.add('send-credentials', emailJob, {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 },
-            removeOnComplete: { age: 3600 },
-          });
-          progress.auth.emailsSent++;
-        }
       } catch (err: any) {
         if (
           err.response?.status === 409 ||

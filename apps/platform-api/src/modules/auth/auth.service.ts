@@ -3,7 +3,6 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
-  BadRequestException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -167,7 +166,7 @@ export class AuthService {
       );
 
       const user = await this.prisma.user.findFirst({
-        where: { OR: [{ username }, { email: username }] },
+        where: { OR: [{ username: email }, { email }] },
         select: { email: true, username: true, notifySignIn: true },
       });
       if (user?.email && user.notifySignIn) {
@@ -205,6 +204,65 @@ export class AuthService {
     }
 
     return { message: 'Password changed successfully' };
+  }
+
+  getOAuthRedirectUrl(provider: string, redirectTo?: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const state = Buffer.from(
+      JSON.stringify({ redirectTo: redirectTo || '/' }),
+    ).toString('base64url');
+
+    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
+    const params = new URLSearchParams({
+      client_id: platformClientId,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: callbackUrl,
+      state,
+      kc_idp_hint: provider,
+    });
+
+    return { url: `${authUrl}?${params.toString()}`, provider };
+  }
+
+  async handleOAuthCallback(code: string, state: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
+    const { redirectTo } = stateData;
+
+    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: platformClientId,
+      code,
+      redirect_uri: callbackUrl,
+    });
+
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        tokenType: data.token_type,
+        redirectTo,
+      };
+    } catch (err: any) {
+      throw new InternalServerErrorException('OAuth authentication failed');
+    }
   }
 
   async refresh(refreshToken: string) {
@@ -395,86 +453,4 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new BadRequestException('User not found');
-
-    const keycloakUrl = this.config.get<string>('keycloak.url');
-    const clientId = this.config.get<string>('keycloak.adminClientId');
-    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
-
-    const params = new URLSearchParams({
-      grant_type: 'password',
-      client_id: clientId!,
-      username: user.username,
-      password: currentPassword,
-    });
-
-    try {
-      await firstValueFrom(
-  getOAuthRedirectUrl(provider: string, redirectTo?: string) {
-    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
-    const publicApiUrl = this.config.get<string>('publicApiUrl');
-    const platformClientId = this.keycloak.getPlatformOAuthClientId();
-    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
-
-    const state = Buffer.from(
-      JSON.stringify({ redirectTo: redirectTo || '/' }),
-    ).toString('base64url');
-
-    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
-    const params = new URLSearchParams({
-      client_id: platformClientId,
-      response_type: 'code',
-      scope: 'openid email profile',
-      redirect_uri: callbackUrl,
-      state,
-      kc_idp_hint: provider,
-    });
-
-    return { url: `${authUrl}?${params.toString()}`, provider };
-  }
-
-  async handleOAuthCallback(code: string, state: string) {
-    const keycloakUrl = this.config.get<string>('keycloak.url');
-    const publicApiUrl = this.config.get<string>('publicApiUrl');
-    const platformClientId = this.keycloak.getPlatformOAuthClientId();
-    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
-
-    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
-    const { redirectTo } = stateData;
-
-    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
-    const params = new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: platformClientId,
-      code,
-      redirect_uri: callbackUrl,
-    });
-
-    try {
-      const { data } = await firstValueFrom(
-        this.http.post(tokenUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        }),
-      );
-    } catch {
-      throw new UnauthorizedException('Current password is incorrect');
-    }
-
-    await this.keycloak.resetPlatformUserPassword(userId, newPassword);
-    this.logger.log(`Password changed for user ${userId}`);
-    return { message: 'Password updated successfully' };
-
-      return {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresIn: data.expires_in,
-        tokenType: data.token_type,
-        redirectTo,
-      };
-    } catch (err: any) {
-      throw new InternalServerErrorException('OAuth authentication failed');
-    }
-  }
 }

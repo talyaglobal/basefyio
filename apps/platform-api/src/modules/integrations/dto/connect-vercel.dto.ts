@@ -1,9 +1,9 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 
 export class ConnectVercelDto {
   @IsString()
-  @IsNotEmpty()
-  token!: string;
+  @IsOptional()
+  token?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -12,4 +12,12 @@ export class ConnectVercelDto {
   @IsString()
   @IsOptional()
   teamId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  useTeamToken?: boolean;
+
+  @IsString()
+  @IsOptional()
+  sourceTeamId?: string;
 }

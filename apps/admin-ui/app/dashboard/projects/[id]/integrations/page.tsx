@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useActiveTeam } from '@/app/dashboard/layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,12 +24,16 @@ import {
   Circle,
   RefreshCw,
   ArrowLeft,
+  Link2,
+  Settings,
 } from 'lucide-react';
 import type {
   GitHubIntegration,
   GitHubCommit,
   GitHubRepo,
   GitHubBranch,
+  TeamGitHubStatus,
+  TeamVercelStatus,
   VercelIntegration,
   VercelDeployment,
   VercelProject as VercelProjectType,
@@ -74,7 +79,16 @@ function timeAgo(dateStr: string) {
 
 // ── GitHub Card ──────────────────────────────────
 
-function GitHubCard({ projectId }: { projectId: string }) {
+function GitHubCard({
+  projectId,
+  teamId,
+  teamGitHub,
+}: {
+  projectId: string;
+  teamId: string;
+  teamGitHub: TeamGitHubStatus | null;
+}) {
+  const router = useRouter();
   const [status, setStatus] = useState<GitHubIntegration | null>(null);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
@@ -92,12 +106,24 @@ function GitHubCard({ projectId }: { projectId: string }) {
   const [fetchingRepos, setFetchingRepos] = useState(false);
   const [fetchingBranches, setFetchingBranches] = useState(false);
 
+  // Whether we're using team-level token (no PAT needed)
+  const useTeamToken = !!(teamGitHub?.connected);
+
   useEffect(() => {
     loadStatus();
   }, [projectId]);
 
+  // If team OAuth is available and form is open, auto-load repos
   useEffect(() => {
-    if (!selectedRepo || !token) {
+    if (!changing && status?.connected) return;
+    if (!useTeamToken) return;
+    if (repos.length > 0) return;
+    loadTeamRepos();
+  }, [changing, useTeamToken]);
+
+  // Auto-fetch branches when repo is selected (team token mode)
+  useEffect(() => {
+    if (!selectedRepo) {
       setRepoBranches([]);
       setSelectedBranch('');
       return;
@@ -105,24 +131,46 @@ function GitHubCard({ projectId }: { projectId: string }) {
     const repo = repos.find((r) => r.full_name === selectedRepo);
     if (!repo) return;
 
-    let cancelled = false;
-    setFetchingBranches(true);
-    api.integrations
-      .previewGitHubBranches(projectId, token, repo.owner, repo.name)
-      .then((b) => {
-        if (cancelled) return;
-        setRepoBranches(b);
-        setSelectedBranch(repo.default_branch || 'main');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setRepoBranches([]);
-        setSelectedBranch(repo.default_branch || 'main');
-      })
-      .finally(() => {
-        if (!cancelled) setFetchingBranches(false);
-      });
-    return () => { cancelled = true; };
+    if (useTeamToken) {
+      let cancelled = false;
+      setFetchingBranches(true);
+      api.teamIntegrations
+        .listGitHubBranches(teamId, repo.owner, repo.name)
+        .then((b) => {
+          if (cancelled) return;
+          setRepoBranches(b);
+          setSelectedBranch(repo.default_branch || 'main');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setRepoBranches([]);
+          setSelectedBranch(repo.default_branch || 'main');
+        })
+        .finally(() => {
+          if (!cancelled) setFetchingBranches(false);
+        });
+      return () => { cancelled = true; };
+    } else {
+      if (!token) return;
+      let cancelled = false;
+      setFetchingBranches(true);
+      api.integrations
+        .previewGitHubBranches(projectId, token, repo.owner, repo.name)
+        .then((b) => {
+          if (cancelled) return;
+          setRepoBranches(b);
+          setSelectedBranch(repo.default_branch || 'main');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setRepoBranches([]);
+          setSelectedBranch(repo.default_branch || 'main');
+        })
+        .finally(() => {
+          if (!cancelled) setFetchingBranches(false);
+        });
+      return () => { cancelled = true; };
+    }
   }, [selectedRepo]);
 
   async function loadStatus() {
@@ -142,6 +190,19 @@ function GitHubCard({ projectId }: { projectId: string }) {
       setStatus({ connected: false });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadTeamRepos() {
+    if (!teamGitHub?.connected) return;
+    setFetchingRepos(true);
+    try {
+      const r = await api.teamIntegrations.listGitHubRepos(teamId);
+      setRepos(r);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load repositories');
+    } finally {
+      setFetchingRepos(false);
     }
   }
 
@@ -167,10 +228,11 @@ function GitHubCard({ projectId }: { projectId: string }) {
     setConnecting(true);
     try {
       await api.integrations.connectGitHub(projectId, {
-        token,
+        token: useTeamToken ? '' : token,
         owner: repo.owner,
         repo: repo.name,
         branch: selectedBranch || repo.default_branch,
+        ...(useTeamToken ? { useTeamToken: true, teamId } : {}),
       });
       toast.success(`Connected to ${repo.full_name}`);
       setToken('');
@@ -186,6 +248,15 @@ function GitHubCard({ projectId }: { projectId: string }) {
   }
 
   function handleStartChange() {
+    if (useTeamToken) {
+      setChanging(true);
+      setRepos([]);
+      setSelectedRepo('');
+      setSelectedBranch('');
+      setRepoBranches([]);
+      loadTeamRepos();
+      return;
+    }
     const savedToken = status?.token || '';
     setChanging(true);
     setToken(savedToken);
@@ -227,6 +298,8 @@ function GitHubCard({ projectId }: { projectId: string }) {
     );
   }
 
+  const showConnectForm = !status?.connected || changing;
+
   return (
     <div className="rounded-xl border bg-card">
       <div className="flex items-center justify-between p-6 pb-4">
@@ -235,7 +308,15 @@ function GitHubCard({ projectId }: { projectId: string }) {
             <Github className="h-5 w-5 text-white dark:text-black" />
           </div>
           <div>
-            <h3 className="font-semibold">GitHub</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">GitHub</h3>
+              {useTeamToken && (
+                <Badge variant="outline" className="text-[10px] h-4 border-emerald-500 text-emerald-600 dark:text-emerald-400">
+                  <Link2 className="h-2.5 w-2.5 mr-1" />
+                  Team
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {status?.connected ? `${status.owner}/${status.repo}` : 'Not connected'}
             </p>
@@ -344,32 +425,66 @@ function GitHubCard({ projectId }: { projectId: string }) {
         </div>
       ) : (
         <div className="p-6 pt-4 space-y-4">
-          <div className="space-y-2">
-            <Label>Personal Access Token</Label>
-            <div className="flex gap-2">
-              <PasswordInput
-                value={token}
-                onChange={(e) => { setToken(e.target.value); setRepos([]); setSelectedRepo(''); }}
-                placeholder="ghp_xxxxxxxxxxxx"
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!token.trim() || fetchingRepos}
-                onClick={() => handleFetchRepos()}
-                className="shrink-0"
-              >
-                {fetchingRepos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Repos'}
-              </Button>
+          {/* Team OAuth connected — auto-load repos */}
+          {useTeamToken ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              Using team GitHub connection (<strong>{teamGitHub?.login}</strong>)
             </div>
-            <p className="text-xs text-muted-foreground">
-              <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                Create a token at GitHub &rarr; Settings &rarr; Personal access tokens
-              </a>
-            </p>
-          </div>
+          ) : (
+            <>
+              {/* No team token — show PAT entry or prompt to connect team */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 px-3 py-2.5 text-xs text-blue-700 dark:text-blue-400">
+                <p className="font-medium mb-1">No team GitHub connection</p>
+                <p>
+                  Connect GitHub at the{' '}
+                  <button
+                    type="button"
+                    onClick={() => router.push('/dashboard/team')}
+                    className="underline hover:no-underline"
+                  >
+                    Team Settings
+                  </button>{' '}
+                  page to skip entering tokens here, or enter a Personal Access Token below.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Personal Access Token</Label>
+                <div className="flex gap-2">
+                  <PasswordInput
+                    value={token}
+                    onChange={(e) => { setToken(e.target.value); setRepos([]); setSelectedRepo(''); }}
+                    placeholder="ghp_xxxxxxxxxxxx"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!token.trim() || fetchingRepos}
+                    onClick={() => handleFetchRepos()}
+                    className="shrink-0"
+                  >
+                    {fetchingRepos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Repos'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                    Create a token at GitHub &rarr; Settings &rarr; Personal access tokens
+                  </a>
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Loading repos indicator */}
+          {fetchingRepos && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading repositories...
+            </div>
+          )}
 
           {repos.length > 0 && (
             <>
@@ -445,7 +560,16 @@ function GitHubCard({ projectId }: { projectId: string }) {
 
 // ── Vercel Card ──────────────────────────────────
 
-function VercelCard({ projectId }: { projectId: string }) {
+function VercelCard({
+  projectId,
+  teamId,
+  teamVercel,
+}: {
+  projectId: string;
+  teamId: string;
+  teamVercel: TeamVercelStatus | null;
+}) {
+  const router = useRouter();
   const [status, setStatus] = useState<VercelIntegration | null>(null);
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -455,14 +579,24 @@ function VercelCard({ projectId }: { projectId: string }) {
 
   // Connect form
   const [token, setToken] = useState('');
-  const [teamId, setTeamId] = useState('');
+  const [teamId2, setTeamId2] = useState('');
   const [projects, setProjects] = useState<VercelProjectType[]>([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [fetchingProjects, setFetchingProjects] = useState(false);
 
+  const useTeamToken = !!(teamVercel?.connected);
+
   useEffect(() => {
     loadStatus();
   }, [projectId]);
+
+  // Auto-load Vercel projects if team OAuth available
+  useEffect(() => {
+    if (!changing && status?.connected) return;
+    if (!useTeamToken) return;
+    if (projects.length > 0) return;
+    loadTeamProjects();
+  }, [changing, useTeamToken]);
 
   async function loadStatus() {
     setLoading(true);
@@ -480,12 +614,25 @@ function VercelCard({ projectId }: { projectId: string }) {
     }
   }
 
+  async function loadTeamProjects() {
+    if (!teamVercel?.connected) return;
+    setFetchingProjects(true);
+    try {
+      const p = await api.teamIntegrations.listVercelProjects(teamId);
+      setProjects(p);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load Vercel projects');
+    } finally {
+      setFetchingProjects(false);
+    }
+  }
+
   async function handleFetchProjects(tokenOverride?: string, teamIdOverride?: string) {
     const t = tokenOverride || token;
     if (!t.trim()) return;
     setFetchingProjects(true);
     try {
-      const tid = teamIdOverride !== undefined ? teamIdOverride : teamId;
+      const tid = teamIdOverride !== undefined ? teamIdOverride : teamId2;
       const p = await api.integrations.listVercelProjects(projectId, t, tid || undefined);
       setProjects(p);
       if (p.length === 0) toast.info('No projects found');
@@ -501,14 +648,15 @@ function VercelCard({ projectId }: { projectId: string }) {
     setConnecting(true);
     try {
       await api.integrations.connectVercel(projectId, {
-        token,
+        token: useTeamToken ? '' : token,
         projectId: selectedProject,
-        teamId: teamId || undefined,
+        teamId: useTeamToken ? undefined : (teamId2 || undefined),
+        ...(useTeamToken ? { useTeamToken: true, sourceTeamId: teamId } : {}),
       });
       const proj = projects.find((p) => p.id === selectedProject);
       toast.success(`Connected to ${proj?.name || selectedProject}`);
       setToken('');
-      setTeamId('');
+      setTeamId2('');
       setProjects([]);
       setSelectedProject('');
       setChanging(false);
@@ -521,11 +669,18 @@ function VercelCard({ projectId }: { projectId: string }) {
   }
 
   function handleStartChange() {
+    if (useTeamToken) {
+      setChanging(true);
+      setProjects([]);
+      setSelectedProject('');
+      loadTeamProjects();
+      return;
+    }
     const savedToken = status?.token || '';
     const savedTeamId = status?.teamId || '';
     setChanging(true);
     setToken(savedToken);
-    setTeamId(savedTeamId);
+    setTeamId2(savedTeamId);
     setProjects([]);
     setSelectedProject('');
     if (savedToken) {
@@ -569,7 +724,15 @@ function VercelCard({ projectId }: { projectId: string }) {
             <VercelLogo className="h-4 w-4 text-white dark:text-black" />
           </div>
           <div>
-            <h3 className="font-semibold">Vercel</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">Vercel</h3>
+              {useTeamToken && (
+                <Badge variant="outline" className="text-[10px] h-4 border-emerald-500 text-emerald-600 dark:text-emerald-400">
+                  <Link2 className="h-2.5 w-2.5 mr-1" />
+                  Team
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {status?.connected ? (status.projectName || status.projectId) : 'Not connected'}
             </p>
@@ -633,9 +796,12 @@ function VercelCard({ projectId }: { projectId: string }) {
               </p>
               <div className="space-y-1">
                 {deployments.slice(0, 5).map((d) => (
-                  <div
+                  <a
                     key={d.id}
-                    className="flex items-start gap-3 rounded-lg p-2 -mx-2"
+                    href={d.url || undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-start gap-3 rounded-lg p-2 -mx-2 transition-colors ${d.url ? 'hover:bg-muted/50 cursor-pointer' : 'cursor-default'}`}
                   >
                     <Circle className={`h-3 w-3 mt-1.5 shrink-0 fill-current ${deployStateColor(d.state)}`} />
                     <div className="min-w-0 flex-1">
@@ -654,14 +820,14 @@ function VercelCard({ projectId }: { projectId: string }) {
                         {d.url && (
                           <>
                             <span>&middot;</span>
-                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            <span className="hover:underline">
                               {new URL(d.url).hostname}
-                            </a>
+                            </span>
                           </>
                         )}
                       </div>
                     </div>
-                  </div>
+                  </a>
                 ))}
               </div>
             </div>
@@ -671,41 +837,73 @@ function VercelCard({ projectId }: { projectId: string }) {
         </div>
       ) : (
         <div className="p-6 pt-4 space-y-4">
-          <div className="space-y-2">
-            <Label>Vercel Access Token</Label>
-            <div className="flex gap-2">
-              <PasswordInput
-                value={token}
-                onChange={(e) => { setToken(e.target.value); setProjects([]); setSelectedProject(''); }}
-                placeholder="vercel_xxxxxxxx"
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!token.trim() || fetchingProjects}
-                onClick={() => handleFetchProjects()}
-                className="shrink-0"
-              >
-                {fetchingProjects ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Projects'}
-              </Button>
+          {useTeamToken ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              Using team Vercel connection (<strong>{teamVercel?.user}</strong>)
             </div>
-            <p className="text-xs text-muted-foreground">
-              <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                Create a token at vercel.com &rarr; Settings &rarr; Tokens
-              </a>
-            </p>
-          </div>
+          ) : (
+            <>
+              <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 px-3 py-2.5 text-xs text-blue-700 dark:text-blue-400">
+                <p className="font-medium mb-1">No team Vercel connection</p>
+                <p>
+                  Connect Vercel at the{' '}
+                  <button
+                    type="button"
+                    onClick={() => router.push('/dashboard/team')}
+                    className="underline hover:no-underline"
+                  >
+                    Team Settings
+                  </button>{' '}
+                  page to skip entering tokens here, or enter an Access Token below.
+                </p>
+              </div>
 
-          <div className="space-y-2">
-            <Label>Team ID (optional)</Label>
-            <Input
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-              placeholder="team_xxxxxxxx (leave empty for personal)"
-            />
-          </div>
+              <div className="space-y-2">
+                <Label>Vercel Access Token</Label>
+                <div className="flex gap-2">
+                  <PasswordInput
+                    value={token}
+                    onChange={(e) => { setToken(e.target.value); setProjects([]); setSelectedProject(''); }}
+                    placeholder="vercel_xxxxxxxx"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!token.trim() || fetchingProjects}
+                    onClick={() => handleFetchProjects()}
+                    className="shrink-0"
+                  >
+                    {fetchingProjects ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Projects'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                    Create a token at vercel.com &rarr; Settings &rarr; Tokens
+                  </a>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Team ID (optional)</Label>
+                <Input
+                  value={teamId2}
+                  onChange={(e) => setTeamId2(e.target.value)}
+                  placeholder="team_xxxxxxxx (leave empty for personal)"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Loading projects indicator */}
+          {fetchingProjects && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading projects...
+            </div>
+          )}
 
           {projects.length > 0 && (
             <>
@@ -750,10 +948,33 @@ function VercelCard({ projectId }: { projectId: string }) {
   );
 }
 
-// ── Main Page ──────────────────────────────────
+// ── Main Page ──────────────────────────────────────────────────
 
 export default function IntegrationsPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const { activeTeamId } = useActiveTeam();
+  const [teamGitHub, setTeamGitHub] = useState<TeamGitHubStatus | null>(null);
+  const [teamVercel, setTeamVercel] = useState<TeamVercelStatus | null>(null);
+  const [loadingTeam, setLoadingTeam] = useState(true);
+
+  useEffect(() => {
+    if (!activeTeamId) return;
+    setLoadingTeam(true);
+    Promise.all([
+      api.teamIntegrations.getGitHubStatus(activeTeamId),
+      api.teamIntegrations.getVercelStatus(activeTeamId),
+    ])
+      .then(([gh, vc]) => {
+        setTeamGitHub(gh);
+        setTeamVercel(vc);
+      })
+      .catch(() => {
+        setTeamGitHub({ connected: false, oauthConfigured: false });
+        setTeamVercel({ connected: false, oauthConfigured: false });
+      })
+      .finally(() => setLoadingTeam(false));
+  }, [activeTeamId]);
 
   return (
     <div className="space-y-6">
@@ -764,10 +985,52 @@ export default function IntegrationsPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <GitHubCard projectId={id} />
-        <VercelCard projectId={id} />
-      </div>
+      {/* Team integration status banner */}
+      {!loadingTeam && activeTeamId && (
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-medium text-muted-foreground">Team connections:</span>
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${teamGitHub?.connected ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : 'border-muted-foreground/30 text-muted-foreground'}`}>
+                <Github className="h-3 w-3" />
+                {teamGitHub?.connected ? teamGitHub.login : 'GitHub not connected'}
+              </div>
+              <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${teamVercel?.connected ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : 'border-muted-foreground/30 text-muted-foreground'}`}>
+                <VercelLogo className="h-3 w-3" />
+                {teamVercel?.connected ? teamVercel.user : 'Vercel not connected'}
+              </div>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs shrink-0"
+            onClick={() => router.push('/dashboard/team')}
+          >
+            <Settings className="h-3 w-3 mr-1" />
+            Manage
+          </Button>
+        </div>
+      )}
+
+      {loadingTeam ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <GitHubCard
+            projectId={id}
+            teamId={activeTeamId || ''}
+            teamGitHub={teamGitHub}
+          />
+          <VercelCard
+            projectId={id}
+            teamId={activeTeamId || ''}
+            teamVercel={teamVercel}
+          />
+        </div>
+      )}
     </div>
   );
 }

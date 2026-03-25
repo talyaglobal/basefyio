@@ -1,9 +1,9 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 
 export class ConnectGitHubDto {
   @IsString()
-  @IsNotEmpty()
-  token!: string;
+  @IsOptional()
+  token?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -16,4 +16,12 @@ export class ConnectGitHubDto {
   @IsString()
   @IsOptional()
   branch?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  useTeamToken?: boolean;
+
+  @IsString()
+  @IsOptional()
+  teamId?: string;
 }

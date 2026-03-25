@@ -21,6 +21,7 @@ import {
   Check,
   Copy,
   Eye,
+  EyeOff,
   Info,
   KeyRound,
   Mail,
@@ -191,6 +192,9 @@ function UsersTab({
   projectId: string;
   onRefresh: () => void;
 }) {
+  const [editingUser, setEditingUser] = useState<RealmUser | null>(null);
+  const [resetingUser, setResetingUser] = useState<RealmUser | null>(null);
+
   async function handleDelete(userId: string, email: string) {
     if (!confirm(`Delete user "${email}"?`)) return;
     try {
@@ -215,43 +219,86 @@ function UsersTab({
   }
 
   return (
-    <div className="rounded-md border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/50">
-            <th className="px-4 py-2 text-left font-medium">Email</th>
-            <th className="px-4 py-2 text-left font-medium">Name</th>
-            <th className="px-4 py-2 text-left font-medium">Status</th>
-            <th className="px-4 py-2 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className="border-b last:border-0">
-              <td className="px-4 py-2 font-medium">{u.email}</td>
-              <td className="px-4 py-2 text-muted-foreground">
-                {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
-              </td>
-              <td className="px-4 py-2">
-                <Badge variant={u.enabled ? 'default' : 'secondary'}>
-                  {u.enabled ? 'Active' : 'Disabled'}
-                </Badge>
-              </td>
-              <td className="px-4 py-2 text-right">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive"
-                  onClick={() => handleDelete(u.id, u.email)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </td>
+    <>
+      <div className="rounded-md border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <th className="px-4 py-2 text-left font-medium">Email</th>
+              <th className="px-4 py-2 text-left font-medium">Name</th>
+              <th className="px-4 py-2 text-left font-medium">Status</th>
+              <th className="px-4 py-2 text-right font-medium">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id} className="border-b last:border-0">
+                <td className="px-4 py-2 font-medium">{u.email}</td>
+                <td className="px-4 py-2 text-muted-foreground">
+                  {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
+                </td>
+                <td className="px-4 py-2">
+                  <Badge variant={u.enabled ? 'default' : 'secondary'}>
+                    {u.enabled ? 'Active' : 'Disabled'}
+                  </Badge>
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Edit user"
+                      onClick={() => setEditingUser(u)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Reset password"
+                      onClick={() => setResetingUser(u)}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive"
+                      title="Delete user"
+                      onClick={() => handleDelete(u.id, u.email)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {editingUser && (
+        <EditUserDialog
+          open={!!editingUser}
+          user={editingUser}
+          projectId={projectId}
+          onOpenChange={(o) => { if (!o) setEditingUser(null); }}
+          onSaved={() => { setEditingUser(null); onRefresh(); }}
+        />
+      )}
+
+      {resetingUser && (
+        <ResetPasswordDialog
+          open={!!resetingUser}
+          user={resetingUser}
+          projectId={projectId}
+          onOpenChange={(o) => { if (!o) setResetingUser(null); }}
+          onDone={() => setResetingUser(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1147,6 +1194,187 @@ const { data: user } = await kb.auth.getUser()`;
   );
 }
 
+/* ────────────────────────────────────────────────────── Edit User Dialog */
+function EditUserDialog({
+  open,
+  user,
+  projectId,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  user: RealmUser;
+  projectId: string;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    firstName: user.firstName || '',
+    lastName: user.lastName || '',
+    email: user.email || '',
+    enabled: user.enabled ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.projects.updateRealmUser(projectId, user.id, form);
+      toast.success('User updated');
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit User</DialogTitle>
+          <DialogDescription>
+            Update user details for <span className="font-medium">{user.email}</span>
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="eu-first">First Name</Label>
+              <Input
+                id="eu-first"
+                value={form.firstName}
+                onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eu-last">Last Name</Label>
+              <Input
+                id="eu-last"
+                value={form.lastName}
+                onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="eu-email">Email *</Label>
+            <Input
+              id="eu-email"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Account Status</p>
+              <p className="text-xs text-muted-foreground">Enable or disable this user account</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.enabled}
+              onClick={() => setForm((p) => ({ ...p, enabled: !p.enabled }))}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                form.enabled ? 'bg-primary' : 'bg-input'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg transition-transform ${form.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ────────────────────────────────────────────────────── Reset Password Dialog */
+function ResetPasswordDialog({
+  open,
+  user,
+  projectId,
+  onOpenChange,
+  onDone,
+}: {
+  open: boolean;
+  user: RealmUser;
+  projectId: string;
+  onOpenChange: (o: boolean) => void;
+  onDone: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.projects.resetRealmUserPassword(projectId, user.id, password);
+      toast.success('Password reset successfully');
+      setPassword('');
+      onDone();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reset Password</DialogTitle>
+          <DialogDescription>
+            Set a new password for <span className="font-medium">{user.email}</span>
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="rp-pass">New Password *</Label>
+            <div className="relative">
+              <Input
+                id="rp-pass"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                placeholder="Min. 6 characters"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Resetting...' : 'Reset Password'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ────────────────────────────────────────────────────── Create User Dialog */
 function CreateUserDialog({
   open,
@@ -1165,6 +1393,7 @@ function CreateUserDialog({
     firstName: '',
     lastName: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function update(field: string, value: string) {
@@ -1214,7 +1443,25 @@ function CreateUserDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cu-pass">Password *</Label>
-            <Input id="cu-pass" type="password" value={form.password} onChange={(e) => update('password', e.target.value)} required minLength={6} />
+            <div className="relative">
+              <Input
+                id="cu-pass"
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) => update('password', e.target.value)}
+                required
+                minLength={6}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

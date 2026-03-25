@@ -24,8 +24,10 @@ import type {
   TableInfo,
   TableRows,
   Team,
+  TeamGitHubStatus,
   TeamInvite,
   TeamMember,
+  TeamVercelStatus,
   UserInfo,
   UserProfile,
   VercelDeployment,
@@ -376,6 +378,18 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    updateRealmUser(projectId: string, userId: string, data: { firstName?: string; lastName?: string; email?: string; enabled?: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    resetRealmUserPassword(projectId: string, userId: string, newPassword: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ newPassword }),
+      });
+    },
     deleteRealmUser(projectId: string, userId: string) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'DELETE',
@@ -407,7 +421,7 @@ export const api = {
     getGitHub(projectId: string) {
       return request<GitHubIntegration>(`/projects/${projectId}/integrations/github`);
     },
-    connectGitHub(projectId: string, data: { token: string; owner: string; repo: string; branch?: string }) {
+    connectGitHub(projectId: string, data: { token?: string; owner: string; repo: string; branch?: string; useTeamToken?: boolean; teamId?: string }) {
       return request<GitHubIntegration>(`/projects/${projectId}/integrations/github`, {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -435,7 +449,7 @@ export const api = {
     getVercel(projectId: string) {
       return request<VercelIntegration>(`/projects/${projectId}/integrations/vercel`);
     },
-    connectVercel(projectId: string, data: { token: string; projectId: string; teamId?: string }) {
+    connectVercel(projectId: string, data: { token?: string; projectId: string; teamId?: string; useTeamToken?: boolean; sourceTeamId?: string }) {
       return request<VercelIntegration>(`/projects/${projectId}/integrations/vercel`, {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -453,6 +467,42 @@ export const api = {
     },
     getVercelDeployments(projectId: string) {
       return request<VercelDeployment[]>(`/projects/${projectId}/integrations/vercel/deployments`);
+    },
+  },
+
+  teamIntegrations: {
+    getGitHubStatus(teamId: string) {
+      return request<TeamGitHubStatus>(`/team-integrations/${teamId}/github/status`);
+    },
+    getGitHubConnectUrl(teamId: string) {
+      return request<{ url: string }>(`/team-integrations/${teamId}/github/connect-url`);
+    },
+    disconnectGitHub(teamId: string) {
+      return request<{ message: string }>(`/team-integrations/${teamId}/github`, {
+        method: 'DELETE',
+      });
+    },
+    listGitHubRepos(teamId: string) {
+      return request<GitHubRepo[]>(`/team-integrations/${teamId}/github/repos`);
+    },
+    listGitHubBranches(teamId: string, owner: string, repo: string) {
+      return request<GitHubBranch[]>(
+        `/team-integrations/${teamId}/github/branches?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`,
+      );
+    },
+    getVercelStatus(teamId: string) {
+      return request<TeamVercelStatus>(`/team-integrations/${teamId}/vercel/status`);
+    },
+    getVercelConnectUrl(teamId: string) {
+      return request<{ url: string }>(`/team-integrations/${teamId}/vercel/connect-url`);
+    },
+    disconnectVercel(teamId: string) {
+      return request<{ message: string }>(`/team-integrations/${teamId}/vercel`, {
+        method: 'DELETE',
+      });
+    },
+    listVercelProjects(teamId: string) {
+      return request<VercelProject[]>(`/team-integrations/${teamId}/vercel/projects`);
     },
   },
 

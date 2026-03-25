@@ -37,15 +37,27 @@ export class IntegrationsService {
   async connectGitHub(
     projectId: string,
     userId: string,
-    data: { token: string; owner: string; repo: string; branch?: string },
+    data: { token?: string; owner: string; repo: string; branch?: string; useTeamToken?: boolean; teamId?: string },
   ) {
-    await this.getProjectWithAccess(projectId, userId);
-    await this.github.validateToken(data.token);
+    const project = await this.getProjectWithAccess(projectId, userId);
+
+    let resolvedToken = data.token || '';
+
+    if (data.useTeamToken && data.teamId) {
+      const team = await this.prisma.team.findUnique({ where: { id: data.teamId } });
+      if (team?.githubOAuthToken) {
+        resolvedToken = team.githubOAuthToken;
+      }
+    }
+
+    if (resolvedToken) {
+      await this.github.validateToken(resolvedToken);
+    }
 
     await this.prisma.project.update({
       where: { id: projectId },
       data: {
-        githubToken: data.token,
+        githubToken: resolvedToken || null,
         githubOwner: data.owner,
         githubRepo: data.repo,
         githubBranch: data.branch || 'main',
@@ -137,17 +149,31 @@ export class IntegrationsService {
   async connectVercel(
     projectId: string,
     userId: string,
-    data: { token: string; projectId: string; teamId?: string },
+    data: { token?: string; projectId: string; teamId?: string; useTeamToken?: boolean; sourceTeamId?: string },
   ) {
-    await this.getProjectWithAccess(projectId, userId);
-    await this.vercel.validateToken(data.token);
+    const project = await this.getProjectWithAccess(projectId, userId);
+
+    let resolvedToken = data.token || '';
+    let resolvedTeamId = data.teamId;
+
+    if (data.useTeamToken && data.sourceTeamId) {
+      const team = await this.prisma.team.findUnique({ where: { id: data.sourceTeamId } });
+      if (team?.vercelOAuthToken) {
+        resolvedToken = team.vercelOAuthToken;
+        resolvedTeamId = team.vercelOAuthTeamId || undefined;
+      }
+    }
+
+    if (resolvedToken) {
+      await this.vercel.validateToken(resolvedToken);
+    }
 
     await this.prisma.project.update({
       where: { id: projectId },
       data: {
-        vercelToken: data.token,
+        vercelToken: resolvedToken || null,
         vercelProjectId: data.projectId,
-        vercelTeamId: data.teamId || null,
+        vercelTeamId: resolvedTeamId || null,
       },
     });
 

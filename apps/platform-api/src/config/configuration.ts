@@ -55,4 +55,11 @@ export default () => ({
     githubClientId: process.env.PLATFORM_GITHUB_CLIENT_ID || '',
     githubClientSecret: process.env.PLATFORM_GITHUB_CLIENT_SECRET || '',
   },
+
+  teamOAuth: {
+    githubClientId: process.env.TEAM_GITHUB_CLIENT_ID || '',
+    githubClientSecret: process.env.TEAM_GITHUB_CLIENT_SECRET || '',
+    vercelClientId: process.env.TEAM_VERCEL_CLIENT_ID || '',
+    vercelClientSecret: process.env.TEAM_VERCEL_CLIENT_SECRET || '',
+  },
 });

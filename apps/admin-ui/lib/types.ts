@@ -17,6 +17,20 @@ export interface VercelIntegration {
   teamId?: string;
 }
 
+export interface TeamGitHubStatus {
+  connected: boolean;
+  login?: string;
+  avatarUrl?: string;
+  oauthConfigured: boolean;
+}
+
+export interface TeamVercelStatus {
+  connected: boolean;
+  user?: string;
+  teamId?: string;
+  oauthConfigured: boolean;
+}
+
 export interface GitHubCommit {
   sha: string;
   message: string;
@@ -288,7 +302,6 @@ export interface SupabaseImportRequest {
   serviceRoleKey: string;
   name: string;
   teamId: string;
-  sendNotificationEmails?: boolean;
 }
 
 export interface SupabaseImportJobResponse {

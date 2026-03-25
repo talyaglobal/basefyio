@@ -50,7 +50,7 @@ function SignupForm() {
   });
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
-  const [providers, setProviders] = useState<string[]>([]);
+  const [providers, setProviders] = useState<string[]>(['github']);
 
   useEffect(() => {
     const hash = window.location.hash.substring(1);
@@ -81,7 +81,7 @@ function SignupForm() {
     }
 
     api.auth.getOAuthProviders()
-      .then((data) => setProviders(data.providers))
+      .then((data) => { if (data.providers.length > 0) setProviders(data.providers); })
       .catch(() => {});
   }, [searchParams, router]);
 

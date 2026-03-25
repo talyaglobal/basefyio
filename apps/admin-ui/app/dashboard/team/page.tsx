@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { TeamMember, TeamInvite, PendingInvite } from '@/lib/types';
+import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus } from '@/lib/types';
 import { useActiveTeam } from '../layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,22 +24,306 @@ import {
   Check,
   Clock,
   Crown,
+  ExternalLink,
+  Github,
+  Loader2,
   Mail,
   Plus,
   RefreshCw,
   Trash2,
+  Unplug,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
+
+function VercelLogo({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 76 65" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
+    </svg>
+  );
+}
+
+// ── Team Integrations Section ─────────────────────────────────
+
+function TeamIntegrationsSection({ teamId }: { teamId: string }) {
+  const [githubStatus, setGithubStatus] = useState<TeamGitHubStatus | null>(null);
+  const [vercelStatus, setVercelStatus] = useState<TeamVercelStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connectingGitHub, setConnectingGitHub] = useState(false);
+  const [connectingVercel, setConnectingVercel] = useState(false);
+  const [disconnectingGitHub, setDisconnectingGitHub] = useState(false);
+  const [disconnectingVercel, setDisconnectingVercel] = useState(false);
+
+  async function loadStatuses() {
+    setLoading(true);
+    try {
+      const [gh, vc] = await Promise.all([
+        api.teamIntegrations.getGitHubStatus(teamId),
+        api.teamIntegrations.getVercelStatus(teamId),
+      ]);
+      setGithubStatus(gh);
+      setVercelStatus(vc);
+    } catch (err: any) {
+      toast.error('Failed to load integration status');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadStatuses();
+  }, [teamId]);
+
+  async function handleConnectGitHub() {
+    setConnectingGitHub(true);
+    try {
+      const { url } = await api.teamIntegrations.getGitHubConnectUrl(teamId);
+      window.location.href = url;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to start GitHub OAuth');
+      setConnectingGitHub(false);
+    }
+  }
+
+  async function handleDisconnectGitHub() {
+    if (!confirm('Disconnect GitHub from this team? Project integrations using this connection may stop working.')) return;
+    setDisconnectingGitHub(true);
+    try {
+      await api.teamIntegrations.disconnectGitHub(teamId);
+      toast.success('GitHub disconnected');
+      loadStatuses();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDisconnectingGitHub(false);
+    }
+  }
+
+  async function handleConnectVercel() {
+    setConnectingVercel(true);
+    try {
+      const { url } = await api.teamIntegrations.getVercelConnectUrl(teamId);
+      window.location.href = url;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to start Vercel OAuth');
+      setConnectingVercel(false);
+    }
+  }
+
+  async function handleDisconnectVercel() {
+    if (!confirm('Disconnect Vercel from this team? Project integrations using this connection may stop working.')) return;
+    setDisconnectingVercel(true);
+    try {
+      await api.teamIntegrations.disconnectVercel(teamId);
+      toast.success('Vercel disconnected');
+      loadStatuses();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDisconnectingVercel(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Integrations</h2>
+          <p className="text-sm text-muted-foreground">
+            Connect GitHub and Vercel at the team level. Projects can then use these connections without individual tokens.
+          </p>
+        </div>
+        <Button variant="outline" size="icon" onClick={loadStatuses} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex h-32 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* GitHub Card */}
+          <div className="rounded-xl border bg-card p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-900 dark:bg-zinc-100 shrink-0">
+                <Github className="h-5 w-5 text-white dark:text-black" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">GitHub</span>
+                  {githubStatus?.connected ? (
+                    <Badge variant="default" className="text-[10px] h-4 bg-emerald-600">Connected</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px] h-4">Not connected</Badge>
+                  )}
+                </div>
+                {githubStatus?.connected && githubStatus.login && (
+                  <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
+                    {githubStatus.avatarUrl && (
+                      <img src={githubStatus.avatarUrl} alt="" className="h-4 w-4 rounded-full" />
+                    )}
+                    {githubStatus.login}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {githubStatus?.connected ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 border-red-200 dark:border-red-900"
+                onClick={handleDisconnectGitHub}
+                disabled={disconnectingGitHub}
+              >
+                <Unplug className="h-3.5 w-3.5 mr-2" />
+                {disconnectingGitHub ? 'Disconnecting...' : 'Disconnect GitHub'}
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                {!githubStatus?.oauthConfigured && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
+                    OAuth not configured. Set <code className="font-mono">TEAM_GITHUB_CLIENT_ID</code> and <code className="font-mono">TEAM_GITHUB_CLIENT_SECRET</code>.
+                  </p>
+                )}
+                <Button
+                  className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-black"
+                  size="sm"
+                  onClick={handleConnectGitHub}
+                  disabled={connectingGitHub || !githubStatus?.oauthConfigured}
+                >
+                  {connectingGitHub ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Redirecting...</>
+                  ) : (
+                    <><Github className="h-3.5 w-3.5 mr-2" />Connect GitHub</>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  <a
+                    href="https://github.com/settings/developers"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline dark:text-blue-400 inline-flex items-center gap-1"
+                  >
+                    Create OAuth App at GitHub <ExternalLink className="h-3 w-3" />
+                  </a>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Vercel Card */}
+          <div className="rounded-xl border bg-card p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black dark:bg-white shrink-0">
+                <VercelLogo className="h-4 w-4 text-white dark:text-black" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Vercel</span>
+                  {vercelStatus?.connected ? (
+                    <Badge variant="default" className="text-[10px] h-4 bg-emerald-600">Connected</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px] h-4">Not connected</Badge>
+                  )}
+                </div>
+                {vercelStatus?.connected && vercelStatus.user && (
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {vercelStatus.user}
+                    {vercelStatus.teamId && (
+                      <span className="ml-1 font-mono text-[10px]">({vercelStatus.teamId})</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {vercelStatus?.connected ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 border-red-200 dark:border-red-900"
+                onClick={handleDisconnectVercel}
+                disabled={disconnectingVercel}
+              >
+                <Unplug className="h-3.5 w-3.5 mr-2" />
+                {disconnectingVercel ? 'Disconnecting...' : 'Disconnect Vercel'}
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                {!vercelStatus?.oauthConfigured && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
+                    OAuth not configured. Set <code className="font-mono">TEAM_VERCEL_CLIENT_ID</code> and <code className="font-mono">TEAM_VERCEL_CLIENT_SECRET</code>.
+                  </p>
+                )}
+                <Button
+                  className="w-full bg-black hover:bg-zinc-800 text-white"
+                  size="sm"
+                  onClick={handleConnectVercel}
+                  disabled={connectingVercel || !vercelStatus?.oauthConfigured}
+                >
+                  {connectingVercel ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Redirecting...</>
+                  ) : (
+                    <><VercelLogo className="h-3.5 w-3.5 mr-2" />Connect Vercel</>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  <a
+                    href="https://vercel.com/account/oauth-apps"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline dark:text-blue-400 inline-flex items-center gap-1"
+                  >
+                    Create OAuth App at Vercel <ExternalLink className="h-3 w-3" />
+                  </a>
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────
 
 export default function TeamSettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { activeTeamId, setActiveTeamId, refreshTeams } = useActiveTeam();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Handle OAuth callback query params
+  useEffect(() => {
+    const githubConnected = searchParams.get('github_connected');
+    const githubError = searchParams.get('github_error');
+    const vercelConnected = searchParams.get('vercel_connected');
+    const vercelError = searchParams.get('vercel_error');
+
+    if (githubConnected === '1') {
+      toast.success('GitHub connected successfully!');
+      router.replace('/dashboard/team');
+    } else if (githubError) {
+      toast.error(`GitHub connection failed: ${githubError.replace(/_/g, ' ')}`);
+      router.replace('/dashboard/team');
+    } else if (vercelConnected === '1') {
+      toast.success('Vercel connected successfully!');
+      router.replace('/dashboard/team');
+    } else if (vercelError) {
+      toast.error(`Vercel connection failed: ${vercelError.replace(/_/g, ' ')}`);
+      router.replace('/dashboard/team');
+    }
+  }, [searchParams]);
 
   async function loadAll() {
     if (!activeTeamId) return;
@@ -263,6 +547,11 @@ export default function TeamSettingsPage() {
           </div>
         </>
       )}
+
+      <Separator />
+
+      {/* Integrations Section */}
+      {activeTeamId && <TeamIntegrationsSection teamId={activeTeamId} />}
 
       {activeTeamId && (
         <InviteDialog

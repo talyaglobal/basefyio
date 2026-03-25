@@ -33,7 +33,14 @@ export class IntegrationsController {
     @Body() body: ConnectGitHubDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.service.connectGitHub(projectId, user.sub, body);
+    return this.service.connectGitHub(projectId, user.sub, {
+      token: body.token,
+      owner: body.owner,
+      repo: body.repo,
+      branch: body.branch,
+      useTeamToken: body.useTeamToken,
+      teamId: body.teamId,
+    });
   }
 
   @Delete('github')
@@ -100,6 +107,8 @@ export class IntegrationsController {
       token: body.token,
       projectId: body.projectId,
       teamId: body.teamId,
+      useTeamToken: body.useTeamToken,
+      sourceTeamId: body.sourceTeamId,
     });
   }
 

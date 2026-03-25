@@ -111,21 +111,20 @@ export class ProjectsService {
     }
 
     const { githubToken, vercelToken, ...safe } = project;
+
+    const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
+    const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
+
     return {
       ...safe,
+      dbHost: externalHost,
+      dbPort: externalPort,
       github: project.githubOwner && project.githubRepo
         ? { connected: true, owner: project.githubOwner, repo: project.githubRepo, branch: project.githubBranch || 'main', repoUrl: `https://github.com/${project.githubOwner}/${project.githubRepo}` }
         : { connected: false },
       vercel: project.vercelProjectId
         ? { connected: true, projectId: project.vercelProjectId }
         : { connected: false },
-    const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
-    const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
-
-    return {
-      ...project,
-      dbHost: externalHost,
-      dbPort: externalPort,
     };
   }
 

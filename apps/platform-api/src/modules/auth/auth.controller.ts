@@ -79,6 +79,7 @@ export class AuthController {
     return this.authService.updateProfile(user.sub, dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('change-password')
   async changePassword(
     @CurrentUser() user: JwtPayload,

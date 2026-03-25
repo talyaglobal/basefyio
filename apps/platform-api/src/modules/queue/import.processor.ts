@@ -22,7 +22,6 @@ export interface ImportJobData {
   dbPassword: string;
   dbName: string;
   keycloakRealm: string;
-  sendNotificationEmails: boolean;
 }
 
 export interface ImportJobProgress {
@@ -64,7 +63,7 @@ export class ImportProcessor extends WorkerHost {
 
     const progress: ImportProgress = {
       database: { tables: 0, rows: 0, failedTables: [] },
-      auth: { users: 0, skipped: 0, emailsSent: 0 },
+      auth: { users: 0, skipped: 0 },
       storage: { buckets: 0, objects: 0 },
       warnings: [],
     };
@@ -109,12 +108,12 @@ export class ImportProcessor extends WorkerHost {
       try {
         await onProgress({ step: 'auth', detail: 'Importing auth users...', percent: 55 });
         await this.importService.runAuthImport(
-          baseUrl, headers, project, progress, projectName, job.data.sendNotificationEmails,
+          baseUrl, headers, project, progress, projectName,
         );
         checkCancelled();
         await onProgress({
           step: 'auth',
-          detail: `${progress.auth.users} users, ${progress.auth.emailsSent} emails sent`,
+          detail: `${progress.auth.users} users imported`,
           percent: 80,
           progress,
         });
