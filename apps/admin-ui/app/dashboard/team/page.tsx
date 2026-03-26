@@ -27,6 +27,8 @@ import {
   ExternalLink,
   Github,
   Loader2,
+  Eye,
+  EyeOff,
   Mail,
   Plus,
   RefreshCw,
@@ -55,6 +57,9 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
   const [connectingVercel, setConnectingVercel] = useState(false);
   const [disconnectingGitHub, setDisconnectingGitHub] = useState(false);
   const [disconnectingVercel, setDisconnectingVercel] = useState(false);
+  const [vercelToken, setVercelToken] = useState('');
+  const [showVercelInput, setShowVercelInput] = useState(false);
+  const [showVercelToken, setShowVercelToken] = useState(false);
 
   async function loadStatuses() {
     setLoading(true);
@@ -102,12 +107,20 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
   }
 
   async function handleConnectVercel() {
+    if (!vercelToken.trim()) {
+      toast.error('Please enter your Vercel token');
+      return;
+    }
     setConnectingVercel(true);
     try {
-      const { url } = await api.teamIntegrations.getVercelConnectUrl(teamId);
-      window.location.href = url;
+      await api.teamIntegrations.connectVercelWithToken(teamId, vercelToken.trim());
+      toast.success('Vercel connected successfully!');
+      setVercelToken('');
+      setShowVercelInput(false);
+      loadStatuses();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to start Vercel OAuth');
+      toast.error(err.message || 'Failed to connect Vercel');
+    } finally {
       setConnectingVercel(false);
     }
   }
@@ -187,7 +200,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
               <div className="space-y-2">
                 {!githubStatus?.oauthConfigured && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
-                    OAuth not configured. Set <code className="font-mono">TEAM_GITHUB_CLIENT_ID</code> and <code className="font-mono">TEAM_GITHUB_CLIENT_SECRET</code>.
+                    OAuth not configured. Set <code className="font-mono">GITHUB_TEAMS_CLIENT_ID</code> and <code className="font-mono">GITHUB_TEAMS_CLIENT_SECRET</code>.
                   </p>
                 )}
                 <Button
@@ -255,31 +268,66 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
               </Button>
             ) : (
               <div className="space-y-2">
-                {!vercelStatus?.oauthConfigured && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
-                    OAuth not configured. Set <code className="font-mono">TEAM_VERCEL_CLIENT_ID</code> and <code className="font-mono">TEAM_VERCEL_CLIENT_SECRET</code>.
-                  </p>
+                {showVercelInput ? (
+                  <>
+                    <div className="relative">
+                      <input
+                        type={showVercelToken ? 'text' : 'password'}
+                        placeholder="Paste your Vercel API token..."
+                        value={vercelToken}
+                        onChange={(e) => setVercelToken(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleConnectVercel()}
+                        className="w-full rounded-md border bg-background px-3 py-1.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowVercelToken((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showVercelToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1 bg-black hover:bg-zinc-800 text-white"
+                        size="sm"
+                        onClick={handleConnectVercel}
+                        disabled={connectingVercel || !vercelToken.trim()}
+                      >
+                        {connectingVercel ? (
+                          <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Connecting...</>
+                        ) : (
+                          <><VercelLogo className="h-3.5 w-3.5 mr-2" />Connect</>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setShowVercelInput(false); setVercelToken(''); setShowVercelToken(false); }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <Button
+                    className="w-full bg-black hover:bg-zinc-800 text-white"
+                    size="sm"
+                    onClick={() => setShowVercelInput(true)}
+                  >
+                    <VercelLogo className="h-3.5 w-3.5 mr-2" />Connect Vercel
+                  </Button>
                 )}
-                <Button
-                  className="w-full bg-black hover:bg-zinc-800 text-white"
-                  size="sm"
-                  onClick={handleConnectVercel}
-                  disabled={connectingVercel || !vercelStatus?.oauthConfigured}
-                >
-                  {connectingVercel ? (
-                    <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Redirecting...</>
-                  ) : (
-                    <><VercelLogo className="h-3.5 w-3.5 mr-2" />Connect Vercel</>
-                  )}
-                </Button>
                 <p className="text-xs text-muted-foreground text-center">
                   <a
-                    href="https://vercel.com/account/oauth-apps"
+                    href="https://vercel.com/account/tokens"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline dark:text-blue-400 inline-flex items-center gap-1"
                   >
-                    Create OAuth App at Vercel <ExternalLink className="h-3 w-3" />
+                    Create API Token at Vercel <ExternalLink className="h-3 w-3" />
                   </a>
                 </p>
               </div>

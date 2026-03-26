@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
@@ -43,6 +44,12 @@ export class AuthController {
     return this.authService.refresh(refreshToken);
   }
 
+  @Post('logout')
+  async logout(@Body('refreshToken') refreshToken: string) {
+    if (!refreshToken) return { message: 'Logged out' };
+    return this.authService.logout(refreshToken);
+  }
+
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto.email);
@@ -60,6 +67,11 @@ export class AuthController {
       user.sub,
       user.email,
       user.preferred_username,
+      {
+        givenName: user.given_name,
+        familyName: user.family_name,
+        name: user.name,
+      },
     );
     return user;
   }
@@ -91,6 +103,16 @@ export class AuthController {
       body.currentPassword,
       body.newPassword,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('avatar')
+  @UseInterceptors(FileInterceptor('file', { storage: undefined }))
+  async uploadAvatar(
+    @CurrentUser() user: JwtPayload,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.authService.uploadAvatar(user.sub, file);
   }
 
   @Get('oauth/providers')

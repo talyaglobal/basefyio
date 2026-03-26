@@ -27,6 +27,8 @@ enum TeamMemberRole {
 model User {
   id              String   @id
   username        String   @unique
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
   email           String   @unique
   role            UserRole @default(USER)
   activeTeamId    String?  @map("active_team_id")

@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Mail, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Minus } from 'lucide-react';
 import type { ImportProgressData, ImportJobProgressEvent } from '@/lib/types';
 
 interface CreateProjectDialogProps {
@@ -84,12 +84,24 @@ export function CreateProjectDialog({
   const eventSourceRef = useRef<EventSource | null>(null);
   const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } = useImportProgress();
   const [cancelling, setCancelling] = useState(false);
+  // Tracks if the dialog was dismissed while the import API call was still in-flight,
+  // so the async continuation knows not to re-set modalShowingImport to true.
+  const dismissedDuringImportRef = useRef(false);
 
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
     };
   }, []);
+
+  // Belt-and-suspenders: whenever the dialog closes with a running import,
+  // ensure the toast becomes visible regardless of how the close happened.
+  useEffect(() => {
+    if (!open && activeImport?.status === 'running') {
+      setModalShowingImport(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Register the reopen callback so the toast can reopen this dialog
   const activeImportRef = useRef(activeImport);
@@ -152,9 +164,9 @@ export function CreateProjectDialog({
     setImportPercent(0);
     setImportResult(null);
     setImportProjectName('');
-    setSendEmails(false);
     setLoading(false);
     setCancelling(false);
+    dismissedDuringImportRef.current = false;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
   }
@@ -185,6 +197,7 @@ export function CreateProjectDialog({
   function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
       if (view === 'importing') {
+        dismissedDuringImportRef.current = true;
         eventSourceRef.current?.close();
         eventSourceRef.current = null;
         setModalShowingImport(false);
@@ -257,6 +270,7 @@ export function CreateProjectDialog({
 
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
+    dismissedDuringImportRef.current = false;
     setView('importing');
 
     const steps: ImportStep[] = [
@@ -277,11 +291,18 @@ export function CreateProjectDialog({
 
       setImportProjectName(result.project.name);
 
-      // Start global tracking (for toast when modal is dismissed)
-      setModalShowingImport(true);
+      // Always start global tracking so the job is persisted and the context SSE runs.
       startTracking(result.jobId, result.project.name, onCreated);
 
-      // Also connect local SSE for modal view
+      // Only mark the modal as "showing import" if the dialog wasn't dismissed
+      // while the API call was in-flight (race condition guard).
+      if (!dismissedDuringImportRef.current) {
+        setModalShowingImport(true);
+      }
+
+      // Local SSE is only needed while the modal is open.
+      if (dismissedDuringImportRef.current) return;
+
       const es = api.projects.streamImportProgress(result.jobId, {
         onProgress: (data) => {
           updateStepFromSSE(data);
@@ -293,7 +314,7 @@ export function CreateProjectDialog({
             const s = [...prev];
             s[0] = { ...s[0], status: 'done', label: 'Connected to Supabase' };
             s[1] = { ...s[1], status: 'done', detail: `${progress.database.tables} tables, ${progress.database.rows} rows` };
-            s[2] = { ...s[2], status: 'done', detail: `${progress.auth.users} users, ${progress.auth.emailsSent} emails sent` };
+            s[2] = { ...s[2], status: 'done', detail: `${progress.auth.users} users` };
             s[3] = { ...s[3], status: 'done', detail: `${progress.storage.buckets} buckets, ${progress.storage.objects} objects` };
             return s;
           });
@@ -337,7 +358,7 @@ export function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" hideClose={view === 'importing'}>
         {view === 'create' && (
           <>
             <DialogHeader>
@@ -528,28 +549,25 @@ export function CreateProjectDialog({
 
         {view === 'importing' && (
           <>
-            <DialogHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <SupabaseLogo className="h-5 w-5" />
-                  <DialogTitle>Importing from Supabase</DialogTitle>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenChange(false)}
-                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <Minimize2 className="h-3.5 w-3.5 mr-1" />
-                  Minimize
-                </Button>
+            <DialogHeader className="pr-16">
+              <div className="flex items-center gap-2">
+                <SupabaseLogo className="h-5 w-5" />
+                <DialogTitle>Importing from Supabase</DialogTitle>
               </div>
               <DialogDescription>
                 Please wait while your project is being imported.
                 You can minimize this and continue working.
               </DialogDescription>
             </DialogHeader>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleOpenChange(false)}
+              className="absolute top-3 right-4 h-7 w-7 p-0 flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </Button>
 
             <div className="space-y-3 py-4">
               {importSteps.map((step) => (
@@ -677,12 +695,6 @@ export function CreateProjectDialog({
                 <Shield className="h-3 w-3 mr-1" />
                 {importResult.auth.users} users
               </Badge>
-              {importResult.auth.emailsSent > 0 && (
-                <Badge variant="secondary">
-                  <Mail className="h-3 w-3 mr-1" />
-                  {importResult.auth.emailsSent} emails sent
-                </Badge>
-              )}
               <Badge variant="secondary">
                 <HardDrive className="h-3 w-3 mr-1" />
                 {importResult.storage.objects} files

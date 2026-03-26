@@ -6,6 +6,7 @@ out/
 .env
 .env.local
 .env.*.local
+.env.production
 
 *.log
 npm-debug.log*

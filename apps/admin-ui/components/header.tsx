@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
-import { clearTokens } from '@/lib/auth';
+import { clearTokens, stopProactiveRefresh, getRefreshToken } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Team, UserInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -26,15 +26,17 @@ import {
   Users,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
+import type { UserProfile } from '@/lib/types';
 
 interface HeaderProps {
   user: UserInfo;
   activeTeamId: string | null;
   onTeamChange: (teamId: string) => void;
   refreshKey?: number;
+  profile?: UserProfile | null;
 }
 
-export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: HeaderProps) {
+export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profile }: HeaderProps) {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -60,10 +62,27 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: Hea
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    // Stop the proactive refresh timer FIRST to prevent it from
+    // restoring tokens after we clear them (race condition).
+    stopProactiveRefresh();
+
+    const refreshToken = getRefreshToken();
+
+    // Clear local tokens and cookies before any async work so the UI
+    // reflects the signed-out state immediately.
     clearTokens();
     Cookies.remove('kb_active_team');
-    router.push('/login');
+
+    // Best-effort: revoke the Keycloak session so OAuth SSO sessions
+    // are also terminated and the user can't be auto-re-authenticated.
+    if (refreshToken) {
+      await api.auth.logout(refreshToken).catch(() => {});
+    }
+
+    // Hard redirect (full page reload) guarantees all React state,
+    // timers, and in-flight requests are fully discarded.
+    window.location.href = '/login';
   }
 
   return (
@@ -162,7 +181,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0 }: Hea
           </Button>
         )}
 
-        <UserMenu user={user} onLogout={handleLogout} />
+        <UserMenu user={user} profile={profile ?? null} onLogout={handleLogout} />
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
@@ -222,9 +241,17 @@ function DocsMenu() {
   );
 }
 
-function UserMenu({ user, onLogout }: { user: UserInfo; onLogout: () => void }) {
+function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserProfile | null; onLogout: () => void }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  const firstName = profile?.firstName ?? '';
+  const lastName = profile?.lastName ?? '';
+  const displayName = [firstName, lastName].filter(Boolean).join(' ') || user.email;
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+    : (firstName || user.email).slice(0, 2).toUpperCase();
+  const avatarUrl = profile?.avatarUrl;
 
   return (
     <div className="relative">
@@ -232,11 +259,18 @@ function UserMenu({ user, onLogout }: { user: UserInfo; onLogout: () => void }) 
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-          <User className="h-4 w-4 text-primary" />
+        {/* Avatar */}
+        <div className="h-8 w-8 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
+              {initials}
+            </div>
+          )}
         </div>
-        <span className="hidden max-w-[120px] truncate font-medium sm:inline">
-          {user.email}
+        <span className="hidden max-w-[140px] truncate font-medium sm:inline">
+          {displayName}
         </span>
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
@@ -245,11 +279,20 @@ function UserMenu({ user, onLogout }: { user: UserInfo; onLogout: () => void }) 
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
-            <div className="border-b px-3 py-2.5">
-              <p className="truncate text-sm font-medium">{user.email}</p>
-              <p className="text-xs text-muted-foreground">
-                {user.preferred_username}
-              </p>
+            <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                    {initials}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+              </div>
             </div>
             <div className="p-1">
               <button

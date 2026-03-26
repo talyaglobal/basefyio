@@ -631,61 +631,63 @@ export class SupabaseImportService {
       if (!Array.isArray(rows) || rows.length === 0) break;
       consecutiveErrors = 0;
 
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-
-        for (const row of rows) {
-          const allKeys = columnNames.filter((k) =>
-            Object.prototype.hasOwnProperty.call(row, k),
-          );
-          if (!allKeys.length) {
-            const rowKeys = Object.keys(row);
-            if (!rowKeys.length) continue;
-            await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
-          } else {
-            await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
-          }
-          totalRows++;
-        }
-
-        await client.query('COMMIT');
-      } catch (err: any) {
-        await client.query('ROLLBACK').catch(() => {});
-
-        this.logger.warn(
-          `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
-        );
-
-        const retryClient = await pool.connect();
+        const client = await pool.connect();
+        let batchSucceeded = false;
         try {
-          let savedRows = 0;
+          await client.query('BEGIN');
+
           for (const row of rows) {
-            try {
+            const allKeys = columnNames.filter((k) =>
+              Object.prototype.hasOwnProperty.call(row, k),
+            );
+            if (!allKeys.length) {
               const rowKeys = Object.keys(row);
               if (!rowKeys.length) continue;
-              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
-              savedRows++;
-            } catch (rowErr: any) {
-              this.logger.warn(
-                `Row insert failed in "${sanitized}": ${rowErr.message}`,
-              );
+              await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
+            } else {
+              await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
             }
           }
-          totalRows += savedRows;
-        } finally {
-          retryClient.release();
-        }
 
-        client.release();
-        if (rows.length < pageSize) break;
-        offset += pageSize;
-        continue;
-      } finally {
-        try {
+          await client.query('COMMIT');
+          batchSucceeded = true;
+          totalRows += rows.length;
+        } catch (err: any) {
+          await client.query('ROLLBACK').catch(() => {});
+
+          this.logger.warn(
+            `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
+          );
+
+          const retryClient = await pool.connect();
+          try {
+            let savedRows = 0;
+            for (const row of rows) {
+              try {
+                const rowKeys = Object.keys(row);
+                if (!rowKeys.length) continue;
+                await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
+                savedRows++;
+              } catch (rowErr: any) {
+                this.logger.warn(
+                  `Row insert failed in "${sanitized}": ${rowErr.message}`,
+                );
+              }
+            }
+            totalRows += savedRows;
+          } finally {
+            retryClient.release();
+          }
+
+          if (rows.length < pageSize) { client.release(); break; }
+          offset += pageSize;
           client.release();
-        } catch {}
-      }
+          continue;
+        } finally {
+          if (batchSucceeded) {
+            try { client.release(); } catch {}
+          }
+        }
 
       if (rows.length < pageSize) break;
       offset += pageSize;
@@ -749,7 +751,7 @@ export class SupabaseImportService {
     });
 
     await client.query(
-      `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders})`,
+      `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
       values,
     );
   }

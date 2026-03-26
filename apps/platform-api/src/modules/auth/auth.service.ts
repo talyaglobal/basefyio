@@ -10,6 +10,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { randomBytes } from 'crypto';
+import * as Minio from 'minio';
+import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -17,6 +19,11 @@ import { EmailService } from '../email/email.service';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly minioClient: Minio.Client;
+  private readonly minioPublicEndpoint: string;
+  private readonly minioPublicPort: number;
+  private readonly minioPublicSsl: boolean;
+  private static readonly AVATAR_BUCKET = 'kb-platform-avatars';
 
   constructor(
     private readonly config: ConfigService,
@@ -24,7 +31,40 @@ export class AuthService {
     private readonly keycloak: KeycloakAdminService,
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
-  ) {}
+  ) {
+    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
+    this.minioClient = new Minio.Client({
+      endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
+      port: this.config.get<number>('minio.port') || 9000,
+      useSSL: this.config.get<boolean>('minio.useSsl') || false,
+      accessKey,
+      secretKey,
+    });
+    this.minioPublicEndpoint = this.config.get<string>('minio.publicEndpoint') || 'localhost';
+    this.minioPublicPort = this.config.get<number>('minio.publicPort') || 9000;
+    this.minioPublicSsl = this.config.get<string>('minio.publicSsl') === 'true';
+  }
+
+  private async ensureAvatarBucket(): Promise<void> {
+    const exists = await this.minioClient.bucketExists(AuthService.AVATAR_BUCKET);
+    if (!exists) {
+      await this.minioClient.makeBucket(AuthService.AVATAR_BUCKET);
+      const policy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${AuthService.AVATAR_BUCKET}/*`],
+          },
+        ],
+      });
+      await this.minioClient.setBucketPolicy(AuthService.AVATAR_BUCKET, policy);
+      this.logger.log(`Created public avatar bucket: ${AuthService.AVATAR_BUCKET}`);
+    }
+  }
 
   private generateUsername(firstName?: string, lastName?: string, email?: string): string {
     let base: string;
@@ -105,16 +145,65 @@ export class AuthService {
     return pending.length;
   }
 
-  async ensureUserProfile(sub: string, email: string, username: string) {
+  private parseOAuthName(
+    givenName?: string,
+    familyName?: string,
+    fullName?: string,
+  ): { firstName: string | null; lastName: string | null } {
+    if (givenName || familyName) {
+      return { firstName: givenName || null, lastName: familyName || null };
+    }
+    if (fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      return {
+        firstName: parts[0] || null,
+        lastName: parts.length > 1 ? parts.slice(1).join(' ') : null,
+      };
+    }
+    return { firstName: null, lastName: null };
+  }
+
+  async ensureUserProfile(
+    sub: string,
+    email: string,
+    username: string,
+    oauthName?: { givenName?: string; familyName?: string; name?: string },
+  ) {
     const existing = await this.prisma.user.findUnique({ where: { id: sub } });
-    if (existing) return existing;
+
+    if (existing) {
+      // If the user exists but has no name yet, backfill from OAuth on each login
+      if (oauthName && (!existing.firstName || !existing.lastName)) {
+        const parsed = this.parseOAuthName(oauthName.givenName, oauthName.familyName, oauthName.name);
+        if (parsed.firstName || parsed.lastName) {
+          await this.prisma.user.update({
+            where: { id: sub },
+            data: {
+              ...(parsed.firstName && !existing.firstName ? { firstName: parsed.firstName } : {}),
+              ...(parsed.lastName && !existing.lastName ? { lastName: parsed.lastName } : {}),
+            },
+          });
+        }
+      }
+      return existing;
+    }
 
     try {
       const safeUsername = username || `user-${sub.slice(0, 8)}`;
       const safeEmail = email || `${sub.slice(0, 8)}@kolaybase.local`;
+      const parsed = oauthName
+        ? this.parseOAuthName(oauthName.givenName, oauthName.familyName, oauthName.name)
+        : { firstName: null, lastName: null };
 
       const user = await this.prisma.user.create({
-        data: { id: sub, username: safeUsername, email: safeEmail, role: 'USER' },
+        data: {
+          id: sub,
+          username: safeUsername,
+          email: safeEmail,
+          role: 'USER',
+          ...(parsed.firstName ? { firstName: parsed.firstName } : {}),
+          ...(parsed.lastName ? { lastName: parsed.lastName } : {}),
+        },
       });
 
       const slug = `personal-${safeUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}-${sub.slice(0, 8)}`;
@@ -294,6 +383,29 @@ export class AuthService {
     }
   }
 
+  async logout(refreshToken: string) {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const clientId = this.config.get<string>('keycloak.adminClientId');
+
+    try {
+      const logoutUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/logout`;
+      const params = new URLSearchParams({
+        client_id: clientId!,
+        refresh_token: refreshToken,
+      });
+
+      await firstValueFrom(
+        this.http.post(logoutUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+    } catch {
+      // Best-effort: don't fail sign-out if Keycloak revocation errors
+    }
+
+    return { message: 'Logged out' };
+  }
+
   async forgotPassword(email: string) {
     const kcUser = await this.keycloak.findPlatformUserByEmail(email);
     if (!kcUser) {
@@ -370,6 +482,8 @@ export class AuthService {
     return {
       id: user.id,
       username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       avatarUrl: user.avatarUrl,
       githubUsername: user.githubUsername,
@@ -384,6 +498,8 @@ export class AuthService {
     userId: string,
     data: {
       username?: string;
+      firstName?: string;
+      lastName?: string;
       email?: string;
       githubUsername?: string;
       avatarUrl?: string;
@@ -399,6 +515,14 @@ export class AuthService {
       });
       if (existing) throw new ConflictException('Username already taken');
       updateData.username = data.username;
+    }
+
+    if (data.firstName !== undefined) {
+      updateData.firstName = data.firstName || null;
+    }
+
+    if (data.lastName !== undefined) {
+      updateData.lastName = data.lastName || null;
     }
 
     if (data.email !== undefined) {
@@ -443,6 +567,8 @@ export class AuthService {
     return {
       id: user.id,
       username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       avatarUrl: user.avatarUrl,
       githubUsername: user.githubUsername,
@@ -451,6 +577,48 @@ export class AuthService {
       role: user.role,
       createdAt: user.createdAt,
     };
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File): Promise<{ avatarUrl: string }> {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Only JPEG, PNG, WebP, or GIF images are allowed');
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5 MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('Image must be smaller than 5 MB');
+    }
+
+    await this.ensureAvatarBucket();
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+    const objectName = `${userId}/avatar-${Date.now()}.${ext}`;
+
+    const readable = new PassThrough();
+    readable.end(file.buffer);
+
+    await this.minioClient.putObject(
+      AuthService.AVATAR_BUCKET,
+      objectName,
+      readable,
+      file.size,
+      { 'Content-Type': file.mimetype },
+    );
+
+    const protocol = this.minioPublicSsl ? 'https' : 'http';
+    const port = this.minioPublicPort !== 80 && this.minioPublicPort !== 443
+      ? `:${this.minioPublicPort}`
+      : '';
+    const avatarUrl = `${protocol}://${this.minioPublicEndpoint}${port}/${AuthService.AVATAR_BUCKET}/${objectName}`;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl },
+    });
+
+    this.logger.log(`Avatar uploaded for user ${userId}: ${objectName}`);
+    return { avatarUrl };
   }
 
 }

@@ -153,6 +153,8 @@ export interface UserInfo {
 export interface UserProfile {
   id: string;
   username: string;
+  firstName: string | null;
+  lastName: string | null;
   email: string;
   avatarUrl: string | null;
   githubUsername: string | null;

@@ -123,6 +123,8 @@ export const api = {
     },
     updateProfile(data: {
       username?: string;
+      firstName?: string;
+      lastName?: string;
       email?: string;
       githubUsername?: string;
       avatarUrl?: string;
@@ -138,6 +140,28 @@ export const api = {
       return request<{ message: string }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword }),
+      });
+    },
+    async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+      const token = getAccessToken();
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/proxy/auth/avatar', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message || `Upload failed: ${res.status}`);
+      }
+      return res.json();
+    },
+    logout(refreshToken: string) {
+      return request<{ message: string }>('/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
       });
     },
     getOAuthProviders() {
@@ -493,8 +517,11 @@ export const api = {
     getVercelStatus(teamId: string) {
       return request<TeamVercelStatus>(`/team-integrations/${teamId}/vercel/status`);
     },
-    getVercelConnectUrl(teamId: string) {
-      return request<{ url: string }>(`/team-integrations/${teamId}/vercel/connect-url`);
+    connectVercelWithToken(teamId: string, token: string) {
+      return request<void>(`/team-integrations/${teamId}/vercel/connect`, {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
     },
     disconnectVercel(teamId: string) {
       return request<{ message: string }>(`/team-integrations/${teamId}/vercel`, {

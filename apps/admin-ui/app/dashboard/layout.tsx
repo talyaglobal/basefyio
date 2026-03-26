@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { UserInfo } from '@/lib/types';
+import type { UserInfo, UserProfile } from '@/lib/types';
 import { Header } from '@/components/header';
 
 interface DashboardContextValue {
@@ -14,6 +14,8 @@ interface DashboardContextValue {
   refreshUser: () => void;
   refreshKey: number;
   refreshTeams: () => void;
+  profile: UserProfile | null;
+  refreshProfile: () => void;
 }
 
 export const DashboardContext = createContext<DashboardContextValue>({
@@ -22,6 +24,8 @@ export const DashboardContext = createContext<DashboardContextValue>({
   refreshUser: () => {},
   refreshKey: 0,
   refreshTeams: () => {},
+  profile: null,
+  refreshProfile: () => {},
 });
 
 export function useActiveTeam() {
@@ -41,6 +45,7 @@ export default function DashboardLayout({
   const [user, setUser] = useState<UserInfo | null>(null);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -56,6 +61,9 @@ export default function DashboardLayout({
 
     async function init() {
       await api.auth.me().catch(() => {});
+
+      // Load profile for navbar
+      api.auth.getProfile().then(setProfile).catch(() => {});
 
       const cachedTeam = Cookies.get('kb_active_team');
 
@@ -90,10 +98,15 @@ export default function DashboardLayout({
 
   const refreshUser = useCallback(() => {
     api.auth.getProfile().then((p) => {
+      setProfile(p);
       setUser((prev) =>
         prev ? { ...prev, preferred_username: p.username, email: p.email } : prev,
       );
     }).catch(() => {});
+  }, []);
+
+  const refreshProfile = useCallback(() => {
+    api.auth.getProfile().then(setProfile).catch(() => {});
   }, []);
 
   const refreshTeams = useCallback(() => {
@@ -109,9 +122,9 @@ export default function DashboardLayout({
   }
 
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser }}>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile }}>
       <div className="flex h-screen flex-col overflow-hidden">
-        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} />
+        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} profile={profile} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </DashboardContext.Provider>

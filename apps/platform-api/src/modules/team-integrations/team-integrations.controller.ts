@@ -1,9 +1,11 @@
 import {
   Controller,
   Get,
+  Post,
   Delete,
   Param,
   Query,
+  Body,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -70,21 +72,13 @@ export class TeamIntegrationsController {
     return this.service.getVercelStatus(teamId);
   }
 
-  @Get(':teamId/vercel/connect-url')
+  @Post(':teamId/vercel/connect')
   @UseGuards(JwtAuthGuard)
-  async getVercelConnectUrl(@Param('teamId') teamId: string) {
-    const url = await this.service.getVercelConnectUrl(teamId);
-    return { url };
-  }
-
-  @Get('vercel/callback')
-  async vercelCallback(
-    @Query('code') code: string,
-    @Query('state') state: string,
-    @Res() res: Response,
+  connectVercel(
+    @Param('teamId') teamId: string,
+    @Body('token') token: string,
   ) {
-    const redirectUrl = await this.service.handleVercelCallback(code, state);
-    return res.redirect(redirectUrl);
+    return this.service.connectVercelWithToken(teamId, token);
   }
 
   @Delete(':teamId/vercel')

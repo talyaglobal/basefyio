@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useImportProgress } from '@/lib/import-progress-context';
-import { Database, CheckCircle2, AlertTriangle, X, Loader2, Maximize2, Minimize2, ChevronUp } from 'lucide-react';
+import { Database, CheckCircle2, AlertTriangle, X, Loader2, Maximize2, Minus, ChevronUp } from 'lucide-react';
 
 export function ImportProgressToast() {
   const { activeImport, dismiss, modalShowingImport, setModalShowingImport, onReopenModal } = useImportProgress();
@@ -95,7 +95,7 @@ export function ImportProgressToast() {
                   className="text-muted-foreground hover:text-foreground transition-colors shrink-0 p-0.5"
                   title="Minimize"
                 >
-                  <Minimize2 className="h-3.5 w-3.5" />
+                  <Minus className="h-3.5 w-3.5" />
                 </button>
               )}
               {canClose && (

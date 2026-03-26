@@ -49,17 +49,12 @@ export default () => ({
     replyTo: process.env.RESEND_REPLY_TO || 'support@kolaybase.com',
   },
 
-  platformOAuth: {
-    googleClientId: process.env.PLATFORM_GOOGLE_CLIENT_ID || '',
-    googleClientSecret: process.env.PLATFORM_GOOGLE_CLIENT_SECRET || '',
-    githubClientId: process.env.PLATFORM_GITHUB_CLIENT_ID || '',
-    githubClientSecret: process.env.PLATFORM_GITHUB_CLIENT_SECRET || '',
-  },
-
-  teamOAuth: {
-    githubClientId: process.env.TEAM_GITHUB_CLIENT_ID || '',
-    githubClientSecret: process.env.TEAM_GITHUB_CLIENT_SECRET || '',
-    vercelClientId: process.env.TEAM_VERCEL_CLIENT_ID || '',
-    vercelClientSecret: process.env.TEAM_VERCEL_CLIENT_SECRET || '',
+  oauth: {
+    googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    githubClientId: process.env.GITHUB_CLIENT_ID || '',
+    githubClientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+    githubTeamsClientId: process.env.GITHUB_TEAMS_CLIENT_ID || '',
+    githubTeamsClientSecret: process.env.GITHUB_TEAMS_CLIENT_SECRET || '',
   },
 });

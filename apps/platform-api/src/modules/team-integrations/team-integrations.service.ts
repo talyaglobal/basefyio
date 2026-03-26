@@ -64,15 +64,15 @@ export class TeamIntegrationsService {
   // ── GitHub ────────────────────────────────────────────────────
 
   getGitHubOAuthConfigured(): boolean {
-    const clientId = this.config.get<string>('teamOAuth.githubClientId');
+    const clientId = this.config.get<string>('oauth.githubTeamsClientId');
     return !!clientId;
   }
 
   async getGitHubConnectUrl(teamId: string): Promise<string> {
-    const clientId = this.config.get<string>('teamOAuth.githubClientId');
+    const clientId = this.config.get<string>('oauth.githubTeamsClientId');
     if (!clientId) {
       throw new BadRequestException(
-        'GitHub OAuth is not configured. Set TEAM_GITHUB_CLIENT_ID and TEAM_GITHUB_CLIENT_SECRET.',
+        'GitHub OAuth is not configured. Set GITHUB_TEAMS_CLIENT_ID and GITHUB_TEAMS_CLIENT_SECRET.',
       );
     }
     await this.getTeamOrThrow(teamId);
@@ -100,8 +100,8 @@ export class TeamIntegrationsService {
       return `${fallbackUrl}?github_error=invalid_state`;
     }
 
-    const clientId = this.config.get<string>('teamOAuth.githubClientId');
-    const clientSecret = this.config.get<string>('teamOAuth.githubClientSecret');
+    const clientId = this.config.get<string>('oauth.githubTeamsClientId');
+    const clientSecret = this.config.get<string>('oauth.githubTeamsClientSecret');
 
     try {
       // Exchange code for access token
@@ -144,7 +144,10 @@ export class TeamIntegrationsService {
       const target = returnUrl || fallbackUrl;
       return `${target}?github_connected=1`;
     } catch (err: any) {
-      this.logger.error('GitHub OAuth callback error', err?.message);
+      const detail = err?.response?.data
+        ? JSON.stringify(err.response.data)
+        : err?.message;
+      this.logger.error(`GitHub OAuth callback error: ${detail}`);
       const target = returnUrl || fallbackUrl;
       return `${target}?github_error=oauth_failed`;
     }
@@ -231,102 +234,59 @@ export class TeamIntegrationsService {
 
   // ── Vercel ────────────────────────────────────────────────────
 
-  getVercelOAuthConfigured(): boolean {
-    const clientId = this.config.get<string>('teamOAuth.vercelClientId');
-    return !!clientId;
-  }
-
-  async getVercelConnectUrl(teamId: string): Promise<string> {
-    const clientId = this.config.get<string>('teamOAuth.vercelClientId');
-    if (!clientId) {
-      throw new BadRequestException(
-        'Vercel OAuth is not configured. Set TEAM_VERCEL_CLIENT_ID and TEAM_VERCEL_CLIENT_SECRET.',
-      );
-    }
+  async connectVercelWithToken(teamId: string, token: string): Promise<{ connected: boolean; user: string }> {
     await this.getTeamOrThrow(teamId);
 
-    const state = this.encodeState({
-      teamId,
-      returnUrl: `${this.appUrl}/dashboard/team`,
-    });
-    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: callbackUrl,
-      state,
-    });
-    return `https://vercel.com/oauth/authorize?${params}`;
-  }
-
-  async handleVercelCallback(code: string, state: string): Promise<string> {
-    const { teamId, returnUrl } = this.decodeState(state);
-    const fallbackUrl = `${this.appUrl}/dashboard/team`;
-
-    if (!teamId) {
-      this.logger.error('Vercel callback: missing teamId in state');
-      return `${fallbackUrl}?vercel_error=invalid_state`;
-    }
-
-    const clientId = this.config.get<string>('teamOAuth.vercelClientId');
-    const clientSecret = this.config.get<string>('teamOAuth.vercelClientSecret');
-    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
-
+    // Validate token by fetching user info
+    let username = 'unknown';
+    let vercelTeamId: string | null = null;
     try {
-      const tokenRes = await firstValueFrom(
-        this.http.post(
-          'https://api.vercel.com/v2/oauth/access_token',
-          new URLSearchParams({
-            client_id: clientId!,
-            client_secret: clientSecret!,
-            code,
-            redirect_uri: callbackUrl,
-          }).toString(),
-          {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 15000,
-          },
-        ),
+      const userRes = await firstValueFrom(
+        this.http.get('https://api.vercel.com/v2/user', {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 10000,
+        }),
       );
-
-      const accessToken: string = tokenRes.data.access_token;
-      const teamIdFromVercel: string | undefined = tokenRes.data.team_id;
-
-      if (!accessToken) {
-        const target = returnUrl || fallbackUrl;
-        return `${target}?vercel_error=no_token`;
-      }
-
-      // Fetch user info
-      let username = 'unknown';
-      try {
-        const userRes = await firstValueFrom(
-          this.http.get('https://api.vercel.com/v2/user', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            timeout: 10000,
-          }),
-        );
-        username = userRes.data?.user?.username || userRes.data?.user?.name || 'unknown';
-      } catch {
-        // ignore
-      }
-
-      await this.prisma.team.update({
-        where: { id: teamId },
-        data: {
-          vercelOAuthToken: accessToken,
-          vercelOAuthTeamId: teamIdFromVercel || null,
-          vercelOAuthUser: username,
-        },
-      });
-
-      this.logger.log(`Vercel connected for team ${teamId} as ${username}`);
-      const target = returnUrl || fallbackUrl;
-      return `${target}?vercel_connected=1`;
+      username =
+        userRes.data?.user?.username ||
+        userRes.data?.user?.name ||
+        userRes.data?.user?.email ||
+        'unknown';
     } catch (err: any) {
-      this.logger.error('Vercel OAuth callback error', err?.message);
-      const target = returnUrl || fallbackUrl;
-      return `${target}?vercel_error=oauth_failed`;
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        throw new BadRequestException('Invalid Vercel token. Please check your token and try again.');
+      }
+      throw new BadRequestException(`Failed to validate Vercel token: ${err.message}`);
     }
+
+    // Try to detect team ID from token scope
+    try {
+      const teamsRes = await firstValueFrom(
+        this.http.get('https://api.vercel.com/v2/teams', {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 10000,
+        }),
+      );
+      const teams = teamsRes.data?.teams || teamsRes.data?.pagination ? teamsRes.data?.teams : [];
+      if (Array.isArray(teams) && teams.length === 1) {
+        vercelTeamId = teams[0].id;
+      }
+    } catch {
+      // ignore — personal token or no teams
+    }
+
+    await this.prisma.team.update({
+      where: { id: teamId },
+      data: {
+        vercelOAuthToken: token,
+        vercelOAuthTeamId: vercelTeamId,
+        vercelOAuthUser: username,
+      },
+    });
+
+    this.logger.log(`Vercel connected for team ${teamId} as ${username} (token-based)`);
+    return { connected: true, user: username };
   }
 
   async getVercelStatus(teamId: string): Promise<TeamVercelStatus> {
@@ -335,7 +295,7 @@ export class TeamIntegrationsService {
       connected: !!team.vercelOAuthToken,
       user: team.vercelOAuthUser ?? undefined,
       teamId: team.vercelOAuthTeamId ?? undefined,
-      oauthConfigured: this.getVercelOAuthConfigured(),
+      oauthConfigured: true,
     };
   }
 

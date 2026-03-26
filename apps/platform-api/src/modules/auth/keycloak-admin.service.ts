@@ -202,15 +202,15 @@ export class KeycloakAdminService implements OnModuleInit {
       {
         alias: 'google',
         providerId: 'google',
-        envId: 'platformOAuth.googleClientId',
-        envSecret: 'platformOAuth.googleClientSecret',
+        envId: 'oauth.googleClientId',
+        envSecret: 'oauth.googleClientSecret',
         scope: 'openid email profile',
       },
       {
         alias: 'github',
         providerId: 'github',
-        envId: 'platformOAuth.githubClientId',
-        envSecret: 'platformOAuth.githubClientSecret',
+        envId: 'oauth.githubClientId',
+        envSecret: 'oauth.githubClientSecret',
         scope: 'user:email',
       },
     ];
@@ -250,8 +250,8 @@ export class KeycloakAdminService implements OnModuleInit {
 
   getEnabledPlatformProviders(): string[] {
     const result: string[] = [];
-    if (this.config.get<string>('platformOAuth.googleClientId')) result.push('google');
-    if (this.config.get<string>('platformOAuth.githubClientId')) result.push('github');
+    if (this.config.get<string>('oauth.googleClientId')) result.push('google');
+    if (this.config.get<string>('oauth.githubClientId')) result.push('github');
     return result;
   }
 
