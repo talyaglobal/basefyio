@@ -110,13 +110,21 @@ export class ProjectsService {
       await this.assertTeamMember(project.teamId, userId);
     }
 
+    const { githubToken, vercelToken, ...safe } = project;
+
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
 
     return {
-      ...project,
+      ...safe,
       dbHost: externalHost,
       dbPort: externalPort,
+      github: project.githubOwner && project.githubRepo
+        ? { connected: true, owner: project.githubOwner, repo: project.githubRepo, branch: project.githubBranch || 'main', repoUrl: `https://github.com/${project.githubOwner}/${project.githubRepo}` }
+        : { connected: false },
+      vercel: project.vercelProjectId
+        ? { connected: true, projectId: project.vercelProjectId }
+        : { connected: false },
     };
   }
 
@@ -139,18 +147,43 @@ export class ProjectsService {
     await this.dropDatabase(project.dbName);
     await this.dropDatabaseUser(project.dbUser);
 
+    const deletedName = await this.uniqueDeletedName(project.name);
+    const deletedSlug = await this.uniqueDeletedSlug(project.slug);
+
     await this.prisma.project.update({
       where: { id },
-      data: { status: 'DELETED' },
+      data: { status: 'DELETED', name: deletedName, slug: deletedSlug },
     });
 
-    this.logger.log(`Project "${project.name}" deleted`);
+    this.logger.log(`Project "${project.name}" deleted (renamed to "${deletedName}")`);
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
 
     return { message: 'Project deleted' };
+  }
+
+  async forceDelete(id: string) {
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) return;
+
+    try {
+      await this.keycloak.deleteRealm(project.keycloakRealm);
+    } catch (err) {
+      this.logger.warn(`Failed to delete Keycloak realm: ${err}`);
+    }
+
+    await this.dropDatabase(project.dbName).catch(() => {});
+    await this.dropDatabaseUser(project.dbUser).catch(() => {});
+
+    await this.prisma.project.delete({ where: { id } });
+
+    this.logger.log(`Project "${project.name}" force-deleted (cancelled import)`);
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
   }
 
   private async assertTeamMember(teamId: string, userId: string) {
@@ -285,5 +318,43 @@ export class ProjectsService {
       if (!found) return candidate;
     }
     return `${base}_${Date.now()}`;
+  }
+
+  private async uniqueDeletedName(baseName: string): Promise<string> {
+    const candidate = `${baseName}_deleted`;
+    const existing = await this.prisma.project.findFirst({
+      where: { name: candidate },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+
+    for (let i = 2; i <= 100; i++) {
+      const numbered = `${baseName}_${i}_deleted`;
+      const found = await this.prisma.project.findFirst({
+        where: { name: numbered },
+        select: { id: true },
+      });
+      if (!found) return numbered;
+    }
+    return `${baseName}_${Date.now()}_deleted`;
+  }
+
+  private async uniqueDeletedSlug(baseSlug: string): Promise<string> {
+    const candidate = `${baseSlug}_deleted`;
+    const existing = await this.prisma.project.findFirst({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+
+    for (let i = 2; i <= 100; i++) {
+      const numbered = `${baseSlug}_${i}_deleted`;
+      const found = await this.prisma.project.findFirst({
+        where: { slug: numbered },
+        select: { id: true },
+      });
+      if (!found) return numbered;
+    }
+    return `${baseSlug}_${Date.now()}_deleted`;
   }
 }

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -54,6 +55,30 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.keycloak.createUser(project.keycloakRealm, body);
+  }
+
+  @Patch('users/:userId')
+  async updateUser(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Body() body: { firstName?: string; lastName?: string; email?: string; enabled?: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    await this.keycloak.updateRealmUser(project.keycloakRealm, userId, body);
+    return { message: 'User updated' };
+  }
+
+  @Post('users/:userId/reset-password')
+  async resetUserPassword(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Body() body: { newPassword: string },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    await this.keycloak.resetRealmUserPassword(project.keycloakRealm, userId, body.newPassword);
+    return { message: 'Password reset successfully' };
   }
 
   @Delete('users/:userId')

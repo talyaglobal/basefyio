@@ -63,6 +63,14 @@ export class ProjectsController {
     );
   }
 
+  @Post('import-supabase/jobs/:jobId/cancel')
+  async cancelImport(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.supabaseImport.cancelImport(jobId, user.sub);
+  }
+
   @Get('import-supabase/jobs/:jobId/status')
   async getJobStatus(@Param('jobId') jobId: string) {
     const status = await this.supabaseImport.getJobStatus(jobId);

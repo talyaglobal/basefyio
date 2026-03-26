@@ -25,12 +25,18 @@ enum TeamMemberRole {
 }
 
 model User {
-  id            String   @id
-  username      String   @unique
-  email         String   @unique
-  role          UserRole @default(USER)
-  activeTeamId  String?  @map("active_team_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id              String   @id
+  username        String   @unique
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  email           String   @unique
+  role            UserRole @default(USER)
+  activeTeamId    String?  @map("active_team_id")
+  avatarUrl       String?  @map("avatar_url")
+  githubUsername  String?  @map("github_username")
+  notifySignIn    Boolean  @default(true) @map("notify_sign_in")
+  notifyTeamInvite Boolean @default(true) @map("notify_team_invite")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   activeTeam      Team?        @relation("ActiveTeam", fields: [activeTeamId], references: [id])
   personalTeam    Team?        @relation("PersonalTeam")
@@ -47,6 +53,16 @@ model Team {
   slug              String   @unique
   personalForUserId String?  @unique @map("personal_for_user_id")
   createdAt         DateTime @default(now()) @map("created_at")
+
+  // GitHub OAuth (team-level)
+  githubOAuthToken  String?  @map("github_oauth_token")
+  githubOAuthLogin  String?  @map("github_oauth_login")
+  githubOAuthAvatar String?  @map("github_oauth_avatar")
+
+  // Vercel OAuth (team-level)
+  vercelOAuthToken  String?  @map("vercel_oauth_token")
+  vercelOAuthTeamId String?  @map("vercel_oauth_team_id")
+  vercelOAuthUser   String?  @map("vercel_oauth_user")
 
   personalForUser   User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
   activeForUsers    User[]       @relation("ActiveTeam")
@@ -113,7 +129,18 @@ model Project {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  team         Team              @relation(fields: [teamId], references: [id])
+  // GitHub Integration
+  githubToken   String? @map("github_token")
+  githubOwner   String? @map("github_owner")
+  githubRepo    String? @map("github_repo")
+  githubBranch  String? @default("main") @map("github_branch")
+
+  // Vercel Integration
+  vercelToken     String? @map("vercel_token")
+  vercelProjectId String? @map("vercel_project_id")
+  vercelTeamId    String? @map("vercel_team_id")
+
+  team         Team          @relation(fields: [teamId], references: [id])
   sqlAuditLogs SqlAuditLog[]
   authConfig   ProjectAuthConfig?
 
@@ -193,6 +220,20 @@ enum FeedbackStatus {
   IN_PROGRESS
   DONE
   CLOSED
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  realm     String?
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([token])
+  @@map("password_reset_tokens")
 }
 
 model Feedback {

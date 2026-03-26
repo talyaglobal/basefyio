@@ -79,7 +79,6 @@ export class KeycloakAdminService implements OnModuleInit {
       const existing = flows.find((f: any) => f.alias === alias);
 
       if (existing) {
-        // Flow exists — check if it already has the correct executions
         const { data: executions } = await axios.get(
           `${authBase}/flows/${alias}/executions`, { headers },
         );
@@ -87,19 +86,17 @@ export class KeycloakAdminService implements OnModuleInit {
         const hasAutoLink = executions.some((e: any) => e.providerId === 'idp-auto-link');
 
         if (hasCreateUnique && hasAutoLink) {
-          this.logger.log(`Flow "${alias}" already correct: ${executions.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`);
+          this.logger.log(`Flow "${alias}" already correct`);
           return alias;
         }
 
-        // Flow exists but executions are wrong — delete all existing executions
-        this.logger.log(`Flow "${alias}" has wrong executions (${executions.length}), fixing...`);
+        this.logger.log(`Flow "${alias}" has wrong executions, fixing...`);
         for (const exec of executions) {
           try {
             await axios.delete(`${authBase}/executions/${exec.id}`, { headers });
           } catch { /* ignore */ }
         }
       } else {
-        // Flow doesn't exist — create it
         this.logger.log(`Creating "${alias}" flow...`);
         await axios.post(`${authBase}/flows`, {
           alias,
@@ -110,18 +107,14 @@ export class KeycloakAdminService implements OnModuleInit {
         }, { headers });
       }
 
-      // Add the two required executions
-      this.logger.log('Adding idp-create-user-if-unique execution...');
       await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
         provider: 'idp-create-user-if-unique',
       }, { headers });
 
-      this.logger.log('Adding idp-auto-link execution...');
       await axios.post(`${authBase}/flows/${alias}/executions/execution`, {
         provider: 'idp-auto-link',
       }, { headers });
 
-      // Set both to ALTERNATIVE
       const { data: executions } = await axios.get(
         `${authBase}/flows/${alias}/executions`, { headers },
       );
@@ -132,7 +125,6 @@ export class KeycloakAdminService implements OnModuleInit {
         }, { headers });
       }
 
-      // Verify
       const { data: finalExecs } = await axios.get(`${authBase}/flows/${alias}/executions`, { headers });
       this.logger.log(
         `Flow "${alias}" final: ${finalExecs.map((e: any) => `${e.providerId}=${e.requirement}`).join(', ')}`,
@@ -210,15 +202,15 @@ export class KeycloakAdminService implements OnModuleInit {
       {
         alias: 'google',
         providerId: 'google',
-        envId: 'platformOAuth.googleClientId',
-        envSecret: 'platformOAuth.googleClientSecret',
+        envId: 'oauth.googleClientId',
+        envSecret: 'oauth.googleClientSecret',
         scope: 'openid email profile',
       },
       {
         alias: 'github',
         providerId: 'github',
-        envId: 'platformOAuth.githubClientId',
-        envSecret: 'platformOAuth.githubClientSecret',
+        envId: 'oauth.githubClientId',
+        envSecret: 'oauth.githubClientSecret',
         scope: 'user:email',
       },
     ];
@@ -234,28 +226,18 @@ export class KeycloakAdminService implements OnModuleInit {
         enabled: true,
         trustEmail: true,
         firstBrokerLoginFlowAlias: flowAlias,
-        config: {
-          clientId,
-          clientSecret,
-          defaultScope: p.scope,
-        },
+        config: { clientId, clientSecret, defaultScope: p.scope },
       };
 
       try {
         const existing = await axios.get(`${idpBase}/${p.alias}`, { headers }).catch(() => null);
-
         if (existing?.data) {
           await axios.put(`${idpBase}/${p.alias}`, idpBody, { headers });
-          this.logger.log(`Platform ${p.alias} IdP updated (flow: ${flowAlias})`);
+          this.logger.log(`Platform ${p.alias} IdP updated`);
         } else {
           await axios.post(idpBase, idpBody, { headers });
-          this.logger.log(`Platform ${p.alias} IdP created (flow: ${flowAlias})`);
+          this.logger.log(`Platform ${p.alias} IdP created`);
         }
-
-        const verify = await axios.get(`${idpBase}/${p.alias}`, { headers });
-        this.logger.log(
-          `Platform ${p.alias} IdP verified — firstBrokerLoginFlowAlias: ${verify.data.firstBrokerLoginFlowAlias}`,
-        );
       } catch (err: any) {
         this.logger.error(`Could not configure platform ${p.alias} IdP: ${err.response?.data?.errorMessage || err.message}`);
       }
@@ -268,8 +250,8 @@ export class KeycloakAdminService implements OnModuleInit {
 
   getEnabledPlatformProviders(): string[] {
     const result: string[] = [];
-    if (this.config.get<string>('platformOAuth.googleClientId')) result.push('google');
-    if (this.config.get<string>('platformOAuth.githubClientId')) result.push('github');
+    if (this.config.get<string>('oauth.googleClientId')) result.push('google');
+    if (this.config.get<string>('oauth.githubClientId')) result.push('github');
     return result;
   }
 
@@ -282,21 +264,19 @@ export class KeycloakAdminService implements OnModuleInit {
     });
   }
 
-  /** Re-authenticate before each admin operation to prevent token expiry. */
   private async ensureAuth() {
     try {
       await this.authenticate();
     } catch (err) {
       this.logger.error('Failed to re-authenticate with Keycloak', err);
-      throw new InternalServerErrorException(
-        'Keycloak authentication failed',
-      );
+      throw new InternalServerErrorException('Keycloak authentication failed');
     }
   }
 
+  // ── Realm operations ──
+
   async createRealm(realmName: string): Promise<void> {
     await this.ensureAuth();
-
     await this.client.realms.create({
       realm: realmName,
       enabled: true,
@@ -306,7 +286,6 @@ export class KeycloakAdminService implements OnModuleInit {
       accessTokenLifespan: 1800,
       ssoSessionIdleTimeout: 86400,
     });
-
     this.logger.log(`Realm "${realmName}" created`);
   }
 
@@ -326,7 +305,6 @@ export class KeycloakAdminService implements OnModuleInit {
     });
 
     const serviceSecret = uuid();
-
     await this.client.clients.create({
       realm: realmName,
       clientId: serviceClientId,
@@ -341,7 +319,6 @@ export class KeycloakAdminService implements OnModuleInit {
 
     const anonKey = `kb_anon_${randomBytes(32).toString('base64url')}`;
     const serviceKey = `kb_service_${randomBytes(32).toString('base64url')}`;
-
     return { anonKey, serviceKey };
   }
 
@@ -350,6 +327,24 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.client.realms.del({ realm: realmName });
     this.logger.log(`Realm "${realmName}" deleted`);
   }
+
+  async getRealmInfo(realmName: string) {
+    await this.ensureAuth();
+    const realm = await this.client.realms.findOne({ realm: realmName });
+    const users = await this.client.users.count({ realm: realmName });
+    const clients = await this.client.clients.find({ realm: realmName });
+
+    return {
+      name: realm?.realm,
+      enabled: realm?.enabled,
+      userCount: users,
+      clientCount: clients.length,
+      registrationAllowed: realm?.registrationAllowed,
+      loginWithEmailAllowed: realm?.loginWithEmailAllowed,
+    };
+  }
+
+  // ── Realm user operations ──
 
   async listUsers(realmName: string) {
     await this.ensureAuth();
@@ -367,11 +362,10 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createUser(
     realmName: string,
-    data: { email: string; password: string; firstName?: string; lastName?: string },
+    data: { username?: string; email: string; password: string; firstName?: string; lastName?: string },
   ) {
     await this.ensureAuth();
-
-    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+    const username = data.username || this.generateUsername(data.firstName, data.lastName, data.email);
 
     await this.client.users.create({
       realm: realmName,
@@ -390,12 +384,123 @@ export class KeycloakAdminService implements OnModuleInit {
     return { message: `User created in realm` };
   }
 
+  async createProjectUser(
+    realmName: string,
+    data: { email: string; password: string; firstName?: string; lastName?: string },
+  ): Promise<string> {
+    await this.ensureAuth();
+    const username = this.generateUsername(data.firstName, data.lastName, data.email);
+
+    const { id } = await this.client.users.create({
+      realm: realmName,
+      username,
+      email: data.email,
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      enabled: true,
+      emailVerified: false,
+      credentials: [
+        { type: 'password', value: data.password, temporary: false },
+      ],
+    });
+
+    this.logger.log(`Project user "${username}" created in realm "${realmName}" (${id})`);
+    return id;
+  }
+
   async deleteUser(realmName: string, userId: string) {
     await this.ensureAuth();
     await this.client.users.del({ realm: realmName, id: userId });
     this.logger.log(`User "${userId}" deleted from realm "${realmName}"`);
     return { message: 'User deleted' };
   }
+
+  async getRealmUserById(realmName: string, userId: string) {
+    await this.ensureAuth();
+    const user = await this.client.users.findOne({ realm: realmName, id: userId });
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      emailVerified: user.emailVerified,
+      enabled: user.enabled,
+      createdTimestamp: user.createdTimestamp,
+    };
+  }
+
+  async findUserInRealm(realmName: string, email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({ realm: realmName, email, exact: true });
+    return users[0] || null;
+  }
+
+  async findUserByEmailInRealm(realm: string, email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({ realm, email, exact: true });
+    return users[0] || null;
+  }
+
+  async setEmailVerified(realmName: string, userId: string) {
+    await this.ensureAuth();
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { emailVerified: true },
+    );
+    this.logger.log(`Email verified for user ${userId} in realm "${realmName}"`);
+  }
+
+  async resetRealmUserPassword(realmName: string, userId: string, newPassword: string) {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm: realmName,
+      id: userId,
+      credential: { type: 'password', value: newPassword, temporary: false },
+    });
+    this.logger.log(`Password reset for user ${userId} in realm "${realmName}"`);
+  }
+
+  async resetUserPasswordInRealm(
+    realm: string,
+    keycloakUserId: string,
+    newPassword: string,
+  ): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.resetPassword({
+      realm,
+      id: keycloakUserId,
+      credential: { type: 'password', value: newPassword, temporary: false },
+    });
+    this.logger.log(`Password reset for user ${keycloakUserId} in realm "${realm}"`);
+  }
+
+  async updateRealmUser(
+    realmName: string,
+    userId: string,
+    data: { firstName?: string; lastName?: string; email?: string; enabled?: boolean },
+  ) {
+    await this.ensureAuth();
+    const update: Record<string, any> = {};
+    if (data.firstName !== undefined) update.firstName = data.firstName;
+    if (data.lastName !== undefined) update.lastName = data.lastName;
+    if (data.email !== undefined) { update.email = data.email; update.emailVerified = true; }
+    if (data.enabled !== undefined) update.enabled = data.enabled;
+    await this.client.users.update({ realm: realmName, id: userId }, update);
+    this.logger.log(`User ${userId} updated in realm "${realmName}"`);
+  }
+
+  async updateRealmUserEmail(realmName: string, userId: string, newEmail: string) {
+    await this.ensureAuth();
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { email: newEmail, emailVerified: true },
+    );
+    this.logger.log(`Email changed for user ${userId} in realm "${realmName}" to "${newEmail}"`);
+  }
+
+  // ── Platform user operations ──
 
   async createPlatformUser(data: {
     username: string;
@@ -425,112 +530,27 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async findPlatformUserByUsername(username: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({
-      realm: 'master',
-      username,
-      exact: true,
-    });
+    const users = await this.client.users.find({ realm: 'master', username, exact: true });
     return users[0] || null;
-  }
-
-  async resetPlatformUserPassword(userId: string, newPassword: string) {
-    await this.ensureAuth();
-    await this.client.users.resetPassword({
-      realm: 'master',
-      id: userId,
-      credential: { type: 'password', value: newPassword, temporary: false },
-    });
-    this.logger.log(`Password reset for platform user ${userId}`);
   }
 
   async findPlatformUserByEmail(email: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({
-      realm: 'master',
-      email,
-      exact: true,
-    });
+    const users = await this.client.users.find({ realm: 'master', email, exact: true });
     return users[0] || null;
   }
 
-  async createProjectUser(
-    realmName: string,
-    data: { email: string; password: string; firstName?: string; lastName?: string },
-  ): Promise<string> {
-    await this.ensureAuth();
-
-    const username = this.generateUsername(data.firstName, data.lastName, data.email);
-
-    const { id } = await this.client.users.create({
-      realm: realmName,
-      username,
-      email: data.email,
-      firstName: data.firstName || '',
-      lastName: data.lastName || '',
-      enabled: true,
-      emailVerified: false,
-      credentials: [
-        { type: 'password', value: data.password, temporary: false },
-      ],
-    });
-
-    this.logger.log(`Project user "${username}" created in realm "${realmName}" (${id})`);
-    return id;
-  }
-
-  async findUserInRealm(realmName: string, email: string) {
-    await this.ensureAuth();
-    const users = await this.client.users.find({
-      realm: realmName,
-      email,
-      exact: true,
-    });
-    return users[0] || null;
-  }
-
-  async setEmailVerified(realmName: string, userId: string) {
-    await this.ensureAuth();
-    await this.client.users.update(
-      { realm: realmName, id: userId },
-      { emailVerified: true },
-    );
-    this.logger.log(`Email verified for user ${userId} in realm "${realmName}"`);
-  }
-
-  async resetRealmUserPassword(realmName: string, userId: string, newPassword: string) {
+  async resetPlatformUserPassword(keycloakUserId: string, newPassword: string): Promise<void> {
     await this.ensureAuth();
     await this.client.users.resetPassword({
-      realm: realmName,
-      id: userId,
+      realm: 'master',
+      id: keycloakUserId,
       credential: { type: 'password', value: newPassword, temporary: false },
     });
-    this.logger.log(`Password reset for user ${userId} in realm "${realmName}"`);
+    this.logger.log(`Password reset for platform user ${keycloakUserId}`);
   }
 
-  async updateRealmUserEmail(realmName: string, userId: string, newEmail: string) {
-    await this.ensureAuth();
-    await this.client.users.update(
-      { realm: realmName, id: userId },
-      { email: newEmail, emailVerified: true },
-    );
-    this.logger.log(`Email changed for user ${userId} in realm "${realmName}" to "${newEmail}"`);
-  }
-
-  async getRealmUserById(realmName: string, userId: string) {
-    await this.ensureAuth();
-    const user = await this.client.users.findOne({ realm: realmName, id: userId });
-    if (!user) return null;
-    return {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      emailVerified: user.emailVerified,
-      enabled: user.enabled,
-      createdTimestamp: user.createdTimestamp,
-    };
-  }
+  // ── Identity provider operations ──
 
   async upsertIdentityProvider(
     realmName: string,
@@ -564,13 +584,12 @@ export class KeycloakAdminService implements OnModuleInit {
     };
 
     const existing = await axios.get(`${idpBase}/${alias}`, { headers }).catch(() => null);
-
     if (existing?.data) {
       await axios.put(`${idpBase}/${alias}`, idpBody, { headers });
-      this.logger.log(`Updated ${provider} IdP in realm "${realmName}" (flow: ${flowAlias})`);
+      this.logger.log(`Updated ${provider} IdP in realm "${realmName}"`);
     } else {
       await axios.post(idpBase, idpBody, { headers });
-      this.logger.log(`Created ${provider} IdP in realm "${realmName}" (flow: ${flowAlias})`);
+      this.logger.log(`Created ${provider} IdP in realm "${realmName}"`);
     }
   }
 
@@ -587,26 +606,10 @@ export class KeycloakAdminService implements OnModuleInit {
   async listIdentityProviders(realmName: string) {
     await this.ensureAuth();
     const providers = await this.client.identityProviders.find({ realm: realmName });
-    return providers.map((p) => ({
+    return providers.map((p: any) => ({
       alias: p.alias,
       providerId: p.providerId,
       enabled: p.enabled,
     }));
-  }
-
-  async getRealmInfo(realmName: string) {
-    await this.ensureAuth();
-    const realm = await this.client.realms.findOne({ realm: realmName });
-    const users = await this.client.users.count({ realm: realmName });
-    const clients = await this.client.clients.find({ realm: realmName });
-
-    return {
-      name: realm?.realm,
-      enabled: realm?.enabled,
-      userCount: users,
-      clientCount: clients.length,
-      registrationAllowed: realm?.registrationAllowed,
-      loginWithEmailAllowed: realm?.loginWithEmailAllowed,
-    };
   }
 }

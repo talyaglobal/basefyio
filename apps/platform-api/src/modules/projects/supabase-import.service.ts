@@ -14,13 +14,12 @@ import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { IMPORT_QUEUE, EMAIL_QUEUE } from '../queue/queue.module';
+import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
-import type { EmailJobData } from '../queue/email.processor';
 
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: { users: number; skipped: number; emailsSent: number };
+  auth: { users: number; skipped: number };
   storage: { buckets: number; objects: number };
   warnings: string[];
 }
@@ -65,6 +64,7 @@ interface SupabaseStorageObject {
 @Injectable()
 export class SupabaseImportService {
   private readonly logger = new Logger(SupabaseImportService.name);
+  private readonly cancelledJobs = new Set<string>();
 
   constructor(
     private readonly http: HttpService,
@@ -74,8 +74,16 @@ export class SupabaseImportService {
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
-    @InjectQueue(EMAIL_QUEUE) private readonly emailQueue: Queue,
   ) {}
+
+  isJobCancelled(jobId: string): boolean {
+    return this.cancelledJobs.has(jobId);
+  }
+
+  private markJobCancelled(jobId: string) {
+    this.cancelledJobs.add(jobId);
+    setTimeout(() => this.cancelledJobs.delete(jobId), 5 * 60 * 1000);
+  }
 
   /**
    * Enqueue a Supabase import job. Returns immediately with jobId + project.
@@ -137,6 +145,48 @@ export class SupabaseImportService {
     baseUrl: string,
     headers: Record<string, string>,
   ): Promise<string> {
+    // Try fetching project name from Supabase auth settings
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get(`${baseUrl}/auth/v1/settings`, {
+          headers: { ...headers, Accept: 'application/json' },
+          timeout: 10000,
+        }),
+      );
+      // Some Supabase projects expose site_url or external_url with the project name
+      const siteUrl: string = data?.SITE_URL || data?.site_url || '';
+      if (siteUrl) {
+        const host = new URL(siteUrl).hostname;
+        if (host && host !== 'localhost' && !host.includes('supabase')) {
+          return host.split('.')[0];
+        }
+      }
+    } catch {
+      // auth/v1/settings may not be accessible
+    }
+
+    // Try decoding the service role JWT to extract the 'ref' field
+    try {
+      const token = headers['Authorization']?.replace('Bearer ', '') || headers['apikey'];
+      if (token) {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        if (payload.ref) {
+          return payload.ref;
+        }
+        // iss is like https://ref.supabase.co/auth/v1
+        if (payload.iss) {
+          const issHost = new URL(payload.iss).hostname;
+          const ref = issHost.split('.')[0];
+          if (ref && ref.length < 30) {
+            return ref;
+          }
+        }
+      }
+    } catch {
+      // JWT decode failed
+    }
+
+    // Fallback: extract ref from URL hostname
     try {
       const ref = new URL(baseUrl).hostname.split('.')[0];
       return ref || 'imported-project';
@@ -156,9 +206,15 @@ export class SupabaseImportService {
     };
 
     await this.validateConnection(baseUrl, headers);
-    const projectName = await this.fetchProjectName(baseUrl, headers);
     const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
     const tables = this.extractTablesFromOpenApi(openApi);
+
+    const genericTitles = ['standard public schema', 'postgrest api', 'public', 'postgres'];
+    const openApiTitle = openApi?.info?.title?.trim();
+    const isGenericTitle = !openApiTitle || genericTitles.includes(openApiTitle.toLowerCase());
+    const projectName = isGenericTitle
+      ? await this.fetchProjectName(baseUrl, headers)
+      : openApiTitle;
 
     return {
       valid: true,
@@ -179,6 +235,38 @@ export class SupabaseImportService {
       result: state === 'completed' ? job.returnvalue : undefined,
       failedReason: state === 'failed' ? job.failedReason : undefined,
     };
+  }
+
+  async cancelImport(jobId: string, userId: string) {
+    const job = await this.importQueue.getJob(String(jobId));
+    if (!job) throw new Error('Job not found');
+
+    const projectId = (job.data as ImportJobData).projectId;
+
+    this.markJobCancelled(String(jobId));
+    this.logger.log(`Marked job ${jobId} as cancelled, waiting for processor to stop...`);
+
+    const state = await job.getState();
+    if (state === 'waiting' || state === 'delayed') {
+      await job.remove();
+    } else if (state === 'active') {
+      // Give the processor up to 3s to notice the cancellation flag and exit
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        await job.moveToFailed(new Error('Cancelled by user'), job.token || '0', true);
+      } catch {
+        // Job may have already finished or been moved
+      }
+    }
+
+    try {
+      await this.projectsService.forceDelete(projectId);
+      this.logger.log(`Cancelled import job ${jobId}, project ${projectId} deleted`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to clean up project ${projectId}: ${err.message}`);
+    }
+
+    return { message: 'Import cancelled' };
   }
 
   // ── Public methods called by ImportProcessor ─────────────
@@ -543,61 +631,63 @@ export class SupabaseImportService {
       if (!Array.isArray(rows) || rows.length === 0) break;
       consecutiveErrors = 0;
 
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-
-        for (const row of rows) {
-          const allKeys = columnNames.filter((k) =>
-            Object.prototype.hasOwnProperty.call(row, k),
-          );
-          if (!allKeys.length) {
-            const rowKeys = Object.keys(row);
-            if (!rowKeys.length) continue;
-            await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
-          } else {
-            await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
-          }
-          totalRows++;
-        }
-
-        await client.query('COMMIT');
-      } catch (err: any) {
-        await client.query('ROLLBACK').catch(() => {});
-
-        this.logger.warn(
-          `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
-        );
-
-        const retryClient = await pool.connect();
+        const client = await pool.connect();
+        let batchSucceeded = false;
         try {
-          let savedRows = 0;
+          await client.query('BEGIN');
+
           for (const row of rows) {
-            try {
+            const allKeys = columnNames.filter((k) =>
+              Object.prototype.hasOwnProperty.call(row, k),
+            );
+            if (!allKeys.length) {
               const rowKeys = Object.keys(row);
               if (!rowKeys.length) continue;
-              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
-              savedRows++;
-            } catch (rowErr: any) {
-              this.logger.warn(
-                `Row insert failed in "${sanitized}": ${rowErr.message}`,
-              );
+              await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
+            } else {
+              await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
             }
           }
-          totalRows += savedRows;
-        } finally {
-          retryClient.release();
-        }
 
-        client.release();
-        if (rows.length < pageSize) break;
-        offset += pageSize;
-        continue;
-      } finally {
-        try {
+          await client.query('COMMIT');
+          batchSucceeded = true;
+          totalRows += rows.length;
+        } catch (err: any) {
+          await client.query('ROLLBACK').catch(() => {});
+
+          this.logger.warn(
+            `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
+          );
+
+          const retryClient = await pool.connect();
+          try {
+            let savedRows = 0;
+            for (const row of rows) {
+              try {
+                const rowKeys = Object.keys(row);
+                if (!rowKeys.length) continue;
+                await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
+                savedRows++;
+              } catch (rowErr: any) {
+                this.logger.warn(
+                  `Row insert failed in "${sanitized}": ${rowErr.message}`,
+                );
+              }
+            }
+            totalRows += savedRows;
+          } finally {
+            retryClient.release();
+          }
+
+          if (rows.length < pageSize) { client.release(); break; }
+          offset += pageSize;
           client.release();
-        } catch {}
-      }
+          continue;
+        } finally {
+          if (batchSucceeded) {
+            try { client.release(); } catch {}
+          }
+        }
 
       if (rows.length < pageSize) break;
       offset += pageSize;
@@ -661,7 +751,7 @@ export class SupabaseImportService {
     });
 
     await client.query(
-      `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders})`,
+      `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
       values,
     );
   }
@@ -750,21 +840,6 @@ export class SupabaseImportService {
         });
 
         progress.auth.users++;
-
-        // Enqueue credential email
-        const emailJob: EmailJobData = {
-          type: 'imported-user-credentials',
-          to: email,
-          username,
-          tempPassword,
-          projectName,
-        };
-        await this.emailQueue.add('send-credentials', emailJob, {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: { age: 3600 },
-        });
-        progress.auth.emailsSent++;
       } catch (err: any) {
         if (
           err.response?.status === 409 ||

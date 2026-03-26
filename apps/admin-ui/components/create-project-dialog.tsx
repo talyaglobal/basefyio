@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useImportProgress } from '@/lib/import-progress-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Mail } from 'lucide-react';
+import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Minus } from 'lucide-react';
 import type { ImportProgressData, ImportJobProgressEvent } from '@/lib/types';
 
 interface CreateProjectDialogProps {
@@ -80,14 +81,73 @@ export function CreateProjectDialog({
   const [importPercent, setImportPercent] = useState(0);
   const [importResult, setImportResult] = useState<ImportProgressData | null>(null);
   const [importProjectName, setImportProjectName] = useState('');
-
   const eventSourceRef = useRef<EventSource | null>(null);
+  const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } = useImportProgress();
+  const [cancelling, setCancelling] = useState(false);
+  // Tracks if the dialog was dismissed while the import API call was still in-flight,
+  // so the async continuation knows not to re-set modalShowingImport to true.
+  const dismissedDuringImportRef = useRef(false);
 
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
     };
   }, []);
+
+  // Belt-and-suspenders: whenever the dialog closes with a running import,
+  // ensure the toast becomes visible regardless of how the close happened.
+  useEffect(() => {
+    if (!open && activeImport?.status === 'running') {
+      setModalShowingImport(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Register the reopen callback so the toast can reopen this dialog
+  const activeImportRef = useRef(activeImport);
+  activeImportRef.current = activeImport;
+
+  useEffect(() => {
+    const reopenFn = () => {
+      const current = activeImportRef.current;
+      if (current && current.status === 'running') {
+        setView('importing');
+        setImportProjectName(current.projectName);
+        setImportPercent(current.percent);
+        onOpenChange(true);
+      }
+    };
+
+    setOnReopenModal(reopenFn);
+    return () => setOnReopenModal(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onOpenChange, setOnReopenModal]);
+
+  // Sync import steps from the global context when modal is reopened (no local SSE)
+  useEffect(() => {
+    if (view !== 'importing' || !activeImport) return;
+    if (eventSourceRef.current) return; // local SSE is active, skip
+
+    if (activeImport.status === 'completed' && activeImport.result) {
+      setImportResult(activeImport.result);
+      setView('result');
+      return;
+    }
+
+    if (activeImport.status !== 'running') return;
+
+    setImportPercent(activeImport.percent);
+
+    const stepMap: Record<string, number> = { database: 1, auth: 2, storage: 3 };
+    const currentStepIdx = stepMap[activeImport.step] ?? 0;
+
+    setImportSteps([
+      { key: 'connect', label: 'Connected to Supabase', icon: <Loader2 className="h-4 w-4" />, status: 'done' },
+      { key: 'database', label: 'Importing Database', icon: <Database className="h-4 w-4" />, status: currentStepIdx > 1 ? 'done' : currentStepIdx === 1 ? 'active' : 'pending', detail: currentStepIdx === 1 ? activeImport.detail : undefined },
+      { key: 'auth', label: 'Importing Auth Users', icon: <Shield className="h-4 w-4" />, status: currentStepIdx > 2 ? 'done' : currentStepIdx === 2 ? 'active' : 'pending', detail: currentStepIdx === 2 ? activeImport.detail : undefined },
+      { key: 'storage', label: 'Importing Storage', icon: <HardDrive className="h-4 w-4" />, status: currentStepIdx === 3 ? 'active' : 'pending', detail: currentStepIdx === 3 ? activeImport.detail : undefined },
+    ]);
+  }, [view, activeImport?.step, activeImport?.percent, activeImport?.detail, activeImport?.status]);
 
   function resetState() {
     setView('create');
@@ -105,6 +165,8 @@ export function CreateProjectDialog({
     setImportResult(null);
     setImportProjectName('');
     setLoading(false);
+    setCancelling(false);
+    dismissedDuringImportRef.current = false;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
   }
@@ -133,7 +195,18 @@ export function CreateProjectDialog({
   }
 
   function handleOpenChange(isOpen: boolean) {
-    if (!isOpen) resetState();
+    if (!isOpen) {
+      if (view === 'importing') {
+        dismissedDuringImportRef.current = true;
+        eventSourceRef.current?.close();
+        eventSourceRef.current = null;
+        setModalShowingImport(false);
+        setView('create');
+        onOpenChange(false);
+        return;
+      }
+      resetState();
+    }
     onOpenChange(isOpen);
   }
 
@@ -197,6 +270,7 @@ export function CreateProjectDialog({
 
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
+    dismissedDuringImportRef.current = false;
     setView('importing');
 
     const steps: ImportStep[] = [
@@ -217,7 +291,18 @@ export function CreateProjectDialog({
 
       setImportProjectName(result.project.name);
 
-      // Connect to SSE stream for progress
+      // Always start global tracking so the job is persisted and the context SSE runs.
+      startTracking(result.jobId, result.project.name, onCreated);
+
+      // Only mark the modal as "showing import" if the dialog wasn't dismissed
+      // while the API call was in-flight (race condition guard).
+      if (!dismissedDuringImportRef.current) {
+        setModalShowingImport(true);
+      }
+
+      // Local SSE is only needed while the modal is open.
+      if (dismissedDuringImportRef.current) return;
+
       const es = api.projects.streamImportProgress(result.jobId, {
         onProgress: (data) => {
           updateStepFromSSE(data);
@@ -229,7 +314,7 @@ export function CreateProjectDialog({
             const s = [...prev];
             s[0] = { ...s[0], status: 'done', label: 'Connected to Supabase' };
             s[1] = { ...s[1], status: 'done', detail: `${progress.database.tables} tables, ${progress.database.rows} rows` };
-            s[2] = { ...s[2], status: 'done', detail: `${progress.auth.users} users, ${progress.auth.emailsSent} emails sent` };
+            s[2] = { ...s[2], status: 'done', detail: `${progress.auth.users} users` };
             s[3] = { ...s[3], status: 'done', detail: `${progress.storage.buckets} buckets, ${progress.storage.objects} objects` };
             return s;
           });
@@ -237,6 +322,7 @@ export function CreateProjectDialog({
           setImportResult(progress);
           setView('result');
           toast.success(`Project "${result.project.name}" imported from Supabase`);
+          onCreated();
         },
         onFailed: (error) => {
           setImportSteps((prev) => {
@@ -265,13 +351,14 @@ export function CreateProjectDialog({
   }
 
   function handleResultDone() {
+    setModalShowingImport(false);
     resetState();
     onCreated();
   }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" hideClose={view === 'importing'}>
         {view === 'create' && (
           <>
             <DialogHeader>
@@ -370,6 +457,7 @@ export function CreateProjectDialog({
                   onChange={(e) => {
                     setSupabaseUrl(e.target.value);
                     setValidated(false);
+                    setImportNameManual(false);
                   }}
                   placeholder="https://xyzproject.supabase.co"
                   required
@@ -385,6 +473,7 @@ export function CreateProjectDialog({
                   onChange={(e) => {
                     setServiceRoleKey(e.target.value);
                     setValidated(false);
+                    setImportNameManual(false);
                   }}
                   placeholder="eyJhbGciOiJIUzI1NiIs..."
                   required
@@ -437,19 +526,6 @@ export function CreateProjectDialog({
                 />
               </div>
 
-              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 dark:bg-amber-950/30 dark:border-amber-800">
-                <div className="flex gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                  <div className="text-xs text-amber-700 dark:text-amber-400">
-                    <p className="font-medium">Note</p>
-                    <p className="mt-0.5">
-                      Imported users will receive an email with temporary credentials.
-                      Original passwords cannot be migrated.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               <DialogFooter>
                 <Button
                   type="button"
@@ -473,15 +549,25 @@ export function CreateProjectDialog({
 
         {view === 'importing' && (
           <>
-            <DialogHeader>
+            <DialogHeader className="pr-16">
               <div className="flex items-center gap-2">
                 <SupabaseLogo className="h-5 w-5" />
                 <DialogTitle>Importing from Supabase</DialogTitle>
               </div>
               <DialogDescription>
-                Please wait while your project is being imported...
+                Please wait while your project is being imported.
+                You can minimize this and continue working.
               </DialogDescription>
             </DialogHeader>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleOpenChange(false)}
+              className="absolute top-3 right-4 h-7 w-7 p-0 flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </Button>
 
             <div className="space-y-3 py-4">
               {importSteps.map((step) => (
@@ -525,11 +611,36 @@ export function CreateProjectDialog({
               />
             </div>
 
-            <div className="flex justify-center">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                This may take a few minutes for large projects
+                This may take a few minutes
               </div>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={cancelling}
+                onClick={async () => {
+                  if (!confirm('Cancel import? The project and all imported data will be deleted.')) return;
+                  setCancelling(true);
+                  try {
+                    eventSourceRef.current?.close();
+                    eventSourceRef.current = null;
+                    await cancelImport();
+                    toast.success('Import cancelled');
+                    resetState();
+                    onOpenChange(false);
+                  } catch {
+                    toast.error('Failed to cancel import');
+                  } finally {
+                    setCancelling(false);
+                  }
+                }}
+                className="h-8 text-xs"
+              >
+                {cancelling ? 'Cancelling...' : 'Cancel Import'}
+              </Button>
             </div>
           </>
         )}
@@ -583,10 +694,6 @@ export function CreateProjectDialog({
               <Badge variant="secondary">
                 <Shield className="h-3 w-3 mr-1" />
                 {importResult.auth.users} users
-              </Badge>
-              <Badge variant="secondary">
-                <Mail className="h-3 w-3 mr-1" />
-                {importResult.auth.emailsSent} emails sent
               </Badge>
               <Badge variant="secondary">
                 <HardDrive className="h-3 w-3 mr-1" />

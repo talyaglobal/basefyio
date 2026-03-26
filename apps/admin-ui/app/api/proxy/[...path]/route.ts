@@ -5,11 +5,12 @@ const BACKEND_URL =
 
 async function proxy(
   request: NextRequest,
-  { params }: { params: { path: string[] } },
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
+  const { path } = await params;
   const url = new URL(request.url);
   const query = url.search;
-  const target = `${BACKEND_URL}/api/${params.path.join('/')}${query}`;
+  const target = `${BACKEND_URL}/api/${path.join('/')}${query}`;
 
   const headers = new Headers(request.headers);
   headers.delete('host');

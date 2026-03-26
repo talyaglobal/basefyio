@@ -28,6 +28,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: payload.email,
       preferred_username: payload.preferred_username,
       roles: payload.realm_access?.roles ?? [],
+      given_name: payload.given_name,
+      family_name: payload.family_name,
+      name: payload.name,
     };
   }
 }

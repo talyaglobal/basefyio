@@ -46,7 +46,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
-  const [providers, setProviders] = useState<string[]>([]);
+  const [providers, setProviders] = useState<string[]>(['github']);
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
@@ -78,7 +78,7 @@ function LoginForm() {
     }
 
     api.auth.getOAuthProviders()
-      .then((data) => setProviders(data.providers))
+      .then((data) => { if (data.providers.length > 0) setProviders(data.providers); })
       .catch(() => {});
   }, [router, searchParams]);
 
@@ -184,7 +184,15 @@ function LoginForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href="/forgot-password"
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <PasswordInput
               id="password"
               value={password}
