@@ -192,6 +192,12 @@ export const api = {
         body: JSON.stringify({ teamId }),
       });
     },
+    updateTeam(teamId: string, name: string) {
+      return request<{ id: string; name: string }>(`/teams/${teamId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+    },
     listMembers(teamId: string) {
       return request<TeamMember[]>(`/teams/${teamId}/members`);
     },

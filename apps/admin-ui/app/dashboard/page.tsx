@@ -1,70 +1,399 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import {
+  BarChart,
+  Bar,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+} from 'recharts';
 import { api } from '@/lib/api';
-import type { ProjectListItem } from '@/lib/types';
+import type { ProjectListItem, TeamMember } from '@/lib/types';
 import { useActiveTeam } from './layout';
-import { ProjectList } from '@/components/project-list';
-import { CreateProjectDialog } from '@/components/create-project-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Plus, RefreshCw } from 'lucide-react';
+import { CreateProjectDialog } from '@/components/create-project-dialog';
+import {
+  ArrowRight,
+  Database,
+  FolderOpen,
+  Plus,
+  TrendingUp,
+  Users,
+  Activity,
+  Calendar,
+  CheckCircle2,
+  PauseCircle,
+} from 'lucide-react';
+import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 
+// ── Helpers ──────────────────────────────────────────────────
+function buildMonthlyData(projects: ProjectListItem[], months = 6) {
+  return Array.from({ length: months }, (_, i) => {
+    const d = subMonths(new Date(), months - 1 - i);
+    const start = startOfMonth(d);
+    const end = endOfMonth(d);
+    const count = projects.filter((p) => {
+      const created = parseISO(p.createdAt);
+      return isWithinInterval(created, { start, end });
+    }).length;
+    return { month: format(d, 'MMM'), count };
+  });
+}
+
+function buildStatusData(projects: ProjectListItem[]) {
+  const active = projects.filter((p) => p.status === 'ACTIVE').length;
+  const paused = projects.filter((p) => p.status === 'PAUSED').length;
+  const deleted = projects.filter((p) => p.status === 'DELETED').length;
+  return [
+    { name: 'Active', value: active, color: '#22c55e' },
+    { name: 'Paused', value: paused, color: '#f59e0b' },
+    { name: 'Deleted', value: deleted, color: '#ef4444' },
+  ].filter((d) => d.value > 0);
+}
+
+// ── Stat Card ─────────────────────────────────────────────────
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-5 flex items-start gap-4">
+      <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10'}`}>
+        <Icon className={`h-5 w-5 ${accent ? 'text-white' : 'text-primary'}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <p className="text-2xl font-bold tabular-nums">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const router = useRouter();
   const { activeTeamId } = useActiveTeam();
+
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  async function loadProjects() {
+  useEffect(() => {
     if (!activeTeamId) return;
     setLoading(true);
-    try {
-      const data = await api.projects.list(activeTeamId);
-      setProjects(data);
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadProjects();
+    Promise.all([
+      api.projects.list(activeTeamId),
+      api.teams.listMembers(activeTeamId),
+    ])
+      .then(([p, m]) => {
+        setProjects(p);
+        setMembers(m);
+      })
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
   }, [activeTeamId]);
 
-  function handleCreated() {
-    setDialogOpen(false);
-    loadProjects();
+  // Derived stats
+  const activeCount = projects.filter((p) => p.status === 'ACTIVE').length;
+  const thisMonth = projects.filter((p) => {
+    const start = startOfMonth(new Date());
+    return isWithinInterval(parseISO(p.createdAt), { start, end: new Date() });
+  }).length;
+  const recentProjects = [...projects]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
+
+  const monthlyData = buildMonthlyData(projects, 6);
+  const totalThisMonth = monthlyData[monthlyData.length - 1].count;
+  const totalLastMonth = monthlyData[monthlyData.length - 2].count;
+  const trendUp = totalThisMonth >= totalLastMonth;
+
+  const statusData = buildStatusData(projects);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl border bg-card" />
+          ))}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2 h-64 animate-pulse rounded-xl border bg-card" />
+          <div className="h-64 animate-pulse rounded-xl border bg-card" />
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground">
-            Manage your databases, auth realms, and APIs.
+          <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
+          <p className="text-sm text-muted-foreground">
+            Your team&apos;s activity at a glance.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={loadProjects}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Project
-          </Button>
+        <Button onClick={() => setDialogOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Project
+        </Button>
+      </div>
+
+      {/* Stat Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          icon={Database}
+          label="Total Projects"
+          value={projects.length}
+          sub={`${activeCount} active`}
+          accent="bg-primary"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Active Projects"
+          value={activeCount}
+          sub={projects.length > 0 ? `${Math.round((activeCount / projects.length) * 100)}% of total` : undefined}
+        />
+        <StatCard
+          icon={Users}
+          label="Team Members"
+          value={members.length}
+          sub={`${members.filter((m) => m.role === 'OWNER').length} owner`}
+        />
+        <StatCard
+          icon={Calendar}
+          label="Created This Month"
+          value={thisMonth}
+          sub={trendUp ? '↑ more than last month' : totalLastMonth > 0 ? '↓ less than last month' : 'No projects last month'}
+        />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Monthly Area Chart */}
+        <div className="lg:col-span-2 rounded-xl border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold">Project Creation</h2>
+              <p className="text-xs text-muted-foreground">Last 6 months</p>
+            </div>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="month" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} className="text-muted-foreground" />
+              <Tooltip
+                contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
+                labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                itemStyle={{ color: 'hsl(var(--primary))' }}
+              />
+              <Area
+                type="monotone"
+                dataKey="count"
+                name="Projects"
+                stroke="hsl(var(--primary))"
+                strokeWidth={2}
+                fill="url(#areaGrad)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Status Bar Chart */}
+        <div className="rounded-xl border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold">By Status</h2>
+              <p className="text-xs text-muted-foreground">Current distribution</p>
+            </div>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </div>
+          {statusData.length === 0 ? (
+            <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
+              No projects yet
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={statusData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
+                  labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                />
+                <Bar dataKey="value" name="Projects" radius={[4, 4, 0, 0]}>
+                  {statusData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {/* Legend */}
+          <div className="mt-3 flex flex-wrap gap-3">
+            {statusData.map((s) => (
+              <div key={s.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
+                {s.name} ({s.value})
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <ProjectList projects={projects} loading={loading} onRefresh={loadProjects} />
+      {/* Recent Projects + Quick Actions Row */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Recent Projects */}
+        <div className="lg:col-span-2 rounded-xl border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold">Recent Projects</h2>
+              <p className="text-xs text-muted-foreground">Last updated</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => router.push('/dashboard/projects')}
+            >
+              View all
+              <ArrowRight className="ml-1 h-3 w-3" />
+            </Button>
+          </div>
+
+          {recentProjects.length === 0 ? (
+            <div className="flex h-40 flex-col items-center justify-center gap-3 rounded-lg border border-dashed">
+              <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">No projects yet</p>
+              <Button size="sm" onClick={() => setDialogOpen(true)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Create first project
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {recentProjects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => router.push(`/dashboard/projects/${p.id}`)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent group"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                    <Database className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Updated {format(parseISO(p.updatedAt), 'MMM d, yyyy')}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={p.status === 'ACTIVE' ? 'default' : 'secondary'}
+                    className={`shrink-0 text-[10px] h-5 ${p.status === 'ACTIVE' ? 'bg-emerald-600' : p.status === 'PAUSED' ? 'bg-amber-500' : ''}`}
+                  >
+                    {p.status}
+                  </Badge>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Quick Actions */}
+        <div className="rounded-xl border bg-card p-5 space-y-4">
+          <div>
+            <h2 className="font-semibold">Quick Actions</h2>
+            <p className="text-xs text-muted-foreground">Common tasks</p>
+          </div>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Plus className="h-4 w-4" />
+              </div>
+              New Project
+            </button>
+
+            <button
+              onClick={() => router.push('/dashboard/projects')}
+              className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              </div>
+              All Projects
+              <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+            </button>
+
+            <button
+              onClick={() => router.push('/dashboard/team')}
+              className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </div>
+              Team Settings
+              <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+            </button>
+
+            <button
+              onClick={() => router.push('/dashboard/account')}
+              className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </div>
+              Account Settings
+              <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
+        </div>
+      </div>
 
       {activeTeamId && (
         <CreateProjectDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          onCreated={handleCreated}
+          onCreated={() => {
+            setDialogOpen(false);
+            api.projects.list(activeTeamId).then(setProjects).catch(() => {});
+          }}
           teamId={activeTeamId}
         />
       )}

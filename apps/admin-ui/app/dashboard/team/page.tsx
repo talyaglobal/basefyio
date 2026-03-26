@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus } from '@/lib/types';
 import { useActiveTeam } from '../layout';
+import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,8 +31,10 @@ import {
   Eye,
   EyeOff,
   Mail,
+  Pencil,
   Plus,
   RefreshCw,
+  Save,
   Trash2,
   Unplug,
   Users,
@@ -345,11 +348,17 @@ export default function TeamSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeTeamId, setActiveTeamId, refreshTeams } = useActiveTeam();
+  const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Team name editing — owner only
+  const [teamName, setTeamName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [savingName, setSavingName] = useState(false);
 
   // Handle OAuth callback query params
   useEffect(() => {
@@ -377,18 +386,36 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [m, pi, mi] = await Promise.all([
+      const [m, pi, mi, teams] = await Promise.all([
         api.teams.listMembers(activeTeamId),
         api.teams.listTeamInvites(activeTeamId),
         api.teams.myInvites(),
+        api.teams.list(),
       ]);
       setMembers(m);
       setPendingInvites(pi);
       setMyInvites(mi);
+      const current = teams.find((t) => t.id === activeTeamId);
+      if (current) setTeamName(current.name);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveTeamName() {
+    if (!activeTeamId || !teamName.trim()) return;
+    setSavingName(true);
+    try {
+      await api.teams.updateTeam(activeTeamId, teamName.trim());
+      toast.success('Team name updated');
+      setEditingName(false);
+      refreshTeams();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update team name');
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -509,6 +536,65 @@ export default function TeamSettingsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Team Name — owner only */}
+      {members.some((m) => m.id === currentUserId && m.role === 'OWNER') && (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Team Name</h2>
+              <p className="text-xs text-muted-foreground">Only the team owner can change this.</p>
+            </div>
+            {!editingName && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingName(true)}
+              >
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            )}
+          </div>
+
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveTeamName();
+                  if (e.key === 'Escape') setEditingName(false);
+                }}
+                maxLength={60}
+                autoFocus
+                className="h-9 text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveTeamName}
+                disabled={savingName || !teamName.trim()}
+              >
+                {savingName ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditingName(false)}
+                disabled={savingName}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm font-medium">{teamName}</p>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex h-40 items-center justify-center">

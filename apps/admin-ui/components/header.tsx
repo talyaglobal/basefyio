@@ -16,7 +16,9 @@ import {
   Code,
   Database,
   ExternalLink,
+  FolderOpen,
   KeyRound,
+  LayoutDashboard,
   LogOut,
   MessageSquarePlus,
   Server,
@@ -154,6 +156,24 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             </>
           )}
         </div>
+
+        {/* Primary nav links */}
+        <nav className="hidden md:flex items-center gap-1">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Dashboard
+          </Link>
+          <Link
+            href="/dashboard/projects"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            Projects
+          </Link>
+        </nav>
 
         <Button
           variant="ghost"

@@ -205,6 +205,9 @@ export class KeycloakAdminService implements OnModuleInit {
         envId: 'oauth.googleClientId',
         envSecret: 'oauth.googleClientSecret',
         scope: 'openid email profile',
+        // Force Google account picker on every login so users can
+        // choose which Gmail account to use after sign-out.
+        extraConfig: { prompt: 'select_account' },
       },
       {
         alias: 'github',
@@ -212,6 +215,7 @@ export class KeycloakAdminService implements OnModuleInit {
         envId: 'oauth.githubClientId',
         envSecret: 'oauth.githubClientSecret',
         scope: 'user:email',
+        extraConfig: {},
       },
     ];
 
@@ -226,7 +230,7 @@ export class KeycloakAdminService implements OnModuleInit {
         enabled: true,
         trustEmail: true,
         firstBrokerLoginFlowAlias: flowAlias,
-        config: { clientId, clientSecret, defaultScope: p.scope },
+        config: { clientId, clientSecret, defaultScope: p.scope, ...p.extraConfig },
       };
 
       try {

@@ -122,6 +122,26 @@ export class TeamsService {
     return firstTeam.teamId;
   }
 
+  async updateTeamName(teamId: string, userId: string, name: string) {
+    await this.assertOwner(teamId, userId);
+
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length < 2) {
+      throw new ForbiddenException('Team name must be at least 2 characters');
+    }
+    if (trimmed.length > 60) {
+      throw new ForbiddenException('Team name must be 60 characters or less');
+    }
+
+    const updated = await this.prisma.team.update({
+      where: { id: teamId },
+      data: { name: trimmed },
+    });
+
+    this.logger.log(`Team "${teamId}" renamed to "${trimmed}" by ${userId}`);
+    return updated;
+  }
+
   async listMembers(teamId: string, userId: string) {
     await this.assertMember(teamId, userId);
 
