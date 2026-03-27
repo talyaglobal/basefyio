@@ -248,7 +248,7 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    update(id: string, data: { folderId?: string | null; tags?: string[] }) {
+    update(id: string, data: { folderId?: string | null; tags?: string[]; name?: string; description?: string }) {
       return request<ProjectListItem>(`/projects/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),

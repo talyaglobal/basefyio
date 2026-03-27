@@ -17,6 +17,24 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
 
+/** Known built-in PostgreSQL base type identifiers (without [] suffix).
+ *  Anything NOT in this set is treated as a custom/enum type and falls back
+ *  to text / text[] during import so the CREATE TABLE doesn't fail. */
+const KNOWN_PG_BASE_TYPES = new Set([
+  'uuid', 'text', 'varchar', 'char', 'bpchar', 'name',
+  'integer', 'int', 'int2', 'int4', 'int8', 'bigint', 'smallint',
+  'serial', 'bigserial', 'smallserial',
+  'real', 'float4', 'float8', 'double precision', 'numeric', 'decimal', 'money',
+  'boolean', 'bool',
+  'bytea', 'bit', 'varbit',
+  'json', 'jsonb', 'xml',
+  'date', 'time', 'timetz', 'timestamp', 'timestamptz', 'interval',
+  'inet', 'cidr', 'macaddr', 'macaddr8',
+  'tsvector', 'tsquery',
+  'point', 'line', 'lseg', 'box', 'path', 'polygon', 'circle',
+  'oid', 'regclass', 'regtype', 'xid', 'cid',
+]);
+
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
   auth: { users: number; skipped: number };
@@ -278,7 +296,8 @@ export class SupabaseImportService {
     progress: ImportProgress,
     onProgress?: (detail: string, percent: number) => Promise<void>,
   ) {
-    return this.importDatabase(baseUrl, headers, project, progress, onProgress);
+    await this.importDatabase(baseUrl, headers, project, progress, onProgress);
+    await this.importNonPublicSchemaTables(baseUrl, headers, project, progress, onProgress);
   }
 
   async runAuthImport(
@@ -457,6 +476,180 @@ export class SupabaseImportService {
     }
   }
 
+  // ── Non-public Schema Import (e.g. supabase_migrations) ─────────────────
+
+  /**
+   * Supabase keeps migration history in the `supabase_migrations` schema,
+   * which PostgREST does NOT expose via the standard OpenAPI spec.
+   * We try to access it with the `Accept-Profile` header and import any
+   * rows we can read into corresponding tables in the local project DB.
+   */
+  private async importNonPublicSchemaTables(
+    baseUrl: string,
+    headers: Record<string, string>,
+    project: any,
+    progress: ImportProgress,
+    onProgress?: (detail: string, percent: number) => Promise<void>,
+  ) {
+    // Well-known non-public tables that Supabase may expose via Accept-Profile
+    const extraTables: Array<{ schema: string; table: string }> = [
+      { schema: 'supabase_migrations', table: 'schema_migrations' },
+    ];
+
+    const pool = new Pool({
+      host: project.dbHost,
+      port: project.dbPort,
+      user: project.dbUser,
+      password: project.dbPassword,
+      database: project.dbName,
+    });
+
+    try {
+      for (const { schema, table } of extraTables) {
+        try {
+          if (onProgress) {
+            await onProgress(`Trying to import "${schema}.${table}"…`, 48);
+          }
+
+          // Use Accept-Profile to request a non-public schema from PostgREST
+          const response = await firstValueFrom(
+            this.http.get(`${baseUrl}/rest/v1/${encodeURIComponent(table)}`, {
+              headers: {
+                ...headers,
+                'Accept-Profile': schema,
+                Accept: 'application/json',
+              },
+              params: { select: '*', limit: 1000, offset: 0 },
+              timeout: 30000,
+            }),
+          );
+
+          const rows: any[] = Array.isArray(response.data) ? response.data : [];
+          if (rows.length === 0) {
+            this.logger.log(
+              `Non-public table "${schema}.${table}": accessible but empty — skipping`,
+            );
+            continue;
+          }
+
+          // Infer column definitions from the first row
+          const firstRow = rows[0];
+          const columns: SupabaseColumn[] = Object.keys(firstRow).map((col) => {
+            const val = firstRow[col];
+            let pgType = 'text';
+            if (typeof val === 'number')
+              pgType = Number.isInteger(val) ? 'bigint' : 'double precision';
+            else if (typeof val === 'boolean') pgType = 'boolean';
+            else if (Array.isArray(val)) pgType = 'text[]';
+            return {
+              column_name: col,
+              data_type: pgType,
+              is_nullable: 'YES',
+              column_default: null,
+              character_maximum_length: null,
+              udt_name: pgType,
+            };
+          });
+
+          // Build typeMap so insertSingleRow handles arrays/json properly
+          const typeMap: Record<string, string> = {};
+          for (const col of columns) {
+            typeMap[col.column_name.replace(/[^a-zA-Z0-9_]/g, '')] = col.data_type;
+          }
+
+          await this.createLocalTable(pool, table, columns);
+
+          // Paginate and import all rows
+          let totalRows = rows.length;
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            for (const row of rows) {
+              const keys = Object.keys(row);
+              if (keys.length) {
+                await this.insertSingleRow(client, table, keys, row, typeMap);
+              }
+            }
+            await client.query('COMMIT');
+          } catch (err: any) {
+            await client.query('ROLLBACK').catch(() => {});
+            this.logger.warn(
+              `Batch insert failed for "${schema}.${table}": ${err.message}`,
+            );
+          } finally {
+            client.release();
+          }
+
+          // Fetch additional pages if more than 1000 rows
+          let offset = 1000;
+          while (rows.length === 1000) {
+            try {
+              const nextResp = await firstValueFrom(
+                this.http.get(
+                  `${baseUrl}/rest/v1/${encodeURIComponent(table)}`,
+                  {
+                    headers: {
+                      ...headers,
+                      'Accept-Profile': schema,
+                      Accept: 'application/json',
+                    },
+                    params: { select: '*', limit: 1000, offset },
+                    timeout: 30000,
+                  },
+                ),
+              );
+              const nextRows: any[] = Array.isArray(nextResp.data)
+                ? nextResp.data
+                : [];
+              if (nextRows.length === 0) break;
+
+              const nextClient = await pool.connect();
+              try {
+                await nextClient.query('BEGIN');
+                for (const row of nextRows) {
+                  const keys = Object.keys(row);
+                  if (keys.length)
+                    await this.insertSingleRow(nextClient, table, keys, row, typeMap);
+                }
+                await nextClient.query('COMMIT');
+                totalRows += nextRows.length;
+              } catch {
+                await nextClient.query('ROLLBACK').catch(() => {});
+              } finally {
+                nextClient.release();
+              }
+
+              if (nextRows.length < 1000) break;
+              offset += 1000;
+            } catch {
+              break;
+            }
+          }
+
+          progress.database.tables++;
+          progress.database.rows += totalRows;
+          this.logger.log(
+            `Imported "${schema}.${table}": ${totalRows} rows`,
+          );
+        } catch (err: any) {
+          // Non-public schemas are often blocked — log and continue gracefully
+          const status = err.response?.status;
+          if (status === 404 || status === 400 || status === 403) {
+            this.logger.log(
+              `Non-public table "${schema}.${table}" not accessible via PostgREST (${status}) — skipping`,
+            );
+          } else {
+            this.logger.warn(
+              `Could not import "${schema}.${table}": ${err.message}`,
+            );
+          }
+        }
+      }
+    } finally {
+      await pool.end();
+    }
+  }
+
   private openApiTypeToPg(spec: any): string {
     const format = (spec.format || '').toLowerCase();
     const type = (spec.type || '').toLowerCase();
@@ -496,8 +689,20 @@ export class SupabaseImportService {
     if (format === 'polygon') return 'polygon';
     if (format === 'circle') return 'circle';
 
-    if (format.endsWith('[]')) return format;
-    if (format.startsWith('_')) return format.slice(1) + '[]';
+    if (format.endsWith('[]')) {
+      const base = format.slice(0, -2);
+      // Schema-qualified (e.g. "public.segment_type[]") or unknown custom enum
+      // arrays cannot be recreated in the target DB — map them to text[]
+      if (base.includes('.') || !KNOWN_PG_BASE_TYPES.has(base)) return 'text[]';
+      return format;
+    }
+    if (format.startsWith('_')) {
+      const base = format.slice(1);
+      // Internal pg array names (e.g. "_int4" → "int4[]").
+      // Custom enum internal names (e.g. "_segment_type") → text[]
+      if (base.includes('.') || !KNOWN_PG_BASE_TYPES.has(base)) return 'text[]';
+      return base + '[]';
+    }
 
     if (type === 'array') {
       if (spec.items) {
@@ -517,6 +722,8 @@ export class SupabaseImportService {
         if (itemType === 'number') return 'numeric[]';
         if (itemType === 'boolean') return 'boolean[]';
         if (itemType === 'string') return 'text[]';
+        // Custom enum arrays (e.g. items.$ref to a custom type) → text[]
+        if (itemFormat && itemFormat !== 'text') return 'text[]';
       }
       return 'text[]';
     }
@@ -879,6 +1086,8 @@ export class SupabaseImportService {
     }
 
     for (const bucket of buckets) {
+      // Step 1: create the bucket (it's OK if it already exists from a previous
+      // import attempt — we still want to import/overwrite the objects inside).
       try {
         await this.storage.createBucket(
           project.id,
@@ -887,7 +1096,32 @@ export class SupabaseImportService {
           bucket.public,
         );
         progress.storage.buckets++;
+      } catch (err: any) {
+        const isConflict =
+          err?.status === 409 ||
+          err?.response?.statusCode === 409 ||
+          (err?.message || '').toLowerCase().includes('already exists');
 
+        if (isConflict) {
+          // Bucket already exists — that's fine, proceed to import objects
+          this.logger.log(
+            `Bucket "${bucket.name}" already exists — proceeding to sync objects`,
+          );
+          progress.storage.buckets++;
+        } else {
+          // Any other error: skip this bucket entirely
+          this.logger.warn(
+            `Failed to create bucket "${bucket.name}": ${err.message}`,
+          );
+          progress.warnings.push(
+            `Bucket "${bucket.name}" import failed: ${err.message}`,
+          );
+          continue;
+        }
+      }
+
+      // Step 2: list and upload all objects (putObject overwrites existing keys)
+      try {
         const objects = await this.listSupabaseObjects(
           baseUrl,
           headers,
@@ -926,10 +1160,10 @@ export class SupabaseImportService {
         }
       } catch (err: any) {
         this.logger.warn(
-          `Failed to import bucket "${bucket.name}": ${err.message}`,
+          `Failed to list/upload objects for bucket "${bucket.name}": ${err.message}`,
         );
         progress.warnings.push(
-          `Bucket "${bucket.name}" import failed: ${err.message}`,
+          `Bucket "${bucket.name}" object sync failed: ${err.message}`,
         );
       }
     }
@@ -940,25 +1174,48 @@ export class SupabaseImportService {
     headers: Record<string, string>,
     bucketId: string,
     prefix = '',
+    seenPaths?: Set<string>,
   ): Promise<SupabaseStorageObject[]> {
     const allObjects: SupabaseStorageObject[] = [];
+    // seenPaths is shared across all recursive calls for the same bucket
+    const seen = seenPaths ?? new Set<string>();
 
     try {
-      const { data } = await firstValueFrom(
-        this.http.post(
-          `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucketId)}`,
-          { prefix, limit: 1000, offset: 0 },
-          { headers, timeout: 30000 },
-        ),
-      );
+      // Paginate through all items at this prefix level
+      const limit = 1000;
+      let offset = 0;
+      const allItems: any[] = [];
 
-      if (!Array.isArray(data)) return [];
+      while (true) {
+        const { data } = await firstValueFrom(
+          this.http.post(
+            `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucketId)}`,
+            { prefix, limit, offset },
+            { headers, timeout: 30000 },
+          ),
+        );
 
-      for (const item of data) {
-        if (item.id) {
+        if (!Array.isArray(data) || data.length === 0) break;
+        allItems.push(...data);
+        if (data.length < limit) break;
+        offset += limit;
+      }
+
+      for (const item of allItems) {
+        // A real file has a non-null, non-empty id
+        const isFile =
+          item.id !== null && item.id !== undefined && item.id !== '';
+
+        if (isFile) {
           const fullPath = prefix ? `${prefix}${item.name}` : item.name;
-          allObjects.push({ ...item, name: fullPath });
+          // Deduplicate: some Supabase versions return a file both at root
+          // level (with its full path) and again inside its folder prefix.
+          if (!seen.has(fullPath)) {
+            seen.add(fullPath);
+            allObjects.push({ ...item, name: fullPath });
+          }
         } else if (item.name) {
+          // Virtual folder placeholder — recurse into it
           const folderPrefix = prefix
             ? `${prefix}${item.name}/`
             : `${item.name}/`;
@@ -967,6 +1224,7 @@ export class SupabaseImportService {
             headers,
             bucketId,
             folderPrefix,
+            seen,
           );
           allObjects.push(...nested);
         }
