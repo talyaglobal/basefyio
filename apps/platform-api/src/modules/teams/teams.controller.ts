@@ -120,4 +120,13 @@ export class TeamsController {
   ) {
     return this.teamsService.removeMember(id, user.sub, userId);
   }
+
+  @Post(':id/transfer-ownership')
+  async transferOwnership(
+    @Param('id') id: string,
+    @Body('userId') newOwnerId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.transferOwnership(id, user.sub, newOwnerId);
+  }
 }

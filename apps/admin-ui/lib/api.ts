@@ -86,6 +86,11 @@ async function request<T>(
     throw new Error(body.message || `Request failed: ${res.status}`);
   }
 
+  const contentType = res.headers.get('content-type') ?? '';
+  const contentLength = res.headers.get('content-length');
+  if (res.status === 204 || contentLength === '0' || !contentType.includes('application/json')) {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -204,6 +209,12 @@ export const api = {
     removeMember(teamId: string, userId: string) {
       return request<{ message: string }>(`/teams/${teamId}/members/${userId}`, {
         method: 'DELETE',
+      });
+    },
+    transferOwnership(teamId: string, newOwnerUserId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/transfer-ownership`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: newOwnerUserId }),
       });
     },
     sendInvite(teamId: string, usernameOrEmail: string) {
@@ -512,6 +523,12 @@ export const api = {
     },
     getGitHubConnectUrl(teamId: string) {
       return request<{ url: string }>(`/team-integrations/${teamId}/github/connect-url`);
+    },
+    connectGitHubWithPat(teamId: string, token: string) {
+      return request<void>(`/team-integrations/${teamId}/github/connect-pat`, {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
     },
     disconnectGitHub(teamId: string) {
       return request<{ message: string }>(`/team-integrations/${teamId}/github`, {
