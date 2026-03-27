@@ -174,7 +174,7 @@ export class ProjectsController {
   @Patch(':id')
   async update(
     @Param('id') id: string,
-    @Body() body: { folderId?: string | null; tags?: string[] },
+    @Body() body: { folderId?: string | null; tags?: string[]; name?: string; description?: string },
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.update(id, user.sub, body);

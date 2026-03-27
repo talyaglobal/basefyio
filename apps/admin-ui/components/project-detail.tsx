@@ -72,7 +72,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     try {
       await api.projects.delete(project.id);
       toast.success('Project deleted');
-      router.push('/dashboard');
+      router.push('/dashboard/projects');
     } catch (err: any) {
       toast.error(err.message);
     } finally {

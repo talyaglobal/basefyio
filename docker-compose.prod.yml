@@ -196,6 +196,7 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_TEAMS_CLIENT_ID: ${GITHUB_TEAMS_CLIENT_ID:-}
       GITHUB_TEAMS_CLIENT_SECRET: ${GITHUB_TEAMS_CLIENT_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
     volumes:
       - pgbouncer_config:/etc/pgbouncer

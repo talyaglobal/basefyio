@@ -92,8 +92,25 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     const prefix = `kb-${project.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
+    // Other projects whose slugs extend this project's slug (e.g. "foo-2" when
+    // this project's slug is "foo") would produce MinIO bucket names that also
+    // start with this project's prefix.  Find those prefixes and exclude them.
+    const siblingProjects = await this.prisma.project.findMany({
+      where: { id: { not: projectId }, slug: { startsWith: project.slug } },
+      select: { slug: true },
+    });
+    const excludedPrefixes = siblingProjects
+      .map((p) =>
+        `kb-${p.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      )
+      .filter((ep) => ep !== prefix && ep.startsWith(prefix));
+
     const allBuckets = await this.client.listBuckets();
-    const projectBuckets = allBuckets.filter((b) => b.name.startsWith(prefix));
+    const projectBuckets = allBuckets.filter(
+      (b) =>
+        b.name.startsWith(prefix) &&
+        !excludedPrefixes.some((ep) => b.name.startsWith(ep)),
+    );
 
     const results: BucketSummary[] = [];
 

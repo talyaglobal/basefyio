@@ -186,6 +186,20 @@ export default function ProjectsPage() {
   } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
 
+  // Edit project modal
+  const [editModal, setEditModal] = useState<{ open: boolean; project: ProjectListItem | null }>({ open: false, project: null });
+  const [editName, setEditName]   = useState('');
+  const [editDesc, setEditDesc]   = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Single-project delete confirm
+  const [deleteConfirm, setDeleteConfirm] = useState<ProjectListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Bulk delete confirm
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
 
@@ -360,6 +374,48 @@ export default function ProjectsPage() {
     }
   }
 
+  // ── Edit project ─────────────────────────────────────────────────────────────
+  function openEditModal(project: ProjectListItem) {
+    setEditName(project.name);
+    setEditDesc((project as any).description ?? '');
+    setEditModal({ open: true, project });
+  }
+
+  async function saveEditProject() {
+    if (!editModal.project || !editName.trim()) return;
+    setEditSaving(true);
+    try {
+      const updated = await api.projects.update(editModal.project.id, {
+        name: editName.trim(),
+        description: editDesc.trim() || undefined,
+      });
+      setProjects((prev) => prev.map((p) => (p.id === editModal.project!.id ? { ...p, ...(updated as ProjectListItem), name: editName.trim() } : p)));
+      toast.success('Project updated');
+      setEditModal({ open: false, project: null });
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  // ── Delete project (single) ───────────────────────────────────────────────────
+  async function confirmDeleteProject() {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await api.projects.delete(deleteConfirm.id);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
+      setSelectedProjects((prev) => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
+      toast.success(`"${deleteConfirm.name}" deleted`);
+      setDeleteConfirm(null);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // ── Bulk operations ───────────────────────────────────────────────────────────
   async function bulkMoveToFolder(folderId: string | null) {
     const ids = Array.from(selectedProjects);
@@ -370,6 +426,22 @@ export default function ProjectsPage() {
   async function bulkToggleTag(tagId: string) {
     const ids = Array.from(selectedProjects);
     await Promise.all(ids.map((id) => toggleTag(id, tagId)));
+  }
+
+  async function confirmBulkDelete() {
+    setBulkDeleting(true);
+    const ids = Array.from(selectedProjects);
+    try {
+      await Promise.all(ids.map((id) => api.projects.delete(id)));
+      setProjects((prev) => prev.filter((p) => !selectedProjects.has(p.id)));
+      setSelectedProjects(new Set());
+      toast.success(`${ids.length} project${ids.length > 1 ? 's' : ''} deleted`);
+      setBulkDeleteConfirm(false);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   // ── Multi-select helpers ──────────────────────────────────────────────────────
@@ -572,7 +644,15 @@ export default function ProjectsPage() {
             {/* Add tag */}
             <BulkTagMenu tags={tags} selectedProjects={selectedProjects} projects={projects} onToggle={bulkToggleTag} />
 
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBulkDeleteConfirm(true)}
+              >
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                Delete {selectedProjects.size} Project{selectedProjects.size > 1 ? 's' : ''}
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => setSelectedProjects(new Set())}>
                 <X className="mr-1 h-3.5 w-3.5" /> Clear
               </Button>
@@ -780,6 +860,8 @@ export default function ProjectsPage() {
           onGoDetails={() => { openProject(ctxMenu.project.id); setCtxMenu(null); }}
           onMoveFolder={(fid) => { moveToFolder(ctxMenu.project.id, fid); setCtxMenu(null); }}
           onToggleTag={(tid) => { toggleTag(ctxMenu.project.id, tid); }}
+          onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
+          onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
       )}
 
@@ -859,6 +941,101 @@ export default function ProjectsPage() {
         onCreated={loadAll}
         teamId={activeTeamId}
       />
+
+      {/* ── Edit project modal ─────────────────────────────────────────────── */}
+      {editModal.open && editModal.project && (
+        <Modal title="Edit Project" onClose={() => setEditModal({ open: false, project: null })}>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
+              <input
+                autoFocus
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveEditProject()}
+                placeholder="Project name"
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+              <textarea
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                placeholder="Project description (optional)"
+                rows={3}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" className="flex-1" onClick={() => setEditModal({ open: false, project: null })}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90"
+              onClick={saveEditProject}
+              disabled={editSaving || !editName.trim()}
+            >
+              {editSaving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Single delete confirm modal ───────────────────────────────────── */}
+      {deleteConfirm && (
+        <Modal title="Delete Project" onClose={() => setDeleteConfirm(null)}>
+          <p className="text-sm text-muted-foreground mb-1">
+            Are you sure you want to delete
+          </p>
+          <p className="text-sm font-semibold mb-4">"{deleteConfirm.name}"?</p>
+          <p className="text-xs text-destructive/80 mb-4">
+            This action cannot be undone. All project data will be permanently removed.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={confirmDeleteProject}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting…' : 'Delete Project'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Bulk delete confirm modal ─────────────────────────────────────── */}
+      {bulkDeleteConfirm && (
+        <Modal title="Delete Selected Projects" onClose={() => setBulkDeleteConfirm(false)}>
+          <p className="text-sm text-muted-foreground mb-1">
+            Are you sure you want to delete
+          </p>
+          <p className="text-sm font-semibold mb-4">
+            {selectedProjects.size} project{selectedProjects.size > 1 ? 's' : ''}?
+          </p>
+          <p className="text-xs text-destructive/80 mb-4">
+            This action cannot be undone. All selected project data will be permanently removed.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setBulkDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={confirmBulkDelete}
+              disabled={bulkDeleting}
+            >
+              {bulkDeleting ? 'Deleting…' : `Delete ${selectedProjects.size} Project${selectedProjects.size > 1 ? 's' : ''}`}
+            </Button>
+          </div>
+        </Modal>
+      )}
     </DndContext>
   );
 }
@@ -1275,16 +1452,21 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
   onGoDetails: () => void;
   onMoveFolder: (fid: string | null) => void;
   onToggleTag: (tid: string) => void;
-}>(function ContextMenu({ x, y, project, folders, tags, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag }, ref) {
+  onEdit: () => void;
+  onDelete: () => void;
+}>(function ContextMenu({ x, y, project, folders, tags, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onEdit, onDelete }, ref) {
   const projectTagIds = (project.tags ?? []).map((t) => t.tag.id);
   const left = Math.min(x, window.innerWidth - 232);
-  const top  = Math.min(y, window.innerHeight - 170);
+  const top  = Math.min(y, window.innerHeight - 220);
 
   return (
     <div ref={ref} className="fixed z-[9999] w-56 rounded-xl border bg-card shadow-xl animate-fade-in overflow-visible" style={{ left, top }}>
       <div className="p-1">
         <button onClick={onGoDetails} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
           <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> Go to Details
+        </button>
+        <button onClick={onEdit} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
+          <Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Rename / Edit
         </button>
         <div className="my-1 h-px bg-border" />
 
@@ -1341,6 +1523,11 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
             </div>
           )}
         </div>
+
+        <div className="my-1 h-px bg-border" />
+        <button onClick={onDelete} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
+          <Trash2 className="h-3.5 w-3.5" /> Delete Project
+        </button>
       </div>
     </div>
   );

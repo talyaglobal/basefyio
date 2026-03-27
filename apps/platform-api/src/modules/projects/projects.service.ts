@@ -109,7 +109,7 @@ export class ProjectsService {
   async update(
     id: string,
     userId: string,
-    data: { folderId?: string | null; tags?: string[] },
+    data: { folderId?: string | null; tags?: string[]; name?: string; description?: string },
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id, status: { not: 'DELETED' } },
@@ -119,6 +119,8 @@ export class ProjectsService {
 
     const updateData: any = {};
     if (data.folderId !== undefined) updateData.folderId = data.folderId;
+    if (data.name !== undefined && data.name.trim()) updateData.name = data.name.trim();
+    if (data.description !== undefined) updateData.description = data.description || null;
 
     const [updatedProject] = await this.prisma.$transaction(async (tx) => {
       const p = await tx.project.update({ where: { id }, data: updateData });
