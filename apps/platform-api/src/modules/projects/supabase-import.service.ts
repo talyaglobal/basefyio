@@ -365,12 +365,26 @@ export class SupabaseImportService {
   private extractTablesFromOpenApi(openApi: any): SupabaseTable[] {
     const paths = openApi?.paths || {};
     const tables: SupabaseTable[] = [];
+    const views: string[] = [];
 
     for (const path of Object.keys(paths)) {
       const tableName = path.replace(/^\//, '');
-      if (tableName && !tableName.startsWith('rpc/')) {
+      if (!tableName || tableName.startsWith('rpc/')) continue;
+
+      const methods = paths[path] || {};
+      const hasPost = !!methods.post;
+
+      if (hasPost) {
         tables.push({ table_name: tableName, table_schema: 'public' });
+      } else {
+        views.push(tableName);
       }
+    }
+
+    if (views.length > 0) {
+      this.logger.log(
+        `Skipping ${views.length} views/materialized views: ${views.slice(0, 10).join(', ')}${views.length > 10 ? '...' : ''}`,
+      );
     }
 
     return tables;
@@ -797,6 +811,55 @@ export class SupabaseImportService {
     }
   }
 
+  private async fetchPage(
+    baseUrl: string,
+    headers: Record<string, string>,
+    tableName: string,
+    offset: number,
+    pageSize: number,
+    retries = 3,
+  ): Promise<any[] | null | undefined> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await firstValueFrom(
+          this.http.get(
+            `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
+            {
+              headers: {
+                ...headers,
+                Accept: 'application/json',
+                Prefer: 'return=representation',
+              },
+              params: {
+                select: '*',
+                limit: pageSize,
+                offset,
+              },
+              timeout: 120000,
+            },
+          ),
+        );
+        return response.data;
+      } catch (err: any) {
+        const status = err.response?.status;
+        if (status === 416 || status === 404) return null;
+        if (status === 403 || status === 401) {
+          this.logger.warn(
+            `Access denied fetching "${tableName}" at offset ${offset}: ${err.message}`,
+          );
+          return null;
+        }
+        this.logger.warn(
+          `Fetch "${tableName}" offset=${offset} attempt ${attempt}/${retries}: ${err.message}`,
+        );
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, attempt * 1500));
+        }
+      }
+    }
+    return undefined;
+  }
+
   private async copyTableData(
     baseUrl: string,
     headers: Record<string, string>,
@@ -816,108 +879,74 @@ export class SupabaseImportService {
     let totalRows = 0;
     let offset = 0;
     const pageSize = 1000;
-    let consecutiveErrors = 0;
-    const MAX_CONSECUTIVE_ERRORS = 3;
 
     while (true) {
-      let rows: any[];
+      const rows = await this.fetchPage(baseUrl, headers, tableName, offset, pageSize);
 
-      try {
-        const response = await firstValueFrom(
-          this.http.get(
-            `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
-            {
-              headers: {
-                ...headers,
-                Accept: 'application/json',
-                Prefer: 'count=exact',
-              },
-              params: {
-                select: '*',
-                limit: pageSize,
-                offset,
-              },
-              timeout: 60000,
-            },
-          ),
-        );
-        rows = response.data;
-      } catch (err: any) {
-        const status = err.response?.status;
-        if (status === 416 || status === 404) break;
-        this.logger.error(
-          `Failed to fetch data from "${tableName}" at offset ${offset}: ${err.message}`,
-        );
-        consecutiveErrors++;
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          throw new Error(
-            `Too many consecutive errors fetching "${tableName}" data`,
-          );
-        }
-        offset += pageSize;
-        continue;
+      if (rows === null) break;
+      if (rows === undefined) {
+        this.logger.warn(`Skipping remaining pages of "${tableName}" after fetch failures`);
+        break;
       }
-
       if (!Array.isArray(rows) || rows.length === 0) break;
-      consecutiveErrors = 0;
 
-        const client = await pool.connect();
-        let batchSucceeded = false;
+      const client = await pool.connect();
+      let batchSucceeded = false;
+      try {
+        await client.query('BEGIN');
+
+        for (const row of rows) {
+          const allKeys = columnNames.filter((k) =>
+            Object.prototype.hasOwnProperty.call(row, k),
+          );
+          if (!allKeys.length) {
+            const rowKeys = Object.keys(row);
+            if (!rowKeys.length) continue;
+            await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
+          } else {
+            await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
+          }
+        }
+
+        await client.query('COMMIT');
+        batchSucceeded = true;
+        totalRows += rows.length;
+      } catch (err: any) {
+        await client.query('ROLLBACK').catch(() => {});
+
+        this.logger.warn(
+          `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
+        );
+
+        const retryClient = await pool.connect();
         try {
-          await client.query('BEGIN');
-
+          let savedRows = 0;
           for (const row of rows) {
-            const allKeys = columnNames.filter((k) =>
-              Object.prototype.hasOwnProperty.call(row, k),
-            );
-            if (!allKeys.length) {
+            try {
               const rowKeys = Object.keys(row);
               if (!rowKeys.length) continue;
-              await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
-            } else {
-              await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
+              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
+              savedRows++;
+            } catch (rowErr: any) {
+              this.logger.warn(
+                `Row insert failed in "${sanitized}": ${rowErr.message}`,
+              );
             }
           }
-
-          await client.query('COMMIT');
-          batchSucceeded = true;
-          totalRows += rows.length;
-        } catch (err: any) {
-          await client.query('ROLLBACK').catch(() => {});
-
-          this.logger.warn(
-            `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
-          );
-
-          const retryClient = await pool.connect();
-          try {
-            let savedRows = 0;
-            for (const row of rows) {
-              try {
-                const rowKeys = Object.keys(row);
-                if (!rowKeys.length) continue;
-                await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
-                savedRows++;
-              } catch (rowErr: any) {
-                this.logger.warn(
-                  `Row insert failed in "${sanitized}": ${rowErr.message}`,
-                );
-              }
-            }
-            totalRows += savedRows;
-          } finally {
-            retryClient.release();
-          }
-
-          if (rows.length < pageSize) { client.release(); break; }
-          offset += pageSize;
-          client.release();
-          continue;
+          totalRows += savedRows;
         } finally {
-          if (batchSucceeded) {
-            try { client.release(); } catch {}
-          }
+          retryClient.release();
         }
+
+        if (rows.length < pageSize) { client.release(); break; }
+        offset += pageSize;
+        client.release();
+        continue;
+      } finally {
+        if (batchSucceeded) {
+          try { client.release(); } catch {}
+        }
+      }
 
       if (rows.length < pageSize) break;
       offset += pageSize;
