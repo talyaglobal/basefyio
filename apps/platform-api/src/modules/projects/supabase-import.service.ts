@@ -426,8 +426,6 @@ export class SupabaseImportService {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
-      connectionTimeoutMillis: 15000,
-      idleTimeoutMillis: 30000,
     });
 
     try {
@@ -506,8 +504,6 @@ export class SupabaseImportService {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
-      connectionTimeoutMillis: 15000,
-      idleTimeoutMillis: 30000,
     });
 
     try {
