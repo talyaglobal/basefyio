@@ -665,6 +665,26 @@ export const api = {
     },
   },
 
+  ai: {
+    chat(
+      message: string,
+      history: { role: 'user' | 'assistant'; content: string }[],
+      context: {
+        projectId?: string;
+        projectName?: string;
+        tables?: string[];
+        page?: string;
+        allProjects?: { id: string; name: string }[];
+        mode?: 'ask' | 'plan' | 'agent';
+      },
+    ) {
+      return request<{ reply: string }>('/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message, history, context }),
+      });
+    },
+  },
+
   tags: {
     list(teamId: string) {
       return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);

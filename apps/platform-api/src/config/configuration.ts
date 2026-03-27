@@ -49,6 +49,10 @@ export default () => ({
     replyTo: process.env.RESEND_REPLY_TO || 'support@kolaybase.com',
   },
 
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+  },
+
   oauth: {
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

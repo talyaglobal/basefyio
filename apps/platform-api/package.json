@@ -32,6 +32,7 @@
     "ioredis": "^5.9.3",
     "jwks-rsa": "^3.0.0",
     "minio": "^8.0.6",
+    "openai": "^4.0.0",
     "nodemailer": "^8.0.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.0",
