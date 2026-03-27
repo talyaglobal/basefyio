@@ -7,6 +7,7 @@ import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopP
 import { api } from '@/lib/api';
 import type { UserInfo, UserProfile } from '@/lib/types';
 import { Header } from '@/components/header';
+import { AiAssistant } from '@/components/ai-assistant';
 
 interface DashboardContextValue {
   activeTeamId: string;
@@ -125,7 +126,10 @@ export default function DashboardLayout({
     <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile }}>
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} profile={profile} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+          <AiAssistant />
+        </div>
       </div>
     </DashboardContext.Provider>
   );

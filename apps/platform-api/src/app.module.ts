@@ -14,6 +14,7 @@ import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { TeamIntegrationsModule } from './modules/team-integrations/team-integrations.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { AiModule } from './modules/ai/ai.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -36,6 +37,7 @@ import configuration from './config/configuration';
     IntegrationsModule,
     TeamIntegrationsModule,
     RedisModule,
+    AiModule,
   ],
 })
 export class AppModule {}
