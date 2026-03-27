@@ -39,6 +39,7 @@ import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Calendar,
   Check,
   ChevronDown,
@@ -58,6 +59,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import type { Team } from '@/lib/types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
@@ -182,7 +184,7 @@ export default function ProjectsPage() {
   // Right-click context menu
   const [ctxMenu, setCtxMenu] = useState<{
     x: number; y: number; project: ProjectListItem;
-    sub: null | 'folder' | 'tag';
+    sub: null | 'folder' | 'tag' | 'team';
   } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
 
@@ -200,6 +202,11 @@ export default function ProjectsPage() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
+  // Move to team
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [moveTeamModal, setMoveTeamModal] = useState<{ project: ProjectListItem; targetTeam: Team } | null>(null);
+  const [movingTeam, setMovingTeam] = useState(false);
+
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
 
@@ -214,14 +221,16 @@ export default function ProjectsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [p, f, t] = await Promise.all([
+      const [p, f, t, allTeams] = await Promise.all([
         api.projects.list(activeTeamId),
         api.folders.list(activeTeamId),
         api.tags.list(activeTeamId),
+        api.teams.list(),
       ]);
       setProjects(p);
       setFolders(f);
       setTags(t);
+      setTeams(allTeams);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -413,6 +422,22 @@ export default function ProjectsPage() {
       toast.error(err.message);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleMoveToTeam() {
+    if (!moveTeamModal) return;
+    setMovingTeam(true);
+    try {
+      await api.projects.moveToTeam(moveTeamModal.project.id, moveTeamModal.targetTeam.id);
+      setProjects((prev) => prev.filter((p) => p.id !== moveTeamModal.project.id));
+      setSelectedProjects((prev) => { const n = new Set(prev); n.delete(moveTeamModal.project.id); return n; });
+      toast.success(`"${moveTeamModal.project.name}" moved to "${moveTeamModal.targetTeam.name}"`);
+      setMoveTeamModal(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to move project');
+    } finally {
+      setMovingTeam(false);
     }
   }
 
@@ -854,12 +879,15 @@ export default function ProjectsPage() {
           project={ctxMenu.project}
           folders={folders}
           tags={tags}
+          teams={teams}
+          currentTeamId={activeTeamId}
           sub={ctxMenu.sub}
           onSetSub={(sub) => setCtxMenu((c) => c ? { ...c, sub } : null)}
           onClose={() => setCtxMenu(null)}
           onGoDetails={() => { openProject(ctxMenu.project.id); setCtxMenu(null); }}
           onMoveFolder={(fid) => { moveToFolder(ctxMenu.project.id, fid); setCtxMenu(null); }}
           onToggleTag={(tid) => { toggleTag(ctxMenu.project.id, tid); }}
+          onMoveTeam={(team) => { setMoveTeamModal({ project: ctxMenu.project, targetTeam: team }); setCtxMenu(null); }}
           onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
           onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
@@ -1032,6 +1060,36 @@ export default function ProjectsPage() {
               disabled={bulkDeleting}
             >
               {bulkDeleting ? 'Deleting…' : `Delete ${selectedProjects.size} Project${selectedProjects.size > 1 ? 's' : ''}`}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Move to team confirm modal ───────────────────────────────────────── */}
+      {moveTeamModal && (
+        <Modal title="Move Project to Team" onClose={() => setMoveTeamModal(null)}>
+          <p className="text-sm text-muted-foreground mb-1">
+            Move <span className="font-semibold text-foreground">&quot;{moveTeamModal.project.name}&quot;</span> to
+          </p>
+          <div className="flex items-center gap-2 my-3 rounded-lg border bg-accent/40 px-3 py-2">
+            <span className="h-7 w-7 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs font-bold shrink-0">
+              {moveTeamModal.targetTeam.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="font-medium text-sm">{moveTeamModal.targetTeam.name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            The project will be removed from the current team and its folder assignment will be cleared.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setMoveTeamModal(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-brand-gradient text-white border-0 hover:opacity-90"
+              onClick={handleMoveToTeam}
+              disabled={movingTeam}
+            >
+              {movingTeam ? 'Moving…' : 'Move Project'}
             </Button>
           </div>
         </Modal>
@@ -1446,16 +1504,20 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
   project: ProjectListItem;
   folders: ProjectFolder[];
   tags: ProjectTag[];
-  sub: null | 'folder' | 'tag';
-  onSetSub: (s: null | 'folder' | 'tag') => void;
+  teams: Team[];
+  currentTeamId: string;
+  sub: null | 'folder' | 'tag' | 'team';
+  onSetSub: (s: null | 'folder' | 'tag' | 'team') => void;
   onClose: () => void;
   onGoDetails: () => void;
   onMoveFolder: (fid: string | null) => void;
   onToggleTag: (tid: string) => void;
+  onMoveTeam: (team: Team) => void;
   onEdit: () => void;
   onDelete: () => void;
-}>(function ContextMenu({ x, y, project, folders, tags, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onEdit, onDelete }, ref) {
+}>(function ContextMenu({ x, y, project, folders, tags, teams, currentTeamId, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onMoveTeam, onEdit, onDelete }, ref) {
   const projectTagIds = (project.tags ?? []).map((t) => t.tag.id);
+  const otherTeams = teams.filter((t) => t.id !== currentTeamId);
   const left = Math.min(x, window.innerWidth - 232);
   const top  = Math.min(y, window.innerHeight - 220);
 
@@ -1523,6 +1585,38 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
             </div>
           )}
         </div>
+
+        {/* Move to team */}
+        {otherTeams.length > 0 && (
+          <div className="relative">
+            <button
+              onMouseEnter={() => onSetSub('team')}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${sub === 'team' ? 'bg-accent' : 'hover:bg-accent'}`}
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="flex-1 text-left">Move to team</span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+            {sub === 'team' && (
+              <div className="absolute left-full top-0 ml-1 w-52 rounded-xl border bg-card shadow-xl z-10">
+                <div className="p-1">
+                  {otherTeams.map((team) => (
+                    <button
+                      key={team.id}
+                      onClick={() => onMoveTeam(team)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors"
+                    >
+                      <span className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                        {team.name.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="truncate">{team.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="my-1 h-px bg-border" />
         <button onClick={onDelete} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">

@@ -183,6 +183,46 @@ export class ProjectsService {
     };
   }
 
+  async moveToTeam(projectId: string, targetTeamId: string, userId: string) {
+    // Load project and verify caller is a member of source team
+    const project = await this.findOne(projectId, userId);
+
+    // Caller must be OWNER of the source team
+    const sourceMembership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!sourceMembership || sourceMembership.role !== 'OWNER') {
+      throw new ForbiddenException('Only the source team owner can move projects');
+    }
+
+    // Caller must be a member of the target team
+    const targetMembership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: targetTeamId, userId } },
+    });
+    if (!targetMembership) {
+      throw new ForbiddenException('You are not a member of the target team');
+    }
+
+    if (project.teamId === targetTeamId) {
+      throw new ForbiddenException('Project is already in this team');
+    }
+
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        teamId: targetTeamId,
+        // Clear folder assignment since folders are team-specific
+        folderId: null,
+      },
+    });
+
+    this.logger.log(
+      `Project "${project.name}" moved from team ${project.teamId} to team ${targetTeamId} by user ${userId}`,
+    );
+
+    return { message: 'Project moved successfully' };
+  }
+
   async remove(id: string, userId: string) {
     const project = await this.findOne(id, userId);
 

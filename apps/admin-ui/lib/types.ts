@@ -79,6 +79,7 @@ export interface Project {
   name: string;
   slug: string;
   description: string | null;
+  teamId: string;
   dbName: string;
   dbHost: string;
   dbPort: number;
