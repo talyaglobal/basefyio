@@ -233,6 +233,77 @@ export class ProjectsService {
       throw new ForbiddenException('Only the team owner can delete projects');
     }
 
+    await this.prisma.project.update({
+      where: { id },
+      data: { status: 'DELETED' },
+    });
+
+    this.logger.log(`Project "${project.name}" soft-deleted by user ${userId}`);
+
+    return { message: 'Project deleted' };
+  }
+
+  async findDeleted(teamId: string, userId: string) {
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership || membership.role !== 'OWNER') {
+      throw new ForbiddenException('Only the team owner can view deleted projects');
+    }
+
+    return this.prisma.project.findMany({
+      where: { teamId, status: 'DELETED' },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async restore(id: string, userId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.status !== 'DELETED') {
+      throw new ForbiddenException('Project is not deleted');
+    }
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership || membership.role !== 'OWNER') {
+      throw new ForbiddenException('Only the team owner can restore projects');
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+
+    this.logger.log(`Project "${project.name}" restored by user ${userId}`);
+
+    return { message: 'Project restored' };
+  }
+
+  async permanentDelete(id: string, userId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.status !== 'DELETED') {
+      throw new ForbiddenException('Only deleted projects can be permanently removed');
+    }
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership || membership.role !== 'OWNER') {
+      throw new ForbiddenException('Only the team owner can permanently delete projects');
+    }
+
     try {
       await this.keycloak.deleteRealm(project.keycloakRealm);
     } catch (err) {
@@ -247,16 +318,18 @@ export class ProjectsService {
 
     await this.prisma.project.update({
       where: { id },
-      data: { status: 'DELETED', name: deletedName, slug: deletedSlug },
+      data: { name: deletedName, slug: deletedSlug },
     });
 
-    this.logger.log(`Project "${project.name}" deleted (renamed to "${deletedName}")`);
+    await this.prisma.project.delete({ where: { id } });
+
+    this.logger.log(`Project "${project.name}" permanently deleted by user ${userId}`);
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
 
-    return { message: 'Project deleted' };
+    return { message: 'Project permanently deleted' };
   }
 
   async forceDelete(id: string) {

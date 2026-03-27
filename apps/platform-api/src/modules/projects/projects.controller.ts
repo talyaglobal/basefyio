@@ -169,6 +169,14 @@ export class ProjectsController {
     return this.projectsService.findAll(teamId, user.sub);
   }
 
+  @Get('deleted')
+  async findDeleted(
+    @Query('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.findDeleted(teamId, user.sub);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -193,6 +201,22 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.moveToTeam(id, targetTeamId, user.sub);
+  }
+
+  @Post(':id/restore')
+  async restore(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.restore(id, user.sub);
+  }
+
+  @Delete(':id/permanent')
+  async permanentDelete(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.permanentDelete(id, user.sub);
   }
 
   @Delete(':id')
