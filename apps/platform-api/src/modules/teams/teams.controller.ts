@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -66,6 +67,15 @@ export class TeamsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.teamsService.declineInvite(id, user.sub);
+  }
+
+  @Patch(':id')
+  async updateTeam(
+    @Param('id') id: string,
+    @Body() body: { name: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.updateTeamName(id, user.sub, body.name);
   }
 
   @Get(':id/members')

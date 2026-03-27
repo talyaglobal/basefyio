@@ -49,6 +49,32 @@ const config: Config = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      backdropBlur: {
+        xs: '4px',
+        glass: 'var(--glass-blur)',
+      },
+      backgroundImage: {
+        'brand-gradient': 'var(--brand-gradient)',
+        'brand-subtle': 'var(--brand-gradient-subtle)',
+      },
+      boxShadow: {
+        glass: 'var(--glass-shadow)',
+        'glass-lg': 'var(--glass-shadow-lg)',
+      },
+      animation: {
+        'fade-in': 'fadeIn 200ms ease forwards',
+        'slide-up': 'slideUp 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+      },
+      keyframes: {
+        fadeIn: {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        slideUp: {
+          from: { opacity: '0', transform: 'translateY(12px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
     },
   },
   plugins: [],

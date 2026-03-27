@@ -192,6 +192,12 @@ export const api = {
         body: JSON.stringify({ teamId }),
       });
     },
+    updateTeam(teamId: string, name: string) {
+      return request<{ id: string; name: string }>(`/teams/${teamId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+    },
     listMembers(teamId: string) {
       return request<TeamMember[]>(`/teams/${teamId}/members`);
     },
@@ -239,6 +245,12 @@ export const api = {
     create(data: { name: string; description?: string; teamId: string }) {
       return request<Project>('/projects', {
         method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    update(id: string, data: { folderId?: string | null; tags?: string[] }) {
+      return request<ProjectListItem>(`/projects/${id}`, {
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
     },
@@ -626,6 +638,52 @@ export const api = {
       return request<{ message: string }>(`/projects/${projectId}/storage/buckets/${bucketName}/objects`, {
         method: 'DELETE',
         body: JSON.stringify({ paths }),
+      });
+    },
+  },
+
+  folders: {
+    list(teamId: string) {
+      return request<import('./types').ProjectFolder[]>(`/project-folders?teamId=${teamId}`);
+    },
+    create(teamId: string, name: string, color?: string) {
+      return request<import('./types').ProjectFolder>('/project-folders', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, name, color }),
+      });
+    },
+    update(id: string, data: { name?: string; color?: string }) {
+      return request<import('./types').ProjectFolder>(`/project-folders/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-folders/${id}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+
+  tags: {
+    list(teamId: string) {
+      return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);
+    },
+    create(teamId: string, name: string, color?: string) {
+      return request<import('./types').ProjectTag>('/project-tags', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, name, color }),
+      });
+    },
+    update(id: string, data: { name?: string; color?: string }) {
+      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-tags/${id}`, {
+        method: 'DELETE',
       });
     },
   },

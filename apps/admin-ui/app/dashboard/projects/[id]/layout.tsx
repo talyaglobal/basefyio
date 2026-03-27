@@ -48,7 +48,7 @@ export default function ProjectLayout({
       .then(setProject)
       .catch((err) => {
         toast.error(err.message);
-        router.push('/dashboard');
+        router.push('/dashboard/projects');
       });
   }, [id, router]);
 
@@ -70,7 +70,7 @@ export default function ProjectLayout({
             variant="ghost"
             size="sm"
             className="mb-2 -ml-2 text-muted-foreground"
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.back()}
           >
             <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
             Projects

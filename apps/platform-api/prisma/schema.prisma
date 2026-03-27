@@ -69,6 +69,8 @@ model Team {
   members           TeamMember[]
   invites           TeamInvite[]
   projects          Project[]
+  folders           ProjectFolder[]
+  tags              ProjectTag[]
 
   @@map("teams")
 }
@@ -129,6 +131,9 @@ model Project {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
+  // Folder
+  folderId      String?  @map("folder_id")
+
   // GitHub Integration
   githubToken   String? @map("github_token")
   githubOwner   String? @map("github_owner")
@@ -141,10 +146,51 @@ model Project {
   vercelTeamId    String? @map("vercel_team_id")
 
   team         Team          @relation(fields: [teamId], references: [id])
+  folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags         ProjectTagAssignment[]
   sqlAuditLogs SqlAuditLog[]
   authConfig   ProjectAuthConfig?
 
   @@map("projects")
+}
+
+model ProjectFolder {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("#6366f1")
+  teamId    String   @map("team_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team     Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@map("project_folders")
+}
+
+model ProjectTag {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("#8b5cf6")
+  teamId    String   @map("team_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team        Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignments ProjectTagAssignment[]
+
+  @@unique([teamId, name])
+  @@map("project_tags")
+}
+
+model ProjectTagAssignment {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  tagId     String @map("tag_id")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag     ProjectTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tagId])
+  @@map("project_tag_assignments")
 }
 
 model ProjectAuthConfig {

@@ -16,7 +16,9 @@ import {
   Code,
   Database,
   ExternalLink,
+  FolderOpen,
   KeyRound,
+  LayoutDashboard,
   LogOut,
   MessageSquarePlus,
   Server,
@@ -86,74 +88,33 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   }
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
+      {/* ── Left: logo + nav ─────────────────────────────────────── */}
       <div className="flex items-center gap-4">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
-          <span className="text-lg font-bold">Kolaybase</span>
+          <span className="text-lg font-bold gradient-text">Kolaybase</span>
         </Link>
 
-        {/* Team Switcher */}
-        <div className="relative">
-          <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
+        {/* Primary nav links */}
+        <nav className="hidden md:flex items-center gap-1">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="max-w-[160px] truncate">
-              {activeTeam?.name || 'Select team'}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-
-          {dropdownOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setDropdownOpen(false)}
-              />
-              <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-md border bg-card shadow-lg">
-                <div className="p-1">
-                  {teams.map((team) => (
-                    <button
-                      key={team.id}
-                      onClick={() => switchTeam(team.id)}
-                      className={`flex w-full items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors ${
-                        team.id === activeTeamId
-                          ? 'bg-primary/10 text-primary font-medium'
-                          : 'hover:bg-accent'
-                      }`}
-                    >
-                      <div className="flex h-7 w-7 items-center justify-center rounded bg-muted text-xs font-bold">
-                        {team.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0 text-left">
-                        <p className="truncate font-medium">{team.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {team.memberCount} member{team.memberCount !== 1 ? 's' : ''} · {team.projectCount} project{team.projectCount !== 1 ? 's' : ''}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <div className="border-t p-1">
-                  <button
-                    onClick={() => {
-                      setDropdownOpen(false);
-                      router.push('/dashboard/team');
-                    }}
-                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                    Team Settings
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Dashboard
+          </Link>
+          <Link
+            href="/dashboard/projects"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            Projects
+          </Link>
+        </nav>
 
         <Button
           variant="ghost"
@@ -168,7 +129,62 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <DocsMenu />
       </div>
 
+      {/* ── Right: team switcher + invites + user ────────────────── */}
       <div className="flex items-center gap-3">
+        {/* Team Switcher */}
+        <div className="relative">
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
+          >
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="max-w-[140px] truncate">
+              {activeTeam?.name || 'Select team'}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+
+          {dropdownOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+                <div className="p-1">
+                  {teams.map((team) => (
+                    <button
+                      key={team.id}
+                      onClick={() => switchTeam(team.id)}
+                      className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                        team.id === activeTeamId
+                          ? 'bg-primary/10 text-primary font-medium'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm">
+                        {team.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 text-left">
+                        <p className="truncate font-medium">{team.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {team.memberCount} member{team.memberCount !== 1 ? 's' : ''} · {team.projectCount} project{team.projectCount !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t p-1">
+                  <button
+                    onClick={() => { setDropdownOpen(false); router.push('/dashboard/team'); }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                    Team Settings
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         {inviteCount > 0 && (
           <Button
             variant="outline"
@@ -217,7 +233,7 @@ function DocsMenu() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-md border bg-card shadow-lg">
+          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="p-1">
               {docsLinks.map((item) => (
                 <a
@@ -226,7 +242,7 @@ function DocsMenu() {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setOpen(false)}
-                  className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
                 >
                   <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
                   {item.label}
@@ -257,7 +273,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
       >
         {/* Avatar */}
         <div className="h-8 w-8 rounded-full overflow-hidden ring-1 ring-border shrink-0">
@@ -278,7 +294,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
+          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
                 {avatarUrl ? (
@@ -297,7 +313,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
             <div className="p-1">
               <button
                 onClick={() => { setOpen(false); router.push('/dashboard/account'); }}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
               >
                 <KeyRound className="h-3.5 w-3.5" />
                 Account Settings
@@ -306,7 +322,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
             <div className="border-t p-1">
               <button
                 onClick={() => { setOpen(false); onLogout(); }}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 Sign out

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
   Query,
@@ -168,6 +169,15 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.findOne(id, user.sub);
+  }
+
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() body: { folderId?: string | null; tags?: string[] },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.update(id, user.sub, body);
   }
 
   @Delete(':id')

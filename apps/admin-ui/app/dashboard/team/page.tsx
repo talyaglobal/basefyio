@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus } from '@/lib/types';
 import { useActiveTeam } from '../layout';
+import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,8 +31,10 @@ import {
   Eye,
   EyeOff,
   Mail,
+  Pencil,
   Plus,
   RefreshCw,
+  Save,
   Trash2,
   Unplug,
   Users,
@@ -345,11 +348,17 @@ export default function TeamSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeTeamId, setActiveTeamId, refreshTeams } = useActiveTeam();
+  const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Team name editing — owner only
+  const [teamName, setTeamName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [savingName, setSavingName] = useState(false);
 
   // Handle OAuth callback query params
   useEffect(() => {
@@ -377,18 +386,36 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [m, pi, mi] = await Promise.all([
+      const [m, pi, mi, teams] = await Promise.all([
         api.teams.listMembers(activeTeamId),
         api.teams.listTeamInvites(activeTeamId),
         api.teams.myInvites(),
+        api.teams.list(),
       ]);
       setMembers(m);
       setPendingInvites(pi);
       setMyInvites(mi);
+      const current = teams.find((t) => t.id === activeTeamId);
+      if (current) setTeamName(current.name);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveTeamName() {
+    if (!activeTeamId || !teamName.trim()) return;
+    setSavingName(true);
+    try {
+      await api.teams.updateTeam(activeTeamId, teamName.trim());
+      toast.success('Team name updated');
+      setEditingName(false);
+      refreshTeams();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update team name');
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -510,6 +537,65 @@ export default function TeamSettingsPage() {
         </div>
       </div>
 
+      {/* Team Name — owner only */}
+      {members.some((m) => m.id === currentUserId && m.role === 'OWNER') && (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Team Name</h2>
+              <p className="text-xs text-muted-foreground">Only the team owner can change this.</p>
+            </div>
+            {!editingName && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingName(true)}
+              >
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            )}
+          </div>
+
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveTeamName();
+                  if (e.key === 'Escape') setEditingName(false);
+                }}
+                maxLength={60}
+                autoFocus
+                className="h-9 text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveTeamName}
+                disabled={savingName || !teamName.trim()}
+              >
+                {savingName ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditingName(false)}
+                disabled={savingName}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm font-medium">{teamName}</p>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex h-40 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -517,81 +603,112 @@ export default function TeamSettingsPage() {
       ) : (
         <>
           {/* Members */}
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium">Email</th>
-                  <th className="px-4 py-2 text-left font-medium">Role</th>
-                  <th className="px-4 py-2 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.id} className="border-b last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {m.role === 'OWNER' && <Crown className="h-4 w-4 text-amber-500" />}
-                        <span className="font-medium">{m.email}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'}>
-                        {m.role}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {m.role !== 'OWNER' && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                          onClick={() => handleRemove(m.id, m.username)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <div className="border-b bg-muted/40 px-4 py-2.5 flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-medium">Members</span>
+              <span className="ml-auto text-xs text-muted-foreground">{members.length} member{members.length !== 1 ? 's' : ''}</span>
+            </div>
 
-                {/* Pending invites in same table */}
-                {pendingInvites.map((inv) => {
-                  const isEmailOnly = !inv.invitedUser.id;
-                  return (
-                    <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium text-muted-foreground">
-                            {inv.invitedUser.email || inv.invitedEmail}
-                          </span>
-                          {isEmailOnly && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              Not registered
-                            </Badge>
-                          )}
+            <div className="divide-y">
+              {members.map((m) => {
+                const displayName = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username;
+                const initials = m.firstName && m.lastName
+                  ? `${m.firstName[0]}${m.lastName[0]}`.toUpperCase()
+                  : (m.firstName || m.username).slice(0, 2).toUpperCase();
+                const isOwner = m.role === 'OWNER';
+
+                return (
+                  <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                    {/* Avatar with optional crown */}
+                    <div className="relative shrink-0">
+                      <div className="h-10 w-10 rounded-full overflow-hidden ring-2 ring-border">
+                        {m.avatarUrl ? (
+                          <img src={m.avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                            {initials}
+                          </div>
+                        )}
+                      </div>
+                      {isOwner && (
+                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2">
+                          <Crown className="h-3.5 w-3.5 text-amber-500 drop-shadow-sm" fill="#f59e0b" />
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline">PENDING</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                          onClick={() => handleCancelInvite(inv.id)}
-                          title="Cancel invite"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      )}
+                    </div>
+
+                    {/* Name + email */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{displayName}</span>
+                        {isOwner && (
+                          <Badge className="text-[10px] h-4 px-1.5 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">
+                            Owner
+                          </Badge>
+                        )}
+                        {m.id === currentUserId && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                            You
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                    </div>
+
+                    {/* Remove button */}
+                    {m.role !== 'OWNER' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
+                        onClick={() => handleRemove(m.id, m.username)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Pending invites */}
+              {pendingInvites.map((inv) => {
+                const isEmailOnly = !inv.invitedUser.id;
+                return (
+                  <div key={inv.id} className="flex items-center gap-3 px-4 py-3 bg-muted/20">
+                    {/* Placeholder avatar */}
+                    <div className="relative shrink-0">
+                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center ring-2 ring-border ring-dashed">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground truncate">
+                          {inv.invitedUser.email || inv.invitedEmail}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5">Pending</Badge>
+                        {isEmailOnly && (
+                          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Not registered</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Invite sent</p>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
+                      onClick={() => handleCancelInvite(inv.id)}
+                      title="Cancel invite"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </>
       )}
