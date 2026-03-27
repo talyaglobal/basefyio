@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
@@ -19,7 +19,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Minus } from 'lucide-react';
-import type { ImportProgressData, ImportJobProgressEvent } from '@/lib/types';
+import {
+  normalizeImportProgressData,
+  type ImportProgressData,
+  type ImportJobProgressEvent,
+} from '@/lib/types';
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -36,6 +40,20 @@ interface ImportStep {
   icon: React.ReactNode;
   status: 'pending' | 'active' | 'done' | 'error';
   detail?: string;
+}
+
+/** Cap so early % spikes do not produce absurd ETAs */
+const MAX_IMPORT_ETA_MS = 45 * 60 * 1000;
+/** Floor % for ETA math only — avoids divide-by-tiny-% blowups */
+const MIN_PCT_FOR_ETA = 1;
+
+function formatSmoothedEta(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 6000) return 'Almost done…';
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `~${sec}s remaining`;
+  const mins = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  return remSec > 0 ? `~${mins}m ${remSec}s remaining` : `~${mins}m remaining`;
 }
 
 function SupabaseLogo({ className }: { className?: string }) {
@@ -72,6 +90,7 @@ export function CreateProjectDialog({
 
   const [supabaseUrl, setSupabaseUrl] = useState('');
   const [serviceRoleKey, setServiceRoleKey] = useState('');
+  const [databasePassword, setDatabasePassword] = useState('');
   const [importName, setImportName] = useState('');
   const [importNameManual, setImportNameManual] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -79,20 +98,128 @@ export function CreateProjectDialog({
   const [tableCount, setTableCount] = useState(0);
   const [importSteps, setImportSteps] = useState<ImportStep[]>([]);
   const [importPercent, setImportPercent] = useState(0);
+  const importStartRef = useRef<number>(0);
+  const importPercentRef = useRef(0);
+  const importEtaStartMsRef = useRef(0);
+  const [importEta, setImportEta] = useState<string>('');
+  const etaSmoothedMsRef = useRef(0);
+  const etaVisualMsRef = useRef(0);
+  const etaRafRef = useRef<number | null>(null);
+  const etaLastLabelRef = useRef('');
+  const etaLastFrameTsRef = useRef<number | null>(null);
+
+  const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } =
+    useImportProgress();
+  const activeImportRef = useRef(activeImport);
+  activeImportRef.current = activeImport;
+
   const [importResult, setImportResult] = useState<ImportProgressData | null>(null);
+  const importResultHasIssues =
+    !!importResult &&
+    (importResult.warnings.length > 0 ||
+      importResult.database.failedTables.length > 0 ||
+      importResult.auth.skipped > 0);
   const [importProjectName, setImportProjectName] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
-  const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } = useImportProgress();
   const [cancelling, setCancelling] = useState(false);
-  // Tracks if the dialog was dismissed while the import API call was still in-flight,
-  // so the async continuation knows not to re-set modalShowingImport to true.
   const dismissedDuringImportRef = useRef(false);
+
+  const stopEtaAnimation = useCallback(() => {
+    if (etaRafRef.current != null) {
+      cancelAnimationFrame(etaRafRef.current);
+      etaRafRef.current = null;
+    }
+    etaSmoothedMsRef.current = 0;
+    etaVisualMsRef.current = 0;
+    etaLastLabelRef.current = '';
+    etaLastFrameTsRef.current = null;
+    importEtaStartMsRef.current = 0;
+  }, []);
+
+  const runEtaFrame = useCallback((ts: number) => {
+    const pct = importPercentRef.current;
+    if (pct <= 0 || pct >= 100 || importEtaStartMsRef.current === 0) {
+      etaRafRef.current = null;
+      etaLastFrameTsRef.current = null;
+      return;
+    }
+
+    const last = etaLastFrameTsRef.current;
+    etaLastFrameTsRef.current = ts;
+    const dt = last != null ? Math.min(ts - last, 56) : 16;
+
+    const target = etaSmoothedMsRef.current;
+    let v = etaVisualMsRef.current;
+    const smooth = 1 - Math.pow(0.971, dt / 16);
+    v += (target - v) * smooth;
+    if (Math.abs(target - v) < 450 && target < 7500) {
+      v = target;
+    }
+    etaVisualMsRef.current = v;
+
+    const label = formatSmoothedEta(v);
+    if (label !== etaLastLabelRef.current) {
+      etaLastLabelRef.current = label;
+      setImportEta(label);
+    }
+
+    etaRafRef.current = requestAnimationFrame(runEtaFrame);
+  }, []);
+
+  const ensureEtaRaf = useCallback(() => {
+    if (etaRafRef.current == null) {
+      etaLastFrameTsRef.current = null;
+      etaRafRef.current = requestAnimationFrame(runEtaFrame);
+    }
+  }, [runEtaFrame]);
+
+  const updatePercentAndEta = useCallback(
+    (pct: number) => {
+      importPercentRef.current = pct;
+      setImportPercent(pct);
+
+      const ai = activeImportRef.current;
+      const startMs =
+        ai?.status === 'running' && ai.startedAt ? ai.startedAt : importStartRef.current;
+      importEtaStartMsRef.current = startMs;
+
+      if (pct <= 0 || pct >= 100 || startMs === 0) {
+        stopEtaAnimation();
+        setImportEta('');
+        return;
+      }
+
+      const elapsed = Date.now() - startMs;
+      const effectivePct = Math.max(pct, MIN_PCT_FOR_ETA);
+      let raw = elapsed * (100 / effectivePct - 1);
+      raw = Math.max(0, Math.min(raw, MAX_IMPORT_ETA_MS));
+
+      const prev = etaSmoothedMsRef.current;
+      let next: number;
+      if (prev <= 0 || !Number.isFinite(prev)) {
+        next = raw;
+      } else if (raw < prev) {
+        next = prev + (raw - prev) * 0.22;
+      } else {
+        next = prev + (raw - prev) * 0.04;
+      }
+      etaSmoothedMsRef.current = next;
+
+      if (etaVisualMsRef.current <= 0) {
+        etaVisualMsRef.current = next;
+      }
+
+      ensureEtaRaf();
+    },
+    [stopEtaAnimation, ensureEtaRaf],
+  );
 
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
+      stopEtaAnimation();
     };
-  }, []);
+  }, [stopEtaAnimation]);
 
   // Belt-and-suspenders: whenever the dialog closes with a running import,
   // ensure the toast becomes visible regardless of how the close happened.
@@ -104,24 +231,39 @@ export function CreateProjectDialog({
   }, [open]);
 
   // Register the reopen callback so the toast can reopen this dialog
-  const activeImportRef = useRef(activeImport);
-  activeImportRef.current = activeImport;
-
   useEffect(() => {
     const reopenFn = () => {
       const current = activeImportRef.current;
       if (current && current.status === 'running') {
         setView('importing');
         setImportProjectName(current.projectName);
-        setImportPercent(current.percent);
+        updatePercentAndEta(current.percent);
         onOpenChange(true);
       }
     };
 
     setOnReopenModal(reopenFn);
     return () => setOnReopenModal(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onOpenChange, setOnReopenModal]);
+  }, [onOpenChange, setOnReopenModal, updatePercentAndEta]);
+
+  // Keep ETA / percent in sync while import runs (including when modal is minimized).
+  useEffect(() => {
+    if (!activeImport) return;
+    if (activeImport.status === 'failed') {
+      stopEtaAnimation();
+      setImportEta('');
+      importPercentRef.current = activeImport.percent;
+      return;
+    }
+    updatePercentAndEta(activeImport.percent);
+  }, [
+    activeImport?.jobId,
+    activeImport?.percent,
+    activeImport?.status,
+    activeImport?.startedAt,
+    updatePercentAndEta,
+    stopEtaAnimation,
+  ]);
 
   // Sync import steps from the global context when modal is reopened (no local SSE)
   useEffect(() => {
@@ -129,14 +271,12 @@ export function CreateProjectDialog({
     if (eventSourceRef.current) return; // local SSE is active, skip
 
     if (activeImport.status === 'completed' && activeImport.result) {
-      setImportResult(activeImport.result);
+      setImportResult(normalizeImportProgressData(activeImport.result));
       setView('result');
       return;
     }
 
     if (activeImport.status !== 'running') return;
-
-    setImportPercent(activeImport.percent);
 
     const stepMap: Record<string, number> = { database: 1, auth: 2, storage: 3 };
     const currentStepIdx = stepMap[activeImport.step] ?? 0;
@@ -155,6 +295,7 @@ export function CreateProjectDialog({
     setDescription('');
     setSupabaseUrl('');
     setServiceRoleKey('');
+    setDatabasePassword('');
     setImportName('');
     setImportNameManual(false);
     setValidating(false);
@@ -162,6 +303,10 @@ export function CreateProjectDialog({
     setTableCount(0);
     setImportSteps([]);
     setImportPercent(0);
+    importPercentRef.current = 0;
+    setImportEta('');
+    importStartRef.current = 0;
+    stopEtaAnimation();
     setImportResult(null);
     setImportProjectName('');
     setLoading(false);
@@ -230,7 +375,7 @@ export function CreateProjectDialog({
   }
 
   function updateStepFromSSE(data: ImportJobProgressEvent) {
-    setImportPercent(data.percent || 0);
+    updatePercentAndEta(data.percent || 0);
 
     setImportSteps((prev) => {
       const steps = [...prev];
@@ -280,11 +425,13 @@ export function CreateProjectDialog({
       { key: 'storage', label: 'Importing Storage', icon: <HardDrive className="h-4 w-4" />, status: 'pending' },
     ];
     setImportSteps(steps);
+    importStartRef.current = Date.now();
 
     try {
       const result = await api.projects.importFromSupabase({
         supabaseUrl: supabaseUrl.replace(/\/+$/, ''),
         serviceRoleKey,
+        ...(databasePassword.trim() ? { databasePassword: databasePassword.trim() } : {}),
         name: importName,
         teamId,
       });
@@ -292,7 +439,7 @@ export function CreateProjectDialog({
       setImportProjectName(result.project.name);
 
       // Always start global tracking so the job is persisted and the context SSE runs.
-      startTracking(result.jobId, result.project.name, onCreated);
+      startTracking(result.jobId, result.project.name, onCreated, importStartRef.current);
 
       // Only mark the modal as "showing import" if the dialog wasn't dismissed
       // while the API call was in-flight (race condition guard).
@@ -327,7 +474,7 @@ export function CreateProjectDialog({
           updateStepFromSSE(data);
         },
         onCompleted: (data) => {
-          const progress: ImportProgressData = data.progress;
+          const progress = normalizeImportProgressData(data.progress);
 
           setImportSteps((prev) => {
             const s = [...prev];
@@ -337,13 +484,30 @@ export function CreateProjectDialog({
             s[3] = { ...s[3], status: 'done', detail: `${progress.storage.buckets} buckets, ${progress.storage.objects} objects` };
             return s;
           });
-          setImportPercent(100);
+          updatePercentAndEta(100);
           setImportResult(progress);
           setView('result');
-          toast.success(`Project "${result.project.name}" imported from Supabase`);
+          const hasIssues =
+            progress.warnings.length > 0 ||
+            progress.database.failedTables.length > 0 ||
+            progress.auth.skipped > 0;
+          const listed = progress.warnings.length;
+          if (hasIssues) {
+            toast.warning(
+              listed > 0
+                ? `Import finished with ${listed} message${listed === 1 ? '' : 's'}. See the list in the dialog.`
+                : 'Import finished with some issues. See the dialog for details.',
+              { duration: 8000 },
+            );
+          } else {
+            toast.success(`Project "${result.project.name}" imported from Supabase`);
+          }
           onCreated();
         },
         onFailed: (error) => {
+          stopEtaAnimation();
+          setImportEta('');
+          importPercentRef.current = 0;
           setImportSteps((prev) => {
             const s = [...prev];
             const activeIdx = s.findIndex((st) => st.status === 'active' || st.status === 'pending');
@@ -359,6 +523,9 @@ export function CreateProjectDialog({
 
       eventSourceRef.current = es;
     } catch (err: any) {
+      stopEtaAnimation();
+      setImportEta('');
+      importPercentRef.current = 0;
       setImportSteps((prev) => {
         const s = [...prev];
         s[0] = { ...s[0], status: 'error', detail: err.message };
@@ -520,6 +687,21 @@ export function CreateProjectDialog({
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="db-password">Database password (optional)</Label>
+                <PasswordInput
+                  id="db-password"
+                  value={databasePassword}
+                  onChange={(e) => setDatabasePassword(e.target.value)}
+                  placeholder="Only if some tables fail to import"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Normally the <strong>service_role</strong> key is enough. Use Dashboard &rarr; Database &rarr; password
+                  only if specific tables still return permission errors — then we read those rows over a direct Postgres
+                  connection.
+                </p>
+              </div>
+
               {validated && (
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 dark:bg-emerald-950/30 dark:border-emerald-800">
                   <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
@@ -630,11 +812,11 @@ export function CreateProjectDialog({
               />
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 min-w-0 max-w-[260px]">
+              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 min-w-0 flex-1 mr-2">
                 <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                <span className="truncate">
-                  {importSteps.find((s) => s.status === 'active')?.detail || 'This may take a few minutes'}
+                <span className="font-medium tabular-nums transition-[opacity,transform] duration-700 ease-out motion-reduce:transition-none">
+                  {importEta || importSteps.find((s) => s.status === 'active')?.detail || 'This may take a few minutes'}
                 </span>
               </div>
               <Button
@@ -670,12 +852,29 @@ export function CreateProjectDialog({
           <>
             <DialogHeader>
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                <DialogTitle>Import Complete</DialogTitle>
+                {importResultHasIssues ? (
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                )}
+                <DialogTitle>
+                  {importResultHasIssues
+                    ? 'Import finished with issues'
+                    : 'Import Complete'}
+                </DialogTitle>
               </div>
               <DialogDescription>
-                Project &ldquo;{importProjectName}&rdquo; has been imported
-                successfully.
+                {importResultHasIssues ? (
+                  <>
+                    Project &ldquo;{importProjectName}&rdquo; was imported, but some
+                    steps reported errors or warnings. Review the list below.
+                  </>
+                ) : (
+                  <>
+                    Project &ldquo;{importProjectName}&rdquo; has been imported
+                    successfully.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -693,19 +892,54 @@ export function CreateProjectDialog({
               ))}
             </div>
 
-            {importResult.warnings.length > 0 && (
-              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 dark:bg-amber-950/30 dark:border-amber-800">
-                <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</p>
-                <ul className="space-y-1">
-                  {importResult.warnings.map((w, i) => (
-                    <li key={i} className="text-xs text-amber-600 dark:text-amber-500 flex gap-1.5">
-                      <span className="shrink-0">&#x2022;</span>
-                      <span>{w}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {(() => {
+              const w = importResult.warnings;
+              const failed = importResult.database.failedTables;
+              const skippedAuth = importResult.auth.skipped;
+              const showPanel =
+                w.length > 0 || failed.length > 0 || skippedAuth > 0;
+              if (!showPanel) return null;
+              const heading =
+                w.length > 0
+                  ? `Errors & warnings (${w.length})`
+                  : 'Import issues (summary only)';
+              return (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                  <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-400">
+                    {heading}
+                  </p>
+                  {w.length === 0 && skippedAuth > 0 && (
+                    <p className="mb-2 text-xs text-amber-700 dark:text-amber-500">
+                      Auth: {skippedAuth} user(s) were not imported.
+                    </p>
+                  )}
+                  {w.length === 0 && failed.length > 0 && (
+                    <p className="mb-2 text-xs text-amber-700 dark:text-amber-500">
+                      Database: {failed.length} table(s) could not be imported:{' '}
+                      {failed.join(', ')}
+                    </p>
+                  )}
+                  {w.length > 0 && (
+                    <ul
+                      className="max-h-48 space-y-1.5 overflow-y-auto pr-1 text-xs text-amber-900 dark:text-amber-400"
+                      aria-label="Import issues"
+                    >
+                      {w.map((line, i) => (
+                        <li
+                          key={i}
+                          className="flex gap-2 border-b border-amber-200/60 pb-1.5 last:border-0 dark:border-amber-800/50"
+                        >
+                          <span className="shrink-0 font-mono text-[10px] text-amber-600 dark:text-amber-500">
+                            {i + 1}.
+                          </span>
+                          <span className="min-w-0 break-words">{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex items-center justify-center gap-2 flex-wrap">
               <Badge variant="secondary">

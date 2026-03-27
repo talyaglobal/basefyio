@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { Project, GitHubCommit, VercelDeployment, GitHubIntegration, VercelIntegration, Team } from '@/lib/types';
+import {
+  parseProjectSupabaseImportLog,
+  type Project,
+  type GitHubCommit,
+  type VercelDeployment,
+  type GitHubIntegration,
+  type VercelIntegration,
+  type Team,
+} from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -14,6 +22,7 @@ import {
 import {
   Database, Github, Key, Shield, Trash2, Triangle,
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
+  HardDrive, ScrollText, AlertTriangle,
 } from 'lucide-react';
 
 function timeAgo(dateStr: string) {
@@ -77,7 +86,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   }, [project.id, project.github?.connected, project.vercel?.connected]);
 
   async function handleDelete() {
-    if (!confirm(`Move "${project.name}" to trash? You can restore it later.`)) return;
+    if (!confirm(`Move "${project.name}" to trash?\n\nThe project will stay in trash for 24 hours. The team owner can restore it during this period. After 24 hours it will be permanently deleted.`)) return;
 
     setDeleting(true);
     try {
@@ -110,6 +119,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const gh = githubStatus?.connected ? githubStatus : project.github;
   const vc = vercelStatus?.connected ? vercelStatus : project.vercel;
   const vercelDashboardUrl = vercelStatus?.dashboardUrl || null;
+  const importLog = parseProjectSupabaseImportLog(project.supabaseImportLog);
 
   return (
     <div className="space-y-6">
@@ -313,6 +323,109 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </div>
         )}
       </div>
+
+      {importLog && (
+        <div className="rounded-lg border bg-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <ScrollText className="h-4 w-4" />
+                Supabase import log
+              </div>
+              {importLog.completedAt && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Completed {new Date(importLog.completedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="font-normal">
+                <Database className="mr-1 h-3 w-3" />
+                {importLog.database.tables} tables
+              </Badge>
+              <Badge variant="secondary" className="font-normal">
+                <Shield className="mr-1 h-3 w-3" />
+                {importLog.auth.users} users
+              </Badge>
+              <Badge variant="secondary" className="font-normal">
+                <HardDrive className="mr-1 h-3 w-3" />
+                {importLog.storage.objects} files
+              </Badge>
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs text-muted-foreground">
+            {importLog.database.rows.toLocaleString()} rows copied &middot;{' '}
+            {importLog.storage.buckets} storage bucket(s)
+            {importLog.auth.skipped > 0 && (
+              <>
+                {' '}
+                &middot; {importLog.auth.skipped} auth user(s) skipped
+              </>
+            )}
+          </p>
+
+          {(importLog.warnings.length > 0 ||
+            importLog.database.failedTables.length > 0 ||
+            importLog.auth.skipped > 0) && (
+            <div
+              className={`mt-4 rounded-lg border p-3 ${
+                importLog.warnings.length > 0
+                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+                  : 'border-border bg-muted/40'
+              }`}
+            >
+              <p
+                className={`mb-2 text-xs font-medium ${
+                  importLog.warnings.length > 0
+                    ? 'text-amber-800 dark:text-amber-400'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {importLog.warnings.length > 0 ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Errors &amp; warnings ({importLog.warnings.length})
+                  </span>
+                ) : (
+                  'Import notes'
+                )}
+              </p>
+              {importLog.warnings.length === 0 && importLog.auth.skipped > 0 && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Auth: {importLog.auth.skipped} user(s) were not imported.
+                </p>
+              )}
+              {importLog.warnings.length === 0 &&
+                importLog.database.failedTables.length > 0 && (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Database: could not import{' '}
+                    {importLog.database.failedTables.length} table(s):{' '}
+                    {importLog.database.failedTables.join(', ')}
+                  </p>
+                )}
+              {importLog.warnings.length > 0 && (
+                <ul
+                  className="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-xs text-amber-900 dark:text-amber-300"
+                  aria-label="Import log messages"
+                >
+                  {importLog.warnings.map((line, i) => (
+                    <li
+                      key={i}
+                      className="flex gap-2 border-b border-amber-200/60 pb-1.5 last:border-0 dark:border-amber-800/50"
+                    >
+                      <span className="shrink-0 font-mono text-[10px] text-amber-600 dark:text-amber-500">
+                        {i + 1}.
+                      </span>
+                      <span className="min-w-0 break-words">{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Move to Team Dialog */}
       <Dialog open={moveTeamOpen} onOpenChange={setMoveTeamOpen}>

@@ -2,13 +2,19 @@
 
 import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { api } from '@/lib/api';
-import type { ImportProgressData, ImportJobProgressEvent } from '@/lib/types';
+import {
+  normalizeImportProgressData,
+  type ImportProgressData,
+  type ImportJobProgressEvent,
+} from '@/lib/types';
 
 const STORAGE_KEY = 'kolaybase_active_import';
 
 export interface ActiveImport {
   jobId: string;
   projectName: string;
+  /** Wall-clock start for ETA (persists across minimize / page refresh when possible). */
+  startedAt: number;
   step: string;
   detail: string;
   percent: number;
@@ -19,7 +25,12 @@ export interface ActiveImport {
 
 interface ImportProgressContextValue {
   activeImport: ActiveImport | null;
-  startTracking: (jobId: string, projectName: string, onComplete?: () => void) => void;
+  startTracking: (
+    jobId: string,
+    projectName: string,
+    onComplete?: () => void,
+    startedAt?: number,
+  ) => void;
   cancelImport: () => Promise<void>;
   dismiss: () => void;
   modalShowingImport: boolean;
@@ -43,9 +54,12 @@ export function useImportProgress() {
   return useContext(ImportProgressContext);
 }
 
-function persistJob(jobId: string, projectName: string) {
+function persistJob(jobId: string, projectName: string, startedAt: number) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId, projectName }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ jobId, projectName, startedAt }),
+    );
   } catch {}
 }
 
@@ -55,12 +69,23 @@ function clearPersistedJob() {
   } catch {}
 }
 
-function getPersistedJob(): { jobId: string; projectName: string } | null {
+function getPersistedJob(): {
+  jobId: string;
+  projectName: string;
+  startedAt: number;
+} | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed?.jobId && parsed?.projectName) return parsed;
+    if (parsed?.jobId && parsed?.projectName) {
+      return {
+        jobId: parsed.jobId,
+        projectName: parsed.projectName,
+        startedAt:
+          typeof parsed.startedAt === 'number' ? parsed.startedAt : Date.now(),
+      };
+    }
   } catch {}
   return null;
 }
@@ -102,15 +127,23 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
     setOnReopenModalState(() => fn);
   }, []);
 
-  const startTracking = useCallback((jobId: string, projectName: string, onComplete?: () => void) => {
+  const startTracking = useCallback(
+    (
+      jobId: string,
+      projectName: string,
+      onComplete?: () => void,
+      startedAt?: number,
+    ) => {
     esRef.current?.close();
     onCompleteCallbackRef.current = onComplete || null;
 
-    persistJob(jobId, projectName);
+    const t0 = startedAt ?? Date.now();
+    persistJob(jobId, projectName, t0);
 
     setActiveImport({
       jobId,
       projectName,
+      startedAt: t0,
       step: 'connect',
       detail: 'Connecting to Supabase...',
       percent: 0,
@@ -130,7 +163,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
         });
       },
       onCompleted: (data: any) => {
-        const progress: ImportProgressData = data.progress;
+        const progress = normalizeImportProgressData(data.progress);
         setActiveImport((prev) => {
           if (!prev || prev.jobId !== jobId) return prev;
           return {
@@ -174,7 +207,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
     const saved = getPersistedJob();
     if (!saved) return;
 
-    startTracking(saved.jobId, saved.projectName);
+    startTracking(saved.jobId, saved.projectName, undefined, saved.startedAt);
   }, [startTracking]);
 
   return (

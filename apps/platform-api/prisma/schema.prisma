@@ -127,6 +127,9 @@ model Project {
   anonKey       String        @map("anon_key")
   serviceKey    String        @map("service_key")
   teamId        String        @map("team_id")
+  createdBy     String?       @map("created_by")
+  /// Last successful Supabase import summary (tables, auth, storage, warnings).
+  supabaseImportLog Json?     @map("supabase_import_log")
   status        ProjectStatus @default(ACTIVE)
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")

@@ -717,9 +717,15 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [columnPanelOpen, setColumnPanelOpen] = useState(false);
 
   const [filterText, setFilterText] = useState('');
+  const [tableSearch, setTableSearch] = useState('');
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
 
   const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
+  const tableSearchLower = tableSearch.trim().toLowerCase();
+  const filteredTables =
+    tableSearchLower.length === 0
+      ? tables
+      : tables.filter((t) => t.name.toLowerCase().includes(tableSearchLower));
 
   useEffect(() => {
     loadTables();
@@ -1029,60 +1035,78 @@ export function TableEditor({ projectId }: TableEditorProps) {
             className="shrink-0 border-r bg-muted/30 flex flex-col relative"
             style={{ width: sidebarWidth }}
           >
+            <div className="p-2 border-b bg-muted/30">
+              <Input
+                placeholder="Search tables..."
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                className="h-8 text-xs"
+                aria-label="Search tables"
+              />
+            </div>
+
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-              {tables.map((t) => (
-                <div key={t.name} className="group relative">
-                  <button
-                    onClick={() => {
-                      selectTable(t.name);
-                      setColumnPanelOpen(true);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors pr-9',
-                      selected === t.name
-                        ? 'bg-primary/10 font-medium text-primary'
-                        : 'text-muted-foreground hover:bg-accent',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <Table2 className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{t.name}</span>
-                    </span>
-                    <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
-                      {t.rowCount}
-                    </Badge>
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
-                        title="Table options"
-                      >
-                        <MoreVertical className="h-3.5 w-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          selectTable(t.name);
-                          setColumnPanelOpen(true);
-                        }}
-                      >
-                        <Pencil className="mr-2 h-3.5 w-3.5" />
-                        Edit table
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => handleDropTable(t.name)}
-                      >
-                        <Trash2 className="mr-2 h-3.5 w-3.5" />
-                        Delete table
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+              {filteredTables.length === 0 && tableSearchLower.length > 0 ? (
+                <div className="px-3 py-6">
+                  <p className="text-xs text-muted-foreground">
+                    No tables match &quot;{tableSearch}&quot;.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                filteredTables.map((t) => (
+                  <div key={t.name} className="group relative">
+                    <button
+                      onClick={() => {
+                        selectTable(t.name);
+                        setColumnPanelOpen(true);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors pr-9',
+                        selected === t.name
+                          ? 'bg-primary/10 font-medium text-primary'
+                          : 'text-muted-foreground hover:bg-accent',
+                      )}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <Table2 className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{t.name}</span>
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
+                        {t.rowCount}
+                      </Badge>
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+                          title="Table options"
+                        >
+                          <MoreVertical className="h-3.5 w-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            selectTable(t.name);
+                            setColumnPanelOpen(true);
+                          }}
+                        >
+                          <Pencil className="mr-2 h-3.5 w-3.5" />
+                          Edit table
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => handleDropTable(t.name)}
+                        >
+                          <Trash2 className="mr-2 h-3.5 w-3.5" />
+                          Delete table
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ))
+              )}
             </div>
 
             {/* Drag handle */}

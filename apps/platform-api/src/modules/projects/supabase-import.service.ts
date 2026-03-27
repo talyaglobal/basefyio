@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
@@ -112,6 +113,7 @@ export class SupabaseImportService {
     projectName: string,
     teamId: string,
     userId: string,
+    supabaseDatabasePassword?: string,
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -133,6 +135,7 @@ export class SupabaseImportService {
       projectName: finalName,
       baseUrl,
       serviceRoleKey,
+      supabaseDatabasePassword: supabaseDatabasePassword?.trim() || undefined,
       dbHost: project.dbHost,
       dbPort: project.dbPort,
       dbUser: project.dbUser,
@@ -323,10 +326,38 @@ export class SupabaseImportService {
 
   // ── Private: Connection ─────────────────────────────────
 
+  /** Reject anon key early — PostgREST will list OpenAPI but table rows return 403 on RLS-heavy projects. */
+  private assertServiceRoleKey(serviceRoleKey: string) {
+    const key = serviceRoleKey?.trim();
+    if (!key) return;
+    try {
+      const parts = key.split('.');
+      if (parts.length < 2) return;
+      const json = Buffer.from(parts[1], 'base64').toString('utf8');
+      const payload = JSON.parse(json) as { role?: string };
+      if (payload.role === 'anon') {
+        throw new BadRequestException(
+          'This is the anon (public) API key. Use the service_role secret from Supabase → Settings → API for a full import.',
+        );
+      }
+      if (payload.role && payload.role !== 'service_role') {
+        this.logger.warn(
+          `API key JWT role is "${payload.role}"; use service_role for reliable table reads.`,
+        );
+      }
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+    }
+  }
+
   private async validateConnection(
     baseUrl: string,
     headers: Record<string, string>,
   ) {
+    const bearer = headers['Authorization']?.replace(/^Bearer\s+/i, '').trim();
+    const apikey = headers['apikey']?.trim();
+    this.assertServiceRoleKey(bearer || apikey || '');
+
     try {
       await firstValueFrom(
         this.http.get(`${baseUrl}/rest/v1/`, {
@@ -422,6 +453,32 @@ export class SupabaseImportService {
 
   // ── Database Import ───────────────────────────────────
 
+  /** Project ref for db.<ref>.supabase.co — from hostname or JWT payload. */
+  private resolveSupabaseProjectRef(
+    baseUrl: string,
+    serviceRoleKey: string,
+  ): string | null {
+    try {
+      const host = new URL(baseUrl).hostname.toLowerCase();
+      const m = host.match(/^([a-z0-9]{15,})\.supabase\.co$/);
+      if (m) return m[1];
+    } catch {
+      // ignore
+    }
+    try {
+      const parts = serviceRoleKey.split('.');
+      if (parts.length >= 2) {
+        const payload = JSON.parse(
+          Buffer.from(parts[1], 'base64').toString('utf8'),
+        );
+        if (payload.ref && typeof payload.ref === 'string') return payload.ref;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   private async connectPoolWithRetry(pool: Pool, label: string, maxRetries = 5): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -461,6 +518,42 @@ export class SupabaseImportService {
 
     await this.connectPoolWithRetry(pool, project.dbName);
 
+    let sourcePool: Pool | null = null;
+    const pwd: string | undefined = project.supabaseDatabasePassword;
+    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
+    if (pwd) {
+      const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+      if (ref) {
+        try {
+          sourcePool = new Pool({
+            host: `db.${ref}.supabase.co`,
+            port: 5432,
+            user: 'postgres',
+            password: pwd,
+            database: 'postgres',
+            ssl: { rejectUnauthorized: false },
+            max: 3,
+          });
+          await this.connectPoolWithRetry(sourcePool, `supabase-remote-${ref}`);
+          this.logger.log(
+            `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
+          );
+        } catch (err: any) {
+          this.logger.warn(
+            `Direct Postgres connection failed (${err.message}); falling back to PostgREST for data`,
+          );
+          if (sourcePool) {
+            await sourcePool.end().catch(() => {});
+            sourcePool = null;
+          }
+        }
+      } else {
+        this.logger.warn(
+          'databasePassword was set but project ref could not be resolved; using PostgREST only',
+        );
+      }
+    }
+
     try {
       for (let i = 0; i < tables.length; i++) {
         const table = tables[i];
@@ -483,13 +576,20 @@ export class SupabaseImportService {
             await onProgress(`Importing data for "${table.table_name}" (${i + 1}/${tables.length})`, pct);
           }
 
-          const rowCount = await this.copyTableData(
-            baseUrl,
-            headers,
-            pool,
-            table.table_name,
-            columns,
-          );
+          const rowCount = sourcePool
+            ? await this.copyTableDataFromDirectPostgres(
+                sourcePool,
+                pool,
+                table.table_name,
+                columns,
+              )
+            : await this.copyTableDataFromRest(
+                baseUrl,
+                headers,
+                pool,
+                table.table_name,
+                columns,
+              );
           progress.database.rows += rowCount;
 
           this.logger.log(
@@ -508,6 +608,7 @@ export class SupabaseImportService {
       }
     } finally {
       await pool.end();
+      if (sourcePool) await sourcePool.end().catch(() => {});
     }
   }
 
@@ -613,6 +714,9 @@ export class SupabaseImportService {
             this.logger.warn(
               `Batch insert failed for "${schema}.${table}": ${err.message}`,
             );
+            progress.warnings.push(
+              `Non-public "${schema}.${table}" batch insert failed: ${err.message}`,
+            );
           } finally {
             client.release();
           }
@@ -650,15 +754,21 @@ export class SupabaseImportService {
                 }
                 await nextClient.query('COMMIT');
                 totalRows += nextRows.length;
-              } catch {
+              } catch (pageErr: any) {
                 await nextClient.query('ROLLBACK').catch(() => {});
+                progress.warnings.push(
+                  `Non-public "${schema}.${table}" page at offset ${offset} failed: ${pageErr?.message || 'unknown error'}`,
+                );
               } finally {
                 nextClient.release();
               }
 
               if (nextRows.length < 1000) break;
               offset += 1000;
-            } catch {
+            } catch (pageHttpErr: any) {
+              progress.warnings.push(
+                `Non-public "${schema}.${table}" could not fetch page at offset ${offset}: ${pageHttpErr?.message || 'unknown error'}`,
+              );
               break;
             }
           }
@@ -675,9 +785,15 @@ export class SupabaseImportService {
             this.logger.log(
               `Non-public table "${schema}.${table}" not accessible via PostgREST (${status}) — skipping`,
             );
+            progress.warnings.push(
+              `Non-public "${schema}.${table}" not imported (API returned ${status}).`,
+            );
           } else {
             this.logger.warn(
               `Could not import "${schema}.${table}": ${err.message}`,
+            );
+            progress.warnings.push(
+              `Non-public "${schema}.${table}": ${err.message}`,
             );
           }
         }
@@ -800,10 +916,10 @@ export class SupabaseImportService {
       return def;
     });
 
-    const sql = `CREATE TABLE IF NOT EXISTS "${sanitized}" (\n  ${colDefs.join(',\n  ')}\n)`;
-
     const client = await pool.connect();
     try {
+      await client.query(`DROP TABLE IF EXISTS "${sanitized}" CASCADE`);
+      const sql = `CREATE TABLE "${sanitized}" (\n  ${colDefs.join(',\n  ')}\n)`;
       await client.query(sql);
       this.logger.log(`Created table "${sanitized}" (${columns.length} columns)`);
     } finally {
@@ -811,62 +927,199 @@ export class SupabaseImportService {
     }
   }
 
-  private async fetchPage(
-    baseUrl: string,
-    headers: Record<string, string>,
+  /**
+   * Paginated row fetch via official Supabase client (same PostgREST, correct headers / encoding).
+   */
+  private async fetchPageViaSupabaseClient(
+    sb: SupabaseClient,
     tableName: string,
     offset: number,
     pageSize: number,
     retries = 3,
   ): Promise<any[] | null | undefined> {
+    const rangeEnd = offset + pageSize - 1;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await firstValueFrom(
-          this.http.get(
-            `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
-            {
-              headers: {
-                ...headers,
-                Accept: 'application/json',
-                Prefer: 'return=representation',
-              },
-              params: {
-                select: '*',
-                limit: pageSize,
-                offset,
-              },
-              timeout: 120000,
-            },
-          ),
-        );
-        return response.data;
-      } catch (err: any) {
-        const status = err.response?.status;
-        if (status === 416 || status === 404) return null;
-        if (status === 403 || status === 401) {
+        const { data, error } = await sb
+          .from(tableName)
+          .select('*')
+          .range(offset, rangeEnd);
+
+        if (error) {
+          const low = (error.message || '').toLowerCase();
+          const st = (error as { statusCode?: number; status?: number }).statusCode
+            ?? (error as { status?: number }).status;
+          if (low.includes('range not satisfiable') || low.includes('416') || st === 416) {
+            return null;
+          }
+          if (
+            st === 403 ||
+            st === 401 ||
+            low.includes('permission denied') ||
+            error.code === '42501' ||
+            low.includes('jwt expired') ||
+            low.includes('invalid jwt')
+          ) {
+            this.logger.warn(
+              `Access denied "${tableName}" offset=${offset}: ${error.message?.slice(0, 180)} — ` +
+                `confirm service_role key; if tables still fail, add Database password for direct Postgres copy.`,
+            );
+            return null;
+          }
           this.logger.warn(
-            `Access denied fetching "${tableName}" at offset ${offset}: ${err.message}`,
+            `fetchPage "${tableName}" offset=${offset} attempt ${attempt}/${retries}: ${error.message}`,
           );
-          return null;
+          if (attempt < retries) {
+            await new Promise((r) => setTimeout(r, attempt * 2000));
+            continue;
+          }
+          return undefined;
         }
+
+        const rows = Array.isArray(data) ? data : [];
+        if (offset === 0 && attempt === 1) {
+          this.logger.log(
+            `fetchPage "${tableName}" offset=0: got ${rows.length} items (supabase-js)`,
+          );
+        }
+        return rows;
+      } catch (err: any) {
         this.logger.warn(
           `Fetch "${tableName}" offset=${offset} attempt ${attempt}/${retries}: ${err.message}`,
         );
         if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, attempt * 1500));
+          await new Promise((r) => setTimeout(r, attempt * 2000));
         }
       }
     }
+    this.logger.warn(`fetchPage "${tableName}" offset=${offset}: all ${retries} retries exhausted`);
     return undefined;
   }
 
-  private async copyTableData(
+  /**
+   * Read rows via direct connection to Supabase Postgres (postgres role).
+   * Use when PostgREST returns 403 because service_role lacks SELECT on a table.
+   */
+  private async copyTableDataFromDirectPostgres(
+    sourcePool: Pool,
+    destPool: Pool,
+    tableName: string,
+    columns: SupabaseColumn[],
+  ): Promise<number> {
+    const sanitized = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+    const columnNames = columns.map((c) =>
+      c.column_name.replace(/[^a-zA-Z0-9_]/g, ''),
+    );
+    const colList = columnNames.map((n) => `"${n}"`).join(', ');
+    const typeMap: Record<string, string> = {};
+    for (const col of columns) {
+      const cleanName = col.column_name.replace(/[^a-zA-Z0-9_]/g, '');
+      typeMap[cleanName] = col.data_type;
+    }
+    const knownCols = new Set(columnNames);
+    let totalRows = 0;
+    let offset = 0;
+    const pageSize = 2000;
+    let firstPageLogged = false;
+
+    while (true) {
+      const src = await sourcePool.connect();
+      let rows: any[];
+      try {
+        const res = await src.query(
+          `SELECT ${colList} FROM public."${sanitized}" ORDER BY ctid LIMIT $1 OFFSET $2`,
+          [pageSize, offset],
+        );
+        rows = res.rows;
+      } catch (err: any) {
+        this.logger.warn(
+          `Direct PG SELECT failed for "${sanitized}" offset=${offset}: ${err.message}`,
+        );
+        if (offset === 0) return 0;
+        break;
+      } finally {
+        src.release();
+      }
+
+      if (!rows.length) break;
+
+      if (!firstPageLogged) {
+        const sampleRow = rows[0];
+        const rowKeys = Object.keys(sampleRow);
+        const matched = rowKeys.filter((k) => knownCols.has(k));
+        this.logger.log(
+          `"${sanitized}" direct PG first page: ${rows.length} rows, matched cols=${matched.length}/${columnNames.length}`,
+        );
+        firstPageLogged = true;
+      }
+
+      const client = await destPool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const row of rows) {
+          const rowKeys = Object.keys(row);
+          if (!rowKeys.length) continue;
+          await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap, knownCols);
+        }
+        await client.query('COMMIT');
+        totalRows += rows.length;
+      } catch (err: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        this.logger.warn(
+          `Batch insert failed for "${sanitized}" (direct PG path) at offset ${offset}: ${err.message}`,
+        );
+        const retryClient = await destPool.connect();
+        try {
+          let savedRows = 0;
+          for (const row of rows) {
+            try {
+              const rowKeys = Object.keys(row);
+              if (!rowKeys.length) continue;
+              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap, knownCols);
+              savedRows++;
+            } catch {
+              // skip bad row
+            }
+          }
+          totalRows += savedRows;
+        } finally {
+          retryClient.release();
+        }
+        if (rows.length < pageSize) break;
+        offset += pageSize;
+        continue;
+      } finally {
+        client.release();
+      }
+
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    if (totalRows === 0) {
+      this.logger.warn(`Table "${sanitized}": 0 rows via direct PG — check table exists in public schema`);
+    } else {
+      this.logger.log(`Imported ${totalRows} rows into "${sanitized}" (direct PG)`);
+    }
+    return totalRows;
+  }
+
+  private async copyTableDataFromRest(
     baseUrl: string,
     headers: Record<string, string>,
     pool: Pool,
     tableName: string,
     columns: SupabaseColumn[],
   ): Promise<number> {
+    const serviceKey =
+      headers['Authorization']?.replace(/^Bearer\s+/i, '').trim() ||
+      headers['apikey']?.trim() ||
+      '';
+    const sb = createClient(baseUrl.replace(/\/+$/, ''), serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      db: { schema: 'public' },
+    });
+
     const sanitized = tableName.replace(/[^a-zA-Z0-9_]/g, '');
     const columnNames = columns.map((c) =>
       c.column_name.replace(/[^a-zA-Z0-9_]/g, ''),
@@ -876,12 +1129,14 @@ export class SupabaseImportService {
       const cleanName = col.column_name.replace(/[^a-zA-Z0-9_]/g, '');
       typeMap[cleanName] = col.data_type;
     }
+    const knownCols = new Set(columnNames);
     let totalRows = 0;
     let offset = 0;
     const pageSize = 1000;
+    let firstPageLogged = false;
 
     while (true) {
-      const rows = await this.fetchPage(baseUrl, headers, tableName, offset, pageSize);
+      const rows = await this.fetchPageViaSupabaseClient(sb, tableName, offset, pageSize);
 
       if (rows === null) break;
       if (rows === undefined) {
@@ -890,22 +1145,30 @@ export class SupabaseImportService {
       }
       if (!Array.isArray(rows) || rows.length === 0) break;
 
+      if (!firstPageLogged) {
+        const sampleRow = rows[0];
+        const rowKeys = Object.keys(sampleRow);
+        const matched = rowKeys.filter((k) => knownCols.has(k));
+        const extra = rowKeys.filter((k) => !knownCols.has(k));
+        this.logger.log(
+          `"${tableName}" first page: ${rows.length} rows, ` +
+          `schema cols=${columnNames.length}, ` +
+          `row keys=${rowKeys.length}, ` +
+          `matched=${matched.length}` +
+          (extra.length > 0 ? `, extra keys=[${extra.join(',')}]` : ''),
+        );
+        firstPageLogged = true;
+      }
+
       const client = await pool.connect();
       let batchSucceeded = false;
       try {
         await client.query('BEGIN');
 
         for (const row of rows) {
-          const allKeys = columnNames.filter((k) =>
-            Object.prototype.hasOwnProperty.call(row, k),
-          );
-          if (!allKeys.length) {
-            const rowKeys = Object.keys(row);
-            if (!rowKeys.length) continue;
-            await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap);
-          } else {
-            await this.insertSingleRow(client, sanitized, allKeys, row, typeMap);
-          }
+          const rowKeys = Object.keys(row);
+          if (!rowKeys.length) continue;
+          await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap, knownCols);
         }
 
         await client.query('COMMIT');
@@ -915,23 +1178,30 @@ export class SupabaseImportService {
         await client.query('ROLLBACK').catch(() => {});
 
         this.logger.warn(
-          `Batch insert failed for "${sanitized}" at offset ${offset}, retrying row-by-row: ${err.message}`,
+          `Batch insert failed for "${sanitized}" at offset ${offset}: ${err.message}`,
         );
 
         const retryClient = await pool.connect();
+        let savedRows = 0;
+        let failCount = 0;
         try {
-          let savedRows = 0;
           for (const row of rows) {
             try {
               const rowKeys = Object.keys(row);
               if (!rowKeys.length) continue;
-              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap);
+              await this.insertSingleRow(retryClient, sanitized, rowKeys, row, typeMap, knownCols);
               savedRows++;
             } catch (rowErr: any) {
-              this.logger.warn(
-                `Row insert failed in "${sanitized}": ${rowErr.message}`,
-              );
+              failCount++;
+              if (failCount <= 3) {
+                this.logger.warn(
+                  `Row insert failed in "${sanitized}": ${rowErr.message} | row keys: ${Object.keys(row).join(',')}`,
+                );
+              }
             }
+          }
+          if (failCount > 3) {
+            this.logger.warn(`"${sanitized}": ${failCount} rows failed in batch at offset ${offset} (showing first 3)`);
           }
           totalRows += savedRows;
         } finally {
@@ -952,7 +1222,11 @@ export class SupabaseImportService {
       offset += pageSize;
     }
 
-    this.logger.log(`Imported ${totalRows} rows into "${sanitized}"`);
+    if (totalRows === 0) {
+      this.logger.warn(`Table "${sanitized}": 0 rows imported — data may be missing`);
+    } else {
+      this.logger.log(`Imported ${totalRows} rows into "${sanitized}"`);
+    }
     return totalRows;
   }
 
@@ -962,11 +1236,17 @@ export class SupabaseImportService {
     keys: string[],
     row: Record<string, any>,
     typeMap: Record<string, string>,
+    knownColumns?: Set<string>,
   ) {
-    const cleanKeys = keys.map((k) => k.replace(/[^a-zA-Z0-9_]/g, ''));
+    const filteredKeys = knownColumns
+      ? keys.filter((k) => knownColumns.has(k.replace(/[^a-zA-Z0-9_]/g, '')))
+      : keys;
+    if (!filteredKeys.length) return;
+
+    const cleanKeys = filteredKeys.map((k) => k.replace(/[^a-zA-Z0-9_]/g, ''));
     const cols = cleanKeys.map((k) => `"${k}"`).join(', ');
     const placeholders = cleanKeys.map((_, i) => `$${i + 1}`).join(', ');
-    const values = keys.map((k, i) => {
+    const values = filteredKeys.map((k, i) => {
       const v = row[k];
       if (v === null || v === undefined) return null;
 
@@ -1068,11 +1348,15 @@ export class SupabaseImportService {
 
     this.logger.log(`Found ${allUsers.length} auth users to import`);
 
+    let skippedNoEmail = 0;
+    let skippedDuplicate = 0;
+
     for (const user of allUsers) {
       try {
         const email = user.email;
         if (!email) {
           progress.auth.skipped++;
+          skippedNoEmail++;
           continue;
         }
 
@@ -1105,13 +1389,27 @@ export class SupabaseImportService {
           err.message?.includes('exists')
         ) {
           progress.auth.skipped++;
+          skippedDuplicate++;
         } else {
+          const email = user.email || user.id || '(unknown)';
           this.logger.warn(
-            `Failed to import user "${user.email}": ${err.message}`,
+            `Failed to import user "${email}": ${err.message}`,
           );
           progress.auth.skipped++;
+          progress.warnings.push(`Auth user "${email}": ${err.message}`);
         }
       }
+    }
+
+    if (skippedNoEmail > 0) {
+      progress.warnings.push(
+        `Auth: ${skippedNoEmail} user(s) skipped (no email address).`,
+      );
+    }
+    if (skippedDuplicate > 0) {
+      progress.warnings.push(
+        `Auth: ${skippedDuplicate} user(s) skipped (already exists in Keycloak).`,
+      );
     }
   }
 

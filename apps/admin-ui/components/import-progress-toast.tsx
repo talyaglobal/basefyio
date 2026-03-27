@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useImportProgress } from '@/lib/import-progress-context';
-import { Database, CheckCircle2, AlertTriangle, X, Loader2, Maximize2, Minus, ChevronUp } from 'lucide-react';
+import {
+  Database,
+  CheckCircle2,
+  AlertTriangle,
+  X,
+  Loader2,
+  Maximize2,
+  Minus,
+  ChevronUp,
+} from 'lucide-react';
 
 export function ImportProgressToast() {
   const { activeImport, dismiss, modalShowingImport, setModalShowingImport, onReopenModal } = useImportProgress();
@@ -29,6 +38,13 @@ export function ImportProgressToast() {
   const isCompleted = activeImport.status === 'completed';
   const isFailed = activeImport.status === 'failed';
   const canClose = !isRunning;
+  const r = activeImport.result;
+  const completedWithIssues =
+    isCompleted &&
+    !!r &&
+    (r.warnings.length > 0 ||
+      r.database.failedTables.length > 0 ||
+      r.auth.skipped > 0);
 
   function handleOpenModal() {
     if (onReopenModal) {
@@ -71,11 +87,16 @@ export function ImportProgressToast() {
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               {isRunning && <Loader2 className="h-4 w-4 text-blue-500 animate-spin shrink-0" />}
-              {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
+              {isCompleted && !completedWithIssues && (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+              )}
+              {completedWithIssues && (
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 dark:text-amber-400" />
+              )}
               {isFailed && <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />}
               <span className="text-sm font-medium truncate">
                 {isRunning && 'Importing...'}
-                {isCompleted && 'Import Complete'}
+                {isCompleted && (completedWithIssues ? 'Finished with issues' : 'Import Complete')}
                 {isFailed && 'Import Failed'}
               </span>
             </div>
@@ -137,11 +158,50 @@ export function ImportProgressToast() {
           )}
 
           {isCompleted && activeImport.result && (
-            <div className="mt-1.5 flex items-center gap-3 text-xs text-emerald-700 dark:text-emerald-400">
-              <span>{activeImport.result.database.tables} tables</span>
-              <span>{activeImport.result.auth.users} users</span>
-              <span>{activeImport.result.storage.objects} files</span>
-            </div>
+            <>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-700 dark:text-emerald-400">
+                <span>{activeImport.result.database.tables} tables</span>
+                <span>{activeImport.result.auth.users} users</span>
+                <span>{activeImport.result.storage.objects} files</span>
+              </div>
+              {activeImport.result.warnings.length > 0 && (
+                <div className="mt-2 rounded-md border border-amber-300/80 bg-amber-50/90 p-2 dark:border-amber-700 dark:bg-amber-950/50">
+                  <p className="text-[11px] font-medium text-amber-800 dark:text-amber-400">
+                    Errors &amp; warnings ({activeImport.result.warnings.length})
+                  </p>
+                  <ul
+                    className="mt-1 max-h-32 space-y-1 overflow-y-auto text-[11px] text-amber-900 dark:text-amber-300"
+                    aria-label="Import warnings"
+                  >
+                    {activeImport.result.warnings.map((line, i) => (
+                      <li key={i} className="flex gap-1.5 break-words border-b border-amber-200/50 pb-1 last:border-0 dark:border-amber-800/40">
+                        <span className="shrink-0 font-mono text-[9px] opacity-70">
+                          {i + 1}.
+                        </span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(activeImport.result.database.failedTables.length > 0 ||
+                activeImport.result.auth.skipped > 0) &&
+                activeImport.result.warnings.length === 0 && (
+                  <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-400">
+                    {activeImport.result.database.failedTables.length > 0 && (
+                      <span className="block">
+                        Tables not fully imported:{' '}
+                        {activeImport.result.database.failedTables.join(', ')}
+                      </span>
+                    )}
+                    {activeImport.result.auth.skipped > 0 && (
+                      <span className="mt-1 block">
+                        Auth: {activeImport.result.auth.skipped} user(s) skipped.
+                      </span>
+                    )}
+                  </p>
+                )}
+            </>
           )}
 
           {isFailed && (

@@ -281,6 +281,13 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createRealm(realmName: string): Promise<void> {
     await this.ensureAuth();
+    // If a disabled (archived) realm with this name exists, remove it first
+    // so we can create a fresh one without conflict.
+    const exists = await this.realmExists(realmName);
+    if (exists) {
+      this.logger.warn(`Realm "${realmName}" already exists, deleting before recreate`);
+      await this.client.realms.del({ realm: realmName });
+    }
     await this.client.realms.create({
       realm: realmName,
       enabled: true,
@@ -330,6 +337,28 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     await this.client.realms.del({ realm: realmName });
     this.logger.log(`Realm "${realmName}" deleted`);
+  }
+
+  async disableRealm(realmName: string): Promise<void> {
+    await this.ensureAuth();
+    await this.client.realms.update({ realm: realmName }, { enabled: false });
+    this.logger.log(`Realm "${realmName}" disabled`);
+  }
+
+  async enableRealm(realmName: string): Promise<void> {
+    await this.ensureAuth();
+    await this.client.realms.update({ realm: realmName }, { enabled: true });
+    this.logger.log(`Realm "${realmName}" enabled`);
+  }
+
+  async realmExists(realmName: string): Promise<boolean> {
+    await this.ensureAuth();
+    try {
+      const realm = await this.client.realms.findOne({ realm: realmName });
+      return !!realm;
+    } catch {
+      return false;
+    }
   }
 
   async getRealmInfo(realmName: string) {
