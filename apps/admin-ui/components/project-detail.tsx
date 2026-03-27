@@ -77,12 +77,12 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   }, [project.id, project.github?.connected, project.vercel?.connected]);
 
   async function handleDelete() {
-    if (!confirm(`Delete "${project.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Move "${project.name}" to trash? You can restore it later.`)) return;
 
     setDeleting(true);
     try {
       await api.projects.delete(project.id);
-      toast.success('Project deleted');
+      toast.success('Project moved to trash');
       router.push('/dashboard/projects');
     } catch (err: any) {
       toast.error(err.message);

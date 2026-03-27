@@ -270,6 +270,19 @@ export const api = {
         method: 'DELETE',
       });
     },
+    listDeleted(teamId: string) {
+      return request<ProjectListItem[]>(`/projects/deleted?teamId=${teamId}`);
+    },
+    restore(id: string) {
+      return request<{ message: string }>(`/projects/${id}/restore`, {
+        method: 'POST',
+      });
+    },
+    permanentDelete(id: string) {
+      return request<{ message: string }>(`/projects/${id}/permanent`, {
+        method: 'DELETE',
+      });
+    },
     moveToTeam(projectId: string, targetTeamId: string) {
       return request<{ message: string }>(`/projects/${projectId}/move-to-team`, {
         method: 'POST',

@@ -52,6 +52,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   SortAsc,
   Tag,
@@ -206,6 +207,14 @@ export default function ProjectsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [moveTeamModal, setMoveTeamModal] = useState<{ project: ProjectListItem; targetTeam: Team } | null>(null);
   const [movingTeam, setMovingTeam] = useState(false);
+
+  // Deleted projects (trash)
+  const [showTrash, setShowTrash] = useState(false);
+  const [deletedProjects, setDeletedProjects] = useState<ProjectListItem[]>([]);
+  const [loadingTrash, setLoadingTrash] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
+  const [permDeleting, setPermDeleting] = useState(false);
 
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
@@ -416,7 +425,8 @@ export default function ProjectsPage() {
       await api.projects.delete(deleteConfirm.id);
       setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
       setSelectedProjects((prev) => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
-      toast.success(`"${deleteConfirm.name}" deleted`);
+      setDeletedProjects((prev) => [{ ...deleteConfirm, status: 'DELETED' as const, updatedAt: new Date().toISOString() }, ...prev]);
+      toast.success(`"${deleteConfirm.name}" moved to trash`);
       setDeleteConfirm(null);
     } catch (err: any) {
       toast.error(err.message);
@@ -441,6 +451,53 @@ export default function ProjectsPage() {
     }
   }
 
+  // ── Trash (deleted projects) ──────────────────────────────────────────────────
+  async function loadDeletedProjects() {
+    if (!activeTeamId) return;
+    setLoadingTrash(true);
+    try {
+      const deleted = await api.projects.listDeleted(activeTeamId);
+      setDeletedProjects(deleted);
+    } catch {
+      setDeletedProjects([]);
+    } finally {
+      setLoadingTrash(false);
+    }
+  }
+
+  async function handleRestore(id: string) {
+    setRestoringId(id);
+    try {
+      await api.projects.restore(id);
+      setDeletedProjects((prev) => prev.filter((p) => p.id !== id));
+      toast.success('Project restored');
+      loadAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to restore project');
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  async function handlePermanentDelete() {
+    if (!permDeleteConfirm) return;
+    setPermDeleting(true);
+    try {
+      await api.projects.permanentDelete(permDeleteConfirm.id);
+      setDeletedProjects((prev) => prev.filter((p) => p.id !== permDeleteConfirm.id));
+      toast.success('Project permanently deleted');
+      setPermDeleteConfirm(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete project');
+    } finally {
+      setPermDeleting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (showTrash) loadDeletedProjects();
+  }, [showTrash, activeTeamId]);
+
   // ── Bulk operations ───────────────────────────────────────────────────────────
   async function bulkMoveToFolder(folderId: string | null) {
     const ids = Array.from(selectedProjects);
@@ -456,11 +513,16 @@ export default function ProjectsPage() {
   async function confirmBulkDelete() {
     setBulkDeleting(true);
     const ids = Array.from(selectedProjects);
+    const movedProjects = projects.filter((p) => selectedProjects.has(p.id));
     try {
       await Promise.all(ids.map((id) => api.projects.delete(id)));
       setProjects((prev) => prev.filter((p) => !selectedProjects.has(p.id)));
+      setDeletedProjects((prev) => [
+        ...movedProjects.map((p) => ({ ...p, status: 'DELETED' as const, updatedAt: new Date().toISOString() })),
+        ...prev,
+      ]);
       setSelectedProjects(new Set());
-      toast.success(`${ids.length} project${ids.length > 1 ? 's' : ''} deleted`);
+      toast.success(`${ids.length} project${ids.length > 1 ? 's' : ''} moved to trash`);
       setBulkDeleteConfirm(false);
     } catch (err: any) {
       toast.error(err.message);
@@ -790,11 +852,98 @@ export default function ProjectsPage() {
               {tags.length === 0 && (
                 <p className="px-2 text-xs text-muted-foreground/50 mt-1">No tags yet</p>
               )}
+
+              {/* Trash */}
+              <div className="mt-5 pt-3 border-t border-border/50">
+                <button
+                  onClick={() => { setShowTrash(!showTrash); setSelectedFolder('all'); }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors ${showTrash ? 'bg-destructive/10 text-destructive font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Trash</span>
+                  {deletedProjects.length > 0 && (
+                    <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${showTrash ? 'bg-destructive/20 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                      {deletedProjects.length}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
           </aside>
 
           {/* ── Main content ──────────────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto">
+            {showTrash ? (
+              /* ── Trash view ────────────────────────────────────────────────────── */
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <button
+                    onClick={() => setShowTrash(false)}
+                    className="rounded-lg p-1.5 hover:bg-accent transition-colors"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                  <h2 className="text-lg font-semibold">Deleted Projects</h2>
+                  <span className="text-sm text-muted-foreground">({deletedProjects.length})</span>
+                </div>
+
+                {loadingTrash ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
+                    ))}
+                  </div>
+                ) : deletedProjects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                    <Trash2 className="h-12 w-12 mb-3 opacity-30" />
+                    <p className="text-sm font-medium">Trash is empty</p>
+                    <p className="text-xs mt-1">Deleted projects will appear here</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {deletedProjects.map((project) => (
+                      <div
+                        key={project.id}
+                        className="group relative rounded-xl border border-destructive/20 bg-card p-4 hover:border-destructive/40 transition-colors"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-medium truncate text-muted-foreground line-through">
+                              {project.name}
+                            </h3>
+                            {project.description && (
+                              <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/50 mb-3">
+                          Deleted {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : ''}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleRestore(project.id)}
+                            disabled={restoringId === project.id}
+                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                          >
+                            <RotateCcw className={`h-3 w-3 ${restoringId === project.id ? 'animate-spin' : ''}`} />
+                            {restoringId === project.id ? 'Restoring...' : 'Restore'}
+                          </button>
+                          <button
+                            onClick={() => setPermDeleteConfirm(project)}
+                            className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete Forever
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+            <>
             {/* Select-all bar */}
             {!loading && filtered.length > 0 && (
               <div className="flex items-center gap-2.5 px-6 py-2.5 border-b bg-card/60 shrink-0 sticky top-0 z-10">
@@ -844,9 +993,39 @@ export default function ProjectsPage() {
                 </div>
               )}
             </div>
+            </>
+            )}
           </main>
         </div>
       </div>
+
+      {/* Permanent delete confirmation */}
+      {permDeleteConfirm && (
+        <Modal
+          onClose={() => setPermDeleteConfirm(null)}
+          title="Permanently Delete Project"
+        >
+          <p className="text-sm text-muted-foreground mb-1">
+            This will permanently destroy the project <strong className="text-foreground">&quot;{permDeleteConfirm.name}&quot;</strong>, including its database, users, and all data.
+          </p>
+          <p className="text-xs text-destructive font-medium mb-4">This action cannot be undone.</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setPermDeleteConfirm(null)}
+              className="rounded-lg border px-4 py-2 text-sm hover:bg-accent transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handlePermanentDelete}
+              disabled={permDeleting}
+              className="rounded-lg bg-destructive text-destructive-foreground px-4 py-2 text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+            >
+              {permDeleting ? 'Deleting...' : 'Delete Forever'}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* DnD overlay */}
       <DragOverlay>
@@ -1013,13 +1192,13 @@ export default function ProjectsPage() {
 
       {/* ── Single delete confirm modal ───────────────────────────────────── */}
       {deleteConfirm && (
-        <Modal title="Delete Project" onClose={() => setDeleteConfirm(null)}>
+        <Modal title="Move to Trash" onClose={() => setDeleteConfirm(null)}>
           <p className="text-sm text-muted-foreground mb-1">
-            Are you sure you want to delete
+            Move to trash:
           </p>
-          <p className="text-sm font-semibold mb-4">"{deleteConfirm.name}"?</p>
-          <p className="text-xs text-destructive/80 mb-4">
-            This action cannot be undone. All project data will be permanently removed.
+          <p className="text-sm font-semibold mb-4">&quot;{deleteConfirm.name}&quot;</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            You can restore this project from the Trash in the sidebar.
           </p>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>
@@ -1031,7 +1210,7 @@ export default function ProjectsPage() {
               onClick={confirmDeleteProject}
               disabled={deleting}
             >
-              {deleting ? 'Deleting…' : 'Delete Project'}
+              {deleting ? 'Moving…' : 'Move to Trash'}
             </Button>
           </div>
         </Modal>
@@ -1039,15 +1218,15 @@ export default function ProjectsPage() {
 
       {/* ── Bulk delete confirm modal ─────────────────────────────────────── */}
       {bulkDeleteConfirm && (
-        <Modal title="Delete Selected Projects" onClose={() => setBulkDeleteConfirm(false)}>
+        <Modal title="Move to Trash" onClose={() => setBulkDeleteConfirm(false)}>
           <p className="text-sm text-muted-foreground mb-1">
-            Are you sure you want to delete
+            Move to trash:
           </p>
           <p className="text-sm font-semibold mb-4">
             {selectedProjects.size} project{selectedProjects.size > 1 ? 's' : ''}?
           </p>
-          <p className="text-xs text-destructive/80 mb-4">
-            This action cannot be undone. All selected project data will be permanently removed.
+          <p className="text-xs text-muted-foreground mb-4">
+            Projects can be restored from the Trash in the sidebar.
           </p>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setBulkDeleteConfirm(false)}>
