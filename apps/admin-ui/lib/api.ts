@@ -301,12 +301,20 @@ export const api = {
         onCompleted: (data: any) => void;
         onFailed: (error: string) => void;
         onError?: (error: Event) => void;
+        onState?: (state: string) => void;
       },
     ): EventSource {
       const token = getAccessToken();
       const url = `/api/proxy/projects/import-supabase/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
       const es = new EventSource(url);
+
+      es.addEventListener('state', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onState?.(data.state);
+        } catch {}
+      });
 
       es.addEventListener('progress', (e) => {
         try {

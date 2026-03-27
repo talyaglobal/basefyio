@@ -408,6 +408,23 @@ export class SupabaseImportService {
 
   // ── Database Import ───────────────────────────────────
 
+  private async connectPoolWithRetry(pool: Pool, label: string, maxRetries = 5): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const client = await pool.connect();
+        client.release();
+        this.logger.log(`DB pool "${label}" connected (attempt ${attempt})`);
+        return;
+      } catch (err: any) {
+        this.logger.warn(
+          `DB pool "${label}" connect attempt ${attempt}/${maxRetries} failed: ${err.message}`,
+        );
+        if (attempt === maxRetries) throw err;
+        await new Promise((r) => setTimeout(r, attempt * 2000));
+      }
+    }
+  }
+
   private async importDatabase(
     baseUrl: string,
     headers: Record<string, string>,
@@ -427,6 +444,8 @@ export class SupabaseImportService {
       password: project.dbPassword,
       database: project.dbName,
     });
+
+    await this.connectPoolWithRetry(pool, project.dbName);
 
     try {
       for (let i = 0; i < tables.length; i++) {
@@ -505,6 +524,8 @@ export class SupabaseImportService {
       password: project.dbPassword,
       database: project.dbName,
     });
+
+    await this.connectPoolWithRetry(pool, `${project.dbName}-migrations`);
 
     try {
       for (const { schema, table } of extraTables) {
