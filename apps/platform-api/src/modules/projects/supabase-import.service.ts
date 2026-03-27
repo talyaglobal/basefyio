@@ -591,6 +591,11 @@ export class SupabaseImportService {
                 columns,
               );
           progress.database.rows += rowCount;
+          if (rowCount === 0) {
+            progress.warnings.push(
+              `Table "${table.table_name}": 0 rows imported - data may be missing`,
+            );
+          }
 
           this.logger.log(
             `Table "${table.table_name}": schema OK, ${rowCount} rows imported`,
