@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
@@ -82,6 +83,7 @@ export function CreateProjectDialog({
   onCreated,
   teamId,
 }: CreateProjectDialogProps) {
+  const router = useRouter();
   const [view, setView] = useState<DialogView>('create');
 
   const [name, setName] = useState('');
@@ -120,6 +122,7 @@ export function CreateProjectDialog({
       importResult.database.failedTables.length > 0 ||
       importResult.auth.skipped > 0);
   const [importProjectName, setImportProjectName] = useState('');
+  const [importProjectId, setImportProjectId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const dismissedDuringImportRef = useRef(false);
@@ -272,6 +275,8 @@ export function CreateProjectDialog({
 
     if (activeImport.status === 'completed' && activeImport.result) {
       setImportResult(normalizeImportProgressData(activeImport.result));
+      setImportProjectName(activeImport.projectName);
+      if (activeImport.projectId) setImportProjectId(activeImport.projectId);
       setView('result');
       return;
     }
@@ -287,7 +292,16 @@ export function CreateProjectDialog({
       { key: 'auth', label: 'Importing Auth Users', icon: <Shield className="h-4 w-4" />, status: currentStepIdx > 2 ? 'done' : currentStepIdx === 2 ? 'active' : 'pending', detail: currentStepIdx === 2 ? activeImport.detail : undefined },
       { key: 'storage', label: 'Importing Storage', icon: <HardDrive className="h-4 w-4" />, status: currentStepIdx === 3 ? 'active' : 'pending', detail: currentStepIdx === 3 ? activeImport.detail : undefined },
     ]);
-  }, [view, activeImport?.step, activeImport?.percent, activeImport?.detail, activeImport?.status]);
+  }, [
+    view,
+    activeImport?.step,
+    activeImport?.percent,
+    activeImport?.detail,
+    activeImport?.status,
+    activeImport?.result,
+    activeImport?.projectId,
+    activeImport?.projectName,
+  ]);
 
   function resetState() {
     setView('create');
@@ -309,6 +323,7 @@ export function CreateProjectDialog({
     stopEtaAnimation();
     setImportResult(null);
     setImportProjectName('');
+    setImportProjectId(null);
     setLoading(false);
     setCancelling(false);
     dismissedDuringImportRef.current = false;
@@ -437,9 +452,16 @@ export function CreateProjectDialog({
       });
 
       setImportProjectName(result.project.name);
+      setImportProjectId(result.project.id);
 
       // Always start global tracking so the job is persisted and the context SSE runs.
-      startTracking(result.jobId, result.project.name, onCreated, importStartRef.current);
+      startTracking(
+        result.jobId,
+        result.project.name,
+        onCreated,
+        importStartRef.current,
+        result.project.id,
+      );
 
       // Only mark the modal as "showing import" if the dialog wasn't dismissed
       // while the API call was in-flight (race condition guard).
@@ -537,9 +559,16 @@ export function CreateProjectDialog({
   }
 
   function handleResultDone() {
+    const targetId = importProjectId || activeImport?.projectId || null;
     setModalShowingImport(false);
     resetState();
     onCreated();
+    onOpenChange(false);
+    if (targetId) {
+      router.push(`/dashboard/projects/${targetId}`);
+    } else {
+      router.push('/dashboard/projects');
+    }
   }
 
   return (
@@ -958,7 +987,7 @@ export function CreateProjectDialog({
 
             <DialogFooter>
               <Button onClick={handleResultDone} className="w-full">
-                Go to Projects
+                Open project
               </Button>
             </DialogFooter>
           </>

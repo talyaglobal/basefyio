@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
-  parseProjectSupabaseImportLog,
   type Project,
   type GitHubCommit,
   type VercelDeployment,
@@ -13,6 +12,11 @@ import {
   type VercelIntegration,
   type Team,
 } from '@/lib/types';
+import {
+  loadStoredSupabaseImportLog,
+  mergeSupabaseImportLogSources,
+  shouldShowSupabaseImportLog,
+} from '@/lib/import-log-storage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -119,7 +123,13 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const gh = githubStatus?.connected ? githubStatus : project.github;
   const vc = vercelStatus?.connected ? vercelStatus : project.vercel;
   const vercelDashboardUrl = vercelStatus?.dashboardUrl || null;
-  const importLog = parseProjectSupabaseImportLog(project.supabaseImportLog);
+  const importLog = mergeSupabaseImportLogSources(
+    project.supabaseImportLog,
+    loadStoredSupabaseImportLog(project.id),
+  );
+  const importLogFromBrowser =
+    (project.supabaseImportLog === null || project.supabaseImportLog === undefined) &&
+    importLog !== null;
 
   return (
     <div className="space-y-6">
@@ -324,7 +334,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         )}
       </div>
 
-      {importLog && (
+      {importLog && shouldShowSupabaseImportLog(importLog) && (
         <div className="rounded-lg border bg-card p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -335,6 +345,11 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               {importLog.completedAt && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Completed {new Date(importLog.completedAt).toLocaleString()}
+                </p>
+              )}
+              {importLogFromBrowser && (
+                <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-500/90">
+                  Showing summary saved in this browser. Re-import or redeploy the API to persist logs on the server.
                 </p>
               )}
             </div>
