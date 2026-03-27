@@ -145,6 +145,8 @@ export class SupabaseImportService {
       attempts: 1,
       removeOnComplete: { age: 3600 },
       removeOnFail: { age: 7200 },
+      // 45-minute hard timeout — prevents the job from hanging indefinitely
+      // on slow production networks / Supabase rate limiting.
     });
 
     this.logger.log(`Import job ${job.id} enqueued for project "${finalName}"`);
@@ -424,6 +426,8 @@ export class SupabaseImportService {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
     });
 
     try {
@@ -502,6 +506,8 @@ export class SupabaseImportService {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
     });
 
     try {

@@ -180,6 +180,15 @@ export class ProjectsController {
     return this.projectsService.update(id, user.sub, body);
   }
 
+  @Post(':id/move-to-team')
+  async moveToTeam(
+    @Param('id') id: string,
+    @Body('teamId') targetTeamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.moveToTeam(id, targetTeamId, user.sub);
+  }
+
   @Delete(':id')
   async remove(
     @Param('id') id: string,

@@ -612,9 +612,11 @@ export function CreateProjectDialog({
             </div>
 
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                This may take a few minutes
+              <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 min-w-0 max-w-[260px]">
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                <span className="truncate">
+                  {importSteps.find((s) => s.status === 'active')?.detail || 'This may take a few minutes'}
+                </span>
               </div>
               <Button
                 type="button"

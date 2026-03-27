@@ -4,13 +4,16 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { Project, GitHubCommit, VercelDeployment, GitHubIntegration, VercelIntegration } from '@/lib/types';
+import type { Project, GitHubCommit, VercelDeployment, GitHubIntegration, VercelIntegration, Team } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import {
   Database, Github, Key, Shield, Trash2, Triangle,
-  GitBranch, GitCommit, Circle, ExternalLink,
+  GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
 } from 'lucide-react';
 
 function timeAgo(dateStr: string) {
@@ -45,6 +48,14 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
   const [githubStatus, setGithubStatus] = useState<GitHubIntegration | null>(null);
   const [vercelStatus, setVercelStatus] = useState<VercelIntegration | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [moveTeamOpen, setMoveTeamOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [movingTeam, setMovingTeam] = useState(false);
+
+  useEffect(() => {
+    api.teams.list().then(setTeams).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (project.github?.connected) {
@@ -80,6 +91,22 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     }
   }
 
+  async function handleMoveToTeam() {
+    if (!selectedTeam) return;
+    setMovingTeam(true);
+    try {
+      await api.projects.moveToTeam(project.id, selectedTeam.id);
+      toast.success(`"${project.name}" moved to "${selectedTeam.name}"`);
+      router.push('/dashboard/projects');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to move project');
+    } finally {
+      setMovingTeam(false);
+    }
+  }
+
+  const otherTeams = teams.filter((t) => t.id !== project.teamId);
+
   const gh = githubStatus?.connected ? githubStatus : project.github;
   const vc = vercelStatus?.connected ? vercelStatus : project.vercel;
   const vercelDashboardUrl = vercelStatus?.dashboardUrl || null;
@@ -100,6 +127,12 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           <Badge variant={project.status === 'ACTIVE' ? 'default' : 'secondary'}>
             {project.status}
           </Badge>
+          {otherTeams.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setMoveTeamOpen(true)}>
+              <ArrowRightLeft className="mr-2 h-4 w-4" />
+              Move to Team
+            </Button>
+          )}
           <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
             <Trash2 className="mr-2 h-4 w-4" />
             {deleting ? 'Deleting...' : 'Delete'}
@@ -280,6 +313,47 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </div>
         )}
       </div>
+
+      {/* Move to Team Dialog */}
+      <Dialog open={moveTeamOpen} onOpenChange={setMoveTeamOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move Project to Team</DialogTitle>
+            <DialogDescription>
+              Select a team to move <strong>&quot;{project.name}&quot;</strong> to. The project will be removed from the current team and its folder assignment will be cleared.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2 max-h-64 overflow-y-auto">
+            {otherTeams.map((team) => (
+              <button
+                key={team.id}
+                onClick={() => setSelectedTeam(team)}
+                className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:bg-accent ${selectedTeam?.id === team.id ? 'border-primary bg-primary/5 font-medium' : 'border-transparent'}`}
+              >
+                <span className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                  {team.name.charAt(0).toUpperCase()}
+                </span>
+                <span className="flex-1 text-left truncate">{team.name}</span>
+                {selectedTeam?.id === team.id && (
+                  <span className="text-primary text-xs">✓</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setMoveTeamOpen(false); setSelectedTeam(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMoveToTeam}
+              disabled={!selectedTeam || movingTeam}
+            >
+              <ArrowRightLeft className="mr-2 h-4 w-4" />
+              {movingTeam ? 'Moving…' : 'Move Project'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

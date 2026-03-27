@@ -270,6 +270,12 @@ export const api = {
         method: 'DELETE',
       });
     },
+    moveToTeam(projectId: string, targetTeamId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/move-to-team`, {
+        method: 'POST',
+        body: JSON.stringify({ teamId: targetTeamId }),
+      });
+    },
     importFromSupabase(data: SupabaseImportRequest) {
       return request<SupabaseImportJobResponse>('/projects/import-supabase', {
         method: 'POST',
