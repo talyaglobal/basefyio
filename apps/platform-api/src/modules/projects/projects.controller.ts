@@ -99,6 +99,7 @@ export class ProjectsController {
     sendEvent('connected', { jobId });
 
     let lastProgressJson = '';
+    let lastState = '';
     let finished = false;
     const pollInterval = 500;
 
@@ -113,6 +114,11 @@ export class ProjectsController {
           finished = true;
           res.end();
           return;
+        }
+
+        if (status.state !== lastState) {
+          lastState = status.state;
+          sendEvent('state', { state: status.state });
         }
 
         const progressJson = JSON.stringify(status.progress || {});

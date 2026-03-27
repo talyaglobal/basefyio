@@ -64,6 +64,10 @@ export class ImportProcessor extends WorkerHost {
     const jobId = String(job.id);
     const { baseUrl, serviceRoleKey, projectId, projectName } = job.data;
 
+    this.logger.log(
+      `[Job ${jobId}] Starting import for "${projectName}" (project=${projectId}, db=${job.data.dbName}@${job.data.dbHost}:${job.data.dbPort})`,
+    );
+
     const headers = {
       apikey: serviceRoleKey,
       Authorization: `Bearer ${serviceRoleKey}`,
@@ -166,7 +170,7 @@ export class ImportProcessor extends WorkerHost {
 
     } catch (err: any) {
       if (err instanceof CancelledError) {
-        this.logger.log(`Import job ${jobId} cancelled by user, aborting processor`);
+        this.logger.log(`[Job ${jobId}] Cancelled by user`);
         await job.updateProgress({
           step: 'failed',
           detail: 'Import cancelled by user',
@@ -175,6 +179,7 @@ export class ImportProcessor extends WorkerHost {
         });
         throw err;
       }
+      this.logger.error(`[Job ${jobId}] Unhandled error: ${err.message}`, err.stack);
       throw err;
     }
 

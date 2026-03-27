@@ -304,6 +304,25 @@ export function CreateProjectDialog({
       if (dismissedDuringImportRef.current) return;
 
       const es = api.projects.streamImportProgress(result.jobId, {
+        onState: (state) => {
+          if (state === 'waiting' || state === 'delayed') {
+            setImportSteps((prev) => {
+              const s = [...prev];
+              if (s[0] && s[0].status === 'active') {
+                s[0] = { ...s[0], detail: 'Queued, waiting for worker...' };
+              }
+              return s;
+            });
+          } else if (state === 'active') {
+            setImportSteps((prev) => {
+              const s = [...prev];
+              if (s[0] && s[0].status === 'active') {
+                s[0] = { ...s[0], detail: 'Worker picked up job...' };
+              }
+              return s;
+            });
+          }
+        },
         onProgress: (data) => {
           updateStepFromSSE(data);
         },
