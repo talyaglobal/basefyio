@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquarePlus,
+  Plus,
   Server,
   Settings,
   Terminal,
@@ -45,6 +46,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [inviteCount, setInviteCount] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [creatingTeam, setCreatingTeam] = useState(false);
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
@@ -61,6 +65,27 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       setDropdownOpen(false);
     } catch (err: any) {
       toast.error(err.message);
+    }
+  }
+
+  async function handleCreateTeam() {
+    if (!newTeamName.trim()) return;
+    setCreatingTeam(true);
+    try {
+      const team = await api.teams.create(newTeamName.trim());
+      await api.teams.setActive(team.id);
+      import('js-cookie').then(({ default: Cookies }) => {
+        Cookies.set('kb_active_team', team.id, { expires: 365 });
+      });
+      onTeamChange(team.id);
+      setNewTeamName('');
+      setNewTeamOpen(false);
+      setDropdownOpen(false);
+      toast.success(`Team "${team.name}" created`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create team');
+    } finally {
+      setCreatingTeam(false);
     }
   }
 
@@ -137,10 +162,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
           >
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="max-w-[140px] truncate">
               {activeTeam?.name || 'Select team'}
             </span>
+            {activeTeam?.role === 'OWNER' && (
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                Owner
+              </span>
+            )}
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
 
@@ -159,11 +189,16 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                           : 'hover:bg-accent'
                       }`}
                     >
-                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm shrink-0">
                         {team.name.charAt(0).toUpperCase()}
                       </div>
-                      <div className="min-w-0 text-left">
-                        <p className="truncate font-medium">{team.name}</p>
+                      <div className="min-w-0 text-left flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate font-medium">{team.name}</p>
+                          {team.role === 'OWNER' && (
+                            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1 rounded">Owner</span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {team.memberCount} member{team.memberCount !== 1 ? 's' : ''} · {team.projectCount} project{team.projectCount !== 1 ? 's' : ''}
                         </p>
@@ -171,7 +206,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                     </button>
                   ))}
                 </div>
-                <div className="border-t p-1">
+                <div className="border-t p-1 space-y-0.5">
                   <button
                     onClick={() => { setDropdownOpen(false); router.push('/dashboard/team'); }}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
@@ -179,6 +214,45 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                     <Settings className="h-3.5 w-3.5" />
                     Team Settings
                   </button>
+                  {newTeamOpen ? (
+                    <div className="px-2 pb-1 pt-0.5 space-y-1.5">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Team name..."
+                        value={newTeamName}
+                        onChange={(e) => setNewTeamName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCreateTeam();
+                          if (e.key === 'Escape') { setNewTeamOpen(false); setNewTeamName(''); }
+                        }}
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={handleCreateTeam}
+                          disabled={creatingTeam || !newTeamName.trim()}
+                          className="flex-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {creatingTeam ? 'Creating...' : 'Create'}
+                        </button>
+                        <button
+                          onClick={() => { setNewTeamOpen(false); setNewTeamName(''); }}
+                          className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setNewTeamOpen(true)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-muted-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      New Team
+                    </button>
+                  )}
                 </div>
               </div>
             </>

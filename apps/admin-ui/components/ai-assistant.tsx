@@ -69,9 +69,9 @@ function getSessionTitle(session: ChatSession): string {
   return first.content.length > 22 ? first.content.slice(0, 22) + '…' : first.content;
 }
 
-function loadSessions(): ChatSession[] {
+function loadSessions(key: string): ChatSession[] {
   try {
-    const raw = localStorage.getItem('kb_ai_sessions');
+    const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw) as ChatSession[];
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -80,12 +80,12 @@ function loadSessions(): ChatSession[] {
   return [{ id: genId(), messages: [] }];
 }
 
-function saveSessions(sessions: ChatSession[]) {
+function saveSessions(sessions: ChatSession[], key: string) {
   try {
     const trimmed = sessions
       .slice(-10)
       .map((s) => ({ ...s, messages: s.messages.slice(-40) }));
-    localStorage.setItem('kb_ai_sessions', JSON.stringify(trimmed));
+    localStorage.setItem(key, JSON.stringify(trimmed));
   } catch {}
 }
 
@@ -165,7 +165,7 @@ function getSuggestions(mode: AiMode, page?: string, hasTables?: boolean): strin
 // ── Main component ────────────────────────────────────────────────────────────
 export function AiAssistant() {
   const pathname = usePathname();
-  const { activeTeamId } = useActiveTeam();
+  const { activeTeamId, profile } = useActiveTeam();
 
   // ── Visibility ──────────────────────────────────────────────────────────
   const [open, setOpen] = useState<boolean>(() => {
@@ -207,13 +207,36 @@ export function AiAssistant() {
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
   }, []);
 
-  // ── Sessions ─────────────────────────────────────────────────────────────
-  const [sessions, setSessions] = useState<ChatSession[]>(() =>
-    typeof window === 'undefined' ? [{ id: genId(), messages: [] }] : loadSessions(),
-  );
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[sessions.length - 1].id);
+  // ── Storage key: per user + per team ─────────────────────────────────────
+  // e.g. "kb_ai_sessions_abc123_team456"
+  // null means we don't have user/team info yet — sessions are not persisted.
+  const storageKey = profile?.id && activeTeamId
+    ? `kb_ai_sessions_${profile.id}_${activeTeamId}`
+    : null;
 
-  useEffect(() => { saveSessions(sessions); }, [sessions]);
+  // Track the previous key so we know when to reload sessions
+  const prevStorageKeyRef = useRef<string | null>(null);
+
+  // ── Sessions ─────────────────────────────────────────────────────────────
+  const initSession = (): ChatSession => ({ id: genId(), messages: [] });
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [initSession()]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[0].id);
+
+  // Load sessions from localStorage when storageKey is first available or changes (team switch)
+  useEffect(() => {
+    if (!storageKey) return;
+    if (storageKey === prevStorageKeyRef.current) return;
+    prevStorageKeyRef.current = storageKey;
+    const loaded = loadSessions(storageKey);
+    setSessions(loaded);
+    setActiveSessionId(loaded[loaded.length - 1].id);
+  }, [storageKey]);
+
+  // Persist sessions whenever they change (only when we have a valid key)
+  useEffect(() => {
+    if (!storageKey) return;
+    saveSessions(sessions, storageKey);
+  }, [sessions, storageKey]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];

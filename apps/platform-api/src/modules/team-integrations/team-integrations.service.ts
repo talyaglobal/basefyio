@@ -163,6 +163,53 @@ export class TeamIntegrationsService {
     };
   }
 
+  async connectGitHubWithPat(teamId: string, token: string): Promise<void> {
+    await this.getTeamOrThrow(teamId);
+
+    if (!token || !token.trim()) {
+      throw new BadRequestException('GitHub Personal Access Token is required');
+    }
+
+    const pat = token.trim();
+
+    // Validate the PAT against GitHub API and fetch user info
+    let login: string;
+    let avatarUrl: string;
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get('https://api.github.com/user', {
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          timeout: 10000,
+        }),
+      );
+      login = data.login;
+      avatarUrl = data.avatar_url;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        throw new BadRequestException('Invalid GitHub token — please check and try again');
+      }
+      throw new BadRequestException(
+        `Could not validate GitHub token: ${err?.message || 'Unknown error'}`,
+      );
+    }
+
+    await this.prisma.team.update({
+      where: { id: teamId },
+      data: {
+        githubOAuthToken: pat,
+        githubOAuthLogin: login,
+        githubOAuthAvatar: avatarUrl,
+      },
+    });
+
+    this.logger.log(`GitHub PAT connected for team ${teamId} as ${login}`);
+  }
+
   async disconnectGitHub(teamId: string): Promise<void> {
     await this.getTeamOrThrow(teamId);
     await this.prisma.team.update({

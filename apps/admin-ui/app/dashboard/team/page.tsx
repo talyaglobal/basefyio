@@ -60,6 +60,9 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
   const [connectingVercel, setConnectingVercel] = useState(false);
   const [disconnectingGitHub, setDisconnectingGitHub] = useState(false);
   const [disconnectingVercel, setDisconnectingVercel] = useState(false);
+  const [githubToken, setGithubToken] = useState('');
+  const [showGitHubInput, setShowGitHubInput] = useState(false);
+  const [showGitHubToken, setShowGitHubToken] = useState(false);
   const [vercelToken, setVercelToken] = useState('');
   const [showVercelInput, setShowVercelInput] = useState(false);
   const [showVercelToken, setShowVercelToken] = useState(false);
@@ -85,12 +88,20 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
   }, [teamId]);
 
   async function handleConnectGitHub() {
+    if (!githubToken.trim()) {
+      toast.error('Please enter your GitHub Personal Access Token');
+      return;
+    }
     setConnectingGitHub(true);
     try {
-      const { url } = await api.teamIntegrations.getGitHubConnectUrl(teamId);
-      window.location.href = url;
+      await api.teamIntegrations.connectGitHubWithPat(teamId, githubToken.trim());
+      toast.success('GitHub connected successfully!');
+      setGithubToken('');
+      setShowGitHubInput(false);
+      loadStatuses();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to start GitHub OAuth');
+      toast.error(err.message || 'Failed to connect GitHub');
+    } finally {
       setConnectingGitHub(false);
     }
   }
@@ -201,31 +212,66 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
               </Button>
             ) : (
               <div className="space-y-2">
-                {!githubStatus?.oauthConfigured && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
-                    OAuth not configured. Set <code className="font-mono">GITHUB_TEAMS_CLIENT_ID</code> and <code className="font-mono">GITHUB_TEAMS_CLIENT_SECRET</code>.
-                  </p>
+                {showGitHubInput ? (
+                  <>
+                    <div className="relative">
+                      <input
+                        type={showGitHubToken ? 'text' : 'password'}
+                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleConnectGitHub()}
+                        className="w-full rounded-md border bg-background px-3 py-1.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGitHubToken((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showGitHubToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-black"
+                        size="sm"
+                        onClick={handleConnectGitHub}
+                        disabled={connectingGitHub || !githubToken.trim()}
+                      >
+                        {connectingGitHub ? (
+                          <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Connecting...</>
+                        ) : (
+                          <><Github className="h-3.5 w-3.5 mr-2" />Connect</>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setShowGitHubInput(false); setGithubToken(''); setShowGitHubToken(false); }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <Button
+                    className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-black"
+                    size="sm"
+                    onClick={() => setShowGitHubInput(true)}
+                  >
+                    <Github className="h-3.5 w-3.5 mr-2" />Connect GitHub
+                  </Button>
                 )}
-                <Button
-                  className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-black"
-                  size="sm"
-                  onClick={handleConnectGitHub}
-                  disabled={connectingGitHub || !githubStatus?.oauthConfigured}
-                >
-                  {connectingGitHub ? (
-                    <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Redirecting...</>
-                  ) : (
-                    <><Github className="h-3.5 w-3.5 mr-2" />Connect GitHub</>
-                  )}
-                </Button>
                 <p className="text-xs text-muted-foreground text-center">
                   <a
-                    href="https://github.com/settings/developers"
+                    href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=KolayBase"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline dark:text-blue-400 inline-flex items-center gap-1"
                   >
-                    Create OAuth App at GitHub <ExternalLink className="h-3 w-3" />
+                    Create Personal Access Token at GitHub <ExternalLink className="h-3 w-3" />
                   </a>
                 </p>
               </div>
@@ -360,6 +406,10 @@ export default function TeamSettingsPage() {
   const [editingName, setEditingName] = useState(false);
   const [savingName, setSavingName] = useState(false);
 
+  // Transfer ownership
+  const [transferTarget, setTransferTarget] = useState<TeamMember | null>(null);
+  const [transferring, setTransferring] = useState(false);
+
   // Handle OAuth callback query params
   useEffect(() => {
     const githubConnected = searchParams.get('github_connected');
@@ -422,6 +472,22 @@ export default function TeamSettingsPage() {
   useEffect(() => {
     loadAll();
   }, [activeTeamId]);
+
+  async function handleTransferOwnership() {
+    if (!activeTeamId || !transferTarget) return;
+    setTransferring(true);
+    try {
+      await api.teams.transferOwnership(activeTeamId, transferTarget.id);
+      toast.success(`Ownership transferred to ${[transferTarget.firstName, transferTarget.lastName].filter(Boolean).join(' ') || transferTarget.username}`);
+      setTransferTarget(null);
+      loadAll();
+      refreshTeams();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to transfer ownership');
+    } finally {
+      setTransferring(false);
+    }
+  }
 
   async function handleRemove(userId: string, username: string) {
     if (!activeTeamId || !confirm(`Remove "${username}" from this team?`)) return;
@@ -656,16 +722,27 @@ export default function TeamSettingsPage() {
                       <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                     </div>
 
-                    {/* Remove button */}
-                    {m.role !== 'OWNER' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
-                        onClick={() => handleRemove(m.id, m.username)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    {/* Actions for non-owner members (only visible to current owner) */}
+                    {m.role !== 'OWNER' && members.some((x) => x.id === currentUserId && x.role === 'OWNER') && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
+                          title="Transfer ownership to this member"
+                          onClick={() => setTransferTarget(m)}
+                        >
+                          <Crown className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive/60 hover:text-destructive"
+                          onClick={() => handleRemove(m.id, m.username)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 );
@@ -726,6 +803,39 @@ export default function TeamSettingsPage() {
           onInvited={loadAll}
         />
       )}
+
+      {/* Transfer Ownership Confirmation */}
+      <Dialog open={!!transferTarget} onOpenChange={(o) => { if (!o) setTransferTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transfer Ownership</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to transfer ownership to{' '}
+              <strong>
+                {[transferTarget?.firstName, transferTarget?.lastName].filter(Boolean).join(' ') || transferTarget?.username}
+              </strong>?
+              <br />
+              <span className="text-destructive">You will become a regular member and lose owner privileges.</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferTarget(null)} disabled={transferring}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleTransferOwnership}
+              disabled={transferring}
+            >
+              {transferring ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Transferring...</>
+              ) : (
+                <><Crown className="h-4 w-4 mr-2" />Transfer Ownership</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

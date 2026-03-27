@@ -371,6 +371,35 @@ export class TeamsService {
     return { message: 'Member removed' };
   }
 
+  async transferOwnership(teamId: string, currentOwnerId: string, newOwnerId: string) {
+    await this.assertOwner(teamId, currentOwnerId);
+
+    if (currentOwnerId === newOwnerId) {
+      throw new ForbiddenException('You are already the owner');
+    }
+
+    const targetMember = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId: newOwnerId } },
+    });
+    if (!targetMember) {
+      throw new ForbiddenException('Target user is not a member of this team');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.teamMember.update({
+        where: { teamId_userId: { teamId, userId: currentOwnerId } },
+        data: { role: 'MEMBER' },
+      }),
+      this.prisma.teamMember.update({
+        where: { teamId_userId: { teamId, userId: newOwnerId } },
+        data: { role: 'OWNER' },
+      }),
+    ]);
+
+    this.logger.log(`Team ${teamId}: ownership transferred from ${currentOwnerId} to ${newOwnerId}`);
+    return { message: 'Ownership transferred' };
+  }
+
   async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
     const pending = await this.prisma.teamInvite.findMany({
       where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },

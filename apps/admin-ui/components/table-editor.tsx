@@ -674,6 +674,45 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [newRow, setNewRow] = useState<Record<string, string>>({});
   const editRef = useRef<HTMLInputElement>(null);
 
+  // ── Sidebar resize ────────────────────────────────────────────
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('kb_table_editor_sidebar_width');
+      if (saved) return Math.max(160, Math.min(480, Number(saved)));
+    }
+    return 224;
+  });
+  const isResizing = useRef(false);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
+
+  function handleResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    isResizing.current = true;
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = sidebarWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!isResizing.current) return;
+      const delta = ev.clientX - resizeStartX.current;
+      const next = Math.max(160, Math.min(480, resizeStartWidth.current + delta));
+      setSidebarWidth(next);
+    }
+
+    function onMouseUp() {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      setSidebarWidth((w) => {
+        localStorage.setItem('kb_table_editor_sidebar_width', String(w));
+        return w;
+      });
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [columnPanelOpen, setColumnPanelOpen] = useState(false);
 
@@ -986,7 +1025,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
       ) : (
         <div className="flex gap-0 rounded-lg border overflow-hidden" style={{ minHeight: 480 }}>
           {/* Sidebar: table list */}
-          <div className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
+          <div
+            className="shrink-0 border-r bg-muted/30 flex flex-col relative"
+            style={{ width: sidebarWidth }}
+          >
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
               {tables.map((t) => (
                 <div key={t.name} className="group relative">
@@ -1042,6 +1084,13 @@ export function TableEditor({ projectId }: TableEditorProps) {
                 </div>
               ))}
             </div>
+
+            {/* Drag handle */}
+            <div
+              onMouseDown={handleResizeMouseDown}
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 transition-colors z-10"
+              title="Drag to resize"
+            />
           </div>
 
           {/* Main content */}

@@ -42,6 +42,16 @@ export class TeamIntegrationsController {
     return res.redirect(redirectUrl);
   }
 
+  @Post(':teamId/github/connect-pat')
+  @UseGuards(JwtAuthGuard)
+  async connectGitHubWithPat(
+    @Param('teamId') teamId: string,
+    @Body('token') token: string,
+  ) {
+    await this.service.connectGitHubWithPat(teamId, token);
+    return { connected: true };
+  }
+
   @Delete(':teamId/github')
   @UseGuards(JwtAuthGuard)
   disconnectGitHub(@Param('teamId') teamId: string) {
