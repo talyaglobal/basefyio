@@ -15,10 +15,20 @@ import { ImportProcessor } from '../queue/import.processor';
 import { EmailProcessor } from '../queue/email.processor';
 import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
+import { FoldersController, TagsController } from './folders-tags.controller';
+import { FoldersTagsService } from './folders-tags.service';
 
 @Module({
   imports: [AuthModule, HttpModule.register({ timeout: 60000 }), StorageModule],
-  controllers: [ProjectsController, ProjectDataController, ProjectAuthController, ProjectSdkAuthController, PublicApiController],
+  controllers: [
+    ProjectsController,
+    ProjectDataController,
+    ProjectAuthController,
+    ProjectSdkAuthController,
+    PublicApiController,
+    FoldersController,
+    TagsController,
+  ],
   providers: [
     ProjectsService,
     ProjectDataService,
@@ -28,6 +38,7 @@ import { StorageModule } from '../storage/storage.module';
     SupabaseImportService,
     ImportProcessor,
     EmailProcessor,
+    FoldersTagsService,
   ],
   exports: [ProjectsService],
 })

@@ -92,12 +92,33 @@ export interface Project {
   vercel?: VercelIntegration;
 }
 
+export interface ProjectFolder {
+  id: string;
+  name: string;
+  color: string;
+  teamId: string;
+  createdAt: string;
+  _count?: { projects: number };
+}
+
+export interface ProjectTag {
+  id: string;
+  name: string;
+  color: string;
+  teamId: string;
+  createdAt: string;
+  _count?: { assignments: number };
+}
+
 export interface ProjectListItem {
   id: string;
   name: string;
   slug: string;
   description: string | null;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
+  folderId: string | null;
+  folder?: { id: string; name: string; color: string } | null;
+  tags?: { tag: { id: string; name: string; color: string } }[];
   createdAt: string;
   updatedAt: string;
 }
@@ -116,6 +137,9 @@ export interface TeamMember {
   id: string;
   username: string;
   email: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
   role: 'OWNER' | 'MEMBER';
   joinedAt: string;
 }

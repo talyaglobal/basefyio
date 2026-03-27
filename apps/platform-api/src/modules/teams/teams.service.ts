@@ -147,7 +147,7 @@ export class TeamsService {
 
     const members = await this.prisma.teamMember.findMany({
       where: { teamId },
-      include: { user: { select: { id: true, username: true, email: true } } },
+      include: { user: { select: { id: true, username: true, email: true, firstName: true, lastName: true, avatarUrl: true } } },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -155,6 +155,9 @@ export class TeamsService {
       id: m.user.id,
       username: m.user.username,
       email: m.user.email,
+      firstName: m.user.firstName,
+      lastName: m.user.lastName,
+      avatarUrl: m.user.avatarUrl,
       role: m.role,
       joinedAt: m.createdAt,
     }));

@@ -603,81 +603,112 @@ export default function TeamSettingsPage() {
       ) : (
         <>
           {/* Members */}
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium">Email</th>
-                  <th className="px-4 py-2 text-left font-medium">Role</th>
-                  <th className="px-4 py-2 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.id} className="border-b last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {m.role === 'OWNER' && <Crown className="h-4 w-4 text-amber-500" />}
-                        <span className="font-medium">{m.email}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'}>
-                        {m.role}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {m.role !== 'OWNER' && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                          onClick={() => handleRemove(m.id, m.username)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <div className="border-b bg-muted/40 px-4 py-2.5 flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-medium">Members</span>
+              <span className="ml-auto text-xs text-muted-foreground">{members.length} member{members.length !== 1 ? 's' : ''}</span>
+            </div>
 
-                {/* Pending invites in same table */}
-                {pendingInvites.map((inv) => {
-                  const isEmailOnly = !inv.invitedUser.id;
-                  return (
-                    <tr key={inv.id} className="border-b last:border-0 bg-muted/20">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium text-muted-foreground">
-                            {inv.invitedUser.email || inv.invitedEmail}
-                          </span>
-                          {isEmailOnly && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              Not registered
-                            </Badge>
-                          )}
+            <div className="divide-y">
+              {members.map((m) => {
+                const displayName = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username;
+                const initials = m.firstName && m.lastName
+                  ? `${m.firstName[0]}${m.lastName[0]}`.toUpperCase()
+                  : (m.firstName || m.username).slice(0, 2).toUpperCase();
+                const isOwner = m.role === 'OWNER';
+
+                return (
+                  <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                    {/* Avatar with optional crown */}
+                    <div className="relative shrink-0">
+                      <div className="h-10 w-10 rounded-full overflow-hidden ring-2 ring-border">
+                        {m.avatarUrl ? (
+                          <img src={m.avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                            {initials}
+                          </div>
+                        )}
+                      </div>
+                      {isOwner && (
+                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2">
+                          <Crown className="h-3.5 w-3.5 text-amber-500 drop-shadow-sm" fill="#f59e0b" />
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline">PENDING</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive/70 hover:text-destructive"
-                          onClick={() => handleCancelInvite(inv.id)}
-                          title="Cancel invite"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      )}
+                    </div>
+
+                    {/* Name + email */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{displayName}</span>
+                        {isOwner && (
+                          <Badge className="text-[10px] h-4 px-1.5 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">
+                            Owner
+                          </Badge>
+                        )}
+                        {m.id === currentUserId && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                            You
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                    </div>
+
+                    {/* Remove button */}
+                    {m.role !== 'OWNER' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
+                        onClick={() => handleRemove(m.id, m.username)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Pending invites */}
+              {pendingInvites.map((inv) => {
+                const isEmailOnly = !inv.invitedUser.id;
+                return (
+                  <div key={inv.id} className="flex items-center gap-3 px-4 py-3 bg-muted/20">
+                    {/* Placeholder avatar */}
+                    <div className="relative shrink-0">
+                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center ring-2 ring-border ring-dashed">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground truncate">
+                          {inv.invitedUser.email || inv.invitedEmail}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5">Pending</Badge>
+                        {isEmailOnly && (
+                          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Not registered</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Invite sent</p>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
+                      onClick={() => handleCancelInvite(inv.id)}
+                      title="Cancel invite"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </>
       )}

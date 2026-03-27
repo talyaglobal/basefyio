@@ -67,24 +67,36 @@ function StatCard({
   value,
   sub,
   accent,
+  onClick,
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   sub?: string;
   accent?: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-5 flex items-start gap-4">
-      <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10'}`}>
-        <Icon className={`h-5 w-5 ${accent ? 'text-white' : 'text-primary'}`} />
+    <button
+      onClick={onClick}
+      className={`w-full text-left rounded-xl border bg-card p-5 shadow-sm transition-all ${
+        onClick ? 'hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]' : ''
+      }`}
+    >
+      {/* Icon + Label row */}
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10'}`}>
+          <Icon className={`h-4 w-4 ${accent ? 'text-white' : 'text-primary'}`} />
+        </div>
+        <span className="text-sm font-medium text-muted-foreground leading-tight">{label}</span>
+        {onClick && (
+          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0 group-hover:text-primary transition-colors" />
+        )}
       </div>
-      <div className="min-w-0">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-2xl font-bold tabular-nums">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
-      </div>
-    </div>
+      {/* Value */}
+      <p className="text-3xl font-bold tabular-nums tracking-tight">{value}</p>
+      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+    </button>
   );
 }
 
@@ -156,7 +168,7 @@ export default function DashboardPage() {
             Your team&apos;s activity at a glance.
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button onClick={() => setDialogOpen(true)} className="bg-brand-gradient text-white border-0 hover:opacity-90">
           <Plus className="mr-2 h-4 w-4" />
           New Project
         </Button>
@@ -170,24 +182,28 @@ export default function DashboardPage() {
           value={projects.length}
           sub={`${activeCount} active`}
           accent="bg-primary"
+          onClick={() => router.push('/dashboard/projects')}
         />
         <StatCard
           icon={CheckCircle2}
           label="Active Projects"
           value={activeCount}
           sub={projects.length > 0 ? `${Math.round((activeCount / projects.length) * 100)}% of total` : undefined}
+          onClick={() => router.push('/dashboard/projects?status=ACTIVE')}
         />
         <StatCard
           icon={Users}
           label="Team Members"
           value={members.length}
           sub={`${members.filter((m) => m.role === 'OWNER').length} owner`}
+          onClick={() => router.push('/dashboard/team')}
         />
         <StatCard
           icon={Calendar}
           label="Created This Month"
           value={thisMonth}
           sub={trendUp ? '↑ more than last month' : totalLastMonth > 0 ? '↓ less than last month' : 'No projects last month'}
+          onClick={() => router.push('/dashboard/projects?filter=this-month')}
         />
       </div>
 
@@ -310,8 +326,8 @@ export default function DashboardPage() {
                   onClick={() => router.push(`/dashboard/projects/${p.id}`)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent group"
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
-                    <Database className="h-4 w-4 text-primary" />
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-gradient shadow-sm">
+                    <Database className="h-4 w-4 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{p.name}</p>
@@ -344,7 +360,7 @@ export default function DashboardPage() {
               onClick={() => setDialogOpen(true)}
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-gradient text-white shadow-sm">
                 <Plus className="h-4 w-4" />
               </div>
               New Project
@@ -354,7 +370,7 @@ export default function DashboardPage() {
               onClick={() => router.push('/dashboard/projects')}
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
                 <FolderOpen className="h-4 w-4 text-muted-foreground" />
               </div>
               All Projects
@@ -365,7 +381,7 @@ export default function DashboardPage() {
               onClick={() => router.push('/dashboard/team')}
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>
               Team Settings
@@ -376,7 +392,7 @@ export default function DashboardPage() {
               onClick={() => router.push('/dashboard/account')}
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
                 <Activity className="h-4 w-4 text-muted-foreground" />
               </div>
               Account Settings

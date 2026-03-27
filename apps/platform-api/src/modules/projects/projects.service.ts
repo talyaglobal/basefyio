@@ -93,6 +93,59 @@ export class ProjectsService {
         slug: true,
         description: true,
         status: true,
+        folderId: true,
+        folder: { select: { id: true, name: true, color: true } },
+        tags: {
+          select: {
+            tag: { select: { id: true, name: true, color: true } },
+          },
+        },
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async update(
+    id: string,
+    userId: string,
+    data: { folderId?: string | null; tags?: string[] },
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id, status: { not: 'DELETED' } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+
+    const updateData: any = {};
+    if (data.folderId !== undefined) updateData.folderId = data.folderId;
+
+    const [updatedProject] = await this.prisma.$transaction(async (tx) => {
+      const p = await tx.project.update({ where: { id }, data: updateData });
+
+      if (data.tags !== undefined) {
+        await tx.projectTagAssignment.deleteMany({ where: { projectId: id } });
+        if (data.tags.length > 0) {
+          await tx.projectTagAssignment.createMany({
+            data: data.tags.map((tagId) => ({ projectId: id, tagId })),
+          });
+        }
+      }
+
+      return [p];
+    });
+
+    return this.prisma.project.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        status: true,
+        folderId: true,
+        folder: { select: { id: true, name: true, color: true } },
+        tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
         createdAt: true,
         updatedAt: true,
       },
