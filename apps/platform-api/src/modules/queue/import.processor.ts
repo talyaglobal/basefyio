@@ -44,15 +44,20 @@ export class ImportProcessor extends WorkerHost {
 
   async process(job: Job<ImportJobData>): Promise<ImportProgress> {
     const JOB_TIMEOUT_MS = 45 * 60 * 1000; // 45 minutes
-    return Promise.race([
-      this.runImport(job),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error('Import job timed out after 45 minutes')),
-          JOB_TIMEOUT_MS,
-        ),
-      ),
-    ]);
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error('Import job timed out after 45 minutes')),
+        JOB_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      return await Promise.race([this.runImport(job), timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    }
   }
 
   private async runImport(job: Job<ImportJobData>): Promise<ImportProgress> {
