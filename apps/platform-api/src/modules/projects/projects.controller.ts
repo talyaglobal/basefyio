@@ -51,6 +51,7 @@ export class ProjectsController {
       body.name,
       body.teamId,
       user.sub,
+      body.databasePassword,
     );
   }
 

@@ -89,6 +89,8 @@ export interface Project {
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   createdAt: string;
   updatedAt: string;
+  /** Persisted summary from the last completed Supabase import (if any). */
+  supabaseImportLog?: unknown;
   github?: GitHubIntegration;
   vercel?: VercelIntegration;
 }
@@ -327,6 +329,8 @@ export interface StorageObject {
 export interface SupabaseImportRequest {
   supabaseUrl: string;
   serviceRoleKey: string;
+  /** Rare fallback: direct Postgres copy if PostgREST still cannot read a table */
+  databasePassword?: string;
   name: string;
   teamId: string;
 }
@@ -345,6 +349,46 @@ export interface ImportProgressData {
   auth: { users: number; skipped: number; emailsSent: number };
   storage: { buckets: number; objects: number };
   warnings: string[];
+}
+
+/** Ensures SSE/job payloads always yield full lists for the result UI. */
+export function normalizeImportProgressData(
+  raw: Partial<ImportProgressData> | null | undefined,
+): ImportProgressData {
+  return {
+    database: {
+      tables: raw?.database?.tables ?? 0,
+      rows: raw?.database?.rows ?? 0,
+      failedTables: Array.isArray(raw?.database?.failedTables)
+        ? raw.database.failedTables
+        : [],
+    },
+    auth: {
+      users: raw?.auth?.users ?? 0,
+      skipped: raw?.auth?.skipped ?? 0,
+      emailsSent: raw?.auth?.emailsSent ?? 0,
+    },
+    storage: {
+      buckets: raw?.storage?.buckets ?? 0,
+      objects: raw?.storage?.objects ?? 0,
+    },
+    warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+  };
+}
+
+export type ProjectSupabaseImportLog = ImportProgressData & {
+  completedAt?: string;
+};
+
+export function parseProjectSupabaseImportLog(
+  raw: unknown,
+): ProjectSupabaseImportLog | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const base = normalizeImportProgressData(o as Partial<ImportProgressData>);
+  const completedAt =
+    typeof o.completedAt === 'string' ? o.completedAt : undefined;
+  return { ...base, completedAt };
 }
 
 export interface ImportJobProgressEvent {

@@ -219,6 +219,8 @@ export default function ProjectsPage() {
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
 
+  const [isOwner, setIsOwner] = useState(false);
+
   // ── DnD sensors ──────────────────────────────────────────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -240,6 +242,7 @@ export default function ProjectsPage() {
       setFolders(f);
       setTags(t);
       setTeams(allTeams);
+      setIsOwner(allTeams.some((tm) => tm.id === activeTeamId && tm.role === 'OWNER'));
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -247,7 +250,7 @@ export default function ProjectsPage() {
     }
   }, [activeTeamId]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { loadAll(); setShowTrash(false); setDeletedProjects([]); setIsOwner(false); }, [loadAll]);
 
   // Close context menus + sort dropdown on outside click
   useEffect(() => {
@@ -425,9 +428,9 @@ export default function ProjectsPage() {
       await api.projects.delete(deleteConfirm.id);
       setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
       setSelectedProjects((prev) => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
-      setDeletedProjects((prev) => [{ ...deleteConfirm, status: 'DELETED' as const, updatedAt: new Date().toISOString() }, ...prev]);
       toast.success(`"${deleteConfirm.name}" moved to trash`);
       setDeleteConfirm(null);
+      if (isOwner && activeTeamId) loadDeletedProjects();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -495,8 +498,8 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    if (showTrash) loadDeletedProjects();
-  }, [showTrash, activeTeamId]);
+    if (showTrash || isOwner) loadDeletedProjects();
+  }, [showTrash, activeTeamId, isOwner]);
 
   // ── Bulk operations ───────────────────────────────────────────────────────────
   async function bulkMoveToFolder(folderId: string | null) {
@@ -513,17 +516,13 @@ export default function ProjectsPage() {
   async function confirmBulkDelete() {
     setBulkDeleting(true);
     const ids = Array.from(selectedProjects);
-    const movedProjects = projects.filter((p) => selectedProjects.has(p.id));
     try {
       await Promise.all(ids.map((id) => api.projects.delete(id)));
       setProjects((prev) => prev.filter((p) => !selectedProjects.has(p.id)));
-      setDeletedProjects((prev) => [
-        ...movedProjects.map((p) => ({ ...p, status: 'DELETED' as const, updatedAt: new Date().toISOString() })),
-        ...prev,
-      ]);
       setSelectedProjects(new Set());
       toast.success(`${ids.length} project${ids.length > 1 ? 's' : ''} moved to trash`);
       setBulkDeleteConfirm(false);
+      if (isOwner && activeTeamId) loadDeletedProjects();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -853,21 +852,23 @@ export default function ProjectsPage() {
                 <p className="px-2 text-xs text-muted-foreground/50 mt-1">No tags yet</p>
               )}
 
-              {/* Trash */}
-              <div className="mt-5 pt-3 border-t border-border/50">
-                <button
-                  onClick={() => { setShowTrash(!showTrash); setSelectedFolder('all'); }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors ${showTrash ? 'bg-destructive/10 text-destructive font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Trash</span>
-                  {deletedProjects.length > 0 && (
-                    <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${showTrash ? 'bg-destructive/20 text-destructive' : 'bg-muted text-muted-foreground'}`}>
-                      {deletedProjects.length}
-                    </span>
-                  )}
-                </button>
-              </div>
+              {/* Trash (only visible to team owner) */}
+              {isOwner && (
+                <div className="mt-5 pt-3 border-t border-border/50">
+                  <button
+                    onClick={() => { setShowTrash(!showTrash); setSelectedFolder('all'); }}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors ${showTrash ? 'bg-destructive/10 text-destructive font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Trash</span>
+                    {deletedProjects.length > 0 && (
+                      <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${showTrash ? 'bg-destructive/20 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                        {deletedProjects.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 
@@ -902,7 +903,9 @@ export default function ProjectsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {deletedProjects.map((project) => (
+                    {deletedProjects.map((project) => {
+                      const displayName = project.name.replace(/_(\d+_)?deleted$/, '');
+                      return (
                       <div
                         key={project.id}
                         className="group relative rounded-xl border border-destructive/20 bg-card p-4 hover:border-destructive/40 transition-colors"
@@ -910,7 +913,7 @@ export default function ProjectsPage() {
                         <div className="flex items-start justify-between mb-2">
                           <div className="min-w-0 flex-1">
                             <h3 className="text-sm font-medium truncate text-muted-foreground line-through">
-                              {project.name}
+                              {displayName}
                             </h3>
                             {project.description && (
                               <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
@@ -918,7 +921,20 @@ export default function ProjectsPage() {
                           </div>
                         </div>
                         <p className="text-[10px] text-muted-foreground/50 mb-3">
-                          Deleted {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : ''}
+                          {(() => {
+                            if (!project.updatedAt) return 'Deleted';
+                            const d = new Date(project.updatedAt);
+                            const deletedAt = d.getTime();
+                            const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                            const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const expiresAt = deletedAt + 24 * 60 * 60 * 1000;
+                            const remaining = expiresAt - Date.now();
+                            if (remaining <= 0) return `Deleted ${dateStr} ${timeStr} · Expires soon`;
+                            const hours = Math.floor(remaining / 3600000);
+                            const mins = Math.floor((remaining % 3600000) / 60000);
+                            const rem = hours > 0 ? `${hours}h ${mins}m remaining` : `${mins}m remaining`;
+                            return `Deleted ${dateStr} ${timeStr} · ${rem}`;
+                          })()}
                         </p>
                         <div className="flex items-center gap-2">
                           <button
@@ -938,7 +954,8 @@ export default function ProjectsPage() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1006,7 +1023,7 @@ export default function ProjectsPage() {
           title="Permanently Delete Project"
         >
           <p className="text-sm text-muted-foreground mb-1">
-            This will permanently destroy the project <strong className="text-foreground">&quot;{permDeleteConfirm.name}&quot;</strong>, including its database, users, and all data.
+            This will permanently destroy the project <strong className="text-foreground">&quot;{permDeleteConfirm.name.replace(/_(\d+_)?deleted$/, '')}&quot;</strong>, including its database, users, and all data.
           </p>
           <p className="text-xs text-destructive font-medium mb-4">This action cannot be undone.</p>
           <div className="flex justify-end gap-2">
@@ -1196,10 +1213,12 @@ export default function ProjectsPage() {
           <p className="text-sm text-muted-foreground mb-1">
             Move to trash:
           </p>
-          <p className="text-sm font-semibold mb-4">&quot;{deleteConfirm.name}&quot;</p>
-          <p className="text-xs text-muted-foreground mb-4">
-            You can restore this project from the Trash in the sidebar.
-          </p>
+          <p className="text-sm font-semibold mb-3">&quot;{deleteConfirm.name}&quot;</p>
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 mb-4">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              This project will remain in trash for <strong>24 hours</strong>. The team owner can restore it during this period. After 24 hours it will be permanently deleted.
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>
               Cancel
@@ -1222,12 +1241,14 @@ export default function ProjectsPage() {
           <p className="text-sm text-muted-foreground mb-1">
             Move to trash:
           </p>
-          <p className="text-sm font-semibold mb-4">
+          <p className="text-sm font-semibold mb-3">
             {selectedProjects.size} project{selectedProjects.size > 1 ? 's' : ''}?
           </p>
-          <p className="text-xs text-muted-foreground mb-4">
-            Projects can be restored from the Trash in the sidebar.
-          </p>
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 mb-4">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              These projects will remain in trash for <strong>24 hours</strong>. The team owner can restore them during this period. After 24 hours they will be permanently deleted.
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setBulkDeleteConfirm(false)}>
               Cancel
@@ -1647,7 +1668,7 @@ function DroppableProjectCard({
       <div className="flex items-center gap-3 pt-1 border-t">
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Calendar className="h-3 w-3" />
-          <span>{new Date(project.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+          <span>{new Date(project.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })} {new Date(project.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
           <Zap className="h-3 w-3" />

@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Pool } from 'pg';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -69,6 +70,7 @@ export class ProjectsService {
         anonKey,
         serviceKey,
         teamId: dto.teamId,
+        createdBy: userId,
       },
     });
 
@@ -229,16 +231,63 @@ export class ProjectsService {
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId } },
     });
-    if (!membership || membership.role !== 'OWNER') {
-      throw new ForbiddenException('Only the team owner can delete projects');
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+
+    const isCreator = project.createdBy === userId;
+    if (membership.role !== 'OWNER' && !isCreator) {
+      throw new ForbiddenException('You can only delete projects you created');
+    }
+
+    const deletedName = await this.uniqueDeletedName(project.name);
+    const deletedSlug = await this.uniqueDeletedSlug(project.slug);
+
+    // Derive archived resource names (safe for DB identifier length limits)
+    const suffix = `_del${Date.now()}`;
+    const archivedDbName = `${project.dbName}${suffix}`.slice(0, 63);
+    const archivedDbUser = `${project.dbUser}${suffix}`.slice(0, 63);
+    const archivedRealm = `${project.keycloakRealm}${suffix}`.slice(0, 255);
+
+    // Rename DB + user so the original names are free for re-import immediately.
+    // All data (tables, auth users, storage) remains intact for a potential restore.
+    await this.renameDatabase(project.dbName, archivedDbName);
+
+    const pool = this.getAdminPool();
+    const client = await pool.connect();
+    try {
+      await client.query(`ALTER USER "${project.dbUser.replace(/[^a-z0-9_]/g, '')}" RENAME TO "${archivedDbUser.replace(/[^a-z0-9_]/g, '')}"`);
+    } catch (err: any) {
+      this.logger.warn(`Soft-delete: could not rename db user: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+
+    // Rename Keycloak realm by disabling it and recording the new name
+    try {
+      await this.keycloak.disableRealm(project.keycloakRealm);
+    } catch (err) {
+      this.logger.warn(`Soft-delete: failed to disable Keycloak realm for "${project.name}": ${err}`);
     }
 
     await this.prisma.project.update({
       where: { id },
-      data: { status: 'DELETED' },
+      data: {
+        status: 'DELETED',
+        name: deletedName,
+        slug: deletedSlug,
+        dbName: archivedDbName,
+        dbUser: archivedDbUser,
+        keycloakRealm: archivedRealm,
+      },
     });
 
-    this.logger.log(`Project "${project.name}" soft-deleted by user ${userId}`);
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    this.logger.log(`Project "${project.name}" soft-deleted by user ${userId} (db: ${archivedDbName})`);
 
     return { message: 'Project deleted' };
   }
@@ -280,12 +329,74 @@ export class ProjectsService {
       throw new ForbiddenException('Only the team owner can restore projects');
     }
 
-    await this.prisma.project.update({
-      where: { id },
-      data: { status: 'ACTIVE' },
+    const originalName = this.stripDeletedSuffix(project.name);
+    const originalSlug = this.stripDeletedSuffix(project.slug);
+
+    const conflict = await this.prisma.project.findFirst({
+      where: {
+        OR: [{ name: originalName }, { slug: originalSlug }],
+        id: { not: project.id },
+        status: { not: 'DELETED' },
+      },
+      select: { id: true, name: true },
     });
 
-    this.logger.log(`Project "${project.name}" restored by user ${userId}`);
+    if (conflict) {
+      throw new ForbiddenException(
+        `A project named "${originalName}" already exists. Please delete or rename the existing project before restoring this one.`,
+      );
+    }
+
+    // Derive the original DB name / user / realm from the archived names
+    // e.g. "kb_usgourmet_del1234567890" → "kb_usgourmet"
+    const originalDbName = project.dbName.replace(/_del\d+$/, '');
+    const originalDbUser = project.dbUser.replace(/_del\d+$/, '');
+    const originalRealm  = project.keycloakRealm.replace(/_del\d+$/, '');
+
+    // Restore database and user names
+    await this.renameDatabase(project.dbName, originalDbName);
+
+    const pool = this.getAdminPool();
+    const client = await pool.connect();
+    try {
+      const sanitizedCurrent = project.dbUser.replace(/[^a-z0-9_]/g, '');
+      const sanitizedOriginal = originalDbUser.replace(/[^a-z0-9_]/g, '');
+      if (sanitizedCurrent !== sanitizedOriginal) {
+        await client.query(`ALTER USER "${sanitizedCurrent}" RENAME TO "${sanitizedOriginal}"`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Restore: could not rename db user back: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+
+    // Re-enable (and rename back) Keycloak realm
+    // Since Keycloak doesn't support direct rename, we enable the disabled realm
+    // under its archived name. The keycloakRealm field in DB is updated to match.
+    try {
+      await this.keycloak.enableRealm(project.keycloakRealm);
+    } catch (err) {
+      this.logger.warn(`Restore: could not re-enable Keycloak realm: ${err}`);
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        name: originalName,
+        slug: originalSlug,
+        dbName: originalDbName,
+        dbUser: originalDbUser,
+        keycloakRealm: project.keycloakRealm, // keep the archived realm name; it's re-enabled above
+      },
+    });
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    this.logger.log(`Project "${originalName}" restored by user ${userId}`);
 
     return { message: 'Project restored' };
   }
@@ -304,22 +415,15 @@ export class ProjectsService {
       throw new ForbiddenException('Only the team owner can permanently delete projects');
     }
 
+    // Keycloak realm and database are already cleaned up during soft delete.
+    // Attempt cleanup again just in case (e.g. old trash items from before this change).
     try {
       await this.keycloak.deleteRealm(project.keycloakRealm);
-    } catch (err) {
-      this.logger.warn(`Failed to delete Keycloak realm: ${err}`);
+    } catch {
+      // already deleted or never existed — safe to ignore
     }
-
-    await this.dropDatabase(project.dbName);
-    await this.dropDatabaseUser(project.dbUser);
-
-    const deletedName = await this.uniqueDeletedName(project.name);
-    const deletedSlug = await this.uniqueDeletedSlug(project.slug);
-
-    await this.prisma.project.update({
-      where: { id },
-      data: { name: deletedName, slug: deletedSlug },
-    });
+    await this.dropDatabase(project.dbName).catch(() => {});
+    await this.dropDatabaseUser(project.dbUser).catch(() => {});
 
     await this.prisma.project.delete({ where: { id } });
 
@@ -354,12 +458,75 @@ export class ProjectsService {
     );
   }
 
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanupExpiredDeletedProjects() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const expired = await this.prisma.project.findMany({
+      where: {
+        status: 'DELETED',
+        updatedAt: { lt: cutoff },
+      },
+    });
+
+    if (expired.length === 0) {
+      this.logger.log('Trash cleanup: no expired projects to remove');
+      return;
+    }
+
+    this.logger.log(`Trash cleanup: permanently deleting ${expired.length} project(s) older than 24h`);
+
+    for (const project of expired) {
+      try {
+        try {
+          await this.keycloak.deleteRealm(project.keycloakRealm);
+        } catch (err) {
+          this.logger.warn(`Cleanup: failed to delete Keycloak realm for "${project.name}": ${err}`);
+        }
+
+        await this.dropDatabase(project.dbName).catch(() => {});
+        await this.dropDatabaseUser(project.dbUser).catch(() => {});
+
+        await this.prisma.project.delete({ where: { id: project.id } });
+
+        this.logger.log(`Cleanup: permanently deleted "${project.name}"`);
+      } catch (err: any) {
+        this.logger.error(`Cleanup: failed to delete project "${project.name}": ${err.message}`);
+      }
+    }
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed after cleanup: ${err}`),
+    );
+  }
+
   private async assertTeamMember(teamId: string, userId: string) {
     if (!teamId) throw new ForbiddenException('No team specified');
     const m = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
     if (!m) throw new ForbiddenException('Not a member of this team');
+  }
+
+  private async renameDatabase(oldName: string, newName: string) {
+    const pool = this.getAdminPool();
+    const client = await pool.connect();
+    const sanitizedOld = oldName.replace(/[^a-z0-9_]/g, '');
+    const sanitizedNew = newName.replace(/[^a-z0-9_]/g, '');
+    try {
+      // Terminate all active connections to the DB before renaming
+      await client.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [sanitizedOld],
+      );
+      await client.query(`ALTER DATABASE "${sanitizedOld}" RENAME TO "${sanitizedNew}"`);
+      this.logger.log(`Database renamed: "${sanitizedOld}" → "${sanitizedNew}"`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to rename database "${sanitizedOld}" to "${sanitizedNew}": ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
   }
 
   private async createDatabase(dbName: string) {
@@ -486,6 +653,10 @@ export class ProjectsService {
       if (!found) return candidate;
     }
     return `${base}_${Date.now()}`;
+  }
+
+  private stripDeletedSuffix(value: string): string {
+    return value.replace(/_(\d+_)?deleted$/, '');
   }
 
   private async uniqueDeletedName(baseName: string): Promise<string> {

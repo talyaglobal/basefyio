@@ -1,6 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseImportService, ImportProgress } from '../projects/supabase-import.service';
 import { IMPORT_QUEUE } from './queue.module';
 
@@ -16,6 +18,8 @@ export interface ImportJobData {
   projectName: string;
   baseUrl: string;
   serviceRoleKey: string;
+  /** Source Supabase DB password for direct PG copy (bypasses PostgREST 403 on some tables). */
+  supabaseDatabasePassword?: string;
   dbHost: string;
   dbPort: number;
   dbUser: string;
@@ -38,6 +42,7 @@ export class ImportProcessor extends WorkerHost {
 
   constructor(
     private readonly importService: SupabaseImportService,
+    private readonly prisma: PrismaService,
   ) {
     super();
   }
@@ -81,6 +86,7 @@ export class ImportProcessor extends WorkerHost {
       dbPassword: job.data.dbPassword,
       dbName: job.data.dbName,
       keycloakRealm: job.data.keycloakRealm,
+      supabaseDatabasePassword: job.data.supabaseDatabasePassword,
     };
 
     const progress: ImportProgress = {
@@ -183,18 +189,31 @@ export class ImportProcessor extends WorkerHost {
       throw err;
     }
 
-    if (progress.database.failedTables.length > 0) {
-      progress.warnings.push(
-        `Data import failed for tables: ${progress.database.failedTables.join(', ')}`,
-      );
-    }
-
     this.logger.log(
       `Import job ${jobId} complete: ` +
       `${progress.database.tables} tables, ${progress.database.rows} rows, ` +
       `${progress.auth.users} users, ${progress.storage.buckets} buckets, ` +
       `${progress.storage.objects} objects`,
     );
+
+    const logPayload: Prisma.InputJsonValue = {
+      database: progress.database,
+      auth: progress.auth,
+      storage: progress.storage,
+      warnings: progress.warnings,
+      completedAt: new Date().toISOString(),
+    };
+
+    try {
+      await this.prisma.project.update({
+        where: { id: projectId },
+        data: { supabaseImportLog: logPayload },
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to persist import log for project ${projectId}: ${err.message}`,
+      );
+    }
 
     await job.updateProgress({
       step: 'completed',
