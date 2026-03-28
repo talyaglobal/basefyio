@@ -25,6 +25,7 @@ import {
   type ImportProgressData,
   type ImportJobProgressEvent,
 } from '@/lib/types';
+import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -104,6 +105,7 @@ export function CreateProjectDialog({
   const importPercentRef = useRef(0);
   const importEtaStartMsRef = useRef(0);
   const [importEta, setImportEta] = useState<string>('');
+  const [importStrategy, setImportStrategy] = useState<string>('');
   const etaSmoothedMsRef = useRef(0);
   const etaVisualMsRef = useRef(0);
   const etaRafRef = useRef<number | null>(null);
@@ -249,7 +251,7 @@ export function CreateProjectDialog({
     return () => setOnReopenModal(null);
   }, [onOpenChange, setOnReopenModal, updatePercentAndEta]);
 
-  // Keep ETA / percent in sync while import runs (including when modal is minimized).
+  // Keep ETA / percent / strategy in sync while import runs (including when modal is minimized).
   useEffect(() => {
     if (!activeImport) return;
     if (activeImport.status === 'failed') {
@@ -259,11 +261,13 @@ export function CreateProjectDialog({
       return;
     }
     updatePercentAndEta(activeImport.percent);
+    if (activeImport.strategy) setImportStrategy(activeImport.strategy);
   }, [
     activeImport?.jobId,
     activeImport?.percent,
     activeImport?.status,
     activeImport?.startedAt,
+    activeImport?.strategy,
     updatePercentAndEta,
     stopEtaAnimation,
   ]);
@@ -319,6 +323,7 @@ export function CreateProjectDialog({
     setImportPercent(0);
     importPercentRef.current = 0;
     setImportEta('');
+    setImportStrategy('');
     importStartRef.current = 0;
     stopEtaAnimation();
     setImportResult(null);
@@ -391,6 +396,7 @@ export function CreateProjectDialog({
 
   function updateStepFromSSE(data: ImportJobProgressEvent) {
     updatePercentAndEta(data.percent || 0);
+    if (data.strategy) setImportStrategy(data.strategy);
 
     setImportSteps((prev) => {
       const steps = [...prev];
@@ -496,7 +502,14 @@ export function CreateProjectDialog({
           updateStepFromSSE(data);
         },
         onCompleted: (data) => {
-          const progress = normalizeImportProgressData(data.progress);
+          const rawProgress = data?.progress ?? data?.result ?? data;
+          const progress = normalizeImportProgressData(rawProgress);
+
+          if (result.project.id) {
+            try {
+              saveProjectSupabaseImportLog(result.project.id, progress);
+            } catch {}
+          }
 
           setImportSteps((prev) => {
             const s = [...prev];
@@ -560,10 +573,21 @@ export function CreateProjectDialog({
 
   function handleResultDone() {
     const targetId = importProjectId || activeImport?.projectId || null;
+    const result = importResult;
+
+    if (targetId && result) {
+      try {
+        saveProjectSupabaseImportLog(targetId, result);
+      } catch {
+        // localStorage might be unavailable
+      }
+    }
+
     setModalShowingImport(false);
     resetState();
     onCreated();
     onOpenChange(false);
+
     if (targetId) {
       router.push(`/dashboard/projects/${targetId}`);
     } else {
@@ -836,7 +860,7 @@ export function CreateProjectDialog({
             {/* Progress bar */}
             <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
               <div
-                className="h-full bg-emerald-500 rounded-full transition-all duration-500 ease-out"
+                className="h-full bg-emerald-500 rounded-full transition-[width] duration-[800ms] ease-out"
                 style={{ width: `${importPercent}%` }}
               />
             </div>
@@ -844,9 +868,17 @@ export function CreateProjectDialog({
               <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 min-w-0 flex-1 mr-2">
                 <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                <span className="font-medium tabular-nums transition-[opacity,transform] duration-700 ease-out motion-reduce:transition-none">
+                <span className="font-medium tabular-nums truncate transition-opacity duration-500 ease-out">
                   {importEta || importSteps.find((s) => s.status === 'active')?.detail || 'This may take a few minutes'}
                 </span>
+                {importStrategy && (
+                  <span
+                    key={importStrategy}
+                    className="ml-auto shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 animate-in fade-in slide-in-from-right-1 duration-500"
+                  >
+                    {importStrategy}
+                  </span>
+                )}
               </div>
               <Button
                 type="button"

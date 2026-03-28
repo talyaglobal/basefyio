@@ -397,6 +397,8 @@ export interface ImportJobProgressEvent {
   percent: number;
   progress?: ImportProgressData;
   error?: string;
+  /** Active fetch strategy label (e.g. "PostgREST", "Direct SQL", "HTTP REST", "CSV") */
+  strategy?: string;
 }
 
 export interface SupabaseValidateResult {

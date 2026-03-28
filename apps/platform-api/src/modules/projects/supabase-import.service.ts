@@ -299,7 +299,7 @@ export class SupabaseImportService {
     headers: Record<string, string>,
     project: any,
     progress: ImportProgress,
-    onProgress?: (detail: string, percent: number) => Promise<void>,
+    onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
   ) {
     await this.importDatabase(baseUrl, headers, project, progress, onProgress);
     await this.importNonPublicSchemaTables(baseUrl, headers, project, progress, onProgress);
@@ -501,7 +501,7 @@ export class SupabaseImportService {
     headers: Record<string, string>,
     project: any,
     progress: ImportProgress,
-    onProgress?: (detail: string, percent: number) => Promise<void>,
+    onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
   ) {
     const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
     const tables = this.extractTablesFromOpenApi(openApi);
@@ -572,28 +572,45 @@ export class SupabaseImportService {
           await this.createLocalTable(pool, table.table_name, columns);
           progress.database.tables++;
 
+          const method = sourcePool ? 'Direct SQL' : undefined;
           if (onProgress) {
-            await onProgress(`Importing data for "${table.table_name}" (${i + 1}/${tables.length})`, pct);
+            await onProgress(
+              `Importing data for "${table.table_name}" (${i + 1}/${tables.length})`,
+              pct,
+              method,
+            );
           }
 
-          const rowCount = sourcePool
-            ? await this.copyTableDataFromDirectPostgres(
-                sourcePool,
-                pool,
-                table.table_name,
-                columns,
-              )
-            : await this.copyTableDataFromRest(
-                baseUrl,
-                headers,
-                pool,
-                table.table_name,
-                columns,
-              );
+          let rowCount: number;
+          let strategyUsed: string;
+          if (sourcePool) {
+            rowCount = await this.copyTableDataFromDirectPostgres(
+              sourcePool, pool, table.table_name, columns,
+            );
+            strategyUsed = 'Direct SQL';
+          } else {
+            const result = await this.copyTableDataFromRest(
+              baseUrl, headers, pool, table.table_name, columns,
+            );
+            rowCount = result.rowCount;
+            strategyUsed = result.strategyLabel;
+          }
+
+          if (onProgress) {
+            await onProgress(
+              `Imported "${table.table_name}" — ${rowCount} rows (${i + 1}/${tables.length})`,
+              pct,
+              strategyUsed,
+            );
+          }
+
           progress.database.rows += rowCount;
           if (rowCount === 0) {
+            const hint = sourcePool
+              ? 'table may be empty or SELECT failed'
+              : 'RLS may be blocking reads — provide Database Password for direct Postgres copy';
             progress.warnings.push(
-              `Table "${table.table_name}": 0 rows imported - data may be missing`,
+              `Table "${table.table_name}": 0 rows imported (${hint})`,
             );
           }
 
@@ -630,7 +647,7 @@ export class SupabaseImportService {
     headers: Record<string, string>,
     project: any,
     progress: ImportProgress,
-    onProgress?: (detail: string, percent: number) => Promise<void>,
+    onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
   ) {
     // Well-known non-public tables that Supabase may expose via Accept-Profile
     const extraTables: Array<{ schema: string; table: string }> = [
@@ -932,73 +949,306 @@ export class SupabaseImportService {
     }
   }
 
-  /**
-   * Paginated row fetch via official Supabase client (same PostgREST, correct headers / encoding).
-   */
-  private async fetchPageViaSupabaseClient(
+  // ── Multi-strategy paginated row fetch ──────────────────────────
+
+  private isAccessDeniedError(msg: string, code?: string): boolean {
+    const low = (msg || '').toLowerCase();
+    return (
+      code === '42501' ||
+      low.includes('permission denied') ||
+      low.includes('jwt expired') ||
+      low.includes('invalid jwt') ||
+      low.includes('not authorized') ||
+      low.includes('insufficient_privilege')
+    );
+  }
+
+  private isRangeError(msg: string, code?: string, httpStatus?: number): boolean {
+    const low = (msg || '').toLowerCase();
+    return httpStatus === 416 || low.includes('range not satisfiable') || low.includes('416');
+  }
+
+  /** Strategy 1: supabase-js select('*').range() */
+  private async fetchPageStrategy_SbRange(
     sb: SupabaseClient,
     tableName: string,
     offset: number,
     pageSize: number,
-    retries = 3,
   ): Promise<any[] | null | undefined> {
-    const rangeEnd = offset + pageSize - 1;
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const { data, error } = await sb
-          .from(tableName)
-          .select('*')
-          .range(offset, rangeEnd);
+    const { data, error } = await sb
+      .from(tableName)
+      .select('*')
+      .range(offset, offset + pageSize - 1);
 
-        if (error) {
-          const low = (error.message || '').toLowerCase();
-          const st = (error as { statusCode?: number; status?: number }).statusCode
-            ?? (error as { status?: number }).status;
-          if (low.includes('range not satisfiable') || low.includes('416') || st === 416) {
-            return null;
-          }
-          if (
-            st === 403 ||
-            st === 401 ||
-            low.includes('permission denied') ||
-            error.code === '42501' ||
-            low.includes('jwt expired') ||
-            low.includes('invalid jwt')
-          ) {
-            this.logger.warn(
-              `Access denied "${tableName}" offset=${offset}: ${error.message?.slice(0, 180)} — ` +
-                `confirm service_role key; if tables still fail, add Database password for direct Postgres copy.`,
-            );
-            return null;
-          }
+    if (error) {
+      const code = (error as any).code || '';
+      if (this.isRangeError(error.message, code)) return null;
+      if (this.isAccessDeniedError(error.message, code)) return null;
+      throw new Error(`[sb-range] ${error.message} (code=${code})`);
+    }
+    return Array.isArray(data) ? data : [];
+  }
+
+  /** Strategy 2: supabase-js select('col1,col2,...').range() — avoids generated/computed column issues */
+  private async fetchPageStrategy_SbExplicitCols(
+    sb: SupabaseClient,
+    tableName: string,
+    columnNames: string[],
+    offset: number,
+    pageSize: number,
+  ): Promise<any[] | null | undefined> {
+    const selectList = columnNames.join(',');
+    const { data, error } = await sb
+      .from(tableName)
+      .select(selectList)
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      const code = (error as any).code || '';
+      if (this.isRangeError(error.message, code)) return null;
+      if (this.isAccessDeniedError(error.message, code)) return null;
+      throw new Error(`[sb-explicit] ${error.message} (code=${code})`);
+    }
+    return Array.isArray(data) ? data : [];
+  }
+
+  /** Strategy 3: HTTP GET with limit/offset query params (no Range header) */
+  private async fetchPageStrategy_HttpLimitOffset(
+    baseUrl: string,
+    headers: Record<string, string>,
+    tableName: string,
+    offset: number,
+    pageSize: number,
+  ): Promise<any[] | null | undefined> {
+    const resp = await firstValueFrom(
+      this.http.get(
+        `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
+        {
+          headers: { ...headers, Accept: 'application/json', Prefer: 'count=exact' },
+          params: { select: '*', limit: String(pageSize), offset: String(offset) },
+          timeout: 60000,
+          validateStatus: (s: number) => s < 500,
+        },
+      ),
+    );
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(`[http-limit-offset] Access denied: ${resp.status}`);
+    }
+    if (resp.status >= 400) {
+      const msg = typeof resp.data === 'object' ? JSON.stringify(resp.data) : String(resp.data);
+      throw new Error(`[http-limit-offset] HTTP ${resp.status}: ${msg.slice(0, 200)}`);
+    }
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    if (rows.length === 0 && offset === 0) {
+      const contentRange = resp.headers?.['content-range'];
+      if (contentRange) {
+        const match = contentRange.match(/\/(\d+)/);
+        if (match && parseInt(match[1], 10) > 0) {
           this.logger.warn(
-            `fetchPage "${tableName}" offset=${offset} attempt ${attempt}/${retries}: ${error.message}`,
+            `"${tableName}": PostgREST reports ${match[1]} total rows but returned 0 — RLS is likely blocking reads`,
           );
-          if (attempt < retries) {
-            await new Promise((r) => setTimeout(r, attempt * 2000));
-            continue;
-          }
-          return undefined;
-        }
-
-        const rows = Array.isArray(data) ? data : [];
-        if (offset === 0 && attempt === 1) {
-          this.logger.log(
-            `fetchPage "${tableName}" offset=0: got ${rows.length} items (supabase-js)`,
-          );
-        }
-        return rows;
-      } catch (err: any) {
-        this.logger.warn(
-          `Fetch "${tableName}" offset=${offset} attempt ${attempt}/${retries}: ${err.message}`,
-        );
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, attempt * 2000));
         }
       }
     }
-    this.logger.warn(`fetchPage "${tableName}" offset=${offset}: all ${retries} retries exhausted`);
-    return undefined;
+    return rows;
+  }
+
+  /** Strategy 4: HTTP GET with Range header */
+  private async fetchPageStrategy_HttpRange(
+    baseUrl: string,
+    headers: Record<string, string>,
+    tableName: string,
+    offset: number,
+    pageSize: number,
+  ): Promise<any[] | null | undefined> {
+    const resp = await firstValueFrom(
+      this.http.get(
+        `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
+        {
+          headers: {
+            ...headers,
+            Accept: 'application/json',
+            'Range-Unit': 'items',
+            Range: `${offset}-${offset + pageSize - 1}`,
+          },
+          timeout: 60000,
+          validateStatus: (s: number) => s < 500,
+        },
+      ),
+    );
+    if (resp.status === 416) return null;
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(`[http-range] Access denied: ${resp.status}`);
+    }
+    if (resp.status >= 400) {
+      const msg = typeof resp.data === 'object' ? JSON.stringify(resp.data) : String(resp.data);
+      throw new Error(`[http-range] HTTP ${resp.status}: ${msg.slice(0, 200)}`);
+    }
+    return Array.isArray(resp.data) ? resp.data : [];
+  }
+
+  /** Strategy 5: HTTP GET text/csv → parse rows (handles exotic column types PostgREST can't serialize to JSON) */
+  private async fetchPageStrategy_HttpCsv(
+    baseUrl: string,
+    headers: Record<string, string>,
+    tableName: string,
+    offset: number,
+    pageSize: number,
+  ): Promise<any[] | null | undefined> {
+    const resp = await firstValueFrom(
+      this.http.get(
+        `${baseUrl}/rest/v1/${encodeURIComponent(tableName)}`,
+        {
+          headers: { ...headers, Accept: 'text/csv' },
+          params: { select: '*', limit: String(pageSize), offset: String(offset) },
+          timeout: 60000,
+          responseType: 'text',
+          validateStatus: (s: number) => s < 500,
+        },
+      ),
+    );
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(`[http-csv] Access denied: ${resp.status}`);
+    }
+    if (resp.status >= 400) {
+      throw new Error(`[http-csv] HTTP ${resp.status}: ${String(resp.data).slice(0, 200)}`);
+    }
+    const csvData = resp.data;
+    if (typeof csvData !== 'string' || !csvData.trim()) return [];
+    return this.parseCsvRows(csvData);
+  }
+
+  private parseCsvRows(csv: string): Record<string, string | null>[] {
+    const lines = csv.split('\n');
+    if (lines.length < 2) return [];
+
+    const headerLine = lines[0];
+    const colNames = this.parseCsvLine(headerLine);
+    const rows: Record<string, string | null>[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const values = this.parseCsvLine(line);
+      const row: Record<string, string | null> = {};
+      for (let c = 0; c < colNames.length; c++) {
+        const val = values[c];
+        row[colNames[c]] = val === undefined || val === '' ? null : val;
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  private parseCsvLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (i + 1 < line.length && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          current += ch;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ',') {
+          result.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  /**
+   * Paginated row fetch with automatic strategy fallback.
+   * Tries 5 strategies in order; sticks with the first one that works.
+   *
+   * Returns: rows array | null (end of data) | undefined (all strategies failed)
+   */
+  private async fetchPageWithFallback(
+    sb: SupabaseClient,
+    baseUrl: string,
+    headers: Record<string, string>,
+    tableName: string,
+    columnNames: string[],
+    offset: number,
+    pageSize: number,
+    preferredStrategy: number,
+    retries = 2,
+  ): Promise<{ rows: any[] | null | undefined; strategy: number }> {
+    type StrategyFn = () => Promise<any[] | null | undefined>;
+
+    const strategies: Array<{ name: string; fn: StrategyFn }> = [
+      { name: 'sb-range',        fn: () => this.fetchPageStrategy_SbRange(sb, tableName, offset, pageSize) },
+      { name: 'sb-explicit-cols', fn: () => this.fetchPageStrategy_SbExplicitCols(sb, tableName, columnNames, offset, pageSize) },
+      { name: 'http-limit-offset', fn: () => this.fetchPageStrategy_HttpLimitOffset(baseUrl, headers, tableName, offset, pageSize) },
+      { name: 'http-range',      fn: () => this.fetchPageStrategy_HttpRange(baseUrl, headers, tableName, offset, pageSize) },
+      { name: 'http-csv',        fn: () => this.fetchPageStrategy_HttpCsv(baseUrl, headers, tableName, offset, pageSize) },
+    ];
+
+    const order = [
+      ...strategies.slice(preferredStrategy),
+      ...strategies.slice(0, preferredStrategy),
+    ];
+
+    for (let si = 0; si < order.length; si++) {
+      const s = order[si];
+      const actualIdx = strategies.indexOf(s);
+
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const rows = await s.fn();
+          if (rows === null) return { rows: null, strategy: actualIdx };
+          if (Array.isArray(rows)) {
+            if (offset === 0 && attempt === 1) {
+              this.logger.log(
+                `"${tableName}" offset=0: got ${rows.length} rows via strategy "${s.name}"`,
+              );
+            }
+            return { rows, strategy: actualIdx };
+          }
+        } catch (err: any) {
+          const msg = err.message || '';
+          const httpStatus = err.response?.status;
+
+          if (httpStatus === 403 || httpStatus === 401 || this.isAccessDeniedError(msg)) {
+            this.logger.warn(
+              `"${tableName}" access denied via "${s.name}" offset=${offset}: ${msg.slice(0, 200)}`,
+            );
+            break;
+          }
+
+          if (this.isRangeError(msg, undefined, httpStatus)) {
+            return { rows: null, strategy: actualIdx };
+          }
+
+          this.logger.warn(
+            `"${tableName}" strategy "${s.name}" attempt ${attempt}/${retries} failed: ${msg.slice(0, 200)}`,
+          );
+          if (attempt < retries) {
+            await new Promise((r) => setTimeout(r, attempt * 1500));
+          }
+        }
+      }
+    }
+
+    this.logger.error(
+      `"${tableName}": ALL 5 strategies failed — provide Database Password for direct Postgres copy`,
+    );
+    return { rows: undefined, strategy: -1 };
   }
 
   /**
@@ -1109,13 +1359,15 @@ export class SupabaseImportService {
     return totalRows;
   }
 
+  private readonly STRATEGY_LABELS = ['PostgREST', 'PostgREST (columns)', 'HTTP REST', 'HTTP Range', 'CSV'] as const;
+
   private async copyTableDataFromRest(
     baseUrl: string,
     headers: Record<string, string>,
     pool: Pool,
     tableName: string,
     columns: SupabaseColumn[],
-  ): Promise<number> {
+  ): Promise<{ rowCount: number; strategyLabel: string }> {
     const serviceKey =
       headers['Authorization']?.replace(/^Bearer\s+/i, '').trim() ||
       headers['apikey']?.trim() ||
@@ -1139,13 +1391,19 @@ export class SupabaseImportService {
     let offset = 0;
     const pageSize = 1000;
     let firstPageLogged = false;
+    let preferredStrategy = 0;
 
     while (true) {
-      const rows = await this.fetchPageViaSupabaseClient(sb, tableName, offset, pageSize);
+      const { rows, strategy } = await this.fetchPageWithFallback(
+        sb, baseUrl, headers, tableName, columnNames,
+        offset, pageSize, preferredStrategy,
+      );
+
+      if (strategy >= 0) preferredStrategy = strategy;
 
       if (rows === null) break;
       if (rows === undefined) {
-        this.logger.warn(`Skipping remaining pages of "${tableName}" after fetch failures`);
+        this.logger.warn(`Skipping remaining pages of "${tableName}" after all strategies failed`);
         break;
       }
       if (!Array.isArray(rows) || rows.length === 0) break;
@@ -1169,19 +1427,16 @@ export class SupabaseImportService {
       let batchSucceeded = false;
       try {
         await client.query('BEGIN');
-
         for (const row of rows) {
           const rowKeys = Object.keys(row);
           if (!rowKeys.length) continue;
           await this.insertSingleRow(client, sanitized, rowKeys, row, typeMap, knownCols);
         }
-
         await client.query('COMMIT');
         batchSucceeded = true;
         totalRows += rows.length;
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
-
         this.logger.warn(
           `Batch insert failed for "${sanitized}" at offset ${offset}: ${err.message}`,
         );
@@ -1227,12 +1482,19 @@ export class SupabaseImportService {
       offset += pageSize;
     }
 
+    const strategyLabel = preferredStrategy >= 0 && preferredStrategy < this.STRATEGY_LABELS.length
+      ? this.STRATEGY_LABELS[preferredStrategy]
+      : 'PostgREST';
+
     if (totalRows === 0) {
-      this.logger.warn(`Table "${sanitized}": 0 rows imported — data may be missing`);
+      this.logger.warn(
+        `Table "${sanitized}": 0 rows imported via ${strategyLabel} — ` +
+        `provide the Database Password for direct Postgres copy`,
+      );
     } else {
-      this.logger.log(`Imported ${totalRows} rows into "${sanitized}"`);
+      this.logger.log(`Imported ${totalRows} rows into "${sanitized}" via ${strategyLabel}`);
     }
-    return totalRows;
+    return { rowCount: totalRows, strategyLabel };
   }
 
   private async insertSingleRow(
