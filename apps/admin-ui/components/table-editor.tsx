@@ -29,6 +29,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Table2,
   Trash2,
   X,
@@ -1035,14 +1036,30 @@ export function TableEditor({ projectId }: TableEditorProps) {
             className="shrink-0 border-r bg-muted/30 flex flex-col relative"
             style={{ width: sidebarWidth }}
           >
-            <div className="p-2 border-b bg-muted/30">
-              <Input
-                placeholder="Search tables..."
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                className="h-8 text-xs"
-                aria-label="Search tables"
-              />
+            <div className="sticky top-0 z-10 shrink-0 border-b bg-muted/40 p-2 backdrop-blur-sm">
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  placeholder="Search tables by name…"
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                  className="h-9 bg-background pl-8 pr-8 text-sm shadow-sm"
+                  aria-label="Search tables by name"
+                />
+                {tableSearch.trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Clear table search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">

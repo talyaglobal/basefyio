@@ -340,7 +340,9 @@ export const api = {
         try {
           const data = JSON.parse((e as MessageEvent).data);
           callbacks.onCompleted(data);
-        } catch {}
+        } catch (err) {
+          console.error('[SSE] Error handling completed event:', err);
+        }
         es.close();
       });
 

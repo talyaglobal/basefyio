@@ -34,6 +34,8 @@ export interface ImportJobProgress {
   percent: number;
   progress?: ImportProgress;
   error?: string;
+  /** Active fetch strategy label (e.g. "PostgREST", "Direct SQL", "HTTP REST", "CSV") */
+  strategy?: string;
 }
 
 @Processor(IMPORT_QUEUE, { concurrency: 2 })
@@ -113,8 +115,8 @@ export class ImportProcessor extends WorkerHost {
         await onProgress({ step: 'database', detail: 'Starting database import...', percent: 5 });
         await this.importService.runDatabaseImport(
           baseUrl, headers, project, progress,
-          async (detail: string, percent: number) => {
-            await onProgress({ step: 'database', detail, percent });
+          async (detail: string, percent: number, strategy?: string) => {
+            await onProgress({ step: 'database', detail, percent, strategy });
           },
         );
         checkCancelled();
@@ -204,15 +206,22 @@ export class ImportProcessor extends WorkerHost {
       completedAt: new Date().toISOString(),
     };
 
-    try {
-      await this.prisma.project.update({
-        where: { id: projectId },
-        data: { supabaseImportLog: logPayload },
-      });
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to persist import log for project ${projectId}: ${err.message}`,
-      );
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await this.prisma.project.update({
+          where: { id: projectId },
+          data: { supabaseImportLog: logPayload },
+        });
+        this.logger.log(`Import log persisted for project ${projectId}`);
+        break;
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to persist import log for project ${projectId} (attempt ${attempt}/3): ${err.message}`,
+        );
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, attempt * 1000));
+        }
+      }
     }
 
     await job.updateProgress({

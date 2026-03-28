@@ -61,7 +61,12 @@ export function ImportProgressToast() {
           onClick={() => setMinimized(false)}
         >
           <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />
-          <span className="text-xs font-medium">{activeImport.percent}%</span>
+          <span className="text-xs font-medium tabular-nums transition-opacity duration-500">{activeImport.percent}%</span>
+          {activeImport.strategy && (
+            <span className="text-[9px] font-semibold text-blue-600 dark:text-blue-400 transition-opacity duration-500">
+              {activeImport.strategy}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground truncate max-w-[120px]">
             {activeImport.projectName}
           </span>
@@ -140,12 +145,22 @@ export function ImportProgressToast() {
 
           {isRunning && (
             <>
-              <p className="text-xs text-muted-foreground mt-1.5 truncate">
-                {activeImport.detail}
-              </p>
+              <div className="flex items-center gap-1.5 mt-1.5 min-w-0">
+                <p className="text-xs text-muted-foreground truncate transition-opacity duration-500">
+                  {activeImport.detail}
+                </p>
+                {activeImport.strategy && (
+                  <span
+                    key={activeImport.strategy}
+                    className="shrink-0 rounded bg-blue-100 px-1 py-px text-[9px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 animate-in fade-in duration-500"
+                  >
+                    {activeImport.strategy}
+                  </span>
+                )}
+              </div>
               <div className="mt-2 w-full bg-muted rounded-full h-1.5 overflow-hidden">
                 <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
+                  className="h-full bg-blue-500 rounded-full transition-[width] duration-[800ms] ease-out"
                   style={{ width: `${activeImport.percent}%` }}
                 />
               </div>

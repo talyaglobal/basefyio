@@ -24,6 +24,8 @@ export interface ActiveImport {
   status: 'running' | 'completed' | 'failed';
   result?: ImportProgressData;
   error?: string;
+  /** Active fetch strategy label (e.g. "PostgREST", "Direct SQL") */
+  strategy?: string;
 }
 
 interface ImportProgressContextValue {
@@ -172,27 +174,39 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
             step: data.step,
             detail: data.detail,
             percent: data.percent || prev.percent,
+            ...(data.strategy ? { strategy: data.strategy } : {}),
           };
         });
       },
       onCompleted: (data: any) => {
-        const progress = normalizeImportProgressData(data.progress);
-        if (projectId) saveProjectSupabaseImportLog(projectId, progress);
-        setActiveImport((prev) => {
-          if (!prev || prev.jobId !== jobId) return prev;
-          return {
-            ...prev,
-            ...(projectId ? { projectId } : {}),
-            step: 'completed',
-            detail: 'Import complete',
-            percent: 100,
-            status: 'completed',
-            result: progress,
-          };
-        });
-        clearPersistedJob();
-        onCompletedRef.current?.(progress);
-        onCompleteCallbackRef.current?.();
+        try {
+          const rawProgress = data?.progress ?? data?.result ?? data;
+          const progress = normalizeImportProgressData(rawProgress);
+          if (projectId) {
+            try {
+              saveProjectSupabaseImportLog(projectId, progress);
+            } catch (saveErr) {
+              console.warn('[import-progress] Failed to save import log to localStorage:', saveErr);
+            }
+          }
+          setActiveImport((prev) => {
+            if (!prev || prev.jobId !== jobId) return prev;
+            return {
+              ...prev,
+              ...(projectId ? { projectId } : {}),
+              step: 'completed',
+              detail: 'Import complete',
+              percent: 100,
+              status: 'completed',
+              result: progress,
+            };
+          });
+          clearPersistedJob();
+          onCompletedRef.current?.(progress);
+          onCompleteCallbackRef.current?.();
+        } catch (err) {
+          console.error('[import-progress] Error in onCompleted handler:', err);
+        }
         es.close();
       },
       onFailed: (error: string) => {

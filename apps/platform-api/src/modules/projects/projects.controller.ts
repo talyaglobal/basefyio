@@ -129,8 +129,18 @@ export class ProjectsController {
         }
 
         if (status.state === 'completed') {
+          let resultData = status.result;
+          if (!resultData || (typeof resultData === 'object' && !resultData.database)) {
+            const freshStatus = await this.supabaseImport.getJobStatus(jobId);
+            if (freshStatus?.result) {
+              resultData = freshStatus.result;
+            }
+          }
+          if (!resultData && status.progress?.progress) {
+            resultData = status.progress.progress;
+          }
           sendEvent('completed', {
-            progress: status.result,
+            progress: resultData,
           });
           finished = true;
           res.end();
