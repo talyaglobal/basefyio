@@ -32,6 +32,14 @@ function buildAiQuickConnectPrompt(
 ): string {
   return `TASK: Configure my application to connect to my Kolaybase-hosted project using ONLY the values below. Do not invent hostnames, ports, or keys.
 
+=== CRITICAL FOR AI (read before writing any code) ===
+1) SOURCE OF TRUTH: Every hostname below (REST_BASE_URL, pooler host, Keycloak URL, etc.) comes from the Kolaybase dashboard for THIS deployment. If the user's Kolaybase runs on a production server, these URLs are production URLs — they are NOT localhost.
+2) NEVER substitute localhost:4000, localhost:5432, or any dev URL unless the quoted REST_BASE_URL itself already contains localhost. A common bug is generating client code that calls http://localhost:4000 while the real API is https://… — that causes "Failed to fetch" and CSP errors in the browser.
+3) CONTENT-SECURITY-POLICY (CSP): If the app sets connect-src (Next.js headers, meta tag, or hosting config), the browser will BLOCK fetch() to Kolaybase unless EITHER:
+   - the exact API origin of REST_BASE_URL is listed in connect-src (e.g. https://api.example.com), OR
+   - the app only calls its own origin and a server-side Route Handler / backend proxies to Kolaybase (recommended for auth).
+4) Symptom "Refused to connect … violates Content Security Policy directive: connect-src …" means CSP — not wrong password. Fix CSP or use a same-origin proxy — do not blame Kolaybase credentials first.
+
 CONTEXT: Kolaybase is a managed platform. The database is PostgreSQL. The HTTP API is PostgREST-compatible (same patterns as Supabase REST: /rest/v1/{table}, headers apikey + optional Authorization Bearer).
 
 --- PROJECT (REST / auth headers) ---
@@ -74,11 +82,12 @@ KEYCLOAK_URL="${conn.keycloakUrl}"
 KEYCLOAK_REALM="${conn.keycloakRealm}"
 
 DELIVERABLES I WANT FROM YOU:
-1) Exact .env (or .env.local) variable names and values I should paste (include PROJECT_ID where relevant).
+1) Exact .env (or .env.local) variable names and values I should paste (include PROJECT_ID where relevant). Use REST_BASE_URL exactly as quoted for API base — no localhost unless it appears in the quote.
 2) If I use Prisma: the datasource url line using DATABASE_URL_POOLER unless I said I am internal-only, then DATABASE_URL_DIRECT.
 3) If I use fetch/axios from a server: base URL + which key to use (anon vs service) for my scenario + x-project-id when calling Kolaybase REST auth.
-4) If I use a browser SPA or Next.js client: explain CORS limits and give a minimal server-side proxy pattern (or backend) for REST and auth — never expose SERVICE_KEY to the client.
-5) Remind me once: never commit SERVICE_KEY or database password to git.
+4) If I use a browser SPA or Next.js client: explain CORS limits AND Content-Security-Policy connect-src; either extend connect-src to include the REST_BASE_URL origin or implement a same-origin API proxy for REST and auth — never expose SERVICE_KEY to the client.
+5) If the stack is Next.js: show where to add connect-src in next.config headers OR recommend proxy-only pattern so the browser never talks to Kolaybase directly.
+6) Remind me once: never commit SERVICE_KEY or database password to git.
 
 Use the quoted values exactly; do not substitute placeholders.`;
 }
@@ -378,10 +387,10 @@ datasource db {
                   AI prompt for quick connect
                 </h3>
                 <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                  Copy this block into ChatGPT, Claude, Cursor, or any AI assistant. It
-                  includes project id, keys, and notes on browser CORS and server-side
-                  proxying for REST auth so the model does not suggest insecure or broken
-                  client-only setups.
+                  Copy into your AI assistant. The block states that hosts below are the real
+                  Kolaybase deployment (often production)—not localhost—and covers CSP
+                  (connect-src), CORS, and server-side proxying so sign-in does not hit
+                  blocked or wrong URLs.
                 </p>
               </div>
             </div>

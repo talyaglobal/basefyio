@@ -1,5 +1,10 @@
 # Task Log
 
+## 2026-03-29 (feedback attachments + ROOT-only list)
+- **DB:** `UserRole` + `ROOT`; `feedbacks.attachments` JSONB (migration `20260329180000_feedback_attachments_and_root_role`).
+- **API:** `POST /feedback/attachments` (multipart `file`, image ≤5MB / video ≤20MB) → MinIO bucket `kb-platform-feedback`; `POST /feedback` optional `attachments[]`; `GET`/`PATCH /feedback/:id` guarded by `RootRoleGuard` (Prisma `user.role === ROOT`).
+- **Admin UI:** `FeedbackModal` multi-file upload; `/dashboard/feedbacks` + sidebar link only if `profile.role === 'ROOT'`. Set `ROOT` in DB: `UPDATE users SET role = 'ROOT' WHERE email = '...';`
+
 ## 2026-03-28 (project activity log — full audit trail)
 - **DB:** Prisma model `ProjectActivityLog` → table `project_activity_logs` (migration `20260328120000_project_activity_logs`). Cascade delete with project.
 - **API:** `ProjectActivityService.append` / `listForProject`; `GET /projects/:id/activity?limit=` (registered before `GET :id`). Logs: Supabase import completed/failed/cancelled (job carries `userId`), project create/update/soft-delete/restore/move team, SQL executed/failed, GitHub/Vercel connect/disconnect, auth config updates (no secret field names in metadata).

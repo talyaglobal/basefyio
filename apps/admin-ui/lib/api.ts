@@ -607,7 +607,32 @@ export const api = {
   },
 
   feedback: {
-    create(data: { url: string; title: string; description?: string; type?: string }) {
+    async uploadAttachment(file: File): Promise<{
+      url: string;
+      mimeType: string;
+      kind: 'image' | 'video';
+    }> {
+      const token = getAccessToken();
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/proxy/feedback/attachments', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { message?: string }).message || `Upload failed (${res.status})`);
+      }
+      return body as { url: string; mimeType: string; kind: 'image' | 'video' };
+    },
+    create(data: {
+      url: string;
+      title: string;
+      description?: string;
+      type?: string;
+      attachments?: { url: string; mimeType: string; kind: 'image' | 'video' }[];
+    }) {
       return request<{ id: string }>('/feedback', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -622,6 +647,7 @@ export const api = {
         url: string;
         title: string;
         description: string | null;
+        attachments?: unknown;
         type: string;
         status: string;
         createdAt: string;

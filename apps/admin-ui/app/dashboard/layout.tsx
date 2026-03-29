@@ -128,7 +128,11 @@ export default function DashboardLayout({
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <DashboardSidebar activeTeamId={activeTeamId} refreshKey={refreshKey} />
+          <DashboardSidebar
+            activeTeamId={activeTeamId}
+            refreshKey={refreshKey}
+            canAccessFeedbacks={profile?.role === 'ROOT'}
+          />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-6">
             {children}
           </main>

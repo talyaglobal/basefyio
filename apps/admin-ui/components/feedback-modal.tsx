@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Loader2, Paperclip, X } from 'lucide-react';
 
 type FeedbackType = 'BUG' | 'FEATURE' | 'GENERAL';
 
@@ -29,13 +30,46 @@ const TYPE_OPTIONS: { value: FeedbackType; label: string; icon: string }[] = [
   { value: 'GENERAL', label: 'General', icon: '💬' },
 ];
 
+const MAX_FILES = 5;
+const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime';
+
 export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<FeedbackType>('GENERAL');
   const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  useEffect(() => {
+    if (!open) setFiles([]);
+  }, [open]);
+
+  function addFilesFromList(list: FileList | null) {
+    if (!list?.length) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      for (let i = 0; i < list.length; i++) {
+        if (next.length >= MAX_FILES) break;
+        const f = list[i];
+        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) {
+          toast.error(`${f.name}: only images or videos`);
+          continue;
+        }
+        next.push(f);
+      }
+      if (prev.length + list.length > MAX_FILES && next.length >= MAX_FILES) {
+        toast.message(`At most ${MAX_FILES} files`);
+      }
+      return next;
+    });
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,16 +77,23 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
     setLoading(true);
     try {
+      const attachments: { url: string; mimeType: string; kind: 'image' | 'video' }[] = [];
+      for (const f of files) {
+        attachments.push(await api.feedback.uploadAttachment(f));
+      }
+
       await api.feedback.create({
         url: currentUrl,
         title: title.trim(),
         description: description.trim() || undefined,
         type,
+        attachments: attachments.length ? attachments : undefined,
       });
       toast.success('Feedback sent successfully!');
       setTitle('');
       setDescription('');
       setType('GENERAL');
+      setFiles([]);
       onOpenChange(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to send feedback');
@@ -63,23 +104,24 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[520px] max-h-[min(90dvh,720px)] flex flex-col">
         <DialogHeader>
           <DialogTitle>Send Feedback</DialogTitle>
           <DialogDescription>
-            Report a bug, request a feature, or share your thoughts.
+            Report a bug, request a feature, or share your thoughts. You can attach up to{' '}
+            {MAX_FILES} images or short videos (images max 5 MB, videos max 20 MB each).
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 space-y-4">
+          <div className="space-y-2 shrink-0">
             <Label className="text-xs text-muted-foreground">Page</Label>
             <Input value={currentUrl} disabled className="text-xs opacity-70" />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 shrink-0">
             <Label>Type</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -98,7 +140,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 shrink-0">
             <Label htmlFor="fb-title">
               Title <span className="text-destructive">*</span>
             </Label>
@@ -112,18 +154,73 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 shrink-0">
             <Label htmlFor="fb-desc">Description</Label>
             <Textarea
               id="fb-desc"
               placeholder="Add more details (optional)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={4}
+              rows={3}
+              className="resize-none min-h-[72px]"
             />
           </div>
 
-          <DialogFooter>
+          <div className="space-y-2 shrink-0">
+            <Label>Attachments</Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPT}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                addFilesFromList(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || files.length >= MAX_FILES}
+              >
+                <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                Add image or video
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {files.length}/{MAX_FILES}
+              </span>
+            </div>
+            {files.length > 0 && (
+              <ul className="flex flex-col gap-2 max-h-[140px] overflow-y-auto rounded-md border p-2">
+                {files.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {(f.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="shrink-0 rounded p-0.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                      aria-label="Remove file"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <DialogFooter className="shrink-0 pt-2 gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
@@ -133,7 +230,14 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !title.trim()}>
-              {loading ? 'Sending...' : 'Send Feedback'}
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                'Send Feedback'
+              )}
             </Button>
           </DialogFooter>
         </form>

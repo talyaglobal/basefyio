@@ -1,5 +1,12 @@
 import { baseLayout } from './base.template';
 
+function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;');
+}
+
 interface FeedbackData {
   username: string;
   email: string;
@@ -8,6 +15,7 @@ interface FeedbackData {
   description?: string;
   type: string;
   createdAt: string;
+  attachments?: { url: string; mimeType: string; kind: string }[];
 }
 
 export function feedbackTemplate(data: FeedbackData): string {
@@ -47,6 +55,14 @@ export function feedbackTemplate(data: FeedbackData): string {
         <div class="info-card">
           <div class="info-card-title">Description</div>
           <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0; white-space: pre-wrap;">${data.description}</p>
+        </div>` : ''}
+
+        ${data.attachments && data.attachments.length > 0 ? `
+        <div class="info-card">
+          <div class="info-card-title">Attachments</div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #475569;">
+            ${data.attachments.map((a) => `<li style="margin-bottom: 6px;"><a href="${escapeHtmlAttr(a.url)}" target="_blank" rel="noopener noreferrer">${a.kind === 'video' ? 'Video' : 'Image'}</a></li>`).join('')}
+          </ul>
         </div>` : ''}
 
         <div class="divider"></div>

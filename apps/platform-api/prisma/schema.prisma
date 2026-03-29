@@ -11,6 +11,7 @@ datasource db {
 enum UserRole {
   ADMIN
   USER
+  ROOT
 }
 
 enum ProjectStatus {
@@ -310,6 +311,8 @@ model Feedback {
   url         String
   title       String
   description String?
+  /// JSON array: { url, mimeType, kind: "image" | "video" }[]
+  attachments Json?        @map("attachments")
   type        FeedbackType   @default(GENERAL)
   status      FeedbackStatus @default(OPEN)
   createdAt   DateTime       @default(now()) @map("created_at")

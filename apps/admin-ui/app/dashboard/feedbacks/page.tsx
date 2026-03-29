@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useDashboard } from '@/app/dashboard/layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -20,6 +22,18 @@ import {
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
 
+type FeedbackAttachment = { url: string; mimeType?: string; kind?: string };
+
+function parseAttachments(raw: unknown): FeedbackAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (x): x is FeedbackAttachment =>
+      !!x &&
+      typeof x === 'object' &&
+      typeof (x as FeedbackAttachment).url === 'string',
+  );
+}
+
 const STATUS_OPTIONS = ['OPEN', 'IN_PROGRESS', 'DONE', 'CLOSED'] as const;
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -36,12 +50,22 @@ const TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {
 };
 
 export default function FeedbacksPage() {
+  const router = useRouter();
+  const { profile } = useDashboard();
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
-  async function load() {
+  useEffect(() => {
+    if (profile === null) return;
+    if (profile.role !== 'ROOT') {
+      toast.error('You do not have access to this page');
+      router.replace('/dashboard');
+    }
+  }, [profile, router]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.feedback.list();
@@ -51,9 +75,12 @@ export default function FeedbacksPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (profile?.role !== 'ROOT') return;
+    load();
+  }, [profile?.role, load]);
 
   async function handleStatusChange(id: string, status: string) {
     setUpdatingId(id);
@@ -78,6 +105,18 @@ export default function FeedbacksPage() {
     acc[f.status] = (acc[f.status] || 0) + 1;
     return acc;
   }, {});
+
+  if (profile === null) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (profile.role !== 'ROOT') {
+    return null;
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -133,6 +172,7 @@ export default function FeedbacksPage() {
           {filtered.map((fb) => {
             const typeCfg = TYPE_CONFIG[fb.type] || TYPE_CONFIG.GENERAL;
             const statusCfg = STATUS_CONFIG[fb.status] || STATUS_CONFIG.OPEN;
+            const attachments = parseAttachments(fb.attachments);
 
             return (
               <div
@@ -157,6 +197,36 @@ export default function FeedbacksPage() {
                       <p className="whitespace-pre-wrap text-sm text-muted-foreground">
                         {fb.description}
                       </p>
+                    )}
+
+                    {attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {attachments.map((a, i) =>
+                          a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
+                            <video
+                              key={`${fb.id}-v-${i}`}
+                              src={a.url}
+                              controls
+                              className="max-h-40 max-w-full rounded-md border bg-black/5"
+                            />
+                          ) : (
+                            <a
+                              key={`${fb.id}-i-${i}`}
+                              href={a.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element -- MinIO public URLs */}
+                              <img
+                                src={a.url}
+                                alt=""
+                                className="max-h-40 max-w-[200px] rounded-md border object-cover"
+                              />
+                            </a>
+                          ),
+                        )}
+                      </div>
                     )}
 
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

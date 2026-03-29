@@ -110,6 +110,7 @@ export class EmailService {
       description?: string;
       type: string;
       createdAt: string;
+      attachments?: { url: string; mimeType: string; kind: string }[];
     },
   ) {
     const html = feedbackTemplate(data);
