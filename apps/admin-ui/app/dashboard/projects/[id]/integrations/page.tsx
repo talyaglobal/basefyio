@@ -504,46 +504,50 @@ function GitHubCard({
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Branch</Label>
-                {fetchingBranches ? (
-                  <div className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Loading branches...
+              {selectedRepo && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Branch</Label>
+                    {fetchingBranches ? (
+                      <div className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Loading branches...
+                      </div>
+                    ) : repoBranches.length > 0 ? (
+                      <Combobox
+                        options={repoBranches.map((b): ComboboxOption => ({
+                          value: b.name,
+                          label: b.name,
+                          description: b.protected ? 'Protected' : undefined,
+                        }))}
+                        value={selectedBranch}
+                        onValueChange={setSelectedBranch}
+                        placeholder="Select a branch"
+                        searchPlaceholder="Search branches..."
+                        emptyText="No branches found."
+                      />
+                    ) : (
+                      <Input
+                        value={selectedBranch}
+                        onChange={(e) => setSelectedBranch(e.target.value)}
+                        placeholder="main"
+                      />
+                    )}
                   </div>
-                ) : repoBranches.length > 0 ? (
-                  <Combobox
-                    options={repoBranches.map((b): ComboboxOption => ({
-                      value: b.name,
-                      label: b.name,
-                      description: b.protected ? 'Protected' : undefined,
-                    }))}
-                    value={selectedBranch}
-                    onValueChange={setSelectedBranch}
-                    placeholder="Select a branch"
-                    searchPlaceholder="Search branches..."
-                    emptyText="No branches found."
-                  />
-                ) : (
-                  <Input
-                    value={selectedBranch}
-                    onChange={(e) => setSelectedBranch(e.target.value)}
-                    placeholder="main"
-                  />
-                )}
-              </div>
 
-              <Button
-                onClick={handleConnect}
-                disabled={!selectedRepo || connecting}
-                className="w-full"
-              >
-                {connecting ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
-                ) : (
-                  <><Github className="h-4 w-4 mr-2" />{changing ? 'Switch Repository' : 'Connect Repository'}</>
-                )}
-              </Button>
+                  <Button
+                    onClick={handleConnect}
+                    disabled={!selectedRepo || connecting || fetchingBranches}
+                    className="w-full"
+                  >
+                    {connecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
+                    ) : (
+                      <><Github className="h-4 w-4 mr-2" />{changing ? 'Switch Repository' : 'Connect Repository'}</>
+                    )}
+                  </Button>
+                </>
+              )}
             </>
           )}
 

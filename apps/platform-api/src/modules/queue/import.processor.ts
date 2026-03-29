@@ -5,6 +5,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseImportService, ImportProgress } from '../projects/supabase-import.service';
 import { IMPORT_QUEUE } from './queue.module';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from '../projects/project-activity.service';
 
 class CancelledError extends Error {
   constructor() {
@@ -16,6 +20,8 @@ class CancelledError extends Error {
 export interface ImportJobData {
   projectId: string;
   projectName: string;
+  /** User who started the import (activity log attribution). */
+  userId?: string;
   baseUrl: string;
   serviceRoleKey: string;
   /** Source Supabase DB password for direct PG copy (bypasses PostgREST 403 on some tables). */
@@ -26,6 +32,8 @@ export interface ImportJobData {
   dbPassword: string;
   dbName: string;
   keycloakRealm: string;
+  /** When true, cancelImport must not delete the project (re-import into existing project). */
+  preserveProjectOnCancel?: boolean;
 }
 
 export interface ImportJobProgress {
@@ -45,6 +53,7 @@ export class ImportProcessor extends WorkerHost {
   constructor(
     private readonly importService: SupabaseImportService,
     private readonly prisma: PrismaService,
+    private readonly activity: ProjectActivityService,
   ) {
     super();
   }
@@ -62,6 +71,25 @@ export class ImportProcessor extends WorkerHost {
 
     try {
       return await Promise.race([this.runImport(job), timeoutPromise]);
+    } catch (err: any) {
+      const uid = job.data.userId;
+      const pid = job.data.projectId;
+      if (err instanceof CancelledError) {
+        await this.activity.append(pid, {
+          userId: uid,
+          kind: ProjectActivityKind.SUPABASE_IMPORT_CANCELLED,
+          title: 'Supabase import cancelled',
+          detail: 'Import was cancelled before completion.',
+        });
+      } else {
+        await this.activity.append(pid, {
+          userId: uid,
+          kind: ProjectActivityKind.SUPABASE_IMPORT_FAILED,
+          title: 'Supabase import failed',
+          detail: err?.message?.slice(0, 2000) ?? String(err),
+        });
+      }
+      throw err;
     } finally {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
@@ -213,6 +241,20 @@ export class ImportProcessor extends WorkerHost {
           data: { supabaseImportLog: logPayload },
         });
         this.logger.log(`Import log persisted for project ${projectId}`);
+        await this.activity.append(projectId, {
+          userId: job.data.userId,
+          kind: ProjectActivityKind.SUPABASE_IMPORT_COMPLETED,
+          title: 'Supabase import completed',
+          detail: `${progress.database.tables} tables, ${progress.database.rows} rows; ${progress.auth.users} users; ${progress.storage.buckets} buckets, ${progress.storage.objects} objects.`,
+          metadata: {
+            tables: progress.database.tables,
+            rows: progress.database.rows,
+            authUsers: progress.auth.users,
+            storageBuckets: progress.storage.buckets,
+            storageObjects: progress.storage.objects,
+            warningCount: progress.warnings.length,
+          },
+        });
         break;
       } catch (err: any) {
         this.logger.warn(

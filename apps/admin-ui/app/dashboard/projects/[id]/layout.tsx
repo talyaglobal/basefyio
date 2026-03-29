@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
   Book,
+  Copy,
   Database,
   ExternalLink,
   FolderOpen,
@@ -18,9 +19,83 @@ import {
   Link2,
   Plug,
   Shield,
+  ScrollText,
   Table2,
   Terminal,
 } from 'lucide-react';
+
+const SIDEBAR_MODE_KEY = 'kb_project_sidebar_mode';
+const SIDEBAR_WIDTH_KEY = 'kb_project_sidebar_width';
+const SIDEBAR_COLLAPSED_PX = 52;
+const SIDEBAR_MIN_PX = 200;
+const SIDEBAR_MAX_PX = 440;
+
+type SidebarMode = 'auto' | 'open';
+
+function readStoredMode(): SidebarMode {
+  if (typeof window === 'undefined') return 'open';
+  const m = localStorage.getItem(SIDEBAR_MODE_KEY);
+  return m === 'auto' || m === 'open' ? m : 'open';
+}
+
+function readStoredWidth(): number {
+  if (typeof window === 'undefined') return 224;
+  const w = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  const n = w ? parseInt(w, 10) : 224;
+  if (!Number.isFinite(n)) return 224;
+  return Math.min(SIDEBAR_MAX_PX, Math.max(SIDEBAR_MIN_PX, n));
+}
+
+/** iOS-style segmented control for sidebar Auto / Open */
+function SidebarModeIosSegmented({
+  mode,
+  onModeChange,
+  layout,
+}: {
+  mode: SidebarMode;
+  onModeChange: (m: SidebarMode) => void;
+  layout: 'horizontal' | 'vertical';
+}) {
+  const segment = (m: SidebarMode, label: string) => (
+    <button
+      key={m}
+      type="button"
+      role="radio"
+      aria-checked={mode === m}
+      title={
+        m === 'auto'
+          ? 'Auto — narrow rail; expands on hover'
+          : 'Open — sidebar stays expanded; drag right edge to resize'
+      }
+      onClick={() => onModeChange(m)}
+      className={cn(
+        'font-semibold transition-all duration-200 ease-out',
+        layout === 'horizontal'
+          ? 'flex-1 rounded-[7px] py-1.5 text-[13px] leading-none'
+          : 'w-full rounded-[6px] py-1.5 text-[10px] leading-tight',
+        mode === m
+          ? 'bg-background text-foreground shadow-sm dark:bg-background/95 dark:shadow-black/20'
+          : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      className={cn(
+        'rounded-[10px] bg-muted/90 p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)] dark:bg-muted/50 dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)]',
+        layout === 'horizontal' ? 'flex w-full flex-row gap-[3px]' : 'flex w-full flex-col gap-[3px]',
+      )}
+      role="radiogroup"
+      aria-label="Sidebar mode"
+    >
+      {segment('auto', 'Auto')}
+      {segment('open', 'Open')}
+    </div>
+  );
+}
 
 const navItems = [
   { label: 'Overview', href: '', icon: Database },
@@ -41,6 +116,77 @@ export default function ProjectLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(readStoredMode);
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
+  const [autoExpanded, setAutoExpanded] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_MODE_KEY, sidebarMode);
+  }, [sidebarMode]);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const clearAutoLeaveTimer = useCallback(() => {
+    if (autoLeaveTimer.current) {
+      clearTimeout(autoLeaveTimer.current);
+      autoLeaveTimer.current = null;
+    }
+  }, []);
+
+  const handleAsideEnter = useCallback(() => {
+    if (sidebarMode !== 'auto') return;
+    clearAutoLeaveTimer();
+    setAutoExpanded(true);
+  }, [sidebarMode, clearAutoLeaveTimer]);
+
+  const handleAsideLeave = useCallback(() => {
+    if (sidebarMode !== 'auto') return;
+    clearAutoLeaveTimer();
+    autoLeaveTimer.current = setTimeout(() => {
+      setAutoExpanded(false);
+      autoLeaveTimer.current = null;
+    }, 220);
+  }, [sidebarMode, clearAutoLeaveTimer]);
+
+  useEffect(() => () => clearAutoLeaveTimer(), [clearAutoLeaveTimer]);
+
+  const sidebarExpanded =
+    sidebarMode === 'open' || (sidebarMode === 'auto' && autoExpanded);
+  const asideWidthPx = sidebarExpanded ? sidebarWidth : SIDEBAR_COLLAPSED_PX;
+
+  const startResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!sidebarExpanded) return;
+      setIsResizing(true);
+      const startX = e.clientX;
+      const startW = sidebarWidth;
+      const onMove = (ev: MouseEvent) => {
+        const next = Math.min(
+          SIDEBAR_MAX_PX,
+          Math.max(SIDEBAR_MIN_PX, startW + ev.clientX - startX),
+        );
+        setSidebarWidth(next);
+      };
+      const onUp = () => {
+        setIsResizing(false);
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [sidebarExpanded, sidebarWidth],
+  );
 
   useEffect(() => {
     api.projects
@@ -61,82 +207,245 @@ export default function ProjectLayout({
   }
 
   const basePath = `/dashboard/projects/${id}`;
+  const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
 
   return (
-    <div className="flex h-full gap-0 -m-6">
-      <aside className="w-56 shrink-0 border-r bg-card">
-        <div className="p-4 border-b">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-2 -ml-2 text-muted-foreground"
-            onClick={() => router.back()}
-          >
-            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-            Projects
-          </Button>
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-              <Database className="h-4 w-4 text-primary" />
+    <div
+      className={cn(
+        'flex min-h-0 min-w-0 flex-1 gap-0 -m-6',
+        isResizing && 'select-none',
+      )}
+    >
+      <aside
+        className={cn(
+          'relative shrink-0 border-r bg-card flex flex-col overflow-hidden',
+          'transition-[width] duration-200 ease-out motion-reduce:transition-none',
+        )}
+        style={{ width: asideWidthPx }}
+        onMouseEnter={handleAsideEnter}
+        onMouseLeave={handleAsideLeave}
+      >
+        {sidebarExpanded ? (
+          <>
+            <div className="border-b p-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mb-2 -ml-2 text-muted-foreground"
+                onClick={() => router.back()}
+              >
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                Projects
+              </Button>
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                  <Database className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{project.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{project.slug}</p>
+                </div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{project.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{project.slug}</p>
+
+            <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+              {navItems.map((item) => {
+                const href = `${basePath}${item.href}`;
+                const active =
+                  item.href === ''
+                    ? pathname === basePath
+                    : pathname.startsWith(href);
+
+                return (
+                  <Link
+                    key={item.label}
+                    href={href}
+                    className={cn(
+                      'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="mx-2 mt-2 rounded-md border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Key className="h-3 w-3 shrink-0" />
+                  API Keys
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  title="Copy anon key"
+                  aria-label="Copy anon key"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(project.anonKey);
+                      toast.success('Anon key copied');
+                    } catch {
+                      toast.error('Could not copy to clipboard');
+                    }
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p
+                className="mt-1.5 truncate font-mono text-[10px] text-muted-foreground"
+                title={project.anonKey}
+              >
+                anon: {project.anonKey}
+              </p>
             </div>
-          </div>
-        </div>
 
-        <nav className="space-y-0.5 p-2">
-          {navItems.map((item) => {
-            const href = `${basePath}${item.href}`;
-            const active =
-              item.href === ''
-                ? pathname === basePath
-                : pathname.startsWith(href);
-
-            return (
+            <div className="mx-2 mt-2 space-y-0.5">
               <Link
-                key={item.label}
-                href={href}
+                href={`${basePath}/logs`}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  active
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  pathname.startsWith(`${basePath}/logs`)
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                {item.label}
+                <ScrollText className="h-4 w-4 shrink-0" />
+                Project logs
               </Link>
-            );
-          })}
-        </nav>
+              <a
+                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <Book className="h-4 w-4 shrink-0" />
+                Documentation
+                <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
+              </a>
+            </div>
 
-        <div className="mx-2 mt-4 rounded-md border bg-muted/30 p-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Key className="h-3 w-3" />
-            API Keys
-          </div>
-          <p className="mt-1.5 truncate font-mono text-[10px] text-muted-foreground" title={project.anonKey}>
-            anon: {project.anonKey}
-          </p>
-        </div>
+            <div className="mx-2 mt-3 mb-2 flex items-center gap-2.5">
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                Sidebar
+              </span>
+              <div className="min-w-0 flex-1">
+                <SidebarModeIosSegmented
+                  mode={sidebarMode}
+                  layout="horizontal"
+                  onModeChange={(m) => {
+                    setSidebarMode(m);
+                    if (m === 'auto') setAutoExpanded(false);
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col items-center gap-2 border-b py-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() => router.back()}
+                title="Back to projects"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10"
+                title={project.name}
+              >
+                <Database className="h-4 w-4 text-primary" />
+              </div>
+            </div>
+            <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto py-2">
+              {navItems.map((item) => {
+                const href = `${basePath}${item.href}`;
+                const active =
+                  item.href === ''
+                    ? pathname === basePath
+                    : pathname.startsWith(href);
 
-        <div className="mx-2 mt-3">
-          <a
-            href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-          >
-            <Book className="h-4 w-4" />
-            Documentation
-            <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
-          </a>
-        </div>
+                return (
+                  <Link
+                    key={item.label}
+                    href={href}
+                    title={item.label}
+                    className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                      active
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="mt-auto flex w-full flex-col items-center gap-2 border-t px-1.5 py-2">
+              <Link
+                href={`${basePath}/logs`}
+                title="Project logs"
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                  pathname.startsWith(`${basePath}/logs`)
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                )}
+              >
+                <ScrollText className="h-4 w-4" />
+              </Link>
+              <a
+                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Documentation"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <Book className="h-4 w-4" />
+              </a>
+              <span
+                className="text-center text-[10px] font-medium leading-tight text-muted-foreground"
+                title="Sidebar auto — hover to expand"
+              >
+                Auto
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Resize handle (chat-style) — only when expanded */}
+        {sidebarExpanded && (
+          <button
+            type="button"
+            aria-label="Resize sidebar"
+            onMouseDown={startResize}
+            className={cn(
+              'absolute right-0 top-0 z-20 h-full w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0',
+              'hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+            )}
+          />
+        )}
       </aside>
 
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      <main
+        className={cn(
+          'min-h-0 min-w-0 flex-1 p-6',
+          isLogsRoute ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
+        )}
+      >
+        {children}
+      </main>
     </div>
   );
 }

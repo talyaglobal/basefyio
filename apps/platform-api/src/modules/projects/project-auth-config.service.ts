@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from './project-activity.service';
 
 const TEMPLATE_FIELDS = [
   'verifyEmailSubject', 'verifyEmailBody',
@@ -26,7 +30,10 @@ const DEFAULT_CONFIG = {
 
 @Injectable()
 export class ProjectAuthConfigService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activity: ProjectActivityService,
+  ) {}
 
   async getOrCreate(projectId: string) {
     const existing = await this.prisma.projectAuthConfig.findUnique({
@@ -40,13 +47,27 @@ export class ProjectAuthConfigService {
     return this.sanitize(created);
   }
 
-  async update(projectId: string, data: Record<string, any>) {
+  async update(
+    projectId: string,
+    data: Record<string, any>,
+    userId?: string,
+  ) {
     await this.getOrCreate(projectId);
 
     const updated = await this.prisma.projectAuthConfig.update({
       where: { projectId },
       data,
     });
+
+    const keys = Object.keys(data).filter((k) => !k.endsWith('Pass') && !k.endsWith('Secret') && !k.endsWith('ApiKey'));
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
+      title: 'Auth / email configuration updated',
+      detail: keys.length ? `Fields: ${keys.slice(0, 20).join(', ')}` : undefined,
+      metadata: { keys },
+    });
+
     return this.sanitize(updated);
   }
 

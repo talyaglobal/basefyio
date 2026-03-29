@@ -36,7 +36,7 @@ export class AiService {
     if (!this.openai) {
       return {
         reply:
-          'AI asistanı şu anda kullanılamıyor. Lütfen OPENAI_API_KEY ortam değişkenini ayarlayın.',
+          'The AI assistant is unavailable. Set the OPENAI_API_KEY environment variable to enable it.',
       };
     }
 
@@ -63,7 +63,7 @@ export class AiService {
       return { reply };
     } catch (err: any) {
       this.logger.error('OpenAI API error', err.message);
-      return { reply: `Hata: ${err.message}` };
+      return { reply: `Error: ${err.message}` };
     }
   }
 
@@ -71,65 +71,69 @@ export class AiService {
     const mode = context.mode ?? 'ask';
 
     const modeInstructions: Record<AiMode, string> = {
-      ask: `Kullanıcının sorduğu soruyu kısa, doğrudan ve net biçimde yanıtla.
-- Tek bir konuya odaklan. Gereksiz açıklama ekleme.
-- SQL gerekiyorsa tek bir sorgu ver.
-- Madde listesi yerine düz paragraf tercih et.`,
+      ask: `Answer the user's question briefly, directly, and clearly.
+- Focus on one topic. Avoid unnecessary filler.
+- If SQL is needed, provide a single query.
+- Prefer short paragraphs over long bullet lists unless the user asks otherwise.`,
 
-      plan: `Kullanıcının isteği için adım adım, yapılandırılmış bir plan oluştur.
-- Her adımı numaralandır ve açıkça belirt.
-- Şema tasarımı, migration adımları veya proje yapısı için ayrıntılı plan sun.
-- SQL şema değişiklikleri için migration bloğu içer.
-- Alternatifleri ve trade-off'ları belirt.
-- Planın sonunda özet bir "Sonraki adımlar" bölümü ekle.`,
+      plan: `Produce a structured, step-by-step plan for the user's request.
+- Number each step clearly.
+- For schema design, migrations, or project structure, be specific.
+- Include SQL schema changes in fenced \`\`\`sql blocks where relevant.
+- Call out alternatives and trade-offs.
+- End with a short "Next steps" section.`,
 
-      agent: `Sen otonom analiz ve uygulama modundasın. Kullanıcının isteğini gerçekleştirmek için gerekli TÜM adımları bağımsız olarak üret.
-- Analiz → Tanı → Eylem sırasını takip et.
-- Birden fazla SQL sorgusu üret; her birini ayrı blokta, amacını açıklayarak sun.
-- Projenin tüm tablolarını tarayacak sorgular yaz.
-- Somut bulgular, metrikler ve spesifik öneri rakamları ver (örn. "Bu indeks %40 hız kazandırır").
-- Hiçbir zaman "Daha fazla bilgiye ihtiyacım var" deme — elindeki bilgiyle maksimum değer üret.
-- Her SQL bloğunun ne yapacağını tek satırda açıkla.`,
+      agent: `You are in autonomous analysis mode. Produce every step needed to fulfill the user's request.
+- Follow Analyze → Diagnose → Act.
+- Emit multiple SQL queries when useful; each in its own \`\`\`sql block with a one-line explanation above it.
+- Write queries that can scan the project's tables when appropriate.
+- Give concrete findings, metrics, and specific recommendations (e.g. "this index may cut latency by ~40%").
+- Never say you need more information — deliver maximum value from the context you have.
+- Explain in one line what each SQL block will do.`,
     };
 
-    let prompt = `Sen KolayBase platformunun yapay zeka asistanısın. KolayBase, Supabase benzeri bir Backend-as-a-Service (BaaS) platformudur. Kullanıcılar PostgreSQL veritabanlarını yönetebilir, SQL sorguları çalıştırabilir ve projelerini organize edebilirler.
+    let prompt = `You are the KolayBase AI assistant. KolayBase is a Supabase-like Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
 
-Aktif mod: ${mode.toUpperCase()}
+Active mode: ${mode.toUpperCase()}
 ${modeInstructions[mode]}
 
-Genel kurallar:
-- Kullanıcının kullandığı dilde cevap ver (Türkçe veya İngilizce).
-- SQL sorguları yazarken her zaman \`\`\`sql kod bloğu kullan.
-- Güvenli olmayan komutları (DROP DATABASE, DROP ROLE vb.) önermekten kaçın.
-- ASLA "erişemiyorum" veya "inceleyemiyorum" deme — kullanıcının platformda çalıştırabileceği somut SQL üret.
-- Tablo listesi sağlandıysa o tablolara özel sorgular yaz, genel örnek değil.`;
+Language (critical):
+- Always reply in the same natural language as the user's latest message (Turkish, English, German, etc.). Match tone and formality when reasonable.
+- If the user's language is ambiguous, default to English.
+
+General rules:
+- Always wrap SQL in \`\`\`sql fenced blocks.
+- Avoid suggesting destructive commands (e.g. DROP DATABASE, DROP ROLE) unless the user explicitly asks for danger-aware guidance.
+- Never say you cannot access or inspect the database — instead output concrete SQL the user can run in the platform.
+- When a table list is provided, tailor SQL to those tables, not generic examples.`;
 
     if (context.projectName) {
-      prompt += `\n\nAktif proje: "${context.projectName}"`;
+      prompt += `\n\nActive project: "${context.projectName}"`;
     }
 
     if (context.tables && context.tables.length > 0) {
-      prompt += `\nMevcut tablolar: ${context.tables.join(', ')}`;
+      prompt += `\nKnown tables: ${context.tables.join(', ')}`;
     }
 
     const pageMap: Record<string, string> = {
-      dashboard: 'Genel dashboard',
-      projects: 'Projeler listesi',
-      'project-detail': 'Proje detay',
-      sql: 'SQL editörü',
-      tables: 'Tablo editörü',
-      auth: 'Auth yönetimi',
-      storage: 'Storage yönetimi',
-      connect: 'Bağlantı bilgileri',
+      dashboard: 'Main dashboard',
+      projects: 'Projects list',
+      'project-detail': 'Project overview',
+      sql: 'SQL editor',
+      tables: 'Table editor',
+      auth: 'Auth settings',
+      storage: 'Storage',
+      connect: 'Connection / import',
+      logs: 'Project import logs',
     };
 
     if (context.page) {
-      prompt += `\nKullanıcının bulunduğu sayfa: ${pageMap[context.page] ?? context.page}`;
+      prompt += `\nCurrent UI page: ${pageMap[context.page] ?? context.page}`;
     }
 
     if (context.allProjects && context.allProjects.length > 0) {
-      prompt += `\n\nTakımdaki projeler: ${context.allProjects.map((p) => p.name).join(', ')}`;
-      prompt += `\nKullanıcı bir projeyi sorduğunda o projenin tablolarını analiz etmek için SQL sorguları üret. Eğer tablo bilgisi henüz yoksa, "EXPLAIN tabloları görmek için projeye gitmeniz gerekiyor" demek yerine genel PostgreSQL performans sorgularını yaz ve projeye gidince çalıştırabileceğini belirt.`;
+      prompt += `\n\nProjects in this team: ${context.allProjects.map((p) => p.name).join(', ')}`;
+      prompt += `\nWhen the user asks about a project by name, produce SQL suited to analyzing that project's data. If table names are not loaded yet, still suggest useful PostgreSQL inspection queries and note they can run them after opening the project.`;
     }
 
     return prompt;

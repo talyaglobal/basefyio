@@ -22,6 +22,7 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
+import { ProjectActivityService } from './project-activity.service';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +31,7 @@ export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
     private readonly supabaseImport: SupabaseImportService,
+    private readonly projectActivity: ProjectActivityService,
   ) {}
 
   @Post()
@@ -52,6 +54,7 @@ export class ProjectsController {
       body.teamId,
       user.sub,
       body.databasePassword,
+      body.existingProjectId,
     );
   }
 
@@ -136,8 +139,16 @@ export class ProjectsController {
               resultData = freshStatus.result;
             }
           }
-          if (!resultData && status.progress?.progress) {
-            resultData = status.progress.progress;
+          if (!resultData) {
+            const p = status.progress;
+            if (
+              p &&
+              typeof p === 'object' &&
+              'progress' in p &&
+              (p as { progress?: unknown }).progress != null
+            ) {
+              resultData = (p as { progress: typeof resultData }).progress;
+            }
           }
           sendEvent('completed', {
             progress: resultData,
@@ -186,6 +197,16 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.findDeleted(teamId, user.sub);
+  }
+
+  @Get(':id/activity')
+  async listProjectActivity(
+    @Param('id') id: string,
+    @Query('limit') limitRaw: string | undefined,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
+    return this.projectActivity.listForProject(id, user.sub, limit);
   }
 
   @Get(':id')

@@ -107,7 +107,7 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     await this.projectsService.findOne(projectId, user?.sub);
-    return this.authConfigService.update(projectId, body);
+    return this.authConfigService.update(projectId, body, user?.sub);
   }
 
   @Put('providers/:provider')
@@ -133,7 +133,11 @@ export class ProjectAuthController {
       updateData[secretField] = body.clientSecret;
     }
 
-    const updated = await this.authConfigService.update(projectId, updateData);
+    const updated = await this.authConfigService.update(
+      projectId,
+      updateData,
+      user?.sub,
+    );
 
     if (body.enabled && body.clientId) {
       const rawCfg = await this.authConfigService.getRaw(projectId);
