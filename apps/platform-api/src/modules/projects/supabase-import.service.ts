@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -114,6 +115,7 @@ export class SupabaseImportService {
     teamId: string,
     userId: string,
     supabaseDatabasePassword?: string,
+    existingProjectId?: string,
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -125,14 +127,63 @@ export class SupabaseImportService {
 
     const finalName = projectName || await this.fetchProjectName(baseUrl, headers);
 
-    const project = await this.projectsService.create(
-      { name: finalName, teamId },
-      userId,
-    );
+    let project: {
+      id: string;
+      name: string;
+      slug: string;
+      dbHost: string;
+      dbPort: number;
+      dbUser: string;
+      dbPassword: string;
+      dbName: string;
+      keycloakRealm: string;
+    };
+    let preserveProjectOnCancel = false;
+
+    if (existingProjectId) {
+      const existing = await this.projectsService.getProjectForSupabaseImport(
+        existingProjectId,
+        userId,
+      );
+      if (existing.teamId !== teamId) {
+        throw new ForbiddenException(
+          'Project does not belong to the selected team',
+        );
+      }
+      preserveProjectOnCancel = true;
+      project = {
+        id: existing.id,
+        name: existing.name,
+        slug: existing.slug,
+        dbHost: existing.dbHost,
+        dbPort: existing.dbPort,
+        dbUser: existing.dbUser,
+        dbPassword: existing.dbPassword,
+        dbName: existing.dbName,
+        keycloakRealm: existing.keycloakRealm,
+      };
+    } else {
+      const created = await this.projectsService.create(
+        { name: finalName, teamId },
+        userId,
+      );
+      project = {
+        id: created.id,
+        name: created.name,
+        slug: created.slug,
+        dbHost: created.dbHost,
+        dbPort: created.dbPort,
+        dbUser: created.dbUser,
+        dbPassword: created.dbPassword,
+        dbName: created.dbName,
+        keycloakRealm: created.keycloakRealm,
+      };
+    }
 
     const jobData: ImportJobData = {
       projectId: project.id,
-      projectName: finalName,
+      projectName: project.name,
+      userId,
       baseUrl,
       serviceRoleKey,
       supabaseDatabasePassword: supabaseDatabasePassword?.trim() || undefined,
@@ -142,6 +193,7 @@ export class SupabaseImportService {
       dbPassword: project.dbPassword,
       dbName: project.dbName,
       keycloakRealm: project.keycloakRealm,
+      preserveProjectOnCancel,
     };
 
     const job = await this.importQueue.add('supabase-import', jobData, {
@@ -161,6 +213,7 @@ export class SupabaseImportService {
         name: project.name,
         slug: project.slug,
       },
+      reimport: preserveProjectOnCancel,
     };
   }
 
@@ -282,11 +335,18 @@ export class SupabaseImportService {
       }
     }
 
-    try {
-      await this.projectsService.forceDelete(projectId);
-      this.logger.log(`Cancelled import job ${jobId}, project ${projectId} deleted`);
-    } catch (err: any) {
-      this.logger.warn(`Failed to clean up project ${projectId}: ${err.message}`);
+    const data = job.data as ImportJobData;
+    if (!data.preserveProjectOnCancel) {
+      try {
+        await this.projectsService.forceDelete(projectId);
+        this.logger.log(`Cancelled import job ${jobId}, project ${projectId} deleted`);
+      } catch (err: any) {
+        this.logger.warn(`Failed to clean up project ${projectId}: ${err.message}`);
+      }
+    } else {
+      this.logger.log(
+        `Cancelled re-import job ${jobId}; project ${projectId} left intact`,
+      );
     }
 
     return { message: 'Import cancelled' };
@@ -1702,14 +1762,26 @@ export class SupabaseImportService {
       throw new Error(`Failed to fetch storage buckets: ${err.message}`);
     }
 
+    const desiredLogicalNames = new Set<string>();
+    for (const b of buckets) {
+      const n = (b.name || b.id || '').trim().toLowerCase();
+      if (n) desiredLogicalNames.add(n);
+    }
+
     for (const bucket of buckets) {
+      const logicalBucketName = (bucket.name || bucket.id || '').trim().toLowerCase();
+      if (!logicalBucketName) {
+        this.logger.warn('Skipping storage bucket with empty name and id');
+        continue;
+      }
+
       // Step 1: create the bucket (it's OK if it already exists from a previous
       // import attempt — we still want to import/overwrite the objects inside).
       try {
         await this.storage.createBucket(
           project.id,
           undefined,
-          bucket.name,
+          logicalBucketName,
           bucket.public,
         );
         progress.storage.buckets++;
@@ -1722,27 +1794,29 @@ export class SupabaseImportService {
         if (isConflict) {
           // Bucket already exists — that's fine, proceed to import objects
           this.logger.log(
-            `Bucket "${bucket.name}" already exists — proceeding to sync objects`,
+            `Bucket "${logicalBucketName}" already exists — proceeding to sync objects`,
           );
           progress.storage.buckets++;
         } else {
           // Any other error: skip this bucket entirely
           this.logger.warn(
-            `Failed to create bucket "${bucket.name}": ${err.message}`,
+            `Failed to create bucket "${logicalBucketName}": ${err.message}`,
           );
           progress.warnings.push(
-            `Bucket "${bucket.name}" import failed: ${err.message}`,
+            `Bucket "${logicalBucketName}" import failed: ${err.message}`,
           );
           continue;
         }
       }
+
+      const supabaseBucketId = (bucket.id || bucket.name || logicalBucketName).trim();
 
       // Step 2: list and upload all objects (putObject overwrites existing keys)
       try {
         const objects = await this.listSupabaseObjects(
           baseUrl,
           headers,
-          bucket.id,
+          supabaseBucketId,
         );
 
         for (const obj of objects) {
@@ -1750,7 +1824,7 @@ export class SupabaseImportService {
             const fileBuffer = await this.downloadSupabaseObject(
               baseUrl,
               headers,
-              bucket.id,
+              supabaseBucketId,
               obj.name,
             );
 
@@ -1760,7 +1834,7 @@ export class SupabaseImportService {
             await this.storage.uploadObject(
               project.id,
               undefined,
-              bucket.name,
+              logicalBucketName,
               obj.name,
               fileBuffer,
               contentType,
@@ -1768,20 +1842,29 @@ export class SupabaseImportService {
             progress.storage.objects++;
           } catch (err: any) {
             this.logger.warn(
-              `Failed to import object "${obj.name}" from bucket "${bucket.name}": ${err.message}`,
+              `Failed to import object "${obj.name}" from bucket "${logicalBucketName}": ${err.message}`,
             );
             progress.warnings.push(
-              `Storage object "${bucket.name}/${obj.name}" failed: ${err.message}`,
+              `Storage object "${logicalBucketName}/${obj.name}" failed: ${err.message}`,
             );
           }
         }
       } catch (err: any) {
         this.logger.warn(
-          `Failed to list/upload objects for bucket "${bucket.name}": ${err.message}`,
+          `Failed to list/upload objects for bucket "${logicalBucketName}": ${err.message}`,
         );
         progress.warnings.push(
-          `Bucket "${bucket.name}" object sync failed: ${err.message}`,
+          `Bucket "${logicalBucketName}" object sync failed: ${err.message}`,
         );
+      }
+    }
+
+    if (desiredLogicalNames.size > 0) {
+      try {
+        await this.storage.pruneProjectStorageBuckets(project.id, desiredLogicalNames);
+      } catch (err: any) {
+        this.logger.warn(`Storage prune after import failed: ${err.message}`);
+        progress.warnings.push(`Storage cleanup (extra buckets) failed: ${err.message}`);
       }
     }
   }

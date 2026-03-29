@@ -1,4 +1,11 @@
-import { IsString, IsNotEmpty, IsUrl, MinLength, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsUrl,
+  MinLength,
+  IsOptional,
+  IsUUID,
+} from 'class-validator';
 
 export class ImportSupabaseDto {
   @IsUrl({ require_tld: false }, { message: 'Invalid Supabase URL' })
@@ -21,4 +28,9 @@ export class ImportSupabaseDto {
   @IsString()
   @IsNotEmpty()
   teamId: string;
+
+  /** Re-import into this Kolaybase project instead of creating a new one. Must belong to teamId. */
+  @IsOptional()
+  @IsUUID('4')
+  existingProjectId?: string;
 }

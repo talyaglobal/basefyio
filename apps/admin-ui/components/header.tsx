@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { clearTokens, stopProactiveRefresh, getRefreshToken } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { Team, UserInfo } from '@/lib/types';
+import type { Project, ProjectListItem, Team, UserInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -19,6 +19,7 @@ import {
   FolderOpen,
   KeyRound,
   LayoutDashboard,
+  List,
   LogOut,
   MessageSquarePlus,
   Plus,
@@ -29,6 +30,7 @@ import {
   Users,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
+import { ThemeToggle } from '@/components/theme-toggle';
 import type { UserProfile } from '@/lib/types';
 
 interface HeaderProps {
@@ -39,10 +41,31 @@ interface HeaderProps {
   profile?: UserProfile | null;
 }
 
+function projectToListItem(p: Project): ProjectListItem {
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    description: p.description,
+    status: p.status,
+    folderId: null,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
 export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profile }: HeaderProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const activeTeamIdRef = useRef(activeTeamId);
+  activeTeamIdRef.current = activeTeamId;
+
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
+  const [routeProject, setRouteProject] = useState<Project | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [inviteCount, setInviteCount] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -55,7 +78,77 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
   }, [activeTeamId, refreshKey]);
 
+  useEffect(() => {
+    if (!activeTeamId) {
+      setTeamProjects([]);
+      return;
+    }
+    setProjectsLoading(true);
+    api.projects
+      .list(activeTeamId)
+      .then((list) =>
+        setTeamProjects(list.filter((p) => p.status === 'ACTIVE')),
+      )
+      .catch(() => setTeamProjects([]))
+      .finally(() => setProjectsLoading(false));
+  }, [activeTeamId, refreshKey]);
+
+  const currentProjectIdFromPath = pathname.startsWith('/dashboard/projects/')
+    ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
+    : null;
+
+  useEffect(() => {
+    if (!currentProjectIdFromPath) {
+      setRouteProject(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await api.projects.get(currentProjectIdFromPath);
+        if (cancelled) return;
+        setRouteProject(p);
+        if (p.teamId !== activeTeamIdRef.current) {
+          try {
+            await api.teams.setActive(p.teamId);
+            Cookies.set('kb_active_team', p.teamId, { expires: 365 });
+            onTeamChange(p.teamId);
+          } catch {
+            /* keep header label from route project even if team switch fails */
+          }
+        }
+      } catch {
+        if (!cancelled) setRouteProject(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectIdFromPath, onTeamChange]);
+
   const activeTeam = teams.find((t) => t.id === activeTeamId);
+
+  const currentProjectInTeam = currentProjectIdFromPath
+    ? teamProjects.find((p) => p.id === currentProjectIdFromPath)
+    : null;
+
+  const projectsMenuLabel =
+    routeProject?.id === currentProjectIdFromPath
+      ? routeProject.name
+      : currentProjectInTeam
+        ? currentProjectInTeam.name
+        : 'Projects';
+
+  const menuProjects = useMemo(() => {
+    const list = [...teamProjects];
+    if (
+      routeProject?.id === currentProjectIdFromPath &&
+      !list.some((x) => x.id === routeProject.id)
+    ) {
+      list.unshift(projectToListItem(routeProject));
+    }
+    return list;
+  }, [teamProjects, routeProject, currentProjectIdFromPath]);
 
   async function switchTeam(teamId: string) {
     try {
@@ -63,6 +156,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       Cookies.set('kb_active_team', teamId, { expires: 365 });
       onTeamChange(teamId);
       setDropdownOpen(false);
+      setProjectsMenuOpen(false);
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -159,8 +253,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         {/* Team Switcher */}
         <div className="relative">
           <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
+            onClick={() => {
+              setProjectsMenuOpen(false);
+              setDropdownOpen(!dropdownOpen);
+            }}
+            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="max-w-[140px] truncate">
@@ -259,6 +356,89 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           )}
         </div>
 
+        {/* Projects (active team) */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              setDropdownOpen(false);
+              setProjectsMenuOpen(!projectsMenuOpen);
+            }}
+            disabled={!activeTeamId && !routeProject}
+            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="max-w-[160px] truncate">{projectsMenuLabel}</span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          </button>
+
+          {projectsMenuOpen && (activeTeamId || routeProject) && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setProjectsMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
+                <div className="border-b px-3 py-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Projects in {activeTeam?.name ?? 'team'}
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                  {projectsLoading && menuProjects.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      Loading…
+                    </div>
+                  ) : menuProjects.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                      No projects yet.
+                    </div>
+                  ) : (
+                    menuProjects.map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => {
+                          setProjectsMenuOpen(false);
+                          router.push(`/dashboard/projects/${project.id}`);
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-left transition-colors ${
+                          project.id === currentProjectIdFromPath
+                            ? 'bg-primary/10 font-medium text-primary'
+                            : 'hover:bg-accent'
+                        }`}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                          {project.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">{project.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {project.slug}
+                          </p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="border-t p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProjectsMenuOpen(false);
+                      router.push('/dashboard/projects');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    All projects
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         {inviteCount > 0 && (
           <Button
             variant="outline"
@@ -270,6 +450,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             {inviteCount} invite{inviteCount > 1 ? 's' : ''}
           </Button>
         )}
+
+        <ThemeToggle />
 
         <UserMenu user={user} profile={profile ?? null} onLogout={handleLogout} />
       </div>

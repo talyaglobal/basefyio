@@ -7,6 +7,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { GitHubService } from './github.service';
 import { VercelService } from './vercel.service';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from '../projects/project-activity.service';
 
 @Injectable()
 export class IntegrationsService {
@@ -16,6 +20,7 @@ export class IntegrationsService {
     private readonly prisma: PrismaService,
     private readonly github: GitHubService,
     private readonly vercel: VercelService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   private async getProjectWithAccess(projectId: string, userId: string) {
@@ -65,6 +70,15 @@ export class IntegrationsService {
     });
 
     this.logger.log(`GitHub connected: ${data.owner}/${data.repo} -> project ${projectId}`);
+
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.INTEGRATION_GITHUB_CONNECTED,
+      title: 'GitHub connected',
+      detail: `${data.owner}/${data.repo} (${data.branch || 'main'})`,
+      metadata: { owner: data.owner, repo: data.repo, branch: data.branch || 'main' },
+    });
+
     return { connected: true, owner: data.owner, repo: data.repo, branch: data.branch || 'main' };
   }
 
@@ -82,6 +96,13 @@ export class IntegrationsService {
     });
 
     this.logger.log(`GitHub disconnected from project ${projectId}`);
+
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.INTEGRATION_GITHUB_DISCONNECTED,
+      title: 'GitHub disconnected',
+    });
+
     return { connected: false };
   }
 
@@ -178,6 +199,15 @@ export class IntegrationsService {
     });
 
     this.logger.log(`Vercel connected: ${data.projectId} -> project ${projectId}`);
+
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.INTEGRATION_VERCEL_CONNECTED,
+      title: 'Vercel connected',
+      detail: `Vercel project ${data.projectId}`,
+      metadata: { vercelProjectId: data.projectId },
+    });
+
     return { connected: true, projectId: data.projectId };
   }
 
@@ -194,6 +224,13 @@ export class IntegrationsService {
     });
 
     this.logger.log(`Vercel disconnected from project ${projectId}`);
+
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.INTEGRATION_VERCEL_DISCONNECTED,
+      title: 'Vercel disconnected',
+    });
+
     return { connected: false };
   }
 

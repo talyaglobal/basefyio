@@ -15,10 +15,72 @@ import {
   Terminal,
   Code,
   Layers,
+  Sparkles,
 } from 'lucide-react';
 
 interface ConnectionStringsViewProps {
   projectId: string;
+}
+
+/**
+ * Single copy-paste block for ChatGPT, Claude, Cursor, etc. so the model can
+ * wire up env vars, ORMs, or REST clients without guessing.
+ */
+function buildAiQuickConnectPrompt(
+  conn: ConnectionStrings,
+  projectId: string,
+): string {
+  return `TASK: Configure my application to connect to my Kolaybase-hosted project using ONLY the values below. Do not invent hostnames, ports, or keys.
+
+CONTEXT: Kolaybase is a managed platform. The database is PostgreSQL. The HTTP API is PostgREST-compatible (same patterns as Supabase REST: /rest/v1/{table}, headers apikey + optional Authorization Bearer).
+
+--- PROJECT (REST / auth headers) ---
+PROJECT_ID="${projectId}"
+# Use header on Kolaybase REST auth and many client flows: x-project-id: <PROJECT_ID> (together with apikey: ANON_KEY)
+
+--- BROWSER / CORS & REST AUTH (read carefully) ---
+Hosted Kolaybase APIs may only allow browser requests from specific origins (e.g. the official admin app). If the user runs a SPA on http://localhost:* or their own domain, direct fetch() from the browser to REST_BASE_URL can fail with CORS — that is not an "invalid key" problem; fix it by calling the API from a server (Next.js Route Handler, backend) that proxies to REST_BASE_URL with headers apikey + x-project-id, and keep SERVICE_KEY only on the server.
+
+For sign-in / sign-up against Kolaybase REST auth paths, do not rely on browser → Kolaybase from disallowed origins; use a same-origin API route that forwards JSON to the platform.
+
+If there is NO CORS error (e.g. server-side or proxy) but auth still returns 401 Invalid credentials, that is separate from CORS — then check passwords, user provisioning, and Keycloak/realm health; hosted customers may need platform support after DB/realm rebuilds.
+
+--- POSTGRESQL — DIRECT (no pooler; use only on same private network / internal) ---
+DATABASE_URL_DIRECT="${conn.uri}"
+host="${conn.host}"
+port=${conn.port}
+database="${conn.database}"
+user="${conn.user}"
+password="${conn.password}"
+
+--- POSTGRESQL — POOLER (PgBouncer; preferred for Prisma, Drizzle, server apps) ---
+DATABASE_URL_POOLER="${conn.poolerUri}"
+pooler_host="${conn.poolerHost}"
+pooler_port=${conn.poolerPort}
+
+--- HTTP REST API ---
+REST_BASE_URL="${conn.restUrl}"
+# Public anon JWT — ok for browser/client if RLS policies allow
+ANON_KEY="${conn.anonKey}"
+# Service role — SERVER-SIDE ONLY; full DB access; never expose in frontend or public repos
+SERVICE_KEY="${conn.serviceKey}"
+
+Example REST GET (read):
+GET \${REST_BASE_URL}/your_table?select=*&limit=10
+Headers: apikey: <ANON_KEY or SERVICE_KEY>, Accept: application/json
+
+--- AUTH (Keycloak) ---
+KEYCLOAK_URL="${conn.keycloakUrl}"
+KEYCLOAK_REALM="${conn.keycloakRealm}"
+
+DELIVERABLES I WANT FROM YOU:
+1) Exact .env (or .env.local) variable names and values I should paste (include PROJECT_ID where relevant).
+2) If I use Prisma: the datasource url line using DATABASE_URL_POOLER unless I said I am internal-only, then DATABASE_URL_DIRECT.
+3) If I use fetch/axios from a server: base URL + which key to use (anon vs service) for my scenario + x-project-id when calling Kolaybase REST auth.
+4) If I use a browser SPA or Next.js client: explain CORS limits and give a minimal server-side proxy pattern (or backend) for REST and auth — never expose SERVICE_KEY to the client.
+5) Remind me once: never commit SERVICE_KEY or database password to git.
+
+Use the quoted values exactly; do not substitute placeholders.`;
 }
 
 function CopyBlock({
@@ -127,6 +189,8 @@ export function ConnectionStringsView({
       </div>
     );
   }
+
+  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(conn, projectId);
 
   const curlExample = `curl '${conn.restUrl}/your_table?select=*&limit=10' \\
   -H 'apikey: ${conn.anonKey}'`;
@@ -302,6 +366,50 @@ datasource db {
           network.
         </p>
         <CopyBlock label="Direct URI" value={conn.uri} icon={Link2} />
+
+        <div className="rounded-lg border border-violet-200/80 bg-violet-50/50 dark:border-violet-900/60 dark:bg-violet-950/25">
+          <div className="flex flex-col gap-1 border-b border-violet-200/80 px-4 py-3 dark:border-violet-900/50 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="flex gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/50">
+                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-violet-950 dark:text-violet-100">
+                  AI prompt for quick connect
+                </h3>
+                <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
+                  Copy this block into ChatGPT, Claude, Cursor, or any AI assistant. It
+                  includes project id, keys, and notes on browser CORS and server-side
+                  proxying for REST auth so the model does not suggest insecure or broken
+                  client-only setups.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 border-violet-200 bg-white hover:bg-violet-50 dark:border-violet-800 dark:bg-violet-950 dark:hover:bg-violet-900"
+              onClick={() => {
+                navigator.clipboard.writeText(aiQuickConnectPrompt);
+                toast.success('AI prompt copied');
+              }}
+            >
+              <Copy className="mr-1.5 h-3.5 w-3.5" />
+              Copy prompt
+            </Button>
+          </div>
+          <div className="relative">
+            <pre className="max-h-[min(320px,45vh)] overflow-auto px-4 py-3 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+              <code className="font-mono whitespace-pre-wrap break-words">
+                {aiQuickConnectPrompt}
+              </code>
+            </pre>
+          </div>
+          <p className="border-t border-violet-200/60 px-4 py-2 text-[11px] text-violet-800/80 dark:border-violet-900/50 dark:text-violet-300/80">
+            This text includes database passwords and API keys. Only paste into tools you
+            trust; do not share in public channels.
+          </p>
+        </div>
       </section>
     </div>
   );

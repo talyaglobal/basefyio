@@ -95,6 +95,17 @@ export interface Project {
   vercel?: VercelIntegration;
 }
 
+/** Single row from `GET /projects/:id/activity` */
+export interface ProjectActivityItem {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string | null;
+  metadata: unknown;
+  createdAt: string;
+  userId: string | null;
+}
+
 export interface ProjectFolder {
   id: string;
   name: string;
@@ -333,6 +344,8 @@ export interface SupabaseImportRequest {
   databasePassword?: string;
   name: string;
   teamId: string;
+  /** When set, import runs into this existing Kolaybase project (same DB/realm). */
+  existingProjectId?: string;
 }
 
 export interface SupabaseImportJobResponse {
@@ -342,6 +355,8 @@ export interface SupabaseImportJobResponse {
     name: string;
     slug: string;
   };
+  /** True when import targeted an existing project (re-import). */
+  reimport?: boolean;
 }
 
 export interface ImportProgressData {

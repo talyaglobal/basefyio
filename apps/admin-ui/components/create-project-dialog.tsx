@@ -27,11 +27,18 @@ import {
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 
+export interface ReimportTarget {
+  projectId: string;
+  projectName: string;
+}
+
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
   teamId: string;
+  /** When set, opens the Supabase import form for this existing project (overwrite-style re-import). */
+  reimportTarget?: ReimportTarget | null;
 }
 
 type DialogView = 'create' | 'import' | 'importing' | 'result';
@@ -49,12 +56,13 @@ const MAX_IMPORT_ETA_MS = 45 * 60 * 1000;
 /** Floor % for ETA math only — avoids divide-by-tiny-% blowups */
 const MIN_PCT_FOR_ETA = 1;
 
-function formatSmoothedEta(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 6000) return 'Almost done…';
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `~${sec}s remaining`;
-  const mins = Math.floor(sec / 60);
-  const remSec = sec % 60;
+/** Wall-clock countdown uses whole seconds; sub-minute shows live ticks without ~ */
+function formatEtaTotalSeconds(totalSec: number): string {
+  if (!Number.isFinite(totalSec) || totalSec <= 0) return 'Almost done…';
+  if (totalSec < 6) return 'Almost done…';
+  if (totalSec < 60) return `${totalSec}s remaining`;
+  const mins = Math.floor(totalSec / 60);
+  const remSec = totalSec % 60;
   return remSec > 0 ? `~${mins}m ${remSec}s remaining` : `~${mins}m remaining`;
 }
 
@@ -83,6 +91,7 @@ export function CreateProjectDialog({
   onOpenChange,
   onCreated,
   teamId,
+  reimportTarget = null,
 }: CreateProjectDialogProps) {
   const router = useRouter();
   const [view, setView] = useState<DialogView>('create');
@@ -107,10 +116,10 @@ export function CreateProjectDialog({
   const [importEta, setImportEta] = useState<string>('');
   const [importStrategy, setImportStrategy] = useState<string>('');
   const etaSmoothedMsRef = useRef(0);
-  const etaVisualMsRef = useRef(0);
+  /** Wall-clock anchor so remaining time ticks down every real second (not smoothed lag). */
+  const importEtaAnchorRef = useRef<{ at: number; remainingMs: number } | null>(null);
+  const etaLastTickSecRef = useRef(-1);
   const etaRafRef = useRef<number | null>(null);
-  const etaLastLabelRef = useRef('');
-  const etaLastFrameTsRef = useRef<number | null>(null);
 
   const { activeImport, startTracking, cancelImport, setModalShowingImport, setOnReopenModal } =
     useImportProgress();
@@ -128,6 +137,8 @@ export function CreateProjectDialog({
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const dismissedDuringImportRef = useRef(false);
+  /** True while the current job is a re-import (cancel must not delete project). */
+  const reimportJobRef = useRef(false);
 
   const stopEtaAnimation = useCallback(() => {
     if (etaRafRef.current != null) {
@@ -135,37 +146,28 @@ export function CreateProjectDialog({
       etaRafRef.current = null;
     }
     etaSmoothedMsRef.current = 0;
-    etaVisualMsRef.current = 0;
-    etaLastLabelRef.current = '';
-    etaLastFrameTsRef.current = null;
+    importEtaAnchorRef.current = null;
+    etaLastTickSecRef.current = -1;
     importEtaStartMsRef.current = 0;
   }, []);
 
-  const runEtaFrame = useCallback((ts: number) => {
+  const runEtaFrame = useCallback(() => {
     const pct = importPercentRef.current;
     if (pct <= 0 || pct >= 100 || importEtaStartMsRef.current === 0) {
       etaRafRef.current = null;
-      etaLastFrameTsRef.current = null;
       return;
     }
 
-    const last = etaLastFrameTsRef.current;
-    etaLastFrameTsRef.current = ts;
-    const dt = last != null ? Math.min(ts - last, 56) : 16;
+    const anchor = importEtaAnchorRef.current;
+    const displayMs =
+      anchor != null
+        ? Math.max(0, anchor.remainingMs - (Date.now() - anchor.at))
+        : Math.max(0, etaSmoothedMsRef.current);
 
-    const target = etaSmoothedMsRef.current;
-    let v = etaVisualMsRef.current;
-    const smooth = 1 - Math.pow(0.971, dt / 16);
-    v += (target - v) * smooth;
-    if (Math.abs(target - v) < 450 && target < 7500) {
-      v = target;
-    }
-    etaVisualMsRef.current = v;
-
-    const label = formatSmoothedEta(v);
-    if (label !== etaLastLabelRef.current) {
-      etaLastLabelRef.current = label;
-      setImportEta(label);
+    const tickSec = Math.max(0, Math.ceil(displayMs / 1000));
+    if (tickSec !== etaLastTickSecRef.current) {
+      etaLastTickSecRef.current = tickSec;
+      setImportEta(formatEtaTotalSeconds(tickSec));
     }
 
     etaRafRef.current = requestAnimationFrame(runEtaFrame);
@@ -173,7 +175,6 @@ export function CreateProjectDialog({
 
   const ensureEtaRaf = useCallback(() => {
     if (etaRafRef.current == null) {
-      etaLastFrameTsRef.current = null;
       etaRafRef.current = requestAnimationFrame(runEtaFrame);
     }
   }, [runEtaFrame]);
@@ -209,10 +210,10 @@ export function CreateProjectDialog({
         next = prev + (raw - prev) * 0.04;
       }
       etaSmoothedMsRef.current = next;
-
-      if (etaVisualMsRef.current <= 0) {
-        etaVisualMsRef.current = next;
-      }
+      importEtaAnchorRef.current = { at: Date.now(), remainingMs: next };
+      const secNow = Math.max(0, Math.ceil(next / 1000));
+      etaLastTickSecRef.current = secNow;
+      setImportEta(formatEtaTotalSeconds(secNow));
 
       ensureEtaRaf();
     },
@@ -225,6 +226,40 @@ export function CreateProjectDialog({
       stopEtaAnimation();
     };
   }, [stopEtaAnimation]);
+
+  useEffect(() => {
+    if (!open || !reimportTarget) return;
+
+    const runningSameProject =
+      activeImport?.status === 'running' &&
+      reimportTarget.projectId === activeImport.projectId;
+
+    if (runningSameProject) {
+      setView('importing');
+      setImportProjectName(activeImport.projectName);
+      updatePercentAndEta(activeImport.percent);
+      if (activeImport.strategy) setImportStrategy(activeImport.strategy);
+      return;
+    }
+
+    setView('import');
+    setImportName(reimportTarget.projectName);
+    setImportNameManual(true);
+    setValidated(false);
+    setSupabaseUrl('');
+    setServiceRoleKey('');
+    setDatabasePassword('');
+  }, [
+    open,
+    reimportTarget?.projectId,
+    reimportTarget?.projectName,
+    activeImport?.status,
+    activeImport?.projectId,
+    activeImport?.projectName,
+    activeImport?.percent,
+    activeImport?.strategy,
+    updatePercentAndEta,
+  ]);
 
   // Belt-and-suspenders: whenever the dialog closes with a running import,
   // ensure the toast becomes visible regardless of how the close happened.
@@ -332,6 +367,7 @@ export function CreateProjectDialog({
     setLoading(false);
     setCancelling(false);
     dismissedDuringImportRef.current = false;
+    reimportJobRef.current = false;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
   }
@@ -366,7 +402,6 @@ export function CreateProjectDialog({
         eventSourceRef.current?.close();
         eventSourceRef.current = null;
         setModalShowingImport(false);
-        setView('create');
         onOpenChange(false);
         return;
       }
@@ -387,6 +422,8 @@ export function CreateProjectDialog({
       toast.success(`Project "${project.name}" created`);
       resetState();
       onCreated();
+      onOpenChange(false);
+      router.push(`/dashboard/projects/${project.id}`);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -437,6 +474,7 @@ export function CreateProjectDialog({
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
     dismissedDuringImportRef.current = false;
+    reimportJobRef.current = !!reimportTarget;
     setView('importing');
 
     const steps: ImportStep[] = [
@@ -453,8 +491,11 @@ export function CreateProjectDialog({
         supabaseUrl: supabaseUrl.replace(/\/+$/, ''),
         serviceRoleKey,
         ...(databasePassword.trim() ? { databasePassword: databasePassword.trim() } : {}),
-        name: importName,
+        name: reimportTarget?.projectName ?? importName,
         teamId,
+        ...(reimportTarget
+          ? { existingProjectId: reimportTarget.projectId }
+          : {}),
       });
 
       setImportProjectName(result.project.name);
@@ -535,7 +576,11 @@ export function CreateProjectDialog({
               { duration: 8000 },
             );
           } else {
-            toast.success(`Project "${result.project.name}" imported from Supabase`);
+            toast.success(
+              reimportTarget
+                ? `Re-import completed for "${result.project.name}"`
+                : `Project "${result.project.name}" imported from Supabase`,
+            );
           }
           onCreated();
         },
@@ -671,21 +716,69 @@ export function CreateProjectDialog({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setView('create')}
+                  onClick={() =>
+                    reimportTarget ? handleOpenChange(false) : setView('create')
+                  }
                   className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  aria-label={reimportTarget ? 'Close' : 'Back'}
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
                 <div className="flex items-center gap-2">
                   <SupabaseLogo className="h-5 w-5" />
-                  <DialogTitle>Import from Supabase</DialogTitle>
+                  <DialogTitle>
+                    {reimportTarget
+                      ? 'Re-import from Supabase'
+                      : 'Import from Supabase'}
+                  </DialogTitle>
                 </div>
               </div>
               <DialogDescription>
-                Clone a Supabase project including database, auth users, and
-                storage files.
+                {reimportTarget ? (
+                  <>
+                    Pull data again from your Supabase project into{' '}
+                    <span className="font-medium text-foreground">
+                      {reimportTarget.projectName}
+                    </span>
+                    . Existing imported tables in Kolaybase are replaced when
+                    names match; auth and storage are synced again.
+                  </>
+                ) : (
+                  <>
+                    Clone a Supabase project including database, auth users, and
+                    storage files.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
+
+            {reimportTarget && (
+              <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100">
+                <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+                  Fewer errors and warnings
+                </p>
+                <ul className="mt-1.5 list-disc space-y-1 pl-4 text-emerald-900/90 dark:text-emerald-200/90">
+                  <li>
+                    Use the <strong>service_role</strong> key (Supabase → Settings → API),
+                    not the anon key, so the importer can read all tables.
+                  </li>
+                  <li>
+                    If some tables still show 0 rows or permission errors, add the{' '}
+                    <strong>Database password</strong> (Settings → Database) so Kolaybase
+                    can copy data over a direct Postgres connection.
+                  </li>
+                  <li>
+                    Match the <strong>Supabase project URL</strong> to the same source you
+                    used before if you want a true refresh; a different project will
+                    replace data with that project&apos;s schema and rows.
+                  </li>
+                  <li>
+                    Large projects take several minutes; keep this window open or use the
+                    progress toast if you minimize.
+                  </li>
+                </ul>
+              </div>
+            )}
 
             <form onSubmit={handleImport} className="space-y-4">
               <div className="space-y-2">
@@ -764,37 +857,45 @@ export function CreateProjectDialog({
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="import-name">Project Name</Label>
-                <Input
-                  id="import-name"
-                  value={importName}
-                  onChange={(e) => {
-                    setImportName(e.target.value);
-                    setImportNameManual(true);
-                  }}
-                  placeholder={validated ? 'Auto-filled from Supabase' : 'my-supabase-project'}
-                  required
-                  minLength={2}
-                  maxLength={64}
-                />
-              </div>
+              {!reimportTarget && (
+                <div className="space-y-2">
+                  <Label htmlFor="import-name">Project Name</Label>
+                  <Input
+                    id="import-name"
+                    value={importName}
+                    onChange={(e) => {
+                      setImportName(e.target.value);
+                      setImportNameManual(true);
+                    }}
+                    placeholder={validated ? 'Auto-filled from Supabase' : 'my-supabase-project'}
+                    required
+                    minLength={2}
+                    maxLength={64}
+                  />
+                </div>
+              )}
 
               <DialogFooter>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setView('create')}
+                  onClick={() =>
+                    reimportTarget ? handleOpenChange(false) : setView('create')
+                  }
                 >
-                  Back
+                  {reimportTarget ? 'Cancel' : 'Back'}
                 </Button>
                 <Button
                   type="submit"
-                  disabled={!supabaseUrl.trim() || !serviceRoleKey.trim() || !importName.trim()}
+                  disabled={
+                    !supabaseUrl.trim() ||
+                    !serviceRoleKey.trim() ||
+                    !(reimportTarget?.projectName ?? importName).trim()
+                  }
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <SupabaseLogo className="h-4 w-4 mr-2 brightness-[10]" />
-                  Start Import
+                  {reimportTarget ? 'Start re-import' : 'Start Import'}
                 </Button>
               </DialogFooter>
             </form>
@@ -806,11 +907,16 @@ export function CreateProjectDialog({
             <DialogHeader className="pr-16">
               <div className="flex items-center gap-2">
                 <SupabaseLogo className="h-5 w-5" />
-                <DialogTitle>Importing from Supabase</DialogTitle>
+                <DialogTitle>
+                  {reimportTarget
+                    ? 'Re-importing from Supabase'
+                    : 'Importing from Supabase'}
+                </DialogTitle>
               </div>
               <DialogDescription>
-                Please wait while your project is being imported.
-                You can minimize this and continue working.
+                {reimportTarget
+                  ? 'Updating your existing Kolaybase project from Supabase. You can minimize this and continue working.'
+                  : 'Please wait while your project is being imported. You can minimize this and continue working.'}
               </DialogDescription>
             </DialogHeader>
             <Button
@@ -886,7 +992,14 @@ export function CreateProjectDialog({
                 size="sm"
                 disabled={cancelling}
                 onClick={async () => {
-                  if (!confirm('Cancel import? The project and all imported data will be deleted.')) return;
+                  if (
+                    !confirm(
+                      reimportJobRef.current
+                        ? 'Cancel re-import? Your Kolaybase project will remain; partially imported data may be incomplete.'
+                        : 'Cancel import? The project and all imported data will be deleted.',
+                    )
+                  )
+                    return;
                   setCancelling(true);
                   try {
                     eventSourceRef.current?.close();

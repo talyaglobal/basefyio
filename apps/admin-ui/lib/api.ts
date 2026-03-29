@@ -11,6 +11,7 @@ import type {
   ImportJobProgressEvent,
   PendingInvite,
   Project,
+  ProjectActivityItem,
   ProjectAuthConfig,
   ProjectListItem,
   RealmInfo,
@@ -252,6 +253,11 @@ export const api = {
     },
     get(id: string) {
       return request<Project>(`/projects/${id}`);
+    },
+    listActivity(id: string, limit = 100) {
+      return request<{ items: ProjectActivityItem[] }>(
+        `/projects/${id}/activity?limit=${limit}`,
+      );
     },
     create(data: { name: string; description?: string; teamId: string }) {
       return request<Project>('/projects', {

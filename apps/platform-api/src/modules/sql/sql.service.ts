@@ -7,6 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from '../projects/project-activity.service';
 
 const FORBIDDEN_PATTERNS = [
   'DROP DATABASE',
@@ -26,6 +30,7 @@ export class SqlService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   async execute(projectId: string, query: string, userId?: string) {
@@ -94,6 +99,14 @@ export class SqlService {
           error: err.message,
           duration,
         },
+      });
+
+      const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
+      await this.activity.append(projectId, {
+        userId: userId || undefined,
+        kind: ProjectActivityKind.SQL_FAILED,
+        title: 'SQL execution failed',
+        detail: `${qPreview}${query.length > 240 ? '…' : ''} — ${err.message}`,
       });
 
       throw new BadRequestException(`SQL error: ${err.message}`);

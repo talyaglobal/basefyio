@@ -13,6 +13,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from './project-activity.service';
 
 @Injectable()
 export class ProjectsService {
@@ -23,6 +27,7 @@ export class ProjectsService {
     private readonly keycloak: KeycloakAdminService,
     private readonly config: ConfigService,
     private readonly pgbouncer: PgBouncerService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
@@ -75,6 +80,12 @@ export class ProjectsService {
     });
 
     this.logger.log(`Project "${project.name}" created (${project.id})`);
+
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_CREATED,
+      title: `Project created: ${project.name}`,
+    });
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
@@ -139,6 +150,21 @@ export class ProjectsService {
       return [p];
     });
 
+    const changes: string[] = [];
+    if (data.name !== undefined) changes.push('name');
+    if (data.description !== undefined) changes.push('description');
+    if (data.folderId !== undefined) changes.push('folder');
+    if (data.tags !== undefined) changes.push('tags');
+    if (changes.length > 0) {
+      await this.activity.append(id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Project updated',
+        detail: `Changed: ${changes.join(', ')}`,
+        metadata: { fields: changes },
+      });
+    }
+
     return this.prisma.project.findUnique({
       where: { id },
       select: {
@@ -154,6 +180,29 @@ export class ProjectsService {
         updatedAt: true,
       },
     });
+  }
+
+  /**
+   * Raw DB + Keycloak fields for the import worker (internal host/port as stored — not PgBouncer external).
+   */
+  async getProjectForSupabaseImport(projectId: string, userId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+    return {
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      teamId: project.teamId,
+      dbHost: project.dbHost,
+      dbPort: project.dbPort,
+      dbUser: project.dbUser,
+      dbPassword: project.dbPassword,
+      dbName: project.dbName,
+      keycloakRealm: project.keycloakRealm,
+    };
   }
 
   async findOne(id: string, userId?: string) {
@@ -222,6 +271,14 @@ export class ProjectsService {
       `Project "${project.name}" moved from team ${project.teamId} to team ${targetTeamId} by user ${userId}`,
     );
 
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_MOVED_TEAM,
+      title: 'Project moved to another team',
+      detail: `From team ${project.teamId} to ${targetTeamId}`,
+      metadata: { fromTeamId: project.teamId, toTeamId: targetTeamId },
+    });
+
     return { message: 'Project moved successfully' };
   }
 
@@ -288,6 +345,13 @@ export class ProjectsService {
     );
 
     this.logger.log(`Project "${project.name}" soft-deleted by user ${userId} (db: ${archivedDbName})`);
+
+    await this.activity.append(id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_DELETED,
+      title: 'Project moved to trash',
+      detail: project.name,
+    });
 
     return { message: 'Project deleted' };
   }
@@ -397,6 +461,13 @@ export class ProjectsService {
     );
 
     this.logger.log(`Project "${originalName}" restored by user ${userId}`);
+
+    await this.activity.append(id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_RESTORED,
+      title: 'Project restored from trash',
+      detail: originalName,
+    });
 
     return { message: 'Project restored' };
   }

@@ -150,11 +150,28 @@ model Project {
 
   team         Team          @relation(fields: [teamId], references: [id])
   folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  tags         ProjectTagAssignment[]
-  sqlAuditLogs SqlAuditLog[]
-  authConfig   ProjectAuthConfig?
+  tags          ProjectTagAssignment[]
+  sqlAuditLogs  SqlAuditLog[]
+  authConfig    ProjectAuthConfig?
+  activityLogs  ProjectActivityLog[]
 
   @@map("projects")
+}
+
+model ProjectActivityLog {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String?  @map("user_id")
+  kind      String   @db.VarChar(80)
+  title     String   @db.VarChar(512)
+  detail    String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("project_activity_logs")
 }
 
 model ProjectFolder {

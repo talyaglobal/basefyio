@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import type { UserInfo, UserProfile } from '@/lib/types';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
+import { DashboardSidebar } from '@/components/dashboard-sidebar';
 
 interface DashboardContextValue {
   activeTeamId: string;
@@ -127,7 +128,10 @@ export default function DashboardLayout({
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+          <DashboardSidebar activeTeamId={activeTeamId} refreshKey={refreshKey} />
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-6">
+            {children}
+          </main>
           <AiAssistant />
         </div>
       </div>

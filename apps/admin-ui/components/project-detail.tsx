@@ -26,8 +26,11 @@ import {
 import {
   Database, Github, Key, Shield, Trash2, Triangle,
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
-  HardDrive, ScrollText, AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
+import { CreateProjectDialog } from '@/components/create-project-dialog';
+import { ProjectAdvisorSection } from '@/components/project-advisor-section';
+import { ProjectImportLogCard } from '@/components/project-import-log-card';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -65,6 +68,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [moveTeamOpen, setMoveTeamOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [movingTeam, setMovingTeam] = useState(false);
+  const [reimportOpen, setReimportOpen] = useState(false);
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
@@ -132,7 +136,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     importLog !== null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
@@ -153,6 +157,10 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               Move to Team
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => setReimportOpen(true)}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Re-import Supabase
+          </Button>
           <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
             <Trash2 className="mr-2 h-4 w-4" />
             {deleting ? 'Deleting...' : 'Delete'}
@@ -162,115 +170,14 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
 
       <Separator />
 
-      {importLog && shouldShowSupabaseImportLog(importLog) && (
-        <div className="rounded-lg border bg-card p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <ScrollText className="h-4 w-4" />
-                Supabase Import Log
-              </div>
-              {importLog.completedAt && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Completed {new Date(importLog.completedAt).toLocaleString()}
-                </p>
-              )}
-              {importLogFromBrowser && (
-                <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-500/90">
-                  Showing summary saved in this browser. Re-import or redeploy the API to persist logs on the server.
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="font-normal">
-                <Database className="mr-1 h-3 w-3" />
-                {importLog.database.tables} tables
-              </Badge>
-              <Badge variant="secondary" className="font-normal">
-                <Shield className="mr-1 h-3 w-3" />
-                {importLog.auth.users} users
-              </Badge>
-              <Badge variant="secondary" className="font-normal">
-                <HardDrive className="mr-1 h-3 w-3" />
-                {importLog.storage.objects} files
-              </Badge>
-            </div>
-          </div>
+      <ProjectAdvisorSection
+        project={project}
+        importLog={importLog}
+        githubIntegration={gh ?? undefined}
+        vercelIntegration={vc ?? undefined}
+      />
 
-          <p className="mt-3 text-xs text-muted-foreground">
-            {importLog.database.rows.toLocaleString()} rows copied &middot;{' '}
-            {importLog.storage.buckets} storage bucket(s)
-            {importLog.auth.skipped > 0 && (
-              <>
-                {' '}
-                &middot; {importLog.auth.skipped} auth user(s) skipped
-              </>
-            )}
-          </p>
-
-          {(importLog.warnings.length > 0 ||
-            importLog.database.failedTables.length > 0 ||
-            importLog.auth.skipped > 0) && (
-            <div
-              className={`mt-4 rounded-lg border p-3 ${
-                importLog.warnings.length > 0
-                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
-                  : 'border-border bg-muted/40'
-              }`}
-            >
-              <p
-                className={`mb-2 text-xs font-medium ${
-                  importLog.warnings.length > 0
-                    ? 'text-amber-800 dark:text-amber-400'
-                    : 'text-muted-foreground'
-                }`}
-              >
-                {importLog.warnings.length > 0 ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    Errors &amp; warnings ({importLog.warnings.length})
-                  </span>
-                ) : (
-                  'Import notes'
-                )}
-              </p>
-              {importLog.warnings.length === 0 && importLog.auth.skipped > 0 && (
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Auth: {importLog.auth.skipped} user(s) were not imported.
-                </p>
-              )}
-              {importLog.warnings.length === 0 &&
-                importLog.database.failedTables.length > 0 && (
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Database: could not import{' '}
-                    {importLog.database.failedTables.length} table(s):{' '}
-                    {importLog.database.failedTables.join(', ')}
-                  </p>
-                )}
-              {importLog.warnings.length > 0 && (
-                <ul
-                  className="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-xs text-amber-900 dark:text-amber-300"
-                  aria-label="Import log messages"
-                >
-                  {importLog.warnings.map((line, i) => (
-                    <li
-                      key={i}
-                      className="flex gap-2 border-b border-amber-200/60 pb-1.5 last:border-0 dark:border-amber-800/50"
-                    >
-                      <span className="shrink-0 font-mono text-[10px] text-amber-600 dark:text-amber-500">
-                        {i + 1}.
-                      </span>
-                      <span className="min-w-0 break-words">{line}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />
@@ -440,6 +347,18 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             )}
           </div>
         )}
+
+        {importLog && shouldShowSupabaseImportLog(importLog) && (
+          <div className="min-w-0 md:col-span-3">
+            <ProjectImportLogCard
+              importLog={importLog}
+              importLogFromBrowser={importLogFromBrowser}
+              onReimport={() => setReimportOpen(true)}
+              projectId={project.id}
+              projectName={project.name}
+            />
+          </div>
+        )}
       </div>
 
       {/* Move to Team Dialog */}
@@ -482,6 +401,18 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateProjectDialog
+        open={reimportOpen}
+        onOpenChange={setReimportOpen}
+        onCreated={() => router.refresh()}
+        teamId={project.teamId}
+        reimportTarget={
+          reimportOpen
+            ? { projectId: project.id, projectName: project.name }
+            : null
+        }
+      />
     </div>
   );
 }

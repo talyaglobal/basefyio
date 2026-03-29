@@ -11,7 +11,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   DndContext,
+  DragCancelEvent,
   DragEndEvent,
+  DragOverEvent,
   DragOverlay,
   DragStartEvent,
   PointerSensor,
@@ -80,6 +82,11 @@ const COLORS = [
 const DND_PROJECT = 'project';
 const DND_TAG     = 'tag';
 const DND_FOLDER  = 'folder';
+const DND_TRASH   = 'trash';
+
+/** Matches All Projects / folder / tag row highlight while dragging a project (sortable+droppable id mismatch fix). */
+const SIDEBAR_DROP_ROW =
+  'bg-primary/10 text-primary font-medium ring-2 ring-primary/50';
 
 // Custom collision: pointer-within first (precise), fall back to rect-intersection (handles large cards)
 function customCollision(args: Parameters<typeof pointerWithin>[0]) {
@@ -181,6 +188,8 @@ export default function ProjectsPage() {
   const [activeProject, setActiveProject] = useState<ProjectListItem | null>(null);
   const [activeTag, setActiveTag]         = useState<ProjectTag | null>(null);
   const [activeFolder, setActiveFolder]   = useState<ProjectFolder | null>(null);
+  /** `over.id` while dragging — folder/tag rows use sortable id; droppable id differs, so hooks miss `isOver`. */
+  const [dropTargetId, setDropTargetId]   = useState<string | null>(null);
 
   // Right-click context menu
   const [ctxMenu, setCtxMenu] = useState<{
@@ -513,18 +522,30 @@ export default function ProjectsPage() {
     await Promise.all(ids.map((id) => toggleTag(id, tagId)));
   }
 
+  async function moveProjectsToTrash(projectIds: string[]) {
+    if (projectIds.length === 0) return;
+    const idSet = new Set(projectIds);
+    await Promise.all(projectIds.map((id) => api.projects.delete(id)));
+    setProjects((prev) => prev.filter((p) => !idSet.has(p.id)));
+    setSelectedProjects((prev) => {
+      const next = new Set(prev);
+      projectIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    toast.success(
+      `${projectIds.length} project${projectIds.length > 1 ? 's' : ''} moved to trash`,
+    );
+    if (isOwner && activeTeamId) loadDeletedProjects();
+  }
+
   async function confirmBulkDelete() {
     setBulkDeleting(true);
     const ids = Array.from(selectedProjects);
     try {
-      await Promise.all(ids.map((id) => api.projects.delete(id)));
-      setProjects((prev) => prev.filter((p) => !selectedProjects.has(p.id)));
-      setSelectedProjects(new Set());
-      toast.success(`${ids.length} project${ids.length > 1 ? 's' : ''} moved to trash`);
+      await moveProjectsToTrash(ids);
       setBulkDeleteConfirm(false);
-      if (isOwner && activeTeamId) loadDeletedProjects();
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(err.message ?? 'Failed to move to trash');
     } finally {
       setBulkDeleting(false);
     }
@@ -549,14 +570,32 @@ export default function ProjectsPage() {
 
   // ── DnD handlers ─────────────────────────────────────────────────────────────
   function handleDragStart(event: DragStartEvent) {
+    setDropTargetId(null);
     const { active } = event;
     if (active.data.current?.type === DND_PROJECT) setActiveProject(projects.find((p) => p.id === active.id) ?? null);
     if (active.data.current?.type === DND_TAG)     setActiveTag(tags.find((t) => t.id === active.id) ?? null);
     if (active.data.current?.type === DND_FOLDER)  setActiveFolder(folders.find((f) => f.id === active.id) ?? null);
   }
 
+  function handleDragOver(event: DragOverEvent) {
+    if (event.active.data.current?.type !== DND_PROJECT) {
+      setDropTargetId(null);
+      return;
+    }
+    const id = event.over?.id != null ? String(event.over.id) : null;
+    setDropTargetId(id);
+  }
+
+  function handleDragCancel(_event: DragCancelEvent) {
+    setDropTargetId(null);
+    setActiveProject(null);
+    setActiveTag(null);
+    setActiveFolder(null);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    setDropTargetId(null);
     setActiveProject(null);
     setActiveTag(null);
     setActiveFolder(null);
@@ -564,6 +603,19 @@ export default function ProjectsPage() {
 
     const activeType = active.data.current?.type;
     const overType   = over.data.current?.type;
+
+    // ── Project → trash
+    if (activeType === DND_PROJECT && overType === DND_TRASH) {
+      const projectId = String(active.id);
+      const ids =
+        selectedProjects.has(projectId) && selectedProjects.size > 1
+          ? Array.from(selectedProjects)
+          : [projectId];
+      void moveProjectsToTrash(ids).catch((err: any) => {
+        toast.error(err?.message ?? 'Failed to move to trash');
+      });
+      return;
+    }
 
     // ── Project → folder
     if (activeType === DND_PROJECT && overType === DND_FOLDER) {
@@ -647,10 +699,19 @@ export default function ProjectsPage() {
 
   const hasActiveFilter = !!(statusFilter || thisMonthOnly || selectedTags.length > 0);
 
+  const projectDragActive = activeProject !== null;
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <DndContext sensors={sensors} collisionDetection={customCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={customCollision}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragCancel={handleDragCancel}
+      onDragEnd={handleDragEnd}
+    >
       {/* -m-6 escapes the dashboard layout's p-6 padding */}
       <div className="-mx-6 -mt-6 -mb-6 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)' }}>
 
@@ -802,6 +863,7 @@ export default function ProjectsPage() {
                 active={selectedFolder === 'all'}
                 count={projects.length}
                 onClick={() => setSelectedFolder('all')}
+                dropHighlight={projectDragActive && dropTargetId === 'folder-none'}
               />
               <SortableContext items={folders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 {folders.map((folder) => (
@@ -814,6 +876,10 @@ export default function ProjectsPage() {
                     onEdit={() => { setFolderModal({ open: true, editing: folder }); setFolderName(folder.name); setFolderColor(folder.color); }}
                     onDelete={() => deleteFolder(folder.id)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'folder', folder)}
+                    dropHighlight={
+                      projectDragActive &&
+                      (dropTargetId === folder.id || dropTargetId === `folder-${folder.id}`)
+                    }
                   />
                 ))}
               </SortableContext>
@@ -845,6 +911,10 @@ export default function ProjectsPage() {
                     onEdit={() => { setTagModal({ open: true, editing: tag }); setTagName(tag.name); setTagColor(tag.color); }}
                     onDelete={() => deleteTag(tag.id)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'tag', tag)}
+                    dropHighlight={
+                      projectDragActive &&
+                      (dropTargetId === tag.id || dropTargetId === `droptag-${tag.id}`)
+                    }
                   />
                 ))}
               </SortableContext>
@@ -854,20 +924,15 @@ export default function ProjectsPage() {
 
               {/* Trash (only visible to team owner) */}
               {isOwner && (
-                <div className="mt-5 pt-3 border-t border-border/50">
-                  <button
-                    onClick={() => { setShowTrash(!showTrash); setSelectedFolder('all'); }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors ${showTrash ? 'bg-destructive/10 text-destructive font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Trash</span>
-                    {deletedProjects.length > 0 && (
-                      <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${showTrash ? 'bg-destructive/20 text-destructive' : 'bg-muted text-muted-foreground'}`}>
-                        {deletedProjects.length}
-                      </span>
-                    )}
-                  </button>
-                </div>
+                <TrashDropZone
+                  showTrash={showTrash}
+                  deletedCount={deletedProjects.length}
+                  dropHighlight={projectDragActive && dropTargetId === 'droppable-trash'}
+                  onClick={() => {
+                    setShowTrash(!showTrash);
+                    setSelectedFolder('all');
+                  }}
+                />
               )}
             </div>
           </aside>
@@ -1121,7 +1186,7 @@ export default function ProjectsPage() {
 
       {/* Folder modal */}
       {folderModal.open && (
-        <Modal title={folderModal.editing ? 'Edit Folder' : 'New Folder'} onClose={() => setFolderModal({ open: false })}>
+        <Modal title={folderModal.editing ? 'Edit Folder' : 'New Folder'} size="md" onClose={() => setFolderModal({ open: false })}>
           <input
             autoFocus value={folderName}
             onChange={(e) => setFolderName(e.target.value)}
@@ -1141,7 +1206,7 @@ export default function ProjectsPage() {
 
       {/* Tag modal (create / edit) */}
       {tagModal.open && (
-        <Modal title={tagModal.editing ? 'Edit Tag' : 'New Tag'} onClose={() => setTagModal({ open: false })}>
+        <Modal title={tagModal.editing ? 'Edit Tag' : 'New Tag'} size="md" onClose={() => setTagModal({ open: false })}>
           <input
             autoFocus value={tagName}
             onChange={(e) => setTagName(e.target.value)}
@@ -1386,26 +1451,83 @@ function BulkTagMenu({
   );
 }
 
+// ── TrashDropZone (droppable for project → trash) ──────────────────────────────
+function TrashDropZone({
+  showTrash,
+  deletedCount,
+  dropHighlight,
+  onClick,
+}: {
+  showTrash: boolean;
+  deletedCount: number;
+  dropHighlight?: boolean;
+  onClick: () => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'droppable-trash',
+    data: { type: DND_TRASH },
+  });
+  const trashOver = isOver || dropHighlight;
+  const rowClass =
+    trashOver
+      ? 'bg-destructive/15 text-destructive font-medium ring-2 ring-destructive/50'
+      : showTrash
+        ? 'bg-destructive/10 text-destructive font-medium'
+        : 'text-muted-foreground hover:bg-accent hover:text-foreground';
+  const badgeClass =
+    trashOver || showTrash
+      ? 'bg-destructive/25 text-destructive'
+      : 'bg-muted text-muted-foreground';
+  return (
+    <div ref={setNodeRef} className="mt-5 pt-3 border-t border-border/50">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full min-h-9 items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors ${rowClass}`}
+      >
+        <Trash2 className="h-3.5 w-3.5 shrink-0" />
+        <span>Trash</span>
+        {deletedCount > 0 && (
+          <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${badgeClass}`}>
+            {deletedCount}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
 // ── AllFolderDrop ─────────────────────────────────────────────────────────────
-function AllFolderDrop({ active, count, onClick }: { active: boolean; count: number; onClick: () => void }) {
+function AllFolderDrop({
+  active,
+  count,
+  onClick,
+  dropHighlight,
+}: {
+  active: boolean;
+  count: number;
+  onClick: () => void;
+  dropHighlight?: boolean;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: 'folder-none', data: { type: DND_FOLDER } });
+  const drop = isOver || dropHighlight;
   return (
     <div ref={setNodeRef} onClick={onClick}
       className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors w-full cursor-pointer select-none ${
-        isOver ? 'bg-primary/10 ring-1 ring-primary/30' :
+        drop ? SIDEBAR_DROP_ROW :
         active ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent text-foreground/80'
       }`}
     >
-      <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+      <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${drop ? 'text-primary' : ''}`} />
       <span className="flex-1 truncate">All Projects</span>
-      <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
+      <span className={`text-xs tabular-nums ${drop ? 'text-primary/80' : 'text-muted-foreground'}`}>{count}</span>
     </div>
   );
 }
 
 // ── SortableFolderItem ────────────────────────────────────────────────────────
 function SortableFolderItem({
-  folder, active, count, onClick, onEdit, onDelete, onContextMenu,
+  folder, active, count, onClick, onEdit, onDelete, onContextMenu, dropHighlight,
 }: {
   folder: ProjectFolder;
   active: boolean;
@@ -1414,6 +1536,7 @@ function SortableFolderItem({
   onEdit: () => void;
   onDelete: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  dropHighlight?: boolean;
 }) {
   const { attributes, listeners, setNodeRef: setSortRef, transform, transition, isDragging } = useSortable({
     id: folder.id,
@@ -1425,6 +1548,7 @@ function SortableFolderItem({
   });
 
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const drop = isOver || dropHighlight;
 
   return (
     <div
@@ -1433,7 +1557,7 @@ function SortableFolderItem({
       {...attributes}
       onContextMenu={onContextMenu}
       className={`group relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors w-full select-none ${
-        isOver ? 'bg-primary/10 ring-1 ring-primary/30' :
+        drop ? SIDEBAR_DROP_ROW :
         active ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent text-foreground/80'
       }`}
       onClick={() => { if (!isDragging) onClick(); }}
@@ -1444,11 +1568,11 @@ function SortableFolderItem({
         className={`shrink-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <GripVertical className="h-3 w-3 text-muted-foreground/30" />
+        <GripVertical className={`h-3 w-3 ${drop ? 'text-primary/40' : 'text-muted-foreground/30'}`} />
       </span>
       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: folder.color }} />
       <span className="flex-1 truncate">{folder.name}</span>
-      <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
+      <span className={`text-xs tabular-nums ${drop ? 'text-primary/80' : 'text-muted-foreground'}`}>{count}</span>
       <span className="hidden group-hover:flex items-center gap-0.5">
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="rounded p-0.5 hover:bg-muted">
           <Pencil className="h-3 w-3 text-muted-foreground" />
@@ -1463,7 +1587,7 @@ function SortableFolderItem({
 
 // ── DraggableTag ──────────────────────────────────────────────────────────────
 function DraggableTag({
-  tag, count, selected, onToggle, onEdit, onDelete, onContextMenu,
+  tag, count, selected, onToggle, onEdit, onDelete, onContextMenu, dropHighlight,
 }: {
   tag: ProjectTag;
   count: number;
@@ -1472,6 +1596,7 @@ function DraggableTag({
   onEdit: () => void;
   onDelete: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  dropHighlight?: boolean;
 }) {
   const { attributes, listeners, setNodeRef: setSortRef, transform, transition, isDragging } = useSortable({
     id: tag.id,
@@ -1483,6 +1608,7 @@ function DraggableTag({
   });
 
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const drop = isOver || dropHighlight;
 
   return (
     <div
@@ -1491,7 +1617,7 @@ function DraggableTag({
       {...attributes}
       onContextMenu={onContextMenu}
       className={`group relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors select-none ${
-        isOver ? 'bg-primary/10 ring-1 ring-primary/30' :
+        drop ? SIDEBAR_DROP_ROW :
         selected ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent'
       }`}
       onClick={() => { if (!isDragging) onToggle(); }}
@@ -1503,11 +1629,11 @@ function DraggableTag({
         className={`shrink-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <GripVertical className="h-3 w-3 text-muted-foreground/30" />
+        <GripVertical className={`h-3 w-3 ${drop ? 'text-primary/40' : 'text-muted-foreground/30'}`} />
       </span>
       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: tag.color }} />
       <span className="flex-1 truncate">{tag.name}</span>
-      {isOver
+      {drop
         ? <span className="text-[10px] text-primary font-medium shrink-0">+tag</span>
         : count > 0 && <span className="text-xs tabular-nums text-muted-foreground shrink-0">{count}</span>
       }
@@ -1848,11 +1974,23 @@ function EmptyState({ onNew, hasFilters }: { onNew: () => void; hasFilters: bool
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({
+  title,
+  children,
+  onClose,
+  size = 'sm',
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+  /** `md` fits folder/tag color rows without horizontal scroll */
+  size?: 'sm' | 'md';
+}) {
+  const maxW = size === 'md' ? 'max-w-md' : 'max-w-sm';
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/25" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-[51] -translate-x-1/2 -translate-y-1/2 w-full max-w-sm rounded-xl border bg-card p-5 shadow-xl">
+      <div className={`fixed left-1/2 top-1/2 z-[51] -translate-x-1/2 -translate-y-1/2 w-full ${maxW} rounded-xl border bg-card p-5 shadow-xl`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-base">{title}</h2>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
@@ -1871,15 +2009,15 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (c: string)
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">Color</p>
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-nowrap items-center gap-2">
         {COLORS.map((c) => (
           <button key={c} type="button" onClick={() => onChange(c)}
-            className={`h-6 w-6 rounded-full transition-transform hover:scale-110 ${value === c ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''}`}
+            className={`h-6 w-6 shrink-0 rounded-full transition-transform hover:scale-110 ${value === c ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''}`}
             style={{ background: c }}
           />
         ))}
         <label
-          className={`relative h-6 w-6 rounded-full cursor-pointer overflow-hidden transition-transform hover:scale-110 flex items-center justify-center border-2 border-dashed border-muted-foreground/40 hover:border-primary/60 ${isCustom ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''}`}
+          className={`relative flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-muted-foreground/40 transition-transform hover:scale-110 hover:border-primary/60 ${isCustom ? 'ring-2 ring-offset-2 ring-primary scale-110' : ''}`}
           style={isCustom ? { background: value } : {}}
           title="Custom color"
         >

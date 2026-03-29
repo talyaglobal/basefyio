@@ -1,10 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import {
+  KB_AI_SEND_EVENT,
+  buildSqlRunErrorPrompt,
+  dispatchKbAiMessage,
+  type KbAiSendDetail,
+} from '@/lib/kb-ai-events';
 import { useActiveTeam } from '@/app/dashboard/layout';
+import { cn } from '@/lib/utils';
 import {
   Bot,
   CheckCircle2,
@@ -65,7 +72,7 @@ function genId() {
 
 function getSessionTitle(session: ChatSession): string {
   const first = session.messages.find((m) => m.role === 'user');
-  if (!first) return 'Yeni Sohbet';
+  if (!first) return 'New chat';
   return first.content.length > 22 ? first.content.slice(0, 22) + '…' : first.content;
 }
 
@@ -130,36 +137,43 @@ const MODES: {
     id: 'ask',
     label: 'Ask',
     icon: MessageCircle,
-    description: 'Hızlı soru-cevap',
-    placeholder: 'Bir şey sor…',
+    description: 'Quick Q&A',
+    placeholder: 'Ask anything…',
   },
   {
     id: 'plan',
     label: 'Plan',
     icon: ClipboardList,
-    description: 'Adım adım planlama',
-    placeholder: 'Neyi planlamak istiyorsun?',
+    description: 'Step-by-step planning',
+    placeholder: 'What do you want to plan?',
   },
   {
     id: 'agent',
     label: 'Agent',
     icon: Zap,
-    description: 'SQL\'i otomatik çalıştırır',
-    placeholder: 'Neyi analiz etmemi istersin?',
+    description: 'Runs SQL automatically',
+    placeholder: 'What should I analyze?',
   },
 ];
 
 function getSuggestions(mode: AiMode, page?: string, hasTables?: boolean): string[] {
+  void page;
   if (mode === 'ask') {
-    if (hasTables) return ['Tablolar neler?', 'RLS nasıl kurarım?', 'Indeks ne zaman gerekir?'];
-    return ['KolayBase neler yapabilir?', 'PostgreSQL\'e nasıl bağlanırım?'];
+    if (hasTables) {
+      return ['What tables exist?', 'How do I set up RLS?', 'When do I need indexes?'];
+    }
+    return ['What can KolayBase do?', 'How do I connect to PostgreSQL?'];
   }
   if (mode === 'plan') {
-    if (hasTables) return ['Şema için migration planı oluştur', 'Soft delete stratejisi planla'];
-    return ['Yeni proje şeması planla', 'Auth sistemi nasıl tasarlanır?'];
+    if (hasTables) {
+      return ['Draft a migration plan for my schema', 'Plan a soft-delete strategy'];
+    }
+    return ['Plan a new project schema', 'How should I design auth?'];
   }
-  if (hasTables) return ['Tüm tabloları analiz et ve rapor sun', 'İndeks eksiklerini bul'];
-  return ['Projemi incele ve önerileri listele', 'Veritabanı sağlık kontrolü yap'];
+  if (hasTables) {
+    return ['Analyze all tables and summarize', 'Find missing indexes'];
+  }
+  return ['Review my project and list recommendations', 'Run a database health check'];
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -240,6 +254,15 @@ export function AiAssistant() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
+  /** Only the latest user turn may use `sticky`; otherwise multiple stickies stack at top-0 and overlap. */
+  const latestUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
 
   const setMessages = useCallback((updater: (prev: Message[]) => Message[]) => {
     setSessions((prev) =>
@@ -310,6 +333,7 @@ export function AiAssistant() {
         : pathname.includes('/auth') ? 'auth'
         : pathname.includes('/storage') ? 'storage'
         : pathname.includes('/connect') ? 'connect'
+        : pathname.includes('/logs') ? 'logs'
         : 'project-detail';
       setContext((p) => (p.projectId === projectId && p.page === subPage) ? p : { projectId, page: subPage });
       Promise.all([
@@ -366,7 +390,7 @@ export function AiAssistant() {
     ctx: AiContext,
     history: { role: 'user' | 'assistant'; content: string }[],
   ): Promise<{ content: string; agentSteps?: AgentStep[] }> => {
-    setAgentStatus('🔍 Sorgu oluşturuluyor…');
+    setAgentStatus('🔍 Generating queries…');
     const { reply: planReply } = await api.ai.chat(userMessage, history, { ...ctx, mode: 'agent' });
     const sqlBlocks = extractSQLBlocks(planReply).slice(0, 5);
     if (sqlBlocks.length === 0 || !ctx.projectId) return { content: planReply };
@@ -375,20 +399,20 @@ export function AiAssistant() {
     const summaries: string[] = [];
     for (let i = 0; i < sqlBlocks.length; i++) {
       const sql = sqlBlocks[i];
-      setAgentStatus(`⚡ SQL çalıştırılıyor… (${i + 1}/${sqlBlocks.length})`);
+      setAgentStatus(`⚡ Running SQL… (${i + 1}/${sqlBlocks.length})`);
       try {
         const result = await api.sql.execute(ctx.projectId, sql);
         const rows = result.rowCount ?? result.rows?.length ?? 0;
         const preview = JSON.stringify(result.rows?.slice(0, 20) ?? []);
         agentSteps.push({ sql, rows, preview });
-        summaries.push(`--- Sorgu ${i + 1} ---\n${sql}\n\nSonuç (${rows} satır):\n${preview}`);
+        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nResult (${rows} rows):\n${preview}`);
       } catch (err: any) {
         agentSteps.push({ sql, rows: 0, error: err.message });
-        summaries.push(`--- Sorgu ${i + 1} ---\n${sql}\n\nHata: ${err.message}`);
+        summaries.push(`--- Query ${i + 1} ---\n${sql}\n\nError: ${err.message}`);
       }
     }
-    setAgentStatus('📊 Sonuçlar analiz ediliyor…');
-    const feedbackMsg = `Aşağıdaki SQL sorgularını çalıştırdım. Kullanıcının sorusunu ("${userMessage}") bu sonuçlara dayanarak doğrudan, rakamsal ve analitik biçimde yanıtla. Tekrar SQL üretme.\n\n${summaries.join('\n\n')}`;
+    setAgentStatus('📊 Analyzing results…');
+    const feedbackMsg = `I executed the SQL below. Answer the user's question ("${userMessage}") directly from these results, with numbers and analysis where helpful. Do not generate new SQL.\n\n${summaries.join('\n\n')}`;
     const { reply: final } = await api.ai.chat(feedbackMsg,
       [...history.slice(-6), { role: 'user', content: userMessage }, { role: 'assistant', content: planReply }],
       { ...ctx, mode: 'agent' });
@@ -399,12 +423,13 @@ export function AiAssistant() {
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
+    const historyBefore = messagesRef.current.slice(-12).map((m) => ({ role: m.role, content: m.content }));
     setMessages((p) => [...p, { id: genId(), role: 'user', content: trimmed, mode }]);
     setInput('');
     setLoading(true);
     try {
       const ctx = await loadProjectContext(trimmed);
-      const history = messages.slice(-12).map((m) => ({ role: m.role, content: m.content }));
+      const history = historyBefore;
       if (mode === 'agent') {
         const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
@@ -413,22 +438,73 @@ export function AiAssistant() {
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content: reply, mode }]);
       }
     } catch (err: any) {
-      toast.error('AI hatası: ' + err.message);
+      toast.error('AI error: ' + err.message);
     } finally { setLoading(false); setAgentStatus(null); }
-  }, [loading, messages, loadProjectContext, mode, runAgentLoop, setMessages]);
+  }, [loading, loadProjectContext, mode, runAgentLoop, setMessages]);
+
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+
+  useEffect(() => {
+    const onKbAiSend = (e: Event) => {
+      const detail = (e as CustomEvent<KbAiSendDetail>).detail;
+      const msg = detail?.message?.trim();
+      if (!msg) return;
+      setOpen(true);
+      localStorage.setItem('kb_ai_open', 'true');
+      const m = detail.mode;
+      if (m === 'ask' || m === 'plan' || m === 'agent') {
+        setMode(m);
+        localStorage.setItem('kb_ai_mode', m);
+      }
+      const run = () => {
+        void sendMessageRef.current(msg);
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => setTimeout(run, 0));
+      } else {
+        setTimeout(run, 0);
+      }
+    };
+    window.addEventListener(KB_AI_SEND_EVENT, onKbAiSend as EventListener);
+    return () => window.removeEventListener(KB_AI_SEND_EVENT, onKbAiSend as EventListener);
+  }, []);
 
   const runSQL = useCallback(async (sql: string) => {
-    if (!context.projectId) { toast.error('SQL çalıştırmak için bir proje açın'); return; }
+    if (!context.projectId) {
+      toast.error('Open a project to run SQL');
+      return;
+    }
     setRunningSQL(sql);
     try {
       const result = await api.sql.execute(context.projectId, sql);
       const rows = result.rowCount ?? 0;
-      toast.success(`Sorgu tamamlandı — ${rows} satır`);
+      toast.success(`Query finished — ${rows} row${rows === 1 ? '' : 's'}`);
       const preview = result.rows?.length
         ? `\`\`\`\n${JSON.stringify(result.rows.slice(0, 5), null, 2)}\n\`\`\``
-        : 'Sorgu başarıyla çalıştırıldı.';
-      setMessages((p) => [...p, { id: genId(), role: 'assistant', content: `**Sonuç** (${rows} satır):\n${preview}`, mode }]);
-    } catch (err: any) { toast.error('SQL hatası: ' + err.message); }
+        : 'Query ran successfully.';
+      setMessages((p) => [
+        ...p,
+        { id: genId(), role: 'assistant', content: `**Result** (${rows} row${rows === 1 ? '' : 's'}):\n${preview}`, mode },
+      ]);
+    } catch (err: any) {
+      const errMsg = (err?.message ?? String(err)).trim();
+      const summary = errMsg.toLowerCase().startsWith('sql error')
+        ? errMsg
+        : `SQL error: ${errMsg}`;
+      toast.error(summary, {
+        duration: 20_000,
+        action: {
+          label: 'Send to chat',
+          onClick: () => {
+            dispatchKbAiMessage({
+              message: buildSqlRunErrorPrompt(sql, errMsg),
+              mode: 'ask',
+            });
+          },
+        },
+      });
+    }
     finally { setRunningSQL(null); }
   }, [context.projectId, mode, setMessages]);
 
@@ -444,7 +520,7 @@ export function AiAssistant() {
   if (!open) {
     return (
       <div className="w-10 shrink-0 border-l bg-card flex flex-col items-center py-5">
-        <button onClick={toggle} title="AI Asistanı Aç"
+        <button onClick={toggle} title="Open AI assistant"
           className="flex flex-col items-center gap-2 rounded-lg p-2 hover:bg-accent transition-colors group">
           <Sparkles className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
           <span className="text-[9px] font-semibold tracking-widest text-muted-foreground uppercase"
@@ -461,7 +537,7 @@ export function AiAssistant() {
       <div
         onMouseDown={onDragStart}
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40 transition-colors group relative"
-        title="Genişliği ayarla"
+        title="Drag to resize width"
       >
         <div className="absolute inset-y-0 left-0 w-4 -translate-x-1.5" />
       </div>
@@ -483,11 +559,11 @@ export function AiAssistant() {
             </p>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={newChat} title="Yeni sohbet"
+            <button onClick={newChat} title="New chat"
               className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <button onClick={toggle} title="Kapat"
+            <button onClick={toggle} title="Collapse panel"
               className="rounded p-1 hover:bg-accent transition-colors text-muted-foreground">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -527,7 +603,7 @@ export function AiAssistant() {
               </button>
             );
           })}
-          <button onClick={newChat} title="Yeni sohbet"
+          <button onClick={newChat} title="New chat"
             className="ml-0.5 shrink-0 rounded p-1 hover:bg-background/60 transition-colors text-muted-foreground">
             <Plus className="h-3 w-3" />
           </button>
@@ -541,7 +617,7 @@ export function AiAssistant() {
                 <currentMode.icon className="h-5 w-5 text-white" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold">{currentMode.label} modu</p>
+                <p className="text-sm font-semibold">{currentMode.label} mode</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {hasProject
                     ? `"${context.projectName}" · ${currentMode.description}`
@@ -551,8 +627,8 @@ export function AiAssistant() {
               {/* Project hint */}
               {context.page === 'projects' && !context.projectId && (context.allProjects?.length ?? 0) > 0 && (
                 <div className="w-full rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
-                  💡 Proje adını yazarak analiz ettirebilirsin —
-                  örn: <em>"{context.allProjects![0].name}"</em>
+                  💡 Mention a project by name to load its context — e.g.{' '}
+                  <em>&quot;{context.allProjects![0].name}&quot;</em>
                 </div>
               )}
               <div className="w-full space-y-1.5">
@@ -566,9 +642,14 @@ export function AiAssistant() {
             </div>
           ) : (
             messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg}
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                stickUserBubble={msg.role === 'user' && msg.id === latestUserMessageId}
                 canRunSQL={hasProject && msg.mode !== 'agent'}
-                runningSQL={runningSQL} onRunSQL={runSQL} />
+                runningSQL={runningSQL}
+                onRunSQL={runSQL}
+              />
             ))
           )}
 
@@ -581,7 +662,7 @@ export function AiAssistant() {
               <div className="rounded-2xl rounded-tl-sm bg-muted px-3 py-2 flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
                 <span className="text-xs text-muted-foreground">
-                  {agentStatus ?? (contextLoading ? 'Proje verileri alınıyor…' : 'Yanıt hazırlanıyor…')}
+                  {agentStatus ?? (contextLoading ? 'Loading project data…' : 'Preparing reply…')}
                 </span>
               </div>
             </div>
@@ -649,7 +730,7 @@ export function AiAssistant() {
               {/* Right: clear + send */}
               <div className="flex items-center gap-1">
                 {messages.length > 0 && (
-                  <button onClick={() => setMessages(() => [])} title="Sohbeti temizle"
+                  <button onClick={() => setMessages(() => [])} title="Clear chat"
                     className="rounded-md p-1.5 hover:bg-accent transition-colors text-muted-foreground">
                     <RotateCcw className="h-3.5 w-3.5" />
                   </button>
@@ -668,7 +749,7 @@ export function AiAssistant() {
           {/* Agent hint */}
           {mode === 'agent' && hasProject && (
             <p className="text-[10px] text-center text-amber-600/70 dark:text-amber-400/60">
-              ⚡ Agent modu SQL sorgularını otomatik çalıştırır
+              ⚡ Agent mode runs generated SQL automatically against this project
             </p>
           )}
         </div>
@@ -686,8 +767,8 @@ function AgentTrace({ steps }: { steps: AgentStep[] }) {
         className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent transition-colors">
         <Zap className="h-3 w-3 text-amber-500 shrink-0" />
         <span className="font-medium flex-1 text-left text-[11px]">
-          Agent çalıştı — {steps.length} sorgu
-          {steps.some((s) => s.error) && <span className="ml-1 text-red-500">(hata var)</span>}
+          Agent ran — {steps.length} {steps.length === 1 ? 'query' : 'queries'}
+          {steps.some((s) => s.error) && <span className="ml-1 text-red-500">(errors)</span>}
         </span>
         {expanded
           ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
@@ -702,7 +783,7 @@ function AgentTrace({ steps }: { steps: AgentStep[] }) {
                   ? <XCircle className="h-3 w-3 text-red-500 shrink-0" />
                   : <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
                 <span className={`text-[11px] font-medium ${step.error ? 'text-red-600' : 'text-green-700 dark:text-green-400'}`}>
-                  {step.error ? 'Hata' : `${step.rows} satır döndü`}
+                  {step.error ? 'Error' : `${step.rows} row${step.rows === 1 ? '' : 's'} returned`}
                 </span>
               </div>
               <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-words bg-muted rounded p-1.5 leading-relaxed">
@@ -730,9 +811,15 @@ const MODE_BADGE: Record<AiMode, string> = {
 };
 
 function MessageBubble({
-  message, canRunSQL, runningSQL, onRunSQL,
+  message,
+  stickUserBubble,
+  canRunSQL,
+  runningSQL,
+  onRunSQL,
 }: {
   message: Message;
+  /** Only true for the most recent user message — avoids stacked stickies overlapping. */
+  stickUserBubble?: boolean;
   canRunSQL: boolean;
   runningSQL: string | null;
   onRunSQL: (sql: string) => void;
@@ -740,10 +827,15 @@ function MessageBubble({
   const isUser = message.role === 'user';
   const parts = parseContent(message.content);
 
-  // ── User message: sticky full-width block (VS Code style) ───────────────
+  // ── User message: optional sticky for latest prompt only (scroll long replies) ──
   if (isUser) {
     return (
-      <div className="sticky top-0 z-10 w-full rounded-xl bg-card border border-border/60 px-3.5 py-2.5 shadow-sm">
+      <div
+        className={cn(
+          'w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm',
+          stickUserBubble && 'sticky top-0 z-10',
+        )}
+      >
         <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words">
           {message.content}
         </p>
@@ -792,15 +884,19 @@ function MessageBubble({
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => { navigator.clipboard.writeText(part.value); toast.success('Kopyalandı'); }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(part.value);
+                        toast.success('Copied');
+                      }}
                       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
-                      <Copy className="h-3 w-3" /><span className="text-[10px]">Kopyala</span>
+                      <Copy className="h-3 w-3" />
+                      <span className="text-[10px]">Copy</span>
                     </button>
                     {isSql && canRunSQL && (
                       <button onClick={() => onRunSQL(part.value)} disabled={isRunning}
                         className="flex items-center gap-1 rounded px-2 py-0.5 bg-primary/80 hover:bg-primary text-white transition-colors disabled:opacity-60">
                         {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                        <span className="text-[10px]">{isRunning ? 'Çalışıyor…' : 'Çalıştır'}</span>
+                        <span className="text-[10px]">{isRunning ? 'Running…' : 'Run'}</span>
                       </button>
                     )}
                   </div>

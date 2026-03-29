@@ -1,374 +1,607 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { parseJwt, getAccessToken } from '@/lib/auth';
 import { useDashboard } from '@/app/dashboard/layout';
+import type { UserProfile } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PasswordInput } from '@/components/ui/password-input';
+import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft,
-  KeyRound,
-  Mail,
-  Shield,
+  Bell,
   Camera,
+  Check,
+  Eye,
+  EyeOff,
+  Github,
+  KeyRound,
+  Link2,
   Loader2,
-  CheckCircle2,
-  User,
   Save,
+  Unlink,
+  User,
+  X,
 } from 'lucide-react';
-import type { UserProfile } from '@/lib/types';
 
 export default function AccountPage() {
   const router = useRouter();
-  const { refreshProfile } = useDashboard();
-
-  const token = getAccessToken();
-  const jwtUser = token ? parseJwt(token) : null;
-
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [avatarUploading, setAvatarUploading] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const { refreshUser, refreshProfile } = useDashboard();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Name fields
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [nameSaved, setNameSaved] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [pendingAvatarDataUrl, setPendingAvatarDataUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Password
+  const [githubLinking, setGithubLinking] = useState(false);
+  const [githubInput, setGithubInput] = useState('');
+  const [githubChecking, setGithubChecking] = useState(false);
+  const [githubUnlinking, setGithubUnlinking] = useState(false);
+
+  const [notifySignIn, setNotifySignIn] = useState(true);
+  const [notifyTeamInvite, setNotifyTeamInvite] = useState(true);
+  const [savingNotifs, setSavingNotifs] = useState(false);
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [passwordChanged, setPasswordChanged] = useState(false);
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    api.auth.getProfile().then((p) => {
-      setProfile(p);
-      setFirstName(p.firstName ?? '');
-      setLastName(p.lastName ?? '');
-    }).catch(() => null);
+    api.auth
+      .getProfile()
+      .then((p) => {
+        setProfile(p);
+        setUsername(p.username);
+        setEmail(p.email);
+        setFirstName(p.firstName ?? '');
+        setLastName(p.lastName ?? '');
+        setAvatarPreview(p.avatarUrl || null);
+        setPendingAvatarDataUrl(null);
+        setNotifySignIn(p.notifySignIn);
+        setNotifyTeamInvite(p.notifyTeamInvite);
+      })
+      .catch(() => toast.error('Failed to load account'))
+      .finally(() => setLoading(false));
   }, []);
 
-  const handleAvatarClick = () => fileInputRef.current?.click();
-
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowed.includes(file.type)) {
-      toast.error('Only JPEG, PNG, WebP or GIF images are allowed');
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be smaller than 5 MB');
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image must be smaller than 2MB');
       return;
     }
-
     const reader = new FileReader();
-    reader.onload = (ev) => setAvatarPreview(ev.target?.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAvatarPreview(dataUrl);
+      setPendingAvatarDataUrl(dataUrl);
+    };
     reader.readAsDataURL(file);
+  };
 
-    setAvatarUploading(true);
-    try {
-      const result = await api.auth.uploadAvatar(file);
-      setProfile((prev) => prev ? { ...prev, avatarUrl: result.avatarUrl } : prev);
-      setAvatarPreview(null);
-      refreshProfile(); // sync navbar
-      toast.success('Profile photo updated');
-    } catch (err: any) {
-      setAvatarPreview(null);
-      toast.error(err.message || 'Failed to upload photo');
-    } finally {
-      setAvatarUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }, [refreshProfile]);
+  const handleRemoveAvatar = () => {
+    setAvatarPreview(null);
+    setPendingAvatarDataUrl('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
-  async function handleSaveName(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingName(true);
-    setNameSaved(false);
+  const hasProfileChanges =
+    profile &&
+    (username !== profile.username ||
+      email !== profile.email ||
+      firstName.trim() !== (profile.firstName ?? '') ||
+      lastName.trim() !== (profile.lastName ?? '') ||
+      pendingAvatarDataUrl !== null);
+
+  const handleSaveProfile = async () => {
+    if (!hasProfileChanges) return;
+    setSaving(true);
     try {
-      const updated = await api.auth.updateProfile({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-      });
+      const updates: Record<string, string> = {};
+      if (username !== profile!.username) updates.username = username;
+      if (email !== profile!.email) updates.email = email;
+      const fn = firstName.trim();
+      const ln = lastName.trim();
+      if (fn !== (profile!.firstName ?? '')) updates.firstName = fn;
+      if (ln !== (profile!.lastName ?? '')) updates.lastName = ln;
+      if (pendingAvatarDataUrl !== null) updates.avatarUrl = pendingAvatarDataUrl;
+
+      const updated = await api.auth.updateProfile(updates);
       setProfile(updated);
+      setAvatarPreview(updated.avatarUrl || null);
+      setPendingAvatarDataUrl(null);
       setFirstName(updated.firstName ?? '');
       setLastName(updated.lastName ?? '');
-      refreshProfile(); // sync navbar
-      setNameSaved(true);
-      toast.success('Name updated');
-      setTimeout(() => setNameSaved(false), 3000);
+      refreshUser();
+      refreshProfile();
+      toast.success('Account updated');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to update name');
+      toast.error(err.message || 'Failed to update account');
     } finally {
-      setSavingName(false);
+      setSaving(false);
     }
-  }
+  };
 
-  async function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault();
+  const handleLinkGitHub = async () => {
+    const gh = githubInput.trim();
+    if (!gh) {
+      toast.error('Enter a GitHub username');
+      return;
+    }
+    setGithubChecking(true);
+    try {
+      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(gh)}`);
+      if (!res.ok) {
+        toast.error(`GitHub user "${gh}" not found`);
+        return;
+      }
+      const updated = await api.auth.updateProfile({ githubUsername: gh });
+      setProfile(updated);
+      setGithubLinking(false);
+      setGithubInput('');
+      toast.success(`GitHub account "${gh}" linked`);
+      refreshUser();
+      refreshProfile();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to link GitHub');
+    } finally {
+      setGithubChecking(false);
+    }
+  };
 
-    if (newPassword !== confirmPassword) {
-      toast.error('New passwords do not match');
+  const handleUnlinkGitHub = async () => {
+    setGithubUnlinking(true);
+    try {
+      const updated = await api.auth.updateProfile({ githubUsername: '' });
+      setProfile(updated);
+      toast.success('GitHub account unlinked');
+      refreshUser();
+      refreshProfile();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to unlink GitHub');
+    } finally {
+      setGithubUnlinking(false);
+    }
+  };
+
+  const hasNotifChanges =
+    profile &&
+    (notifySignIn !== profile.notifySignIn ||
+      notifyTeamInvite !== profile.notifyTeamInvite);
+
+  const handleSaveNotifications = async () => {
+    if (!hasNotifChanges) return;
+    setSavingNotifs(true);
+    try {
+      const updates: { notifySignIn?: boolean; notifyTeamInvite?: boolean } = {};
+      if (notifySignIn !== profile!.notifySignIn) updates.notifySignIn = notifySignIn;
+      if (notifyTeamInvite !== profile!.notifyTeamInvite) updates.notifyTeamInvite = notifyTeamInvite;
+      const updated = await api.auth.updateProfile(updates);
+      setProfile(updated);
+      toast.success('Notification preferences saved');
+      refreshProfile();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setSavingNotifs(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword) {
+      toast.error('Enter your current password');
       return;
     }
     if (newPassword.length < 6) {
       toast.error('New password must be at least 6 characters');
       return;
     }
-    if (currentPassword === newPassword) {
-      toast.error('New password must be different from current password');
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
       return;
     }
-
-    setSaving(true);
-    setPasswordChanged(false);
+    setChangingPassword(true);
     try {
       await api.auth.changePassword(currentPassword, newPassword);
-      setPasswordChanged(true);
+      toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      toast.success('Password changed successfully');
-      setTimeout(() => setPasswordChanged(false), 3000);
     } catch (err: any) {
       toast.error(err.message || 'Failed to change password');
     } finally {
-      setSaving(false);
+      setChangingPassword(false);
     }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const displayName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ')
-    || jwtUser?.preferred_username
-    || jwtUser?.email
-    || '';
-  const email = profile?.email || jwtUser?.email || '';
-  const currentAvatar = avatarPreview || profile?.avatarUrl;
-  const initials = profile?.firstName && profile?.lastName
-    ? `${profile.firstName[0]}${profile.lastName[0]}`.toUpperCase()
-    : displayName.slice(0, 2).toUpperCase() || email.slice(0, 2).toUpperCase();
+  if (!profile) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        Account not found
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-2 text-muted-foreground"
-        onClick={() => router.push('/dashboard')}
-      >
-        <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-        Back to projects
-      </Button>
-
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Account Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your profile and security settings
-        </p>
+    <div className="mx-auto max-w-2xl space-y-8">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold">Account</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your account settings and preferences
+          </p>
+        </div>
       </div>
 
-      {/* Avatar & Profile */}
-      <div className="rounded-lg border p-6 space-y-6">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <User className="h-4 w-4 text-muted-foreground" />
-          Profile
-        </h2>
+      <div className="rounded-lg border bg-card p-6 space-y-6">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <User className="h-4 w-4" />
+          Account information
+        </div>
 
-        {/* Avatar row */}
         <div className="flex items-center gap-5">
-          <div className="relative group shrink-0">
+          <div className="relative">
+            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary/10 ring-2 ring-border">
+              {avatarPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-8 w-8 text-primary" />
+              )}
+            </div>
             <button
               type="button"
-              onClick={handleAvatarClick}
-              disabled={avatarUploading}
-              className="relative h-20 w-20 rounded-full overflow-hidden ring-2 ring-border focus:outline-none focus:ring-2 focus:ring-ring"
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
             >
-              {currentAvatar ? (
-                <img src={currentAvatar} alt={displayName} className="h-full w-full object-cover" />
-              ) : (
-                <div className="h-full w-full bg-muted flex items-center justify-center text-xl font-semibold text-muted-foreground">
-                  {initials}
-                </div>
-              )}
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                {avatarUploading
-                  ? <Loader2 className="h-5 w-5 text-white animate-spin" />
-                  : <Camera className="h-5 w-5 text-white" />}
-              </div>
+              <Camera className="h-3.5 w-3.5" />
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-              className="hidden"
-              onChange={handleFileChange}
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Profile photo</p>
+            <p className="text-xs text-muted-foreground">JPG, PNG or GIF. Max 2MB.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => fileInputRef.current?.click()}>
+                Upload
+              </Button>
+              {avatarPreview && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-destructive hover:text-destructive"
+                  onClick={handleRemoveAvatar}
+                >
+                  <X className="mr-1 h-3 w-3" />
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} />
+        </div>
+
+        <Separator />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="account-username">Username</Label>
+            <Input
+              id="account-username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="account-email">Email</Label>
+            <Input
+              id="account-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+            />
+          </div>
+        </div>
 
-          <div className="space-y-1.5">
-            <p className="text-sm font-medium">{displayName || '—'}</p>
-            <p className="text-xs text-muted-foreground">{email}</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="account-first">First name</Label>
+            <Input
+              id="account-first"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="First name"
+              autoComplete="given-name"
+              maxLength={100}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="account-last">Last name</Label>
+            <Input
+              id="account-last"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="Last name"
+              autoComplete="family-name"
+              maxLength={100}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Badge variant="secondary" className="text-xs">{profile.role}</Badge>
+          <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving} size="sm">
+            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+            Save changes
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Github className="h-4 w-4" />
+          GitHub account
+        </div>
+
+        {profile.githubUsername ? (
+          <div className="flex items-center justify-between rounded-md border bg-muted/30 p-4">
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://github.com/${profile.githubUsername}.png?size=80`}
+                alt={profile.githubUsername}
+                className="h-10 w-10 rounded-full ring-2 ring-border"
+              />
+              <div>
+                <a
+                  href={`https://github.com/${profile.githubUsername}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium hover:underline flex items-center gap-1"
+                >
+                  {profile.githubUsername}
+                  <Github className="h-3 w-3" />
+                </a>
+                <p className="text-xs text-muted-foreground">Connected</p>
+              </div>
+            </div>
             <Button
-              type="button"
               variant="outline"
               size="sm"
-              className="h-7 text-xs"
-              onClick={handleAvatarClick}
-              disabled={avatarUploading}
+              className="text-destructive hover:text-destructive"
+              onClick={handleUnlinkGitHub}
+              disabled={githubUnlinking}
             >
-              {avatarUploading ? (
-                <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" />Uploading...</>
-              ) : (
-                <><Camera className="mr-1.5 h-3 w-3" />Change photo</>
-              )}
+              {githubUnlinking ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Unlink className="mr-1.5 h-3.5 w-3.5" />}
+              Unlink
             </Button>
-            <p className="text-xs text-muted-foreground">JPEG, PNG, WebP or GIF · max 5 MB</p>
           </div>
-        </div>
-
-        {/* Name form */}
-        <form onSubmit={handleSaveName} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="firstName">First Name</Label>
-              <Input
-                id="firstName"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Enter first name"
-                maxLength={100}
-                autoComplete="given-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lastName">Last Name</Label>
-              <Input
-                id="lastName"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Enter last name"
-                maxLength={100}
-                autoComplete="family-name"
-              />
+        ) : githubLinking ? (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Enter your GitHub username to link your account.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  github.com/
+                </span>
+                <Input
+                  value={githubInput}
+                  onChange={(e) => setGithubInput(e.target.value)}
+                  placeholder="username"
+                  className="pl-[96px]"
+                  onKeyDown={(e) => e.key === 'Enter' && handleLinkGitHub()}
+                />
+              </div>
+              <Button onClick={handleLinkGitHub} disabled={githubChecking || !githubInput.trim()} size="sm">
+                {githubChecking ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}
+                Link
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setGithubLinking(false); setGithubInput(''); }}>
+                Cancel
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button type="submit" size="sm" disabled={savingName}>
-              {savingName ? (
-                <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Saving...</>
-              ) : (
-                <><Save className="mr-2 h-3.5 w-3.5" />Save Name</>
-              )}
+        ) : (
+          <div className="flex items-center justify-between rounded-md border border-dashed p-4">
+            <div>
+              <p className="text-sm font-medium">No GitHub account linked</p>
+              <p className="text-xs text-muted-foreground">Link your GitHub to show on your profile</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setGithubLinking(true)}>
+              <Link2 className="mr-1.5 h-3.5 w-3.5" />
+              Link GitHub
             </Button>
-            {nameSaved && (
-              <span className="flex items-center gap-1.5 text-sm text-green-600">
-                <CheckCircle2 className="h-4 w-4" />
-                Saved
-              </span>
-            )}
           </div>
-        </form>
-
-        {/* Email row */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground uppercase tracking-wide">Email</Label>
-          <div className="flex items-center justify-between rounded-md bg-muted/50 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <p className="text-sm font-medium">{email || '—'}</p>
-            </div>
-            <Badge variant="secondary">Verified</Badge>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Change password */}
-      <div className="rounded-lg border p-6 space-y-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <KeyRound className="h-4 w-4 text-muted-foreground" />
-          Change Password
-        </h2>
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="current">Current Password</Label>
-            <PasswordInput
-              id="current"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter current password"
-              required
-              autoComplete="current-password"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new">New Password</Label>
-            <PasswordInput
-              id="new"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 6 characters"
-              required
-              minLength={6}
-              autoComplete="new-password"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">Confirm New Password</Label>
-            <PasswordInput
-              id="confirm"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter new password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-            />
-            {confirmPassword && newPassword !== confirmPassword && (
-              <p className="text-xs text-destructive">Passwords do not match</p>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              type="submit"
-              disabled={saving || !currentPassword || !newPassword || !confirmPassword || newPassword !== confirmPassword}
-            >
-              {saving ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Changing...</>
-              ) : (
-                'Change Password'
-              )}
-            </Button>
-            {passwordChanged && (
-              <span className="flex items-center gap-1.5 text-sm text-green-600">
-                <CheckCircle2 className="h-4 w-4" />
-                Password updated
-              </span>
-            )}
-          </div>
-        </form>
-      </div>
-
-      {/* Security info */}
-      <div className="rounded-lg border border-muted bg-muted/20 p-6 space-y-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-          <Shield className="h-4 w-4" />
-          Security
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Your account is secured with Keycloak authentication.
-          You will receive an email notification every time someone signs in to your account.
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Bell className="h-4 w-4" />
+          Email notifications
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Choose which email notifications you want to receive.
         </p>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-md border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Sign-in alerts</p>
+              <p className="text-xs text-muted-foreground">
+                Get notified when someone signs in to your account
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotifySignIn(!notifySignIn)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                notifySignIn ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  notifySignIn ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                } mt-[2px]`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Team invitations</p>
+              <p className="text-xs text-muted-foreground">
+                Get notified when you are invited to a team
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotifyTeamInvite(!notifyTeamInvite)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                notifyTeamInvite ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  notifyTeamInvite ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                } mt-[2px]`}
+              />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
+            {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+            Save preferences
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <KeyRound className="h-4 w-4" />
+          Change password
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Enter your current password first, then set a new password.
+        </p>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="account-current-pw">Current password</Label>
+            <div className="relative">
+              <Input
+                id="account-current-pw"
+                type={showCurrentPw ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter current password"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPw(!showCurrentPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showCurrentPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="account-new-pw">New password</Label>
+              <div className="relative">
+                <Input
+                  id="account-new-pw"
+                  type={showNewPw ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPw(!showNewPw)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="account-confirm-pw">Confirm new password</Label>
+              <div className="relative">
+                <Input
+                  id="account-confirm-pw"
+                  type={showConfirmPw ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPw(!showConfirmPw)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+          {newPassword && confirmPassword && newPassword !== confirmPassword && (
+            <p className="text-xs text-destructive">Passwords do not match</p>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={handleChangePassword}
+            disabled={changingPassword || !currentPassword || newPassword.length < 6 || newPassword !== confirmPassword}
+            size="sm"
+          >
+            {changingPassword ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1.5 h-3.5 w-3.5" />}
+            Change password
+          </Button>
+        </div>
       </div>
     </div>
   );

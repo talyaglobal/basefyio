@@ -70,6 +70,35 @@ export class StorageService {
     return `kb-${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
+  /**
+   * Prefix for every MinIO bucket that belongs to a project — must match the start
+   * of {@link minioBucketName} for that slug (any logical bucket name).
+   */
+  private minioProjectPrefix(projectSlug: string): string {
+    return `kb-${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  }
+
+  /**
+   * Shared MinIO: bucket `kb-warebnb-2-docs` starts with `kb-warebnb-` so it was
+   * wrongly listed under slug `warebnb` as "2-docs" unless a sibling `warebnb-2`
+   * row existed. Resolve owner by longest matching project prefix among all active projects.
+   */
+  private resolveMinioBucketOwner(
+    minioBucketName: string,
+    projects: { id: string; slug: string }[],
+  ): { id: string; slug: string } | null {
+    let best: { id: string; slug: string; prefixLen: number } | null = null;
+    for (const p of projects) {
+      const pref = this.minioProjectPrefix(p.slug);
+      if (minioBucketName.startsWith(pref)) {
+        if (!best || pref.length > best.prefixLen) {
+          best = { id: p.id, slug: p.slug, prefixLen: pref.length };
+        }
+      }
+    }
+    return best ? { id: best.id, slug: best.slug } : null;
+  }
+
   private async assertProjectAccess(projectId: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
@@ -90,27 +119,18 @@ export class StorageService {
 
   async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = `kb-${project.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const prefix = this.minioProjectPrefix(project.slug);
 
-    // Other projects whose slugs extend this project's slug (e.g. "foo-2" when
-    // this project's slug is "foo") would produce MinIO bucket names that also
-    // start with this project's prefix.  Find those prefixes and exclude them.
-    const siblingProjects = await this.prisma.project.findMany({
-      where: { id: { not: projectId }, slug: { startsWith: project.slug } },
-      select: { slug: true },
+    const allProjects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, slug: true },
     });
-    const excludedPrefixes = siblingProjects
-      .map((p) =>
-        `kb-${p.slug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      )
-      .filter((ep) => ep !== prefix && ep.startsWith(prefix));
 
     const allBuckets = await this.client.listBuckets();
-    const projectBuckets = allBuckets.filter(
-      (b) =>
-        b.name.startsWith(prefix) &&
-        !excludedPrefixes.some((ep) => b.name.startsWith(ep)),
-    );
+    const projectBuckets = allBuckets.filter((b) => {
+      const owner = this.resolveMinioBucketOwner(b.name, allProjects);
+      return owner?.id === project.id;
+    });
 
     const results: BucketSummary[] = [];
 
@@ -191,6 +211,51 @@ export class StorageService {
     await this.client.removeBucket(minioBucket);
     this.logger.log(`Bucket "${minioBucket}" deleted`);
     return { message: `Bucket "${bucketName}" deleted` };
+  }
+
+  /**
+   * Delete MinIO buckets for this project that are not in the Supabase source list.
+   * Fixes ghost buckets like `2-docs` when physical name is `kb-{slug}-2-docs` (same
+   * project prefix as `docs`) — listing logic cannot tell them apart without this cleanup.
+   */
+  async pruneProjectStorageBuckets(
+    projectId: string,
+    keepLogicalNames: Set<string>,
+  ): Promise<void> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: 'ACTIVE' },
+    });
+    if (!project) return;
+
+    const keep = new Set([...keepLogicalNames].map((s) => s.trim().toLowerCase()).filter(Boolean));
+    if (keep.size === 0) return;
+
+    const allProjects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, slug: true },
+    });
+
+    const prefix = this.minioProjectPrefix(project.slug);
+    const allBuckets = await this.client.listBuckets();
+
+    for (const b of allBuckets) {
+      const owner = this.resolveMinioBucketOwner(b.name, allProjects);
+      if (owner?.id !== project.id) continue;
+
+      const logical = b.name.substring(prefix.length).trim().toLowerCase();
+      if (!logical || keep.has(logical)) continue;
+
+      try {
+        await this.deleteBucket(projectId, undefined, logical);
+        this.logger.log(
+          `Pruned storage bucket "${logical}" (not in Supabase list) for project ${projectId}`,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to prune storage bucket "${logical}" for project ${projectId}: ${err.message}`,
+        );
+      }
+    }
   }
 
   async toggleBucketPublic(projectId: string, userId: string | undefined, bucketName: string, isPublic: boolean) {

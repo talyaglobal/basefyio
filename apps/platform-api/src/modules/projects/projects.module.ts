@@ -17,9 +17,15 @@ import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
 import { FoldersController, TagsController } from './folders-tags.controller';
 import { FoldersTagsService } from './folders-tags.service';
+import { ProjectActivityModule } from './project-activity.module';
 
 @Module({
-  imports: [AuthModule, HttpModule.register({ timeout: 60000 }), StorageModule],
+  imports: [
+    AuthModule,
+    HttpModule.register({ timeout: 60000 }),
+    StorageModule,
+    ProjectActivityModule,
+  ],
   controllers: [
     ProjectsController,
     ProjectDataController,
