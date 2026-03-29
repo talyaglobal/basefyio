@@ -8,6 +8,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'crypto';
 import * as Minio from 'minio';
 import { Readable } from 'stream';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -28,6 +29,9 @@ export interface BucketSummary {
   objectCount: number;
   totalSize: number;
 }
+
+/** Platform-wide bucket for user feedback screenshots / clips (not project-scoped). */
+const FEEDBACK_ATTACHMENTS_BUCKET = 'kb-platform-feedback';
 
 @Injectable()
 export class StorageService {
@@ -459,5 +463,75 @@ export class StorageService {
       stream.on('error', reject);
       stream.on('end', () => resolve(objects));
     });
+  }
+
+  /**
+   * Upload a single image or video for the feedback form. Bucket is public-read for direct links in admin UI / email.
+   */
+  async uploadFeedbackAttachment(
+    userId: string,
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<{ url: string; mimeType: string; kind: 'image' | 'video' }> {
+    const isImage = contentType.startsWith('image/');
+    const isVideo = contentType.startsWith('video/');
+    if (!isImage && !isVideo) {
+      throw new BadRequestException('Only image or video files are allowed');
+    }
+    const maxImage = 5 * 1024 * 1024;
+    const maxVideo = 20 * 1024 * 1024;
+    if (isImage && buffer.length > maxImage) {
+      throw new BadRequestException('Image too large (max 5 MB)');
+    }
+    if (isVideo && buffer.length > maxVideo) {
+      throw new BadRequestException('Video too large (max 20 MB)');
+    }
+
+    const bucket = FEEDBACK_ATTACHMENTS_BUCKET;
+    const exists = await this.client.bucketExists(bucket);
+    if (!exists) {
+      await this.client.makeBucket(bucket, '');
+      const policy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${bucket}/*`],
+          },
+        ],
+      });
+      await this.client.setBucketPolicy(bucket, policy);
+    }
+
+    let ext = 'bin';
+    if (isImage) {
+      if (contentType.includes('png')) ext = 'png';
+      else if (contentType.includes('webp')) ext = 'webp';
+      else if (contentType.includes('gif')) ext = 'gif';
+      else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
+    } else {
+      if (contentType.includes('webm')) ext = 'webm';
+      else if (contentType.includes('quicktime') || contentType.includes('mov')) ext = 'mov';
+      else ext = 'mp4';
+    }
+
+    const objectName = `${userId}/${Date.now()}-${randomBytes(8).toString('hex')}.${ext}`;
+
+    await this.client.putObject(bucket, objectName, buffer, buffer.length, {
+      'Content-Type': contentType,
+    });
+
+    const publicHost = this.publicSsl
+      ? `https://${this.publicEndpoint}:${this.publicPort}`
+      : `http://${this.publicEndpoint}:${this.publicPort}`;
+
+    const url = `${publicHost}/${bucket}/${objectName}`;
+    return {
+      url,
+      mimeType: contentType,
+      kind: isVideo ? 'video' : 'image',
+    };
   }
 }

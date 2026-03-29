@@ -26,12 +26,15 @@ function isProjectDetailPath(pathname: string) {
   return /^\/dashboard\/projects\/[^/]+/.test(pathname);
 }
 
-const items: {
+type NavItem = {
   href: string;
   label: string;
   icon: ElementType;
   isActive: (pathname: string) => boolean;
-}[] = [
+  requireRoot?: boolean;
+};
+
+const ALL_NAV_ITEMS: NavItem[] = [
   {
     href: '/dashboard',
     label: 'Overview',
@@ -62,15 +65,19 @@ const items: {
     label: 'Feedbacks',
     icon: MessageSquareText,
     isActive: (p) => p.startsWith('/dashboard/feedbacks'),
+    requireRoot: true,
   },
 ];
 
 export function DashboardSidebar({
   activeTeamId,
   refreshKey,
+  canAccessFeedbacks = false,
 }: {
   activeTeamId: string;
   refreshKey: number;
+  /** Only platform `ROOT` users see the Feedbacks admin page */
+  canAccessFeedbacks?: boolean;
 }) {
   const pathname = usePathname() ?? '';
   const [collapsed, setCollapsed] = useState(false);
@@ -115,6 +122,7 @@ export function DashboardSidebar({
   }
 
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
+  const items = ALL_NAV_ITEMS.filter((i) => !i.requireRoot || canAccessFeedbacks);
 
   return (
     <aside

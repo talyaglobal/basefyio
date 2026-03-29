@@ -1,7 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { StorageService } from '../storage/storage.service';
 import { FeedbackStatus, FeedbackType } from '@prisma/client';
+
+export interface FeedbackAttachmentRef {
+  url: string;
+  mimeType: string;
+  kind: 'image' | 'video';
+}
 
 interface CreateFeedbackDto {
   userId: string;
@@ -11,6 +19,7 @@ interface CreateFeedbackDto {
   title: string;
   description?: string;
   type?: FeedbackType;
+  attachments?: FeedbackAttachmentRef[];
 }
 
 const NOTIFY_EMAILS = [
@@ -25,9 +34,23 @@ export class FeedbackService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly storageService: StorageService,
   ) {}
 
+  async uploadAttachment(userId: string, buffer: Buffer, mimetype: string) {
+    return this.storageService.uploadFeedbackAttachment(
+      userId,
+      buffer,
+      mimetype,
+    );
+  }
+
   async create(dto: CreateFeedbackDto) {
+    const attachmentsJson: Prisma.InputJsonValue | undefined =
+      dto.attachments && dto.attachments.length > 0
+        ? (dto.attachments as unknown as Prisma.InputJsonValue)
+        : undefined;
+
     const feedback = await this.prisma.feedback.create({
       data: {
         userId: dto.userId,
@@ -37,6 +60,7 @@ export class FeedbackService {
         title: dto.title,
         description: dto.description || null,
         type: dto.type || FeedbackType.GENERAL,
+        attachments: attachmentsJson,
       },
     });
 
@@ -50,6 +74,7 @@ export class FeedbackService {
         title: dto.title,
         description: dto.description,
         type: feedback.type,
+        attachments: dto.attachments,
         createdAt: feedback.createdAt.toLocaleString('en-US', {
           dateStyle: 'medium',
           timeStyle: 'short',
