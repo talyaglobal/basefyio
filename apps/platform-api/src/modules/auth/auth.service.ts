@@ -239,20 +239,47 @@ export class AuthService {
     const clientId = this.config.get<string>('keycloak.adminClientId');
 
     const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+    const requestToken = async (username: string) => {
+      const params = new URLSearchParams({
+        grant_type: 'password',
+        client_id: clientId!,
+        username,
+        password,
+      });
 
-    const params = new URLSearchParams({
-      grant_type: 'password',
-      client_id: clientId!,
-      username: email,
-      password,
-    });
-
-    try {
       const { data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+      return data as {
+        access_token: string;
+        refresh_token: string;
+        expires_in: number;
+        token_type: string;
+      };
+    };
+
+    try {
+      let data: {
+        access_token: string;
+        refresh_token: string;
+        expires_in: number;
+        token_type: string;
+      };
+      try {
+        data = await requestToken(email);
+      } catch {
+        // Fallback to username login when Keycloak email-login is disabled.
+        const localUser = await this.prisma.user.findUnique({
+          where: { email },
+          select: { username: true },
+        });
+        if (!localUser?.username) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+        data = await requestToken(localUser.username);
+      }
 
       const user = await this.prisma.user.findFirst({
         where: { OR: [{ username: email }, { email }] },

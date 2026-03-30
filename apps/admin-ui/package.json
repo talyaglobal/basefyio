@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
+    "check:english-ui": "node ./scripts/check-english-ui.js",
+    "prebuild": "npm run check:english-ui",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -32,7 +34,8 @@
     "react-dom": "^19.2.4",
     "recharts": "^3.8.1",
     "sonner": "^1.5.0",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^2.3.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/js-cookie": "^3.0.6",
