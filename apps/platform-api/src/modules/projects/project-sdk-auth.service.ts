@@ -65,6 +65,10 @@ export class ProjectSdkAuthService {
     private readonly authConfig: ProjectAuthConfigService,
   ) {}
 
+  private getRealmAnonClientId(realmName: string): string {
+    return `${realmName}-anon`;
+  }
+
   /* ───────── Sign Up ───────── */
   async signup(
     projectId: string,
@@ -108,8 +112,9 @@ export class ProjectSdkAuthService {
       await this.keycloak.setEmailVerified(project.keycloakRealm, userId);
     }
 
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, project.anonKey, data.email, data.password,
+      project.keycloakRealm, kcClientId, data.email, data.password,
     );
 
     return { ...tokens, userId, emailVerified: !cfg.requireEmailVerify };
@@ -118,8 +123,9 @@ export class ProjectSdkAuthService {
   /* ───────── Sign In ───────── */
   async signin(projectId: string, email: string, password: string) {
     const project = await this.getProject(projectId);
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, project.anonKey, email, password,
+      project.keycloakRealm, kcClientId, email, password,
     );
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
     return { ...tokens, userId: user?.id, emailVerified: user?.emailVerified ?? false };
@@ -304,6 +310,7 @@ export class ProjectSdkAuthService {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const publicApiUrl = this.config.get<string>('publicApiUrl');
     const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
 
     const stateData = JSON.stringify({
       redirectTo: redirectTo || '/',
@@ -312,7 +319,7 @@ export class ProjectSdkAuthService {
 
     const authUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/auth`;
     const params = new URLSearchParams({
-      client_id: project.anonKey,
+      client_id: kcClientId,
       response_type: 'code',
       scope: 'openid email profile',
       redirect_uri: callbackUrl,
@@ -332,10 +339,11 @@ export class ProjectSdkAuthService {
     const publicApiUrl = this.config.get<string>('publicApiUrl');
     const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
     const tokenUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/token`;
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
 
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
-      client_id: project.anonKey,
+      client_id: kcClientId,
       code,
       redirect_uri: callbackUrl,
     });
@@ -363,7 +371,8 @@ export class ProjectSdkAuthService {
   /* ───────── Refresh & Me ───────── */
   async refresh(projectId: string, refreshToken: string) {
     const project = await this.getProject(projectId);
-    return this.refreshInRealm(project.keycloakRealm, project.anonKey, refreshToken);
+    const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
+    return this.refreshInRealm(project.keycloakRealm, kcClientId, refreshToken);
   }
 
   async me(projectId: string, accessToken: string) {
@@ -403,6 +412,7 @@ export class ProjectSdkAuthService {
 
     const params = new URLSearchParams({
       grant_type: 'password', client_id: clientId, username: email, password,
+      scope: 'openid email profile',
     });
 
     try {

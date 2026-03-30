@@ -184,7 +184,7 @@ services:
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
       REDIS_URL: redis://redis:6379
       APP_URL: https://app.${DOMAIN}
-      CORS_ORIGIN: https://app.${DOMAIN}
+      CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
       PGBOUNCER_PORT: 6432
       PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}

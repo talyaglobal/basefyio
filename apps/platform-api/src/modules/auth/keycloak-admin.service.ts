@@ -294,9 +294,32 @@ export class KeycloakAdminService implements OnModuleInit {
       registrationAllowed: true,
       loginWithEmailAllowed: true,
       duplicateEmailsAllowed: false,
+      verifyEmail: false,
       accessTokenLifespan: 1800,
       ssoSessionIdleTimeout: 86400,
     });
+
+    try {
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      const { data: actions } = await axios.get(
+        `${baseUrl}/admin/realms/${realmName}/authentication/required-actions`,
+        { headers },
+      );
+      for (const action of actions) {
+        if (action.alias === 'VERIFY_EMAIL' && action.defaultAction) {
+          await axios.put(
+            `${baseUrl}/admin/realms/${realmName}/authentication/required-actions/${action.alias}`,
+            { ...action, defaultAction: false },
+            { headers },
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not disable VERIFY_EMAIL default action: ${err.message}`);
+    }
+
     this.logger.log(`Realm "${realmName}" created`);
   }
 
@@ -432,6 +455,7 @@ export class KeycloakAdminService implements OnModuleInit {
       lastName: data.lastName || '',
       enabled: true,
       emailVerified: false,
+      requiredActions: [],
       credentials: [
         { type: 'password', value: data.password, temporary: false },
       ],
