@@ -14,6 +14,9 @@ async function proxy(
 
   const headers = new Headers(request.headers);
   headers.delete('host');
+  headers.delete('connection');
+  headers.delete('content-length');
+  headers.delete('transfer-encoding');
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const contentType = request.headers.get('content-type') || '';

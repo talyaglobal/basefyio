@@ -1,0 +1,48 @@
+# Task Log
+
+## 2026-03-30
+
+- Brought up Docker stack with `docker compose up -d --build` for local testing.
+- Investigated admin login issue on `http://localhost:3000/login`.
+- Updated `apps/platform-api/src/modules/auth/auth.service.ts` login flow:
+  - Primary attempt uses email as Keycloak username.
+  - Added fallback: if email login fails, resolve local username by email and retry token request with username.
+  - Purpose: keep login working when Keycloak email-login setting is disabled/changed.
+- Updated `apps/admin-ui/app/api/proxy/[...path]/route.ts` proxy headers:
+  - Removed `connection`, `content-length`, and `transfer-encoding` before forwarding upstream requests.
+  - Purpose: prevent `fetch failed` on proxied POST login requests.
+- Added project-level DB password reset feature for connect page:
+  - Backend: `PATCH /api/projects/:id/db-password` in `projects.controller.ts` and `rotateDatabasePassword()` in `projects.service.ts`.
+  - Added strong password rules (min length, lower/upper, number, special char, no spaces).
+  - Frontend: updated `apps/admin-ui/components/connection-strings.tsx` with manual password input, validation, generate button, and reset actions.
+  - Added `Project ID` block next to password on the connect screen.
+- Redesigned connect page with tabbed layout:
+  - Added `Supabase-style Connect` tab to mirror Supabase project connect UX and prompt text blocks.
+  - Kept existing connect implementation under separate `Kolaybase Details` tab without deleting old content.
+- Reworked `Supabase-style Connect` tab into `Raw Editor`:
+  - Added single-screen ENV/JSON switch (no modal).
+  - Added project stack selector (`Next.js`, `Vite`, `React Native (Expo)`, `Node.js`) and dynamic variable output by selected stack.
+  - Kept old advanced connect functionality in `Kolaybase Details` tab.
+- Updated Raw Editor labels and runtime value generation:
+  - Renamed top tab label from `Supabase-style Connect` to `Raw Editor`.
+  - Raw output now prefers runtime origin-based API URL (`<current-origin>/api/proxy`) to avoid localhost-only values in production.
+  - DB host in raw output falls back to runtime hostname when backend returns localhost.
+- Added server-driven public URL for stable production config generation:
+  - Backend now returns `publicBaseUrl` in connection response from `project-data.service.ts`.
+  - Frontend Raw Editor now builds proxy/API output using `publicBaseUrl` instead of browser runtime origin.
+  - This ensures consistent values behind reverse proxies/CDN and in production deployments.
+- Added production guard in Raw Editor:
+  - Shows inline warning if `publicBaseUrl` resolves to localhost.
+  - Triggers warning toast in Raw Editor tab to prompt checking backend `PUBLIC_API_URL`.
+- Hardened connect page runtime safety:
+  - Added safe URL hostname parser for `publicBaseUrl`.
+  - Prevented render-time crash when `publicBaseUrl` is malformed or missing.
+- UI language consistency update:
+  - Converted remaining Turkish warning/toast texts in `apps/admin-ui/components/connection-strings.tsx` to English.
+- Added build-time English UI enforcement:
+  - Created `apps/admin-ui/scripts/check-english-ui.js` to scan `app/`, `components/`, and `lib/` for Turkish characters.
+  - Wired script into `package.json` as `prebuild`, so `npm run build` fails when Turkish UI text exists.
+- Rewrote "AI prompt for quick connect" for clarity:
+  - Simplified to a production-focused, step-by-step instruction block.
+  - Removed verbose/ambiguous guidance and strengthened "use exact values only" rules.
+  - Added explicit output expectations (.env block, Prisma config, API example, verification checklist).

@@ -314,6 +314,7 @@ export interface ConnectionStrings {
   poolerHost: string;
   poolerPort: number;
   restUrl: string;
+  publicBaseUrl: string;
   keycloakRealm: string;
   keycloakUrl: string;
   anonKey: string;

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -180,6 +181,55 @@ export class ProjectsService {
         updatedAt: true,
       },
     });
+  }
+
+  async rotateDatabasePassword(
+    projectId: string,
+    userId: string,
+    nextPassword?: string,
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+
+    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
+    this.assertStrongDbPassword(password);
+
+    const pool = this.getAdminPool();
+    const client = await pool.connect();
+    const sanitizedUser = project.dbUser.replace(/[^a-z0-9_]/g, '');
+
+    try {
+      await client.query(
+        `ALTER USER "${sanitizedUser}" WITH PASSWORD '${password.replace(/'/g, "''")}'`,
+      );
+
+      await this.prisma.project.update({
+        where: { id: project.id },
+        data: { dbPassword: password },
+      });
+
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Database password rotated',
+      });
+    } catch (err: any) {
+      throw new InternalServerErrorException(
+        `Failed to rotate database password: ${err.message}`,
+      );
+    } finally {
+      client.release();
+      await pool.end();
+    }
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    return { password };
   }
 
   /**
@@ -577,6 +627,27 @@ export class ProjectsService {
       where: { teamId_userId: { teamId, userId } },
     });
     if (!m) throw new ForbiddenException('Not a member of this team');
+  }
+
+  private assertStrongDbPassword(password: string) {
+    if (password.length < 12) {
+      throw new BadRequestException('Password must be at least 12 characters');
+    }
+    if (!/[a-z]/.test(password)) {
+      throw new BadRequestException('Password must include a lowercase letter');
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw new BadRequestException('Password must include an uppercase letter');
+    }
+    if (!/[0-9]/.test(password)) {
+      throw new BadRequestException('Password must include a number');
+    }
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      throw new BadRequestException('Password must include a special character');
+    }
+    if (/\s/.test(password)) {
+      throw new BadRequestException('Password must not contain spaces');
+    }
   }
 
   private async renameDatabase(oldName: string, newName: string) {

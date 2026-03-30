@@ -602,6 +602,7 @@ export class ProjectDataService {
     const user = project.dbUser;
     const password = project.dbPassword;
     const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
+    const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
 
     return {
       uri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
@@ -614,6 +615,7 @@ export class ProjectDataService {
       poolerHost: host,
       poolerPort: port,
       restUrl: `${publicApiUrl}/rest/v1`,
+      publicBaseUrl,
       keycloakRealm: project.keycloakRealm,
       keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),
       anonKey: project.anonKey,

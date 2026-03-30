@@ -448,6 +448,12 @@ export const api = {
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
     },
+    rotateDbPassword(projectId: string, password?: string) {
+      return request<{ password: string }>(`/projects/${projectId}/db-password`, {
+        method: 'PATCH',
+        body: JSON.stringify(password ? { password } : {}),
+      });
+    },
     realmInfo(projectId: string) {
       return request<RealmInfo>(`/projects/${projectId}/auth`);
     },

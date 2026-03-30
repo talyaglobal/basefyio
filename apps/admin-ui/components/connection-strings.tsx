@@ -2,9 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { z } from 'zod';
 import { api } from '@/lib/api';
 import type { ConnectionStrings } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import {
   Copy,
   Database,
@@ -16,10 +26,58 @@ import {
   Code,
   Layers,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 
 interface ConnectionStringsViewProps {
   projectId: string;
+}
+
+type FrameworkPreset = 'nextjs' | 'vite' | 'react-native' | 'node';
+type RawEditorFormat = 'env' | 'json';
+
+const passwordSchema = z
+  .string()
+  .min(12, 'At least 12 characters')
+  .regex(/[a-z]/, 'At least one lowercase letter')
+  .regex(/[A-Z]/, 'At least one uppercase letter')
+  .regex(/[0-9]/, 'At least one number')
+  .regex(/[^A-Za-z0-9]/, 'At least one special character')
+  .regex(/^\S+$/, 'No spaces allowed');
+
+function generateStrongPassword(length = 24): string {
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const digits = '0123456789';
+  const symbols = '!@#$%^&*()-_=+[]{};:,.?';
+  const all = `${lower}${upper}${digits}${symbols}`;
+  const pick = (chars: string) => chars[Math.floor(Math.random() * chars.length)];
+
+  const seeded = [
+    pick(lower),
+    pick(upper),
+    pick(digits),
+    pick(symbols),
+  ];
+
+  for (let i = seeded.length; i < length; i += 1) {
+    seeded.push(pick(all));
+  }
+
+  for (let i = seeded.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [seeded[i], seeded[j]] = [seeded[j], seeded[i]];
+  }
+
+  return seeded.join('');
+}
+
+function getHostnameFromUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -30,66 +88,39 @@ function buildAiQuickConnectPrompt(
   conn: ConnectionStrings,
   projectId: string,
 ): string {
-  return `TASK: Configure my application to connect to my Kolaybase-hosted project using ONLY the values below. Do not invent hostnames, ports, or keys.
+  return `You are configuring a production app to connect to Kolaybase.
+Use ONLY the exact values below. Do NOT replace with localhost, examples, or placeholders.
 
-=== CRITICAL FOR AI (read before writing any code) ===
-1) SOURCE OF TRUTH: Every hostname below (REST_BASE_URL, pooler host, Keycloak URL, etc.) comes from the Kolaybase dashboard for THIS deployment. If the user's Kolaybase runs on a production server, these URLs are production URLs — they are NOT localhost.
-2) NEVER substitute localhost:4000, localhost:5432, or any dev URL unless the quoted REST_BASE_URL itself already contains localhost. A common bug is generating client code that calls http://localhost:4000 while the real API is https://… — that causes "Failed to fetch" and CSP errors in the browser.
-3) CONTENT-SECURITY-POLICY (CSP): If the app sets connect-src (Next.js headers, meta tag, or hosting config), the browser will BLOCK fetch() to Kolaybase unless EITHER:
-   - the exact API origin of REST_BASE_URL is listed in connect-src (e.g. https://api.example.com), OR
-   - the app only calls its own origin and a server-side Route Handler / backend proxies to Kolaybase (recommended for auth).
-4) Symptom "Refused to connect … violates Content Security Policy directive: connect-src …" means CSP — not wrong password. Fix CSP or use a same-origin proxy — do not blame Kolaybase credentials first.
-
-CONTEXT: Kolaybase is a managed platform. The database is PostgreSQL. The HTTP API is PostgREST-compatible (same patterns as Supabase REST: /rest/v1/{table}, headers apikey + optional Authorization Bearer).
-
---- PROJECT (REST / auth headers) ---
+## Project Values (source of truth)
 PROJECT_ID="${projectId}"
-# Use header on Kolaybase REST auth and many client flows: x-project-id: <PROJECT_ID> (together with apikey: ANON_KEY)
-
---- BROWSER / CORS & REST AUTH (read carefully) ---
-Hosted Kolaybase APIs may only allow browser requests from specific origins (e.g. the official admin app). If the user runs a SPA on http://localhost:* or their own domain, direct fetch() from the browser to REST_BASE_URL can fail with CORS — that is not an "invalid key" problem; fix it by calling the API from a server (Next.js Route Handler, backend) that proxies to REST_BASE_URL with headers apikey + x-project-id, and keep SERVICE_KEY only on the server.
-
-For sign-in / sign-up against Kolaybase REST auth paths, do not rely on browser → Kolaybase from disallowed origins; use a same-origin API route that forwards JSON to the platform.
-
-If there is NO CORS error (e.g. server-side or proxy) but auth still returns 401 Invalid credentials, that is separate from CORS — then check passwords, user provisioning, and Keycloak/realm health; hosted customers may need platform support after DB/realm rebuilds.
-
---- POSTGRESQL — DIRECT (no pooler; use only on same private network / internal) ---
-DATABASE_URL_DIRECT="${conn.uri}"
-host="${conn.host}"
-port=${conn.port}
-database="${conn.database}"
-user="${conn.user}"
-password="${conn.password}"
-
---- POSTGRESQL — POOLER (PgBouncer; preferred for Prisma, Drizzle, server apps) ---
 DATABASE_URL_POOLER="${conn.poolerUri}"
-pooler_host="${conn.poolerHost}"
-pooler_port=${conn.poolerPort}
-
---- HTTP REST API ---
+DATABASE_URL_DIRECT="${conn.uri}"
 REST_BASE_URL="${conn.restUrl}"
-# Public anon JWT — ok for browser/client if RLS policies allow
 ANON_KEY="${conn.anonKey}"
-# Service role — SERVER-SIDE ONLY; full DB access; never expose in frontend or public repos
 SERVICE_KEY="${conn.serviceKey}"
-
-Example REST GET (read):
-GET \${REST_BASE_URL}/your_table?select=*&limit=10
-Headers: apikey: <ANON_KEY or SERVICE_KEY>, Accept: application/json
-
---- AUTH (Keycloak) ---
 KEYCLOAK_URL="${conn.keycloakUrl}"
 KEYCLOAK_REALM="${conn.keycloakRealm}"
 
-DELIVERABLES I WANT FROM YOU:
-1) Exact .env (or .env.local) variable names and values I should paste (include PROJECT_ID where relevant). Use REST_BASE_URL exactly as quoted for API base — no localhost unless it appears in the quote.
-2) If I use Prisma: the datasource url line using DATABASE_URL_POOLER unless I said I am internal-only, then DATABASE_URL_DIRECT.
-3) If I use fetch/axios from a server: base URL + which key to use (anon vs service) for my scenario + x-project-id when calling Kolaybase REST auth.
-4) If I use a browser SPA or Next.js client: explain CORS limits AND Content-Security-Policy connect-src; either extend connect-src to include the REST_BASE_URL origin or implement a same-origin API proxy for REST and auth — never expose SERVICE_KEY to the client.
-5) If the stack is Next.js: show where to add connect-src in next.config headers OR recommend proxy-only pattern so the browser never talks to Kolaybase directly.
-6) Remind me once: never commit SERVICE_KEY or database password to git.
+## Critical Rules
+1) Treat these as production values.
+2) Never change host, port, keys, or project id.
+3) SERVICE_KEY must stay server-side only.
+4) If browser calls are blocked by CORS/CSP, use a same-origin backend proxy.
+5) For Kolaybase REST/Auth requests include:
+   - apikey: <ANON_KEY or SERVICE_KEY>
+   - x-project-id: <PROJECT_ID>
 
-Use the quoted values exactly; do not substitute placeholders.`;
+## What to generate
+1) Ready-to-paste .env/.env.local block.
+2) Minimal working setup for my stack (client + server where needed).
+3) Prisma datasource config using DATABASE_URL_POOLER (use DIRECT only if explicitly asked).
+4) Example API request using REST_BASE_URL with correct headers.
+5) Short verification checklist (how to confirm connection works).
+
+## Important
+- Do not invent new env names unless required by the chosen framework.
+- Do not output fake values.
+- Reminder: never commit SERVICE_KEY or DB password to git.`;
 }
 
 function CopyBlock({
@@ -182,6 +213,11 @@ export function ConnectionStringsView({
 }: ConnectionStringsViewProps) {
   const [conn, setConn] = useState<ConnectionStrings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'raw' | 'kolaybase'>('raw');
+  const [framework, setFramework] = useState<FrameworkPreset>('nextjs');
+  const [rawEditorFormat, setRawEditorFormat] = useState<RawEditorFormat>('env');
+  const [nextPassword, setNextPassword] = useState('');
+  const [rotatingPassword, setRotatingPassword] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -190,6 +226,18 @@ export function ConnectionStringsView({
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, [projectId]);
+
+  const isLocalPublicBase = conn
+    ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(conn.publicBaseUrl)
+    : false;
+
+  useEffect(() => {
+    if (!loading && activeTab === 'raw' && isLocalPublicBase) {
+      toast.warning(
+        'publicBaseUrl resolves to localhost. Check your PUBLIC_API_URL for production.',
+      );
+    }
+  }, [loading, activeTab, isLocalPublicBase]);
 
   if (loading || !conn) {
     return (
@@ -226,11 +274,222 @@ datasource db {
   provider = "postgresql"
   url      = "${conn.poolerUri}"
 }`;
+  const publicHostname = getHostnameFromUrl(conn.publicBaseUrl);
+  const connectionHost =
+    conn.host === 'localhost' || conn.host === '127.0.0.1'
+      ? publicHostname || conn.host
+      : conn.host;
+  const connectionPort = conn.poolerPort || conn.port;
+  const restBaseUrl = `${conn.publicBaseUrl}/api/proxy`;
+  const pooledUrl = `postgresql://${conn.user}:${conn.password}@${connectionHost}:${connectionPort}/${conn.database}`;
+  const directUrl = `postgresql://${conn.user}:${conn.password}@${connectionHost}:${conn.port}/${conn.database}`;
+
+  const baseVars = {
+    DATABASE_URL: pooledUrl,
+    DIRECT_URL: directUrl,
+    NEXT_PUBLIC_SUPABASE_URL: restBaseUrl,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: conn.anonKey,
+    SUPABASE_SERVICE_ROLE_KEY: conn.serviceKey,
+    PROJECT_ID: projectId,
+  } as const;
+
+  const frameworkVars: Record<FrameworkPreset, Record<string, string>> = {
+    nextjs: {
+      NEXT_PUBLIC_SUPABASE_URL: baseVars.NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: baseVars.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: baseVars.SUPABASE_SERVICE_ROLE_KEY,
+      DATABASE_URL: baseVars.DATABASE_URL,
+      DIRECT_URL: baseVars.DIRECT_URL,
+      PROJECT_ID: baseVars.PROJECT_ID,
+    },
+    vite: {
+      VITE_SUPABASE_URL: baseVars.NEXT_PUBLIC_SUPABASE_URL,
+      VITE_SUPABASE_ANON_KEY: baseVars.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: baseVars.SUPABASE_SERVICE_ROLE_KEY,
+      DATABASE_URL: baseVars.DATABASE_URL,
+      DIRECT_URL: baseVars.DIRECT_URL,
+      PROJECT_ID: baseVars.PROJECT_ID,
+    },
+    'react-native': {
+      EXPO_PUBLIC_SUPABASE_URL: baseVars.NEXT_PUBLIC_SUPABASE_URL,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: baseVars.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: baseVars.SUPABASE_SERVICE_ROLE_KEY,
+      DATABASE_URL: baseVars.DATABASE_URL,
+      DIRECT_URL: baseVars.DIRECT_URL,
+      PROJECT_ID: baseVars.PROJECT_ID,
+    },
+    node: {
+      SUPABASE_URL: baseVars.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_ANON_KEY: baseVars.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: baseVars.SUPABASE_SERVICE_ROLE_KEY,
+      DATABASE_URL: baseVars.DATABASE_URL,
+      DIRECT_URL: baseVars.DIRECT_URL,
+      PROJECT_ID: baseVars.PROJECT_ID,
+    },
+  };
+
+  const selectedVars = frameworkVars[framework];
+  const rawEnvContent = Object.entries(selectedVars)
+    .map(([key, value]) => `${key}="${value}"`)
+    .join('\n');
+  const rawJsonContent = JSON.stringify(selectedVars, null, 2);
+  const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
+
+  const passwordValidation =
+    nextPassword.length === 0
+      ? null
+      : passwordSchema.safeParse(nextPassword);
+
+  async function handleRotatePassword(useGenerated: boolean) {
+    const candidate = useGenerated ? undefined : nextPassword;
+    if (!useGenerated) {
+      const parsed = passwordSchema.safeParse(nextPassword);
+      if (!parsed.success) {
+        toast.error(parsed.error.issues[0]?.message || 'Invalid password');
+        return;
+      }
+    }
+
+    setRotatingPassword(true);
+    try {
+      const result = await api.projects.rotateDbPassword(projectId, candidate);
+      setConn((prev) => {
+        if (!prev) return prev;
+        const nextUri = `postgresql://${prev.user}:${result.password}@${prev.host}:${prev.port}/${prev.database}`;
+        const nextPoolerUri = `postgresql://${prev.user}:${result.password}@${prev.poolerHost}:${prev.poolerPort}/${prev.database}`;
+        return {
+          ...prev,
+          password: result.password,
+          uri: nextUri,
+          poolerUri: nextPoolerUri,
+        };
+      });
+      setNextPassword(result.password);
+      toast.success('Database password reset');
+    } catch (err: any) {
+      toast.error(err.message || 'Password reset failed');
+    } finally {
+      setRotatingPassword(false);
+    }
+  }
 
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold tracking-tight">Connection</h1>
+      <div className="inline-flex rounded-lg border bg-muted/40 p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab('raw')}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-sm transition-colors',
+            activeTab === 'raw'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Raw Editor
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('kolaybase')}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-sm transition-colors',
+            activeTab === 'kolaybase'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Kolaybase Details
+        </button>
+      </div>
 
+      {activeTab === 'raw' && (
+        <section className="space-y-4 rounded-xl border bg-card p-6">
+          <div>
+            <h2 className="text-lg font-semibold">Raw Editor</h2>
+            <p className="text-sm text-muted-foreground">
+              Add, edit, or copy your project variables in ENV or JSON format.
+            </p>
+          </div>
+          {isLocalPublicBase && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+              Production warning: `publicBaseUrl` resolves to localhost
+              (<code className="mx-1 rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900">{conn.publicBaseUrl}</code>).
+              For production, set backend `PUBLIC_API_URL` to your public domain.
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+            <Select
+              value={framework}
+              onValueChange={(value) => setFramework(value as FrameworkPreset)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select framework" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nextjs">Next.js</SelectItem>
+                <SelectItem value="vite">Vite</SelectItem>
+                <SelectItem value="react-native">React Native (Expo)</SelectItem>
+                <SelectItem value="node">Node.js</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="inline-flex rounded-md border bg-muted/30 p-1 w-fit">
+              <button
+                type="button"
+                onClick={() => setRawEditorFormat('env')}
+                className={cn(
+                  'rounded px-3 py-1 text-sm',
+                  rawEditorFormat === 'env'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground',
+                )}
+              >
+                ENV
+              </button>
+              <button
+                type="button"
+                onClick={() => setRawEditorFormat('json')}
+                className={cn(
+                  'rounded px-3 py-1 text-sm',
+                  rawEditorFormat === 'json'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground',
+                )}
+              >
+                JSON
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-muted/10">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <p className="text-sm font-medium">
+                {rawEditorFormat.toUpperCase()} variables
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(rawEditorContent);
+                  toast.success(`Copy ${rawEditorFormat.toUpperCase()}`);
+                }}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                Copy {rawEditorFormat.toUpperCase()}
+              </Button>
+            </div>
+            <pre className="max-h-[420px] overflow-auto px-4 py-3">
+              <code className="whitespace-pre text-sm text-emerald-400">
+                {rawEditorContent}
+              </code>
+            </pre>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'kolaybase' && (
+      <>
       {/* Direct Database Connection (PgBouncer) */}
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -261,6 +520,59 @@ datasource db {
           <CopyBlock label="Database" value={conn.database} icon={Database} />
           <CopyBlock label="User" value={conn.user} icon={Database} />
           <CopyBlock label="Password" value={conn.password} icon={Key} />
+          <CopyBlock label="Project ID" value={projectId} icon={Database} />
+        </div>
+        <div className="rounded-md border bg-card p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+            Reset database password
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Enter your own strong password or generate a secure one.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <Input
+              type="text"
+              placeholder="Enter new password"
+              value={nextPassword}
+              onChange={(e) => setNextPassword(e.target.value)}
+              aria-label="New database password"
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setNextPassword(generateStrongPassword())}
+              disabled={rotatingPassword}
+            >
+              Generate
+            </Button>
+            <Button
+              type="button"
+              onClick={() => handleRotatePassword(false)}
+              disabled={rotatingPassword || nextPassword.length === 0}
+            >
+              {rotatingPassword ? 'Resetting...' : 'Reset'}
+            </Button>
+          </div>
+          {passwordValidation && !passwordValidation.success && (
+            <p className="text-xs text-red-600">
+              {passwordValidation.error.issues[0]?.message}
+            </p>
+          )}
+          <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
+            <li>Minimum 12 characters</li>
+            <li>At least one uppercase and one lowercase letter</li>
+            <li>At least one number and one special character</li>
+            <li>No spaces allowed</li>
+          </ul>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleRotatePassword(true)}
+            disabled={rotatingPassword}
+          >
+            {rotatingPassword ? 'Resetting...' : 'Generate and reset automatically'}
+          </Button>
         </div>
         <CodeExample label="Prisma" language="prisma" code={prismaExample} />
       </section>
@@ -420,6 +732,8 @@ datasource db {
           </p>
         </div>
       </section>
+      </>
+      )}
     </div>
   );
 }

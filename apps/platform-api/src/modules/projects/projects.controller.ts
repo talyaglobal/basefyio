@@ -235,6 +235,15 @@ export class ProjectsController {
     return this.projectsService.moveToTeam(id, targetTeamId, user.sub);
   }
 
+  @Patch(':id/db-password')
+  async rotateDbPassword(
+    @Param('id') id: string,
+    @Body() body: { password?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.rotateDatabasePassword(id, user.sub, body.password);
+  }
+
   @Post(':id/restore')
   async restore(
     @Param('id') id: string,
