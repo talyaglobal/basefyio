@@ -106,7 +106,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 
       {/* Realm stats */}
       {realm && (
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="kb-grid-row-hover grid gap-4 sm:grid-cols-3">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Shield className="h-4 w-4" />

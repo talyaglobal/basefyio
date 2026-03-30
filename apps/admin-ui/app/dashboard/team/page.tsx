@@ -172,7 +172,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="kb-grid-row-hover grid gap-4 sm:grid-cols-2">
           {/* GitHub Card */}
           <div className="rounded-xl border bg-card p-5 space-y-4">
             <div className="flex items-center gap-3">

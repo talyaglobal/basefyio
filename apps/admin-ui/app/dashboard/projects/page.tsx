@@ -955,7 +955,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {loadingTrash ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
                     ))}
@@ -967,7 +967,7 @@ export default function ProjectsPage() {
                     <p className="text-xs mt-1">Deleted projects will appear here</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deletedProjects.map((project) => {
                       const displayName = project.name.replace(/_(\d+_)?deleted$/, '');
                       return (
@@ -1045,7 +1045,7 @@ export default function ProjectsPage() {
 
             <div className="p-6">
               {loading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="rounded-xl border bg-card h-48 animate-pulse" />
                   ))}
@@ -1056,7 +1056,7 @@ export default function ProjectsPage() {
                   hasFilters={selectedFolder !== 'all' || selectedTags.length > 0 || !!searchQuery || !!statusFilter || thisMonthOnly}
                 />
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                   {filtered.map((project) => (
                     <DroppableProjectCard
                       key={project.id}

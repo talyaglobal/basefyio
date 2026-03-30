@@ -177,7 +177,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
               {columns.map((col) => (
                 <div
                   key={col.id}
-                  className="grid grid-cols-[1fr_140px_44px_44px_140px_36px] items-center gap-2 rounded-md border bg-card p-1.5"
+                  className="grid grid-cols-[1fr_140px_44px_44px_140px_36px] items-center gap-2 rounded-md border bg-card p-1.5 transition-colors duration-200 hover:bg-accent/55 dark:hover:bg-accent/30"
                 >
                   <Input
                     value={col.name}

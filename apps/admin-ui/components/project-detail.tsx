@@ -177,7 +177,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         vercelIntegration={vc ?? undefined}
       />
 
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="kb-grid-row-hover grid gap-5 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />
