@@ -1022,7 +1022,7 @@ export default function IntegrationsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="kb-grid-row-hover grid gap-6 lg:grid-cols-2">
           <GitHubCard
             projectId={id}
             teamId={activeTeamId || ''}

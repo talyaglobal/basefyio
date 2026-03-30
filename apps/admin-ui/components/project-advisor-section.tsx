@@ -230,7 +230,7 @@ export function ProjectAdvisorSection({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="kb-grid-row-hover grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Status

@@ -133,4 +133,12 @@
   .tag-pill {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border;
   }
+
+  /* ── Grid list hover (card / tile grids) ───────────────── */
+  .kb-grid-row-hover > * {
+    @apply transition-colors duration-200;
+  }
+  .kb-grid-row-hover > *:hover {
+    @apply bg-accent/55 dark:bg-accent/30;
+  }
 }

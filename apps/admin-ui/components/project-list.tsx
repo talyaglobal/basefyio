@@ -14,7 +14,7 @@ interface ProjectListProps {
 export function ProjectList({ projects, loading }: ProjectListProps) {
   if (loading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="kb-grid-row-hover grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {[1, 2, 3].map((i) => (
           <div
             key={i}
@@ -38,7 +38,7 @@ export function ProjectList({ projects, loading }: ProjectListProps) {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="kb-grid-row-hover grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {projects.map((project) => (
         <Link
           key={project.id}

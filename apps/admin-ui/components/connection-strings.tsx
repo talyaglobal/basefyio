@@ -506,7 +506,7 @@ datasource db {
           value={conn.poolerUri}
           icon={Link2}
         />
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="kb-grid-row-hover grid gap-3 sm:grid-cols-2">
           <CopyBlock
             label="Pooler Host"
             value={conn.poolerHost}

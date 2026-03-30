@@ -46,3 +46,7 @@
   - Simplified to a production-focused, step-by-step instruction block.
   - Removed verbose/ambiguous guidance and strengthened "use exact values only" rules.
   - Added explicit output expectations (.env block, Prisma config, API example, verification checklist).
+- Grid list hover (admin UI):
+  - Added `.kb-grid-row-hover` in `apps/admin-ui/app/globals.css` so direct grid children get a slightly darker accent background on hover (`transition-colors` 200ms).
+  - Applied to card/tile grids: dashboard overview, projects list and trash/skeleton grids, project list component, project detail and advisor stat grids, team integrations grid, project integrations page, connect `CopyBlock` grid, auth realm stats, and per-row hover on create-table column editor rows.
+  - Intentionally skipped pure form-field grids (account, profile, signup, auth settings/email forms) so paired inputs do not flash highlight independently.

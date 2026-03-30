@@ -145,12 +145,12 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="kb-grid-row-hover grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-xl border bg-card" />
           ))}
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="kb-grid-row-hover grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 h-64 animate-pulse rounded-xl border bg-card" />
           <div className="h-64 animate-pulse rounded-xl border bg-card" />
         </div>
@@ -175,7 +175,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="kb-grid-row-hover grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Database}
           label="Total Projects"
@@ -208,7 +208,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="kb-grid-row-hover grid gap-4 lg:grid-cols-3">
         {/* Monthly Area Chart */}
         <div className="lg:col-span-2 rounded-xl border bg-card p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -290,7 +290,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Recent Projects + Quick Actions Row */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="kb-grid-row-hover grid gap-4 lg:grid-cols-3">
         {/* Recent Projects */}
         <div className="lg:col-span-2 rounded-xl border bg-card p-5">
           <div className="mb-4 flex items-center justify-between">
