@@ -9,9 +9,30 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
+
+  const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000';
+  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
+  const allowAll = allowedOrigins.includes('*');
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || allowAll || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'apikey',
+      'x-project-id',
+      'prefer',
+      'x-client-info',
+    ],
+    exposedHeaders: ['Content-Range', 'X-Total-Count'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   app.setGlobalPrefix('api');

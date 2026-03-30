@@ -113,7 +113,7 @@ services:
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       REDIS_URL: redis://redis:6379
-      CORS_ORIGIN: http://localhost:3000
+      CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
       PGBOUNCER_PORT: 6432
       PGBOUNCER_EXTERNAL_HOST: ${PGBOUNCER_EXTERNAL_HOST:-localhost}
