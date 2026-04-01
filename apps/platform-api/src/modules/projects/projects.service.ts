@@ -9,10 +9,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Pool } from 'pg';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
+import { QuotaService } from '../billing/quota.service';
+import { UsageService } from '../billing/usage.service';
+import { InfrastructureService } from '../infrastructure/infrastructure.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import {
   ProjectActivityKind,
@@ -29,11 +32,18 @@ export class ProjectsService {
     private readonly config: ConfigService,
     private readonly pgbouncer: PgBouncerService,
     private readonly activity: ProjectActivityService,
+    private readonly quota: QuotaService,
+    private readonly usageService: UsageService,
+    private readonly infra: InfrastructureService,
   ) {}
 
   async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
     await this.assertTeamMember(dto.teamId, userId);
+    await this.quota.assertCanCreateProject(dto.teamId);
 
+    const needsDedicatedDb = await this.quota.shouldUseDedicatedDb(dto.teamId);
+
+    const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(dto.name));
     const dbName = `kb_${slug}`;
     const dbUser = `kb_user_${slug}`;
@@ -42,8 +52,36 @@ export class ProjectsService {
     const dbHost = this.config.get<string>('database.host')!;
     const dbPort = this.config.get<number>('database.port')!;
 
-    await this.createDatabase(dbName);
-    await this.createDatabaseUser(dbUser, dbPassword, dbName);
+    let actualDbHost = dbHost;
+    let actualDbPort = dbPort;
+    let actualAdminUser: string | undefined;
+    let actualAdminPassword: string | undefined;
+
+    if (needsDedicatedDb && this.infra.isEnabled()) {
+      try {
+        const plan = await this.quota.getTeamPlan(dto.teamId);
+        const pgResult = await this.infra.provisionPostgres({
+          projectId,
+          projectSlug: slug,
+          memoryMb: plan?.dbMemoryMb || 1024,
+          cpuMillis: plan?.dbCpuMillis || 1000,
+        });
+        actualDbHost = pgResult.host;
+        actualDbPort = pgResult.port;
+        actualAdminUser = pgResult.adminUser;
+        actualAdminPassword = pgResult.adminPassword;
+      } catch (err: any) {
+        this.logger.warn(`Failed to provision dedicated Postgres, falling back to shared: ${err.message}`);
+      }
+    }
+
+    if (actualAdminUser && actualAdminPassword) {
+      await this.createDatabaseOnHost(dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
+      await this.createDatabaseUserOnHost(dbUser, dbPassword, dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
+    } else {
+      await this.createDatabase(dbName);
+      await this.createDatabaseUser(dbUser, dbPassword, dbName);
+    }
 
     let anonKey: string;
     let serviceKey: string;
@@ -64,12 +102,13 @@ export class ProjectsService {
 
     const project = await this.prisma.project.create({
       data: {
+        id: projectId,
         name: dto.name,
         slug,
         description: dto.description,
         dbName,
-        dbHost,
-        dbPort,
+        dbHost: actualDbHost,
+        dbPort: actualDbPort,
         dbUser,
         dbPassword,
         keycloakRealm: realmName,
@@ -87,6 +126,8 @@ export class ProjectsService {
       kind: ProjectActivityKind.PROJECT_CREATED,
       title: `Project created: ${project.name}`,
     });
+
+    this.usageService.incrementProjectCount(dto.teamId).catch(() => {});
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
@@ -389,6 +430,8 @@ export class ProjectsService {
         keycloakRealm: archivedRealm,
       },
     });
+
+    this.usageService.decrementProjectCount(project.teamId).catch(() => {});
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
@@ -759,6 +802,72 @@ export class ProjectsService {
     } finally {
       client.release();
       await pool.end();
+    }
+  }
+
+  private async createDatabaseOnHost(
+    dbName: string,
+    host: string,
+    port: number,
+    adminUser: string,
+    adminPassword: string,
+  ) {
+    const pool = new Pool({ host, port, user: adminUser, password: adminPassword, database: 'postgres' });
+    const client = await pool.connect();
+    try {
+      const sanitized = dbName.replace(/[^a-z0-9_]/g, '');
+      await client.query(`CREATE DATABASE "${sanitized}"`);
+      this.logger.log(`Database "${sanitized}" created on ${host}`);
+    } catch (err: any) {
+      if (err.code === '42P04') {
+        this.logger.warn(`Database "${dbName}" already exists on ${host}`);
+        return;
+      }
+      throw new InternalServerErrorException('Failed to create database');
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  private async createDatabaseUserOnHost(
+    username: string,
+    password: string,
+    dbName: string,
+    host: string,
+    port: number,
+    adminUser: string,
+    adminPassword: string,
+  ) {
+    const pool = new Pool({ host, port, user: adminUser, password: adminPassword, database: 'postgres' });
+    const client = await pool.connect();
+    const sanitizedUser = username.replace(/[^a-z0-9_]/g, '');
+    const sanitizedDb = dbName.replace(/[^a-z0-9_]/g, '');
+    try {
+      await client.query(`CREATE USER "${sanitizedUser}" WITH PASSWORD '${password.replace(/'/g, "''")}'`);
+      await client.query(`GRANT CONNECT ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
+      this.logger.log(`User "${sanitizedUser}" created on ${host}`);
+    } catch (err: any) {
+      if (err.code === '42710') {
+        this.logger.warn(`User "${sanitizedUser}" already exists on ${host}`);
+        return;
+      }
+      throw new InternalServerErrorException(`Failed to create database user: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+
+    const projectPool = new Pool({ host, port, user: adminUser, password: adminPassword, database: sanitizedDb });
+    const projectClient = await projectPool.connect();
+    try {
+      await projectClient.query(`GRANT ALL PRIVILEGES ON SCHEMA public TO "${sanitizedUser}"`);
+      await projectClient.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${sanitizedUser}"`);
+      await projectClient.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${sanitizedUser}"`);
+      await projectClient.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO "${sanitizedUser}"`);
+    } finally {
+      projectClient.release();
+      await projectPool.end();
     }
   }
 

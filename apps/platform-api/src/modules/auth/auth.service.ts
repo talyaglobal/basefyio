@@ -15,6 +15,7 @@ import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +32,7 @@ export class AuthService {
     private readonly keycloak: KeycloakAdminService,
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly billing: BillingService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -83,6 +85,7 @@ export class AuthService {
     password: string;
     firstName?: string;
     lastName?: string;
+    planName?: string;
   }) {
     const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
     if (existingEmail) {
@@ -124,12 +127,24 @@ export class AuthService {
       data: { activeTeamId: team.id },
     });
 
+    const teamName = `${displayName}'s Team`;
+    try {
+      if (data.planName && data.planName !== 'free') {
+        await this.billing.createSubscriptionWithPlan(team.id, data.planName, data.email, teamName);
+      } else {
+        await this.billing.createFreeSubscription(team.id, data.email, teamName);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to create subscription for team ${team.id}: ${err}`);
+    }
+
     this.email.sendWelcome(data.email, displayName).catch(() => {});
 
     const linkedCount = await this.linkEmailInvitesToUser(data.email, user.id);
 
     const tokens = await this.login(data.email, data.password);
-    return { ...tokens, hasPendingInvites: linkedCount > 0 };
+    const selectedPlan = data.planName || 'free';
+    return { ...tokens, hasPendingInvites: linkedCount > 0, selectedPlan };
   }
 
   private async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
@@ -221,6 +236,12 @@ export class AuthService {
         where: { id: user.id },
         data: { activeTeamId: team.id },
       });
+
+      try {
+        await this.billing.createFreeSubscription(team.id, safeEmail, `${safeUsername}'s Team`);
+      } catch (err) {
+        this.logger.error(`Failed to create free subscription for team ${team.id}: ${err}`);
+      }
 
       return user;
     } catch (err: any) {

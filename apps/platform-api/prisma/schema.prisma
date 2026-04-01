@@ -25,6 +25,23 @@ enum TeamMemberRole {
   MEMBER
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+enum InfraStatus {
+  PROVISIONING
+  ACTIVE
+  MIGRATING
+  FAILED
+  DEPROVISIONING
+  STOPPED
+}
+
 model User {
   id              String   @id
   username        String   @unique
@@ -72,6 +89,11 @@ model Team {
   projects          Project[]
   folders           ProjectFolder[]
   tags              ProjectTag[]
+  subscription      Subscription?
+  invoices          Invoice[]
+  usage             TeamUsage?
+  infrastructure    TeamInfrastructure?
+  billingAccount    BillingAccount?
 
   @@map("teams")
 }
@@ -154,7 +176,8 @@ model Project {
   tags          ProjectTagAssignment[]
   sqlAuditLogs  SqlAuditLog[]
   authConfig    ProjectAuthConfig?
-  activityLogs  ProjectActivityLog[]
+  activityLogs    ProjectActivityLog[]
+  infrastructure  ProjectInfrastructure?
 
   @@map("projects")
 }
@@ -319,4 +342,170 @@ model Feedback {
 
   @@index([userId])
   @@map("feedbacks")
+}
+
+// ── Billing ──────────────────────────────────────────────
+
+model Plan {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  displayName       String   @map("display_name")
+  maxProjects       Int?     @map("max_projects")
+  maxStorageBytes   BigInt?  @map("max_storage_bytes")
+  maxTeamMembers    Int?     @map("max_team_members")
+  maxDbSizeBytes    BigInt?  @map("max_db_size_bytes")
+  maxApiRequests    Int?     @map("max_api_requests")
+  maxBandwidthBytes BigInt?  @map("max_bandwidth_bytes")
+  maxMau            Int?     @map("max_mau")
+  dedicatedDb       Boolean  @default(false) @map("dedicated_db")
+  dedicatedStorage  Boolean  @default(false) @map("dedicated_storage")
+  dbMemoryMb        Int      @default(0) @map("db_memory_mb")
+  dbCpuMillis       Int      @default(0) @map("db_cpu_millis")
+  priceMonthly      Int      @default(0) @map("price_monthly")
+  stripePriceId     String?  @map("stripe_price_id")
+  stripeProductId   String?  @map("stripe_product_id")
+  isPublic          Boolean  @default(true) @map("is_public")
+  features          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  teamId               String             @unique @map("team_id")
+  planId               String             @map("plan_id")
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @map("stripe_customer_id")
+  stripeSubscriptionId String?            @map("stripe_subscription_id")
+  currentPeriodStart   DateTime?          @map("current_period_start")
+  currentPeriodEnd     DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id              String    @id @default(uuid())
+  teamId          String    @map("team_id")
+  stripeInvoiceId String?   @unique @map("stripe_invoice_id")
+  amountDue       Int       @map("amount_due")
+  amountPaid      Int       @default(0) @map("amount_paid")
+  currency        String    @default("usd")
+  status          String
+  invoiceUrl      String?   @map("invoice_url")
+  invoicePdf      String?   @map("invoice_pdf")
+  periodStart     DateTime? @map("period_start")
+  periodEnd       DateTime? @map("period_end")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("invoices")
+}
+
+model BillingAccount {
+  id           String   @id @default(uuid())
+  teamId       String   @unique @map("team_id")
+  companyName  String?  @map("company_name")
+  taxId        String?  @map("tax_id")
+  vatNumber    String?  @map("vat_number")
+  addressLine1 String?  @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  city         String?
+  state        String?
+  postalCode   String?  @map("postal_code")
+  country      String?
+  billingEmail String?  @map("billing_email")
+  phone        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("billing_accounts")
+}
+
+// ── Usage Tracking ───────────────────────────────────────
+
+model TeamUsage {
+  id               String   @id @default(uuid())
+  teamId           String   @unique @map("team_id")
+  projectCount     Int      @default(0) @map("project_count")
+  storageBytes     BigInt   @default(0) @map("storage_bytes")
+  memberCount      Int      @default(0) @map("member_count")
+  dbSizeBytes      BigInt   @default(0) @map("db_size_bytes")
+  apiRequestsMonth Int      @default(0) @map("api_requests_month")
+  bandwidthMonth   BigInt   @default(0) @map("bandwidth_month")
+  mauCount         Int      @default(0) @map("mau_count")
+  periodStart      DateTime @default(now()) @map("period_start")
+  lastCalculatedAt DateTime @default(now()) @map("last_calculated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_usage")
+}
+
+model UsageRecord {
+  id          String   @id @default(uuid())
+  teamId      String   @map("team_id")
+  projectId   String?  @map("project_id")
+  metric      String
+  value       BigInt
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+
+  @@index([teamId, metric, recordedAt])
+  @@index([projectId, metric, recordedAt])
+  @@map("usage_records")
+}
+
+// ── Dedicated Infrastructure ─────────────────────────────
+
+model ProjectInfrastructure {
+  id              String      @id @default(uuid())
+  projectId       String      @unique @map("project_id")
+  pgContainerName String?     @map("pg_container_name")
+  pgContainerHost String?     @map("pg_container_host")
+  pgContainerPort Int?        @map("pg_container_port")
+  pgAdminUser     String?     @map("pg_admin_user")
+  pgAdminPassword String?     @map("pg_admin_password")
+  pgMemoryMb      Int         @default(1024) @map("pg_memory_mb")
+  pgCpuMillis     Int         @default(1000) @map("pg_cpu_millis")
+  pgVolumeId      String?     @map("pg_volume_id")
+  status          InfraStatus @default(PROVISIONING)
+  provisionedAt   DateTime?   @map("provisioned_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_infrastructure")
+}
+
+model TeamInfrastructure {
+  id                 String      @id @default(uuid())
+  teamId             String      @unique @map("team_id")
+  minioContainerName String?     @map("minio_container_name")
+  minioContainerHost String?     @map("minio_container_host")
+  minioContainerPort Int?        @map("minio_container_port")
+  minioAccessKey     String?     @map("minio_access_key")
+  minioSecretKey     String?     @map("minio_secret_key")
+  minioVolumeId      String?     @map("minio_volume_id")
+  status             InfraStatus @default(PROVISIONING)
+  provisionedAt      DateTime?   @map("provisioned_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_infrastructure")
 }

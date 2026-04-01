@@ -12,6 +12,7 @@ import { randomBytes } from 'crypto';
 import * as Minio from 'minio';
 import { Readable } from 'stream';
 import { PrismaService } from '../../prisma/prisma.service';
+import { QuotaService } from '../billing/quota.service';
 
 export interface StorageObject {
   name: string;
@@ -45,6 +46,7 @@ export class StorageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly quota: QuotaService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -334,6 +336,8 @@ export class StorageService {
     }
 
     const project = await this.assertProjectAccess(projectId, userId);
+    await this.quota.assertCanUploadStorage(project.teamId, buffer.length);
+
     const minioBucket = this.minioBucketName(project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);

@@ -61,4 +61,16 @@ export default () => ({
     githubTeamsClientId: process.env.GITHUB_TEAMS_CLIENT_ID || '',
     githubTeamsClientSecret: process.env.GITHUB_TEAMS_CLIENT_SECRET || '',
   },
+
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+  },
+
+  docker: {
+    socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
+    network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',
+    pgImage: process.env.DOCKER_PG_IMAGE || 'postgres:16-alpine',
+    minioImage: process.env.DOCKER_MINIO_IMAGE || 'minio/minio:latest',
+  },
 });

@@ -97,8 +97,8 @@ async function request<T>(
 
 export const api = {
   auth: {
-    signup(data: { email: string; password: string; firstName?: string; lastName?: string }) {
-      return request<AuthTokens>('/auth/signup', {
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
+      return request<AuthTokens & { selectedPlan?: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -765,6 +765,92 @@ export const api = {
       return request<{ reply: string }>('/ai/chat', {
         method: 'POST',
         body: JSON.stringify({ message, history, context }),
+      });
+    },
+  },
+
+  billing: {
+    plans() {
+      return request<any[]>('/billing/plans');
+    },
+    subscription(teamId: string) {
+      return request<any>(`/billing/subscription?teamId=${teamId}`);
+    },
+    usage(teamId: string) {
+      return request<any>(`/billing/usage?teamId=${teamId}`);
+    },
+    invoices(teamId: string) {
+      return request<any[]>(`/billing/invoices?teamId=${teamId}`);
+    },
+    createCheckout(teamId: string, planName: string) {
+      const successUrl = `${window.location.origin}/dashboard/billing?success=true`;
+      const cancelUrl = `${window.location.origin}/dashboard/billing?canceled=true`;
+      return request<{ url: string }>('/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, planName, successUrl, cancelUrl }),
+      });
+    },
+    createPortal(teamId: string) {
+      const returnUrl = `${window.location.origin}/dashboard/billing`;
+      return request<{ url: string }>('/billing/portal', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, returnUrl }),
+      });
+    },
+    account(teamId: string) {
+      return request<any>(`/billing/account?teamId=${teamId}`);
+    },
+    updateAccount(teamId: string, data: {
+      companyName?: string;
+      taxId?: string;
+      vatNumber?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+      billingEmail?: string;
+      phone?: string;
+    }) {
+      return request<any>('/billing/account', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, ...data }),
+      });
+    },
+    paymentMethod(teamId: string) {
+      return request<{ brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null } | null>(
+        `/billing/payment-method?teamId=${teamId}`,
+      );
+    },
+    createSetupIntent(teamId: string) {
+      return request<{ clientSecret: string; customerId: string }>('/billing/setup-intent', {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    attachPaymentMethod(teamId: string, paymentMethodId: string) {
+      return request<{ success: boolean }>('/billing/attach-payment-method', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, paymentMethodId }),
+      });
+    },
+    cancelSubscription(teamId: string) {
+      return request<{ message: string }>('/billing/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    resumeSubscription(teamId: string) {
+      return request<{ message: string }>('/billing/resume', {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    changePlan(teamId: string, planName: string) {
+      return request<{ message: string }>('/billing/change-plan', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, planName }),
       });
     },
   },
