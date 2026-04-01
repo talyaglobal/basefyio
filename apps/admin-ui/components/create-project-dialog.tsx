@@ -437,6 +437,26 @@ export function CreateProjectDialog({
 
     setImportSteps((prev) => {
       const steps = [...prev];
+      if (data.step === 'completed') {
+        return steps.map((step) => ({
+          ...step,
+          status: 'done',
+          detail: step.detail,
+        }));
+      }
+      if (data.step === 'failed') {
+        const activeIdx = steps.findIndex(
+          (step) => step.status === 'active' || step.status === 'pending',
+        );
+        if (activeIdx >= 0) {
+          steps[activeIdx] = {
+            ...steps[activeIdx],
+            status: 'error',
+            detail: data.error || data.detail,
+          };
+        }
+        return steps;
+      }
       const stepMap: Record<string, number> = {
         database: 1,
         auth: 2,

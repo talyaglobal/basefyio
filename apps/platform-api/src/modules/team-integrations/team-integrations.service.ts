@@ -281,6 +281,111 @@ export class TeamIntegrationsService {
 
   // ── Vercel ────────────────────────────────────────────────────
 
+  getVercelOAuthConfigured(): boolean {
+    const clientId = this.config.get<string>('oauth.vercelClientId');
+    return !!clientId;
+  }
+
+  async getVercelConnectUrl(teamId: string): Promise<string> {
+    const clientId = this.config.get<string>('oauth.vercelClientId');
+    if (!clientId) {
+      throw new BadRequestException(
+        'Vercel OAuth is not configured. Set VERCEL_CLIENT_ID and VERCEL_CLIENT_SECRET.',
+      );
+    }
+    await this.getTeamOrThrow(teamId);
+
+    const state = this.encodeState({
+      teamId,
+      returnUrl: `${this.appUrl}/dashboard/team`,
+    });
+    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      state,
+    });
+    return `https://vercel.com/oauth/authorize?${params}`;
+  }
+
+  async handleVercelCallback(code: string, state: string): Promise<string> {
+    const { teamId, returnUrl } = this.decodeState(state);
+    const fallbackUrl = `${this.appUrl}/dashboard/team`;
+
+    if (!teamId) {
+      this.logger.error('Vercel callback: missing teamId in state');
+      return `${fallbackUrl}?vercel_error=invalid_state`;
+    }
+
+    const clientId = this.config.get<string>('oauth.vercelClientId');
+    const clientSecret = this.config.get<string>('oauth.vercelClientSecret');
+    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
+
+    try {
+      const tokenRes = await firstValueFrom(
+        this.http.post(
+          'https://api.vercel.com/v2/oauth/access_token',
+          new URLSearchParams({
+            client_id: clientId!,
+            client_secret: clientSecret!,
+            code,
+            redirect_uri: callbackUrl,
+          }).toString(),
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 15000,
+          },
+        ),
+      );
+
+      const accessToken: string = tokenRes.data.access_token;
+      const vercelTeamId: string | null = tokenRes.data.team_id || null;
+
+      if (!accessToken) {
+        this.logger.error('Vercel callback: no access_token in response', tokenRes.data);
+        const target = returnUrl || fallbackUrl;
+        return `${target}?vercel_error=no_token`;
+      }
+
+      let username = 'unknown';
+      try {
+        const userRes = await firstValueFrom(
+          this.http.get('https://api.vercel.com/v2/user', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            timeout: 10000,
+          }),
+        );
+        username =
+          userRes.data?.user?.username ||
+          userRes.data?.user?.name ||
+          userRes.data?.user?.email ||
+          'unknown';
+      } catch {
+        this.logger.warn('Vercel callback: could not fetch user info');
+      }
+
+      await this.prisma.team.update({
+        where: { id: teamId },
+        data: {
+          vercelOAuthToken: accessToken,
+          vercelOAuthTeamId: vercelTeamId,
+          vercelOAuthUser: username,
+        },
+      });
+
+      this.logger.log(`Vercel connected for team ${teamId} as ${username}`);
+      const target = returnUrl || fallbackUrl;
+      return `${target}?vercel_connected=1`;
+    } catch (err: any) {
+      const detail = err?.response?.data
+        ? JSON.stringify(err.response.data)
+        : err?.message;
+      this.logger.error(`Vercel OAuth callback error: ${detail}`);
+      const target = returnUrl || fallbackUrl;
+      return `${target}?vercel_error=oauth_failed`;
+    }
+  }
+
   async connectVercelWithToken(teamId: string, token: string): Promise<{ connected: boolean; user: string }> {
     await this.getTeamOrThrow(teamId);
 
@@ -342,7 +447,7 @@ export class TeamIntegrationsService {
       connected: !!team.vercelOAuthToken,
       user: team.vercelOAuthUser ?? undefined,
       teamId: team.vercelOAuthTeamId ?? undefined,
-      oauthConfigured: true,
+      oauthConfigured: this.getVercelOAuthConfigured(),
     };
   }
 
