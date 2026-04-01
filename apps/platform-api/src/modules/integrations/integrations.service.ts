@@ -3,7 +3,9 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GitHubService } from './github.service';
 import { VercelService } from './vercel.service';
@@ -21,6 +23,7 @@ export class IntegrationsService {
     private readonly github: GitHubService,
     private readonly vercel: VercelService,
     private readonly activity: ProjectActivityService,
+    private readonly config: ConfigService,
   ) {}
 
   private async getProjectWithAccess(projectId: string, userId: string) {
@@ -278,5 +281,57 @@ export class IntegrationsService {
       project.vercelProjectId,
       project.vercelTeamId,
     );
+  }
+
+  async syncEnvToVercel(projectId: string, userId: string) {
+    const project = await this.getProjectWithAccess(projectId, userId);
+
+    if (!project.vercelToken || !project.vercelProjectId) {
+      throw new BadRequestException('Vercel is not connected for this project');
+    }
+
+    const publicApiUrl =
+      this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
+    const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
+    const host = project.dbHost;
+    const port = project.dbPort;
+
+    const publicHostname = (() => {
+      try {
+        return new URL(publicBaseUrl).hostname;
+      } catch {
+        return host;
+      }
+    })();
+    const connectionHost =
+      host === 'localhost' || host === '127.0.0.1' ? publicHostname : host;
+
+    const pooledUrl = `postgresql://${project.dbUser}:${project.dbPassword}@${connectionHost}:${port}/${project.dbName}`;
+    const restBaseUrl = `${publicBaseUrl}/api/proxy`;
+
+    const vars: Record<string, string> = {
+      NEXT_PUBLIC_SUPABASE_URL: restBaseUrl,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: project.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: project.serviceKey,
+      DATABASE_URL: pooledUrl,
+      DIRECT_URL: pooledUrl,
+      PROJECT_ID: projectId,
+    };
+
+    const result = await this.vercel.upsertEnvVars(
+      project.vercelToken,
+      project.vercelProjectId,
+      project.vercelTeamId,
+      vars,
+    );
+
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.INTEGRATION_VERCEL_CONNECTED,
+      title: 'Vercel env vars synced',
+      detail: `${result.created} created, ${result.updated} updated`,
+    });
+
+    return { synced: true, ...result, keys: Object.keys(vars) };
   }
 }

@@ -25,7 +25,16 @@ import {
   ArrowLeft,
   Link2,
   Settings,
+  Upload,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type {
   GitHubIntegration,
   GitHubCommit,
@@ -505,6 +514,9 @@ function VercelCard({
   const [selectedProject, setSelectedProject] = useState('');
   const [fetchingProjects, setFetchingProjects] = useState(false);
 
+  const [showEnvModal, setShowEnvModal] = useState(false);
+  const [syncingEnv, setSyncingEnv] = useState(false);
+
   const useTeamToken = !!(teamVercel?.connected);
 
   useEffect(() => {
@@ -563,10 +575,26 @@ function VercelCard({
       setSelectedProject('');
       setChanging(false);
       await loadStatus();
+      setShowEnvModal(true);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function handleSyncEnv() {
+    setSyncingEnv(true);
+    try {
+      const result = await api.integrations.syncVercelEnv(projectId);
+      toast.success(
+        `Environment variables synced: ${result.created} created, ${result.updated} updated`,
+      );
+      setShowEnvModal(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to sync environment variables');
+    } finally {
+      setSyncingEnv(false);
     }
   }
 
@@ -640,6 +668,15 @@ function VercelCard({
                 View
               </a>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowEnvModal(true)}
+              className="h-8"
+            >
+              <Upload className="h-3.5 w-3.5 mr-1" />
+              Sync Env
+            </Button>
             {useTeamToken && (
               <Button
                 variant="ghost"
@@ -803,6 +840,46 @@ function VercelCard({
           )}
         </div>
       )}
+
+      <Dialog open={showEnvModal} onOpenChange={setShowEnvModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save Environment Variables</DialogTitle>
+            <DialogDescription>
+              Would you like to sync your Kolaybase project&apos;s environment variables
+              to the connected Vercel project? This will create or update the following
+              variables for all environments (production, preview, development):
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm font-mono space-y-1">
+            <p>NEXT_PUBLIC_SUPABASE_URL</p>
+            <p>NEXT_PUBLIC_SUPABASE_ANON_KEY</p>
+            <p className="text-amber-600 dark:text-amber-400">SUPABASE_SERVICE_ROLE_KEY</p>
+            <p>DATABASE_URL</p>
+            <p>DIRECT_URL</p>
+            <p>PROJECT_ID</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Sensitive values (service key, database credentials) are stored as encrypted environment variables on Vercel.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={() => setShowEnvModal(false)}
+              disabled={syncingEnv}
+            >
+              Skip
+            </Button>
+            <Button onClick={handleSyncEnv} disabled={syncingEnv}>
+              {syncingEnv ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Syncing...</>
+              ) : (
+                <><Upload className="h-4 w-4 mr-2" />Sync Variables</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

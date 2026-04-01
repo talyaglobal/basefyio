@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Put,
+  Post,
   Delete,
   Param,
   Body,
@@ -144,5 +145,13 @@ export class IntegrationsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.getVercelDeployments(projectId, user.sub);
+  }
+
+  @Post('vercel/sync-env')
+  async syncEnvToVercel(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.syncEnvToVercel(projectId, user.sub);
   }
 }

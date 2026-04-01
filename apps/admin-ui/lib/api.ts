@@ -654,6 +654,12 @@ export const api = {
     getVercelDeployments(projectId: string) {
       return request<VercelDeployment[]>(`/projects/${projectId}/integrations/vercel/deployments`);
     },
+    syncVercelEnv(projectId: string) {
+      return request<{ synced: boolean; created: number; updated: number; keys: string[] }>(
+        `/projects/${projectId}/integrations/vercel/sync-env`,
+        { method: 'POST' },
+      );
+    },
   },
 
   teamIntegrations: {

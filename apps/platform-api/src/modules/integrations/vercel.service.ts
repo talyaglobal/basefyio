@@ -159,4 +159,64 @@ export class VercelService {
       return [];
     }
   }
+
+  /**
+   * Create or update environment variables on a Vercel project.
+   * Existing keys are patched; new keys are created.
+   */
+  async upsertEnvVars(
+    token: string,
+    projectId: string,
+    teamId: string | null | undefined,
+    vars: Record<string, string>,
+  ): Promise<{ created: number; updated: number }> {
+    const tp = this.teamParam(teamId);
+    const hdrs = this.headers(token);
+
+    const { data: existing } = await firstValueFrom(
+      this.http.get(`${this.baseUrl}/v9/projects/${projectId}/env`, {
+        headers: hdrs,
+        params: tp,
+        timeout: 15000,
+      }),
+    );
+
+    const existingByKey = new Map<string, string>();
+    for (const e of existing?.envs || []) {
+      existingByKey.set(e.key, e.id);
+    }
+
+    let created = 0;
+    let updated = 0;
+    const targets = ['production', 'preview', 'development'];
+
+    for (const [key, value] of Object.entries(vars)) {
+      const envId = existingByKey.get(key);
+
+      if (envId) {
+        await firstValueFrom(
+          this.http.patch(
+            `${this.baseUrl}/v9/projects/${projectId}/env/${envId}`,
+            { value, target: targets, type: 'encrypted' },
+            { headers: hdrs, params: tp, timeout: 10000 },
+          ),
+        );
+        updated++;
+      } else {
+        await firstValueFrom(
+          this.http.post(
+            `${this.baseUrl}/v10/projects/${projectId}/env`,
+            { key, value, target: targets, type: 'encrypted' },
+            { headers: hdrs, params: tp, timeout: 10000 },
+          ),
+        );
+        created++;
+      }
+    }
+
+    this.logger.log(
+      `Upserted env vars on Vercel project ${projectId}: ${created} created, ${updated} updated`,
+    );
+    return { created, updated };
+  }
 }
