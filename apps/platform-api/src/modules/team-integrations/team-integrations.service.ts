@@ -299,13 +299,8 @@ export class TeamIntegrationsService {
       teamId,
       returnUrl: `${this.appUrl}/dashboard/team`,
     });
-    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: callbackUrl,
-      state,
-    });
-    return `https://vercel.com/oauth/authorize?${params}`;
+    const params = new URLSearchParams({ state });
+    return `https://vercel.com/integrations/kolaybase/new?${params}`;
   }
 
   async handleVercelCallback(code: string, state: string): Promise<string> {
