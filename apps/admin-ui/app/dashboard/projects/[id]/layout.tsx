@@ -13,6 +13,7 @@ import {
   Book,
   Copy,
   Database,
+  Download,
   ExternalLink,
   FolderOpen,
   Key,
@@ -104,6 +105,7 @@ const navItems = [
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
   { label: 'Connection', href: '/connect', icon: Link2 },
+  { label: 'Export', href: '/export', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
 ];
 

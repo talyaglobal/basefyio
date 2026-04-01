@@ -11,6 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import * as Minio from 'minio';
 import { Readable } from 'stream';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface StorageObject {
@@ -159,9 +161,9 @@ export class StorageService {
   async createBucket(projectId: string, userId: string | undefined, name: string, isPublic = false) {
     const project = await this.assertProjectAccess(projectId, userId);
 
-    if (!name || !/^[a-z0-9][a-z0-9-]{1,60}[a-z0-9]$/.test(name)) {
+    if (!name || !/^[A-Za-z0-9][A-Za-z0-9-]{1,60}[A-Za-z0-9]$/.test(name)) {
       throw new BadRequestException(
-        'Bucket name must be 3-63 chars, lowercase alphanumeric and hyphens, cannot start/end with hyphen',
+        'Bucket name must be 3-63 chars, alphanumeric and hyphens, cannot start/end with hyphen',
       );
     }
 
@@ -533,5 +535,65 @@ export class StorageService {
       mimeType: contentType,
       kind: isVideo ? 'video' : 'image',
     };
+  }
+
+  async ensurePlatformBucket(bucketName: string): Promise<void> {
+    const exists = await this.client.bucketExists(bucketName);
+    if (!exists) {
+      await this.client.makeBucket(bucketName);
+    }
+  }
+
+  async uploadPlatformFileFromPath(
+    bucketName: string,
+    objectName: string,
+    filePath: string,
+    contentType = 'application/octet-stream',
+  ): Promise<{ size: number; etag?: string }> {
+    await this.ensurePlatformBucket(bucketName);
+    const fileStat = await stat(filePath);
+    const stream = createReadStream(filePath);
+    const uploaded = await this.client.putObject(
+      bucketName,
+      objectName,
+      stream,
+      fileStat.size,
+      { 'Content-Type': contentType },
+    );
+    const etag = typeof uploaded === 'string' ? uploaded : uploaded?.etag;
+    return { size: fileStat.size, etag };
+  }
+
+  async getPlatformObject(
+    bucketName: string,
+    objectName: string,
+  ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
+    const stat = await this.client.statObject(bucketName, objectName);
+    const stream = await this.client.getObject(bucketName, objectName);
+    return { stream, stat };
+  }
+
+  async removePlatformObject(bucketName: string, objectName: string): Promise<void> {
+    await this.client.removeObject(bucketName, objectName);
+  }
+
+  async listPlatformObjects(
+    bucketName: string,
+    prefix = '',
+  ): Promise<StorageObject[]> {
+    return new Promise((resolve, reject) => {
+      const objects: StorageObject[] = [];
+      const stream = this.client.listObjectsV2(bucketName, prefix, true);
+      stream.on('data', (obj) => {
+        objects.push({
+          name: obj.name || '',
+          size: obj.size || 0,
+          lastModified: obj.lastModified || new Date(),
+          etag: obj.etag,
+        });
+      });
+      stream.on('error', reject);
+      stream.on('end', () => resolve(objects));
+    });
   }
 }

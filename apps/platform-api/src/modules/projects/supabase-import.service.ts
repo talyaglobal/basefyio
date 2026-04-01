@@ -1764,12 +1764,12 @@ export class SupabaseImportService {
 
     const desiredLogicalNames = new Set<string>();
     for (const b of buckets) {
-      const n = (b.name || b.id || '').trim().toLowerCase();
+      const n = (b.name || b.id || '').trim();
       if (n) desiredLogicalNames.add(n);
     }
 
     for (const bucket of buckets) {
-      const logicalBucketName = (bucket.name || bucket.id || '').trim().toLowerCase();
+      const logicalBucketName = (bucket.name || bucket.id || '').trim();
       if (!logicalBucketName) {
         this.logger.warn('Skipping storage bucket with empty name and id');
         continue;

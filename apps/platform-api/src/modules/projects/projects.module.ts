@@ -13,11 +13,13 @@ import { PublicApiService } from './public-api.service';
 import { SupabaseImportService } from './supabase-import.service';
 import { ImportProcessor } from '../queue/import.processor';
 import { EmailProcessor } from '../queue/email.processor';
+import { ExportProcessor } from '../queue/export.processor';
 import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
 import { FoldersController, TagsController } from './folders-tags.controller';
 import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
+import { ProjectExportService } from './project-export.service';
 
 @Module({
   imports: [
@@ -42,7 +44,9 @@ import { ProjectActivityModule } from './project-activity.module';
     ProjectSdkAuthService,
     PublicApiService,
     SupabaseImportService,
+    ProjectExportService,
     ImportProcessor,
+    ExportProcessor,
     EmailProcessor,
     FoldersTagsService,
   ],
