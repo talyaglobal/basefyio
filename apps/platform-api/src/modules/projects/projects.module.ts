@@ -15,6 +15,8 @@ import { ImportProcessor } from '../queue/import.processor';
 import { EmailProcessor } from '../queue/email.processor';
 import { ExportProcessor } from '../queue/export.processor';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
+import { InfrastructureModule } from '../infrastructure/infrastructure.module';
 import { StorageModule } from '../storage/storage.module';
 import { FoldersController, TagsController } from './folders-tags.controller';
 import { FoldersTagsService } from './folders-tags.service';
@@ -24,6 +26,8 @@ import { ProjectExportService } from './project-export.service';
 @Module({
   imports: [
     AuthModule,
+    BillingModule,
+    InfrastructureModule,
     HttpModule.register({ timeout: 60000 }),
     StorageModule,
     ProjectActivityModule,

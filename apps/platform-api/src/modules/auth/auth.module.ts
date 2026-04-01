@@ -5,9 +5,10 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [PassportModule, HttpModule],
+  imports: [PassportModule, HttpModule, BillingModule],
   controllers: [AuthController],
   providers: [AuthService, KeycloakAdminService, JwtStrategy],
   exports: [KeycloakAdminService],

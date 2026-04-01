@@ -16,4 +16,8 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   lastName?: string;
+
+  @IsString()
+  @IsOptional()
+  planName?: string;
 }

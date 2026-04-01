@@ -7,6 +7,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { QuotaService } from '../billing/quota.service';
+import { UsageService } from '../billing/usage.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class TeamsService {
@@ -15,6 +18,9 @@ export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly quota: QuotaService,
+    private readonly usageService: UsageService,
+    private readonly billing: BillingService,
   ) {}
 
   async createPersonalTeam(userId: string, username: string) {
@@ -56,6 +62,16 @@ export class TeamsService {
         },
       },
     });
+
+    const owner = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    try {
+      await this.billing.createFreeSubscription(team.id, owner?.email, name);
+    } catch (err) {
+      this.logger.error(`Failed to create subscription for new team ${team.id}: ${err}`);
+    }
 
     this.logger.log(`Team "${name}" created by ${userId}`);
     return team;
@@ -165,6 +181,7 @@ export class TeamsService {
 
   async sendInvite(teamId: string, ownerUserId: string, usernameOrEmail: string) {
     await this.assertOwner(teamId, ownerUserId);
+    await this.quota.assertCanInviteMember(teamId);
 
     const targetUser = await this.prisma.user.findFirst({
       where: {
@@ -329,6 +346,8 @@ export class TeamsService {
       }),
     ]);
 
+    this.usageService.incrementMemberCount(invite.teamId).catch(() => {});
+
     this.logger.log(`User ${userId} accepted invite to team ${invite.teamId}`);
     return { message: 'Invite accepted' };
   }
@@ -367,6 +386,8 @@ export class TeamsService {
     await this.prisma.teamMember.deleteMany({
       where: { teamId, userId: targetUserId },
     });
+
+    this.usageService.decrementMemberCount(teamId).catch(() => {});
 
     return { message: 'Member removed' };
   }

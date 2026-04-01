@@ -8,6 +8,7 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   Home,
   LayoutDashboard,
   MessageSquareText,
@@ -52,6 +53,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
     label: 'Team',
     icon: Users,
     isActive: (p) => p.startsWith('/dashboard/team'),
+  },
+  {
+    href: '/dashboard/billing',
+    label: 'Billing',
+    icon: CreditCard,
+    isActive: (p) => p.startsWith('/dashboard/billing'),
   },
   {
     href: '/dashboard/profile',

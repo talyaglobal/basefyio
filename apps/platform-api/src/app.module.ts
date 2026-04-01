@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { UsageTrackingMiddleware } from './common/middleware/usage-tracking.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
@@ -16,6 +17,9 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { TeamIntegrationsModule } from './modules/team-integrations/team-integrations.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { AiModule } from './modules/ai/ai.module';
+import { StripeModule } from './modules/stripe/stripe.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -40,6 +44,13 @@ import configuration from './config/configuration';
     TeamIntegrationsModule,
     RedisModule,
     AiModule,
+    StripeModule,
+    BillingModule,
+    InfrastructureModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(UsageTrackingMiddleware).forRoutes('rest/v1/*');
+  }
+}
