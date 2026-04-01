@@ -287,8 +287,7 @@ export class TeamIntegrationsService {
   }
 
   async getVercelConnectUrl(teamId: string): Promise<string> {
-    const clientId = this.config.get<string>('oauth.vercelClientId');
-    if (!clientId) {
+    if (!this.config.get<string>('oauth.vercelClientId')) {
       throw new BadRequestException(
         'Vercel OAuth is not configured. Set VERCEL_CLIENT_ID and VERCEL_CLIENT_SECRET.',
       );
@@ -299,13 +298,7 @@ export class TeamIntegrationsService {
       teamId,
       returnUrl: `${this.appUrl}/dashboard/team`,
     });
-    const callbackUrl = `${this.publicApiUrl}/api/team-integrations/vercel/callback`;
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: callbackUrl,
-      state,
-    });
-    return `https://vercel.com/oauth/authorize?${params}`;
+    return `https://vercel.com/integrations/kolaybase/new?state=${state}`;
   }
 
   async handleVercelCallback(code: string, state: string): Promise<string> {
