@@ -1,0 +1,232 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Req,
+  Res,
+  UseGuards,
+  RawBodyRequest,
+  Headers,
+  HttpCode,
+  Logger,
+  Query,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { BillingService } from './billing.service';
+import { UsageService } from './usage.service';
+import { StripeService } from '../stripe/stripe.service';
+
+@Controller('billing')
+export class BillingController {
+  private readonly logger = new Logger(BillingController.name);
+
+  constructor(
+    private readonly billing: BillingService,
+    private readonly usage: UsageService,
+    private readonly stripe: StripeService,
+  ) {}
+
+  @Get('plans')
+  async getPlans() {
+    return this.billing.listPlans();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('subscription')
+  async getSubscription(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) {
+      teamId = await this.billing.getUserActiveTeamId(userId);
+    }
+    return this.billing.getTeamSubscriptionForUser(teamId, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('usage')
+  async getUsage(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) {
+      teamId = await this.billing.getUserActiveTeamId(userId);
+    }
+    await this.billing.verifyTeamMembership(teamId, userId);
+    return this.usage.getTeamUsage(teamId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('invoices')
+  async getInvoices(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) {
+      teamId = await this.billing.getUserActiveTeamId(userId);
+    }
+    return this.billing.getInvoices(teamId, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('checkout')
+  async createCheckout(
+    @Req() req: any,
+    @Body() body: { teamId: string; planName: string; successUrl: string; cancelUrl: string },
+  ) {
+    return this.billing.createCheckoutSession(
+      body.teamId,
+      req.user.sub,
+      body.planName,
+      body.successUrl,
+      body.cancelUrl,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('portal')
+  async createPortal(
+    @Req() req: any,
+    @Body() body: { teamId: string; returnUrl: string },
+  ) {
+    return this.billing.createPortalSession(body.teamId, req.user.sub, body.returnUrl);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('account')
+  async getBillingAccount(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) teamId = await this.billing.getUserActiveTeamId(userId);
+    await this.billing.verifyTeamMembership(teamId, userId);
+    return this.billing.getBillingAccount(teamId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('account')
+  async updateBillingAccount(
+    @Req() req: any,
+    @Body() body: {
+      teamId: string;
+      companyName?: string;
+      taxId?: string;
+      vatNumber?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+      billingEmail?: string;
+      phone?: string;
+    },
+  ) {
+    const { teamId, ...data } = body;
+    return this.billing.upsertBillingAccount(teamId, req.user.sub, data);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('payment-method')
+  async getPaymentMethod(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) teamId = await this.billing.getUserActiveTeamId(userId);
+    return this.billing.getPaymentMethod(teamId, userId);
+  }
+
+  /** Create a SetupIntent for adding a card via Stripe Elements */
+  @UseGuards(JwtAuthGuard)
+  @Post('setup-intent')
+  async createSetupIntent(
+    @Req() req: any,
+    @Body() body: { teamId: string },
+  ) {
+    return this.billing.createSetupIntent(body.teamId, req.user.sub);
+  }
+
+  /** Attach payment method after card is confirmed */
+  @UseGuards(JwtAuthGuard)
+  @Post('attach-payment-method')
+  async attachPaymentMethod(
+    @Req() req: any,
+    @Body() body: { teamId: string; paymentMethodId: string },
+  ) {
+    return this.billing.attachPaymentMethod(body.teamId, req.user.sub, body.paymentMethodId);
+  }
+
+  /** Cancel subscription at period end */
+  @UseGuards(JwtAuthGuard)
+  @Post('cancel')
+  async cancelSubscription(
+    @Req() req: any,
+    @Body() body: { teamId: string },
+  ) {
+    return this.billing.cancelSubscription(body.teamId, req.user.sub);
+  }
+
+  /** Resume a canceled subscription */
+  @UseGuards(JwtAuthGuard)
+  @Post('resume')
+  async resumeSubscription(
+    @Req() req: any,
+    @Body() body: { teamId: string },
+  ) {
+    return this.billing.resumeSubscription(body.teamId, req.user.sub);
+  }
+
+  /** Change subscription plan */
+  @UseGuards(JwtAuthGuard)
+  @Post('change-plan')
+  async changePlan(
+    @Req() req: any,
+    @Body() body: { teamId: string; planName: string },
+  ) {
+    return this.billing.changePlan(body.teamId, req.user.sub, body.planName);
+  }
+
+  @Post('webhook')
+  @HttpCode(200)
+  async handleWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('stripe-signature') signature: string,
+    @Res() res: Response,
+  ) {
+    if (!signature) {
+      return res.status(400).json({ error: 'Missing stripe-signature header' });
+    }
+
+    let event;
+    try {
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        return res.status(400).json({ error: 'Missing raw body' });
+      }
+      event = this.stripe.constructWebhookEvent(rawBody, signature);
+    } catch (err: any) {
+      this.logger.warn(`Webhook signature verification failed: ${err.message}`);
+      return res.status(400).json({ error: 'Webhook signature verification failed' });
+    }
+
+    this.logger.log(`Stripe webhook received: ${event.type}`);
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await this.billing.handleCheckoutCompleted(event.data.object);
+          break;
+        case 'customer.subscription.updated':
+          await this.billing.handleSubscriptionUpdated(event.data.object);
+          break;
+        case 'customer.subscription.deleted':
+          await this.billing.handleSubscriptionDeleted(event.data.object);
+          break;
+        case 'invoice.paid':
+          await this.billing.handleInvoicePaid(event.data.object);
+          break;
+        case 'invoice.payment_failed':
+          await this.billing.handleInvoicePaymentFailed(event.data.object);
+          break;
+        default:
+          this.logger.debug(`Unhandled webhook event: ${event.type}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Webhook handler error for ${event.type}: ${err.message}`);
+    }
+
+    return res.json({ received: true });
+  }
+}

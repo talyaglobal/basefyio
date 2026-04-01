@@ -7,6 +7,7 @@ import {
   Mail,
   Key,
   ArrowRight,
+  Check,
 } from "lucide-react";
 
 export default function Home() {
@@ -19,6 +20,12 @@ export default function Home() {
             Kolaybase
           </Link>
           <nav className="flex items-center gap-6">
+            <Link
+              href="#pricing"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Pricing
+            </Link>
             <Link
               href="/docs"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -129,6 +136,101 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Pricing */}
+      <section id="pricing" className="py-24 px-6 bg-muted/30">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-center text-3xl font-bold sm:text-4xl">
+            Simple, transparent pricing
+          </h2>
+          <p className="mt-4 text-center text-muted-foreground max-w-xl mx-auto">
+            Start free, scale as you grow. No hidden fees.
+          </p>
+
+          <div className="mt-16 grid gap-6 lg:grid-cols-3">
+            {/* Free */}
+            <div className="rounded-2xl border border-border bg-card p-8 flex flex-col">
+              <h3 className="text-lg font-semibold">Free</h3>
+              <div className="mt-4">
+                <span className="text-4xl font-bold">$0</span>
+                <span className="text-muted-foreground">/mo</span>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Perfect for hobby projects and learning.
+              </p>
+              <ul className="mt-6 space-y-3 text-sm flex-1">
+                {["2 projects", "1 GB storage", "500 MB database", "2 team members", "500K API requests/mo", "2 GB bandwidth/mo", "Shared infrastructure"].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <span className="text-muted-foreground">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="https://app.kolaybase.com/signup?plan=free"
+                className="mt-8 inline-flex items-center justify-center rounded-xl border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+              >
+                Get Started Free
+              </Link>
+            </div>
+
+            {/* Pro */}
+            <div className="rounded-2xl border-2 border-primary bg-card p-8 flex flex-col relative">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
+                Most Popular
+              </div>
+              <h3 className="text-lg font-semibold">Pro</h3>
+              <div className="mt-4">
+                <span className="text-4xl font-bold">$25</span>
+                <span className="text-muted-foreground">/mo</span>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                For growing apps that need dedicated resources.
+              </p>
+              <ul className="mt-6 space-y-3 text-sm flex-1">
+                {["10 projects", "100 GB storage", "8 GB database", "5 team members", "2M API requests/mo", "250 GB bandwidth/mo", "Dedicated database", "Daily backups"].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <span className="text-muted-foreground">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="https://app.kolaybase.com/signup?plan=pro"
+                className="mt-8 inline-flex items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+              >
+                Get Started with Pro
+              </Link>
+            </div>
+
+            {/* Business */}
+            <div className="rounded-2xl border border-border bg-card p-8 flex flex-col">
+              <h3 className="text-lg font-semibold">Business</h3>
+              <div className="mt-4">
+                <span className="text-4xl font-bold">$99</span>
+                <span className="text-muted-foreground">/mo</span>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                For teams that need maximum performance and support.
+              </p>
+              <ul className="mt-6 space-y-3 text-sm flex-1">
+                {["25 projects", "500 GB storage", "20 GB database", "20 team members", "10M API requests/mo", "1 TB bandwidth/mo", "Dedicated database & storage", "Daily backups", "Priority support"].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <span className="text-muted-foreground">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="https://app.kolaybase.com/signup?plan=business"
+                className="mt-8 inline-flex items-center justify-center rounded-xl border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+              >
+                Get Started with Business
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="py-24 px-6">
         <div className="mx-auto max-w-4xl rounded-3xl border border-border bg-card p-12 text-center">
@@ -156,6 +258,7 @@ export default function Home() {
             <span className="text-sm font-semibold text-foreground">Product</span>
             <ul className="mt-3 space-y-2">
               <li><Link href="https://app.kolaybase.com" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Dashboard</Link></li>
+              <li><Link href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link></li>
               <li><Link href="https://app.kolaybase.com/signup" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Sign Up</Link></li>
             </ul>
           </div>

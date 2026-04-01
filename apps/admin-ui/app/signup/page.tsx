@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Database } from 'lucide-react';
+import { Database, Check } from 'lucide-react';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -39,9 +39,16 @@ export default function SignupPage() {
   );
 }
 
+const PLANS = [
+  { name: 'free', label: 'Free', price: '$0', desc: '2 projects, 1 GB storage' },
+  { name: 'pro', label: 'Pro', price: '$25/mo', desc: '10 projects, dedicated DB' },
+  { name: 'business', label: 'Business', price: '$99/mo', desc: '25 projects, dedicated DB & storage' },
+];
+
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [selectedPlan, setSelectedPlan] = useState('free');
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -80,6 +87,11 @@ function SignupForm() {
       setForm((prev) => ({ ...prev, email: emailParam }));
     }
 
+    const planParam = searchParams.get('plan');
+    if (planParam && PLANS.some((p) => p.name === planParam)) {
+      setSelectedPlan(planParam);
+    }
+
     api.auth.getOAuthProviders()
       .then((data) => { if (data.providers.length > 0) setProviders(data.providers); })
       .catch(() => {});
@@ -94,13 +106,16 @@ function SignupForm() {
     setLoading(true);
 
     try {
-      const result = await api.auth.signup(form);
+      const result = await api.auth.signup({ ...form, planName: selectedPlan });
       setTokens(result);
       toast.success('Account created');
 
       if (result.hasPendingInvites) {
         toast.info('You have pending team invites!');
         router.push('/dashboard/team');
+      } else if (selectedPlan !== 'free') {
+        toast.info(`You're on the ${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} plan. Add a payment method to keep it active.`);
+        router.push('/dashboard/billing');
       } else {
         router.push('/dashboard');
       }
@@ -123,8 +138,8 @@ function SignupForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40">
-      <div className="w-full max-w-sm space-y-6 rounded-lg border bg-card p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-muted/40 py-8">
+      <div className="w-full max-w-lg space-y-6 rounded-lg border bg-card p-8 shadow-sm">
         <div className="flex flex-col items-center gap-2">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
@@ -133,6 +148,32 @@ function SignupForm() {
           <p className="text-sm text-muted-foreground">
             Create your account
           </p>
+        </div>
+
+        {/* Plan Selection */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Choose a plan</label>
+          <div className="grid grid-cols-3 gap-2">
+            {PLANS.map((plan) => (
+              <button
+                key={plan.name}
+                type="button"
+                onClick={() => setSelectedPlan(plan.name)}
+                className={`relative rounded-lg border p-3 text-left transition-all ${
+                  selectedPlan === plan.name
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'border-border hover:border-muted-foreground/40'
+                }`}
+              >
+                {selectedPlan === plan.name && (
+                  <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
+                )}
+                <div className="text-sm font-semibold">{plan.label}</div>
+                <div className="text-xs font-medium text-primary">{plan.price}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground leading-tight">{plan.desc}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {providers.length > 0 && (

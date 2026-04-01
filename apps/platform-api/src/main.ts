@@ -4,9 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { BigIntSerializationInterceptor } from './common/interceptors/bigint-serialization.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(helmet());
 
@@ -46,6 +47,7 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new BigIntSerializationInterceptor());
 
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 4000);
