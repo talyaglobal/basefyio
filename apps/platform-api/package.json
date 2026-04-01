@@ -29,6 +29,8 @@
     "@nestjs/schedule": "^6.1.1",
     "@prisma/client": "^5.0.0",
     "@supabase/supabase-js": "^2.100.1",
+    "@types/archiver": "^7.0.0",
+    "archiver": "^7.0.1",
     "axios": "^1.7.0",
     "bullmq": "^5.70.1",
     "class-transformer": "^0.5.1",

@@ -8,11 +8,15 @@ import type {
   GitHubIntegration,
   GitHubRepo,
   ForeignKeyInfo,
+  ExportJobProgressEvent,
+  ExportJobResult,
   ImportJobProgressEvent,
   PendingInvite,
   Project,
   ProjectActivityItem,
   ProjectAuthConfig,
+  ProjectExportJobResponse,
+  ProjectExportRequest,
   ProjectListItem,
   RealmInfo,
   RealmUser,
@@ -311,6 +315,100 @@ export const api = {
       return request<{ message: string }>(`/projects/import-supabase/jobs/${jobId}/cancel`, {
         method: 'POST',
       });
+    },
+    startExport(projectId: string, options?: ProjectExportRequest) {
+      return request<ProjectExportJobResponse>(`/projects/${projectId}/export`, {
+        method: 'POST',
+        body: JSON.stringify(options ?? {}),
+      });
+    },
+    getExportStatus(projectId: string, jobId: string) {
+      return request<{
+        id: string;
+        state: string;
+        progress?: ExportJobProgressEvent;
+        result?: ExportJobResult;
+        failedReason?: string;
+      }>(`/projects/${projectId}/export/jobs/${jobId}/status`);
+    },
+    streamExportProgress(
+      projectId: string,
+      jobId: string,
+      callbacks: {
+        onProgress: (data: ExportJobProgressEvent) => void;
+        onCompleted: (data: ExportJobResult) => void;
+        onFailed: (error: string) => void;
+        onError?: (error: Event) => void;
+        onState?: (state: string) => void;
+      },
+    ): EventSource {
+      const token = getAccessToken();
+      const url = `/api/proxy/projects/${projectId}/export/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const es = new EventSource(url);
+
+      es.addEventListener('state', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onState?.(data.state);
+        } catch {}
+      });
+
+      es.addEventListener('progress', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onProgress(data);
+        } catch {}
+      });
+
+      es.addEventListener('completed', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onCompleted(data);
+        } catch {
+          callbacks.onFailed('Export completed, but response parsing failed');
+        }
+        es.close();
+      });
+
+      es.addEventListener('failed', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          callbacks.onFailed(data.error || 'Export failed');
+        } catch {
+          callbacks.onFailed('Export failed');
+        }
+        es.close();
+      });
+
+      es.onerror = (e) => {
+        callbacks.onError?.(e);
+      };
+
+      return es;
+    },
+    async downloadExport(projectId: string, jobId: string): Promise<{
+      blob: Blob;
+      filename: string;
+    }> {
+      const token = getAccessToken();
+      const res = await fetch(
+        `/api/proxy/projects/${projectId}/export/jobs/${jobId}/download`,
+        {
+          method: 'GET',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || `Download failed: ${res.status}`);
+      }
+
+      const contentDisposition = res.headers.get('content-disposition') || '';
+      const filenameMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+      const filename = filenameMatch?.[1] || `project-export-${projectId}.zip`;
+      const blob = await res.blob();
+      return { blob, filename };
     },
 
     streamImportProgress(

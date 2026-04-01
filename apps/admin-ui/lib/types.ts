@@ -360,6 +360,17 @@ export interface SupabaseImportJobResponse {
   reimport?: boolean;
 }
 
+export interface ProjectExportRequest {
+  includeDatabase?: boolean;
+  includeAuth?: boolean;
+  includeStorage?: boolean;
+  includeConfig?: boolean;
+}
+
+export interface ProjectExportJobResponse {
+  jobId: string;
+}
+
 export interface ImportProgressData {
   database: { tables: number; rows: number; failedTables: string[] };
   auth: { users: number; skipped: number; emailsSent: number };
@@ -415,6 +426,27 @@ export interface ImportJobProgressEvent {
   error?: string;
   /** Active fetch strategy label (e.g. "PostgREST", "Direct SQL", "HTTP REST", "CSV") */
   strategy?: string;
+}
+
+export interface ExportJobResult {
+  bucket: string;
+  objectKey: string;
+  filename: string;
+  size: number;
+}
+
+export interface ExportJobProgressEvent {
+  step:
+    | 'database'
+    | 'auth'
+    | 'storage'
+    | 'metadata'
+    | 'packaging'
+    | 'completed'
+    | 'failed';
+  detail: string;
+  percent: number;
+  error?: string;
 }
 
 export interface SupabaseValidateResult {

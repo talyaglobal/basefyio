@@ -50,3 +50,37 @@
   - Added `.kb-grid-row-hover` in `apps/admin-ui/app/globals.css` so direct grid children get a slightly darker accent background on hover (`transition-colors` 200ms).
   - Applied to card/tile grids: dashboard overview, projects list and trash/skeleton grids, project list component, project detail and advisor stat grids, team integrations grid, project integrations page, connect `CopyBlock` grid, auth realm stats, and per-row hover on create-table column editor rows.
   - Intentionally skipped pure form-field grids (account, profile, signup, auth settings/email forms) so paired inputs do not flash highlight independently.
+- Project export infrastructure (enterprise one-click backup):
+  - Backend Docker: added `postgresql16-client` in `apps/platform-api/Dockerfile` so runtime can execute `pg_dump`.
+  - Added ZIP tooling dependencies (`archiver`, `@types/archiver`) in `apps/platform-api/package.json`.
+  - Added `EXPORT_QUEUE` in `apps/platform-api/src/modules/queue/queue.module.ts`.
+  - Added `apps/platform-api/src/modules/projects/project-export.service.ts`:
+    - starts export jobs (`POST /projects/:id/export` flow),
+    - provides status/download helpers,
+    - cleans temporary export objects,
+    - hourly cleanup cron for expired export ZIPs.
+  - Added `apps/platform-api/src/modules/queue/export.processor.ts`:
+    - exports project DB with `pg_dump`,
+    - exports Keycloak realm info + users + auth config,
+    - exports MinIO buckets/objects,
+    - exports safe project metadata,
+    - packages everything into ZIP and uploads to `kb-platform-exports`.
+  - Extended `apps/platform-api/src/modules/storage/storage.service.ts` with platform-level object helpers used by export service/processor.
+  - Added project export endpoints in `apps/platform-api/src/modules/projects/projects.controller.ts`:
+    - `POST /projects/:id/export`
+    - `GET /projects/:id/export/jobs/:jobId/status`
+    - `GET /projects/:id/export/jobs/:jobId/events`
+    - `GET /projects/:id/export/jobs/:jobId/download`
+  - Wired new providers in `apps/platform-api/src/modules/projects/projects.module.ts` (`ProjectExportService`, `ExportProcessor`).
+  - Frontend API/types updates:
+    - `apps/admin-ui/lib/types.ts`: export request/job/progress/result types.
+    - `apps/admin-ui/lib/api.ts`: start/status/SSE/download methods for project export.
+  - Frontend UI:
+    - Added `apps/admin-ui/app/dashboard/projects/[id]/export/page.tsx` with simple checkbox options, start button, live progress bar, and ZIP download action.
+    - Added `Export` item to project sidebar nav in `apps/admin-ui/app/dashboard/projects/[id]/layout.tsx`.
+- Supabase import fixes:
+  - Fixed import modal step state handling in `apps/admin-ui/components/create-project-dialog.tsx`:
+    - SSE `completed` / `failed` step events now correctly finalize or error-mark steps instead of being ignored.
+    - This fixes incorrect or stale status rendering in "Importing from Supabase" progress UI.
+  - Updated storage import naming in `apps/platform-api/src/modules/projects/supabase-import.service.ts` to keep Supabase bucket name casing as received (removed forced lowercase conversion before import/prune tracking).
+  - Updated `apps/platform-api/src/modules/storage/storage.service.ts` bucket name validation to accept mixed-case logical names (physical MinIO bucket mapping remains normalized by existing internal mapper).

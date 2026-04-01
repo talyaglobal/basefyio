@@ -14,6 +14,7 @@ import {
 import { Response } from 'express';
 import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
+import { ProjectExportService } from './project-export.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -31,6 +32,7 @@ export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
     private readonly supabaseImport: SupabaseImportService,
+    private readonly projectExport: ProjectExportService,
     private readonly projectActivity: ProjectActivityService,
   ) {}
 
@@ -266,5 +268,134 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.remove(id, user.sub);
+  }
+
+  @Post(':id/export')
+  async startExport(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body()
+    body?: {
+      includeDatabase?: boolean;
+      includeAuth?: boolean;
+      includeStorage?: boolean;
+      includeConfig?: boolean;
+    },
+  ) {
+    return this.projectExport.startExport(id, user.sub, body);
+  }
+
+  @Get(':id/export/jobs/:jobId/status')
+  async getExportStatus(
+    @Param('id') id: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const status = await this.projectExport.getJobStatus(id, jobId, user.sub);
+    if (!status) {
+      return { error: 'Job not found' };
+    }
+    return status;
+  }
+
+  @Get(':id/export/jobs/:jobId/events')
+  async streamExportEvents(
+    @Param('id') id: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('connected', { jobId });
+
+    let lastProgressJson = '';
+    let lastState = '';
+    let finished = false;
+    const pollInterval = 500;
+
+    const poll = async () => {
+      if (finished) return;
+
+      try {
+        const status = await this.projectExport.getJobStatus(id, jobId, user.sub);
+
+        if (!status) {
+          sendEvent('error', { message: 'Job not found' });
+          finished = true;
+          res.end();
+          return;
+        }
+
+        if (status.state !== lastState) {
+          lastState = status.state;
+          sendEvent('state', { state: status.state });
+        }
+
+        const progressJson = JSON.stringify(status.progress || {});
+        if (progressJson !== lastProgressJson && progressJson !== '{}') {
+          lastProgressJson = progressJson;
+          sendEvent('progress', status.progress);
+        }
+
+        if (status.state === 'completed') {
+          sendEvent('completed', status.result || {});
+          finished = true;
+          res.end();
+          return;
+        }
+
+        if (status.state === 'failed') {
+          sendEvent('failed', {
+            error: status.failedReason || 'Export failed',
+          });
+          finished = true;
+          res.end();
+          return;
+        }
+      } catch (err: any) {
+        sendEvent('error', { message: err.message });
+      }
+
+      if (!finished) {
+        setTimeout(poll, pollInterval);
+      }
+    };
+
+    poll();
+
+    res.on('close', () => {
+      finished = true;
+    });
+  }
+
+  @Get(':id/export/jobs/:jobId/download')
+  async downloadExport(
+    @Param('id') id: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const file = await this.projectExport.getExportFile(id, jobId, user.sub);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`,
+    );
+    if (file.stat?.size != null) {
+      res.setHeader('Content-Length', String(file.stat.size));
+    }
+    file.stream.pipe(res);
+    file.stream.on('end', () => {
+      this.projectExport.cleanupExport(id, jobId, user.sub).catch(() => {});
+    });
   }
 }
