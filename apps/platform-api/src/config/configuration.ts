@@ -60,6 +60,8 @@ export default () => ({
     githubClientSecret: process.env.GITHUB_CLIENT_SECRET || '',
     githubTeamsClientId: process.env.GITHUB_TEAMS_CLIENT_ID || '',
     githubTeamsClientSecret: process.env.GITHUB_TEAMS_CLIENT_SECRET || '',
+    vercelClientId: process.env.VERCEL_CLIENT_ID || '',
+    vercelClientSecret: process.env.VERCEL_CLIENT_SECRET || '',
   },
 
   stripe: {

@@ -587,6 +587,9 @@ export const api = {
     getVercelStatus(teamId: string) {
       return request<TeamVercelStatus>(`/team-integrations/${teamId}/vercel/status`);
     },
+    getVercelConnectUrl(teamId: string) {
+      return request<{ url: string }>(`/team-integrations/${teamId}/vercel/connect-url`);
+    },
     connectVercelWithToken(teamId: string, token: string) {
       return request<void>(`/team-integrations/${teamId}/vercel/connect`, {
         method: 'POST',

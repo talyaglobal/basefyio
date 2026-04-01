@@ -8,7 +8,6 @@ import { useActiveTeam } from '@/app/dashboard/layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PasswordInput } from '@/components/ui/password-input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
@@ -97,8 +96,6 @@ function GitHubCard({
   const [disconnecting, setDisconnecting] = useState(false);
   const [changing, setChanging] = useState(false);
 
-  // Connect form
-  const [token, setToken] = useState('');
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selectedRepo, setSelectedRepo] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
@@ -106,14 +103,12 @@ function GitHubCard({
   const [fetchingRepos, setFetchingRepos] = useState(false);
   const [fetchingBranches, setFetchingBranches] = useState(false);
 
-  // Whether we're using team-level token (no PAT needed)
   const useTeamToken = !!(teamGitHub?.connected);
 
   useEffect(() => {
     loadStatus();
   }, [projectId]);
 
-  // If team OAuth is available and form is open, auto-load repos
   useEffect(() => {
     if (!changing && status?.connected) return;
     if (!useTeamToken) return;
@@ -121,56 +116,34 @@ function GitHubCard({
     loadTeamRepos();
   }, [changing, useTeamToken]);
 
-  // Auto-fetch branches when repo is selected (team token mode)
   useEffect(() => {
     if (!selectedRepo) {
       setRepoBranches([]);
       setSelectedBranch('');
       return;
     }
+    if (!useTeamToken) return;
     const repo = repos.find((r) => r.full_name === selectedRepo);
     if (!repo) return;
 
-    if (useTeamToken) {
-      let cancelled = false;
-      setFetchingBranches(true);
-      api.teamIntegrations
-        .listGitHubBranches(teamId, repo.owner, repo.name)
-        .then((b) => {
-          if (cancelled) return;
-          setRepoBranches(b);
-          setSelectedBranch(repo.default_branch || 'main');
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setRepoBranches([]);
-          setSelectedBranch(repo.default_branch || 'main');
-        })
-        .finally(() => {
-          if (!cancelled) setFetchingBranches(false);
-        });
-      return () => { cancelled = true; };
-    } else {
-      if (!token) return;
-      let cancelled = false;
-      setFetchingBranches(true);
-      api.integrations
-        .previewGitHubBranches(projectId, token, repo.owner, repo.name)
-        .then((b) => {
-          if (cancelled) return;
-          setRepoBranches(b);
-          setSelectedBranch(repo.default_branch || 'main');
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setRepoBranches([]);
-          setSelectedBranch(repo.default_branch || 'main');
-        })
-        .finally(() => {
-          if (!cancelled) setFetchingBranches(false);
-        });
-      return () => { cancelled = true; };
-    }
+    let cancelled = false;
+    setFetchingBranches(true);
+    api.teamIntegrations
+      .listGitHubBranches(teamId, repo.owner, repo.name)
+      .then((b) => {
+        if (cancelled) return;
+        setRepoBranches(b);
+        setSelectedBranch(repo.default_branch || 'main');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRepoBranches([]);
+        setSelectedBranch(repo.default_branch || 'main');
+      })
+      .finally(() => {
+        if (!cancelled) setFetchingBranches(false);
+      });
+    return () => { cancelled = true; };
   }, [selectedRepo]);
 
   async function loadStatus() {
@@ -206,21 +179,6 @@ function GitHubCard({
     }
   }
 
-  async function handleFetchRepos(tokenOverride?: string) {
-    const t = tokenOverride || token;
-    if (!t.trim()) return;
-    setFetchingRepos(true);
-    try {
-      const r = await api.integrations.listGitHubRepos(projectId, t);
-      setRepos(r);
-      if (r.length === 0) toast.info('No repositories found');
-    } catch (err: any) {
-      toast.error(err.message || 'Invalid token');
-    } finally {
-      setFetchingRepos(false);
-    }
-  }
-
   async function handleConnect() {
     if (!selectedRepo) return;
     const repo = repos.find((r) => r.full_name === selectedRepo);
@@ -228,14 +186,14 @@ function GitHubCard({
     setConnecting(true);
     try {
       await api.integrations.connectGitHub(projectId, {
-        token: useTeamToken ? '' : token,
+        token: '',
         owner: repo.owner,
         repo: repo.name,
         branch: selectedBranch || repo.default_branch,
-        ...(useTeamToken ? { useTeamToken: true, teamId } : {}),
+        useTeamToken: true,
+        teamId,
       });
       toast.success(`Connected to ${repo.full_name}`);
-      setToken('');
       setRepos([]);
       setSelectedRepo('');
       setChanging(false);
@@ -248,25 +206,12 @@ function GitHubCard({
   }
 
   function handleStartChange() {
-    if (useTeamToken) {
-      setChanging(true);
-      setRepos([]);
-      setSelectedRepo('');
-      setSelectedBranch('');
-      setRepoBranches([]);
-      loadTeamRepos();
-      return;
-    }
-    const savedToken = status?.token || '';
     setChanging(true);
-    setToken(savedToken);
     setRepos([]);
     setSelectedRepo('');
     setSelectedBranch('');
     setRepoBranches([]);
-    if (savedToken) {
-      handleFetchRepos(savedToken);
-    }
+    if (useTeamToken) loadTeamRepos();
   }
 
   async function handleDisconnect() {
@@ -297,8 +242,6 @@ function GitHubCard({
       </div>
     );
   }
-
-  const showConnectForm = !status?.connected || changing;
 
   return (
     <div className="rounded-xl border bg-card">
@@ -333,15 +276,17 @@ function GitHubCard({
               <ExternalLink className="h-3 w-3" />
               View
             </a>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleStartChange}
-              className="h-8"
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />
-              Change
-            </Button>
+            {useTeamToken && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleStartChange}
+                className="h-8"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                Change
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -425,136 +370,111 @@ function GitHubCard({
         </div>
       ) : (
         <div className="p-6 pt-4 space-y-4">
-          {/* Team OAuth connected — auto-load repos */}
           {useTeamToken ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              Using team GitHub connection (<strong>{teamGitHub?.login}</strong>)
-            </div>
-          ) : (
             <>
-              {/* No team token — show PAT entry or prompt to connect team */}
-              <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 px-3 py-2.5 text-xs text-blue-700 dark:text-blue-400">
-                <p className="font-medium mb-1">No team GitHub connection</p>
-                <p>
-                  Connect GitHub at the{' '}
-                  <button
-                    type="button"
-                    onClick={() => router.push('/dashboard/team')}
-                    className="underline hover:no-underline"
-                  >
-                    Team Settings
-                  </button>{' '}
-                  page to skip entering tokens here, or enter a Personal Access Token below.
-                </p>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                Using team GitHub connection (<strong>{teamGitHub?.login}</strong>)
               </div>
 
-              <div className="space-y-2">
-                <Label>Personal Access Token</Label>
-                <div className="flex gap-2">
-                  <PasswordInput
-                    value={token}
-                    onChange={(e) => { setToken(e.target.value); setRepos([]); setSelectedRepo(''); }}
-                    placeholder="ghp_xxxxxxxxxxxx"
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!token.trim() || fetchingRepos}
-                    onClick={() => handleFetchRepos()}
-                    className="shrink-0"
-                  >
-                    {fetchingRepos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Repos'}
-                  </Button>
+              {fetchingRepos && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading repositories...
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                    Create a token at GitHub &rarr; Settings &rarr; Personal access tokens
-                  </a>
-                </p>
-              </div>
-            </>
-          )}
+              )}
 
-          {/* Loading repos indicator */}
-          {fetchingRepos && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading repositories...
-            </div>
-          )}
-
-          {repos.length > 0 && (
-            <>
-              <div className="space-y-2">
-                <Label>Repository</Label>
-                <Combobox
-                  options={repos.map((r): ComboboxOption => ({
-                    value: r.full_name,
-                    label: r.full_name,
-                    description: r.private ? 'Private' : 'Public',
-                  }))}
-                  value={selectedRepo}
-                  onValueChange={setSelectedRepo}
-                  placeholder="Select a repository"
-                  searchPlaceholder="Search repositories..."
-                  emptyText="No repositories found."
-                />
-              </div>
-
-              {selectedRepo && (
+              {repos.length > 0 && (
                 <>
                   <div className="space-y-2">
-                    <Label>Branch</Label>
-                    {fetchingBranches ? (
-                      <div className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Loading branches...
-                      </div>
-                    ) : repoBranches.length > 0 ? (
-                      <Combobox
-                        options={repoBranches.map((b): ComboboxOption => ({
-                          value: b.name,
-                          label: b.name,
-                          description: b.protected ? 'Protected' : undefined,
-                        }))}
-                        value={selectedBranch}
-                        onValueChange={setSelectedBranch}
-                        placeholder="Select a branch"
-                        searchPlaceholder="Search branches..."
-                        emptyText="No branches found."
-                      />
-                    ) : (
-                      <Input
-                        value={selectedBranch}
-                        onChange={(e) => setSelectedBranch(e.target.value)}
-                        placeholder="main"
-                      />
-                    )}
+                    <Label>Repository</Label>
+                    <Combobox
+                      options={repos.map((r): ComboboxOption => ({
+                        value: r.full_name,
+                        label: r.full_name,
+                        description: r.private ? 'Private' : 'Public',
+                      }))}
+                      value={selectedRepo}
+                      onValueChange={setSelectedRepo}
+                      placeholder="Select a repository"
+                      searchPlaceholder="Search repositories..."
+                      emptyText="No repositories found."
+                    />
                   </div>
 
-                  <Button
-                    onClick={handleConnect}
-                    disabled={!selectedRepo || connecting || fetchingBranches}
-                    className="w-full"
-                  >
-                    {connecting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
-                    ) : (
-                      <><Github className="h-4 w-4 mr-2" />{changing ? 'Switch Repository' : 'Connect Repository'}</>
-                    )}
-                  </Button>
+                  {selectedRepo && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Branch</Label>
+                        {fetchingBranches ? (
+                          <div className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Loading branches...
+                          </div>
+                        ) : repoBranches.length > 0 ? (
+                          <Combobox
+                            options={repoBranches.map((b): ComboboxOption => ({
+                              value: b.name,
+                              label: b.name,
+                              description: b.protected ? 'Protected' : undefined,
+                            }))}
+                            value={selectedBranch}
+                            onValueChange={setSelectedBranch}
+                            placeholder="Select a branch"
+                            searchPlaceholder="Search branches..."
+                            emptyText="No branches found."
+                          />
+                        ) : (
+                          <Input
+                            value={selectedBranch}
+                            onChange={(e) => setSelectedBranch(e.target.value)}
+                            placeholder="main"
+                          />
+                        )}
+                      </div>
+
+                      <Button
+                        onClick={handleConnect}
+                        disabled={!selectedRepo || connecting || fetchingBranches}
+                        className="w-full"
+                      >
+                        {connecting ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
+                        ) : (
+                          <><Github className="h-4 w-4 mr-2" />{changing ? 'Switch Repository' : 'Connect Repository'}</>
+                        )}
+                      </Button>
+                    </>
+                  )}
                 </>
               )}
-            </>
-          )}
 
-          {changing && (
-            <p className="text-xs text-muted-foreground text-center">
-              Currently connected to <span className="font-medium">{status?.owner}/{status?.repo}</span>. Select a new repository to switch.
-            </p>
+              {changing && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Currently connected to <span className="font-medium">{status?.owner}/{status?.repo}</span>. Select a new repository to switch.
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <div className="rounded-full bg-muted p-3">
+                <Github className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">GitHub not connected</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Connect GitHub at the team level to link repositories to this project.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push('/dashboard/team')}
+              >
+                <Settings className="h-3.5 w-3.5 mr-1.5" />
+                Go to Team Settings
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -581,9 +501,6 @@ function VercelCard({
   const [disconnecting, setDisconnecting] = useState(false);
   const [changing, setChanging] = useState(false);
 
-  // Connect form
-  const [token, setToken] = useState('');
-  const [teamId2, setTeamId2] = useState('');
   const [projects, setProjects] = useState<VercelProjectType[]>([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [fetchingProjects, setFetchingProjects] = useState(false);
@@ -594,7 +511,6 @@ function VercelCard({
     loadStatus();
   }, [projectId]);
 
-  // Auto-load Vercel projects if team OAuth available
   useEffect(() => {
     if (!changing && status?.connected) return;
     if (!useTeamToken) return;
@@ -631,36 +547,18 @@ function VercelCard({
     }
   }
 
-  async function handleFetchProjects(tokenOverride?: string, teamIdOverride?: string) {
-    const t = tokenOverride || token;
-    if (!t.trim()) return;
-    setFetchingProjects(true);
-    try {
-      const tid = teamIdOverride !== undefined ? teamIdOverride : teamId2;
-      const p = await api.integrations.listVercelProjects(projectId, t, tid || undefined);
-      setProjects(p);
-      if (p.length === 0) toast.info('No projects found');
-    } catch (err: any) {
-      toast.error(err.message || 'Invalid token');
-    } finally {
-      setFetchingProjects(false);
-    }
-  }
-
   async function handleConnect() {
     if (!selectedProject) return;
     setConnecting(true);
     try {
       await api.integrations.connectVercel(projectId, {
-        token: useTeamToken ? '' : token,
+        token: '',
         projectId: selectedProject,
-        teamId: useTeamToken ? undefined : (teamId2 || undefined),
-        ...(useTeamToken ? { useTeamToken: true, sourceTeamId: teamId } : {}),
+        useTeamToken: true,
+        sourceTeamId: teamId,
       });
       const proj = projects.find((p) => p.id === selectedProject);
       toast.success(`Connected to ${proj?.name || selectedProject}`);
-      setToken('');
-      setTeamId2('');
       setProjects([]);
       setSelectedProject('');
       setChanging(false);
@@ -673,23 +571,10 @@ function VercelCard({
   }
 
   function handleStartChange() {
-    if (useTeamToken) {
-      setChanging(true);
-      setProjects([]);
-      setSelectedProject('');
-      loadTeamProjects();
-      return;
-    }
-    const savedToken = status?.token || '';
-    const savedTeamId = status?.teamId || '';
     setChanging(true);
-    setToken(savedToken);
-    setTeamId2(savedTeamId);
     setProjects([]);
     setSelectedProject('');
-    if (savedToken) {
-      handleFetchProjects(savedToken, savedTeamId);
-    }
+    if (useTeamToken) loadTeamProjects();
   }
 
   async function handleDisconnect() {
@@ -755,15 +640,17 @@ function VercelCard({
                 View
               </a>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleStartChange}
-              className="h-8"
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />
-              Change
-            </Button>
+            {useTeamToken && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleStartChange}
+                className="h-8"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                Change
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -842,109 +729,77 @@ function VercelCard({
       ) : (
         <div className="p-6 pt-4 space-y-4">
           {useTeamToken ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              Using team Vercel connection (<strong>{teamVercel?.user}</strong>)
-            </div>
-          ) : (
             <>
-              <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 px-3 py-2.5 text-xs text-blue-700 dark:text-blue-400">
-                <p className="font-medium mb-1">No team Vercel connection</p>
-                <p>
-                  Connect Vercel at the{' '}
-                  <button
-                    type="button"
-                    onClick={() => router.push('/dashboard/team')}
-                    className="underline hover:no-underline"
-                  >
-                    Team Settings
-                  </button>{' '}
-                  page to skip entering tokens here, or enter an Access Token below.
-                </p>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                Using team Vercel connection (<strong>{teamVercel?.user}</strong>)
               </div>
 
-              <div className="space-y-2">
-                <Label>Vercel Access Token</Label>
-                <div className="flex gap-2">
-                  <PasswordInput
-                    value={token}
-                    onChange={(e) => { setToken(e.target.value); setProjects([]); setSelectedProject(''); }}
-                    placeholder="vercel_xxxxxxxx"
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!token.trim() || fetchingProjects}
-                    onClick={() => handleFetchProjects()}
-                    className="shrink-0"
-                  >
-                    {fetchingProjects ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Load Projects'}
-                  </Button>
+              {fetchingProjects && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading projects...
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                    Create a token at vercel.com &rarr; Settings &rarr; Tokens
-                  </a>
+              )}
+
+              {projects.length > 0 && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Project</Label>
+                    <Combobox
+                      options={projects.map((p): ComboboxOption => ({
+                        value: p.id,
+                        label: p.name,
+                        description: p.framework || undefined,
+                      }))}
+                      value={selectedProject}
+                      onValueChange={setSelectedProject}
+                      placeholder="Select a project"
+                      searchPlaceholder="Search projects..."
+                      emptyText="No projects found."
+                    />
+                  </div>
+
+                  <Button
+                    onClick={handleConnect}
+                    disabled={!selectedProject || connecting}
+                    className="w-full bg-black hover:bg-zinc-800 text-white"
+                  >
+                    {connecting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
+                    ) : (
+                      <><VercelLogo className="h-3.5 w-3.5 mr-2" />{changing ? 'Switch Project' : 'Connect Project'}</>
+                    )}
+                  </Button>
+                </>
+              )}
+
+              {changing && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Currently connected to <span className="font-medium">{status?.projectName || status?.projectId}</span>. Select a new project to switch.
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <div className="rounded-full bg-muted p-3">
+                <VercelLogo className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Vercel not connected</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Connect Vercel at the team level to link projects to deployments.
                 </p>
               </div>
-
-              <div className="space-y-2">
-                <Label>Team ID (optional)</Label>
-                <Input
-                  value={teamId2}
-                  onChange={(e) => setTeamId2(e.target.value)}
-                  placeholder="team_xxxxxxxx (leave empty for personal)"
-                />
-              </div>
-            </>
-          )}
-
-          {/* Loading projects indicator */}
-          {fetchingProjects && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading projects...
-            </div>
-          )}
-
-          {projects.length > 0 && (
-            <>
-              <div className="space-y-2">
-                <Label>Project</Label>
-                <Combobox
-                  options={projects.map((p): ComboboxOption => ({
-                    value: p.id,
-                    label: p.name,
-                    description: p.framework || undefined,
-                  }))}
-                  value={selectedProject}
-                  onValueChange={setSelectedProject}
-                  placeholder="Select a project"
-                  searchPlaceholder="Search projects..."
-                  emptyText="No projects found."
-                />
-              </div>
-
               <Button
-                onClick={handleConnect}
-                disabled={!selectedProject || connecting}
-                className="w-full bg-black hover:bg-zinc-800 text-white"
+                variant="outline"
+                size="sm"
+                onClick={() => router.push('/dashboard/team')}
               >
-                {connecting ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{changing ? 'Switching...' : 'Connecting...'}</>
-                ) : (
-                  <><VercelLogo className="h-3.5 w-3.5 mr-2" />{changing ? 'Switch Project' : 'Connect Project'}</>
-                )}
+                <Settings className="h-3.5 w-3.5 mr-1.5" />
+                Go to Team Settings
               </Button>
-            </>
-          )}
-
-          {changing && (
-            <p className="text-xs text-muted-foreground text-center">
-              Currently connected to <span className="font-medium">{status?.projectName || status?.projectId}</span>. Select a new project to switch.
-            </p>
+            </div>
           )}
         </div>
       )}
