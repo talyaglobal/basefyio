@@ -112,6 +112,15 @@ export class TeamsController {
     return this.teamsService.cancelInvite(id, inviteId, user.sub);
   }
 
+  @Post(':id/invites/:inviteId/reinvite')
+  async reInvite(
+    @Param('id') id: string,
+    @Param('inviteId') inviteId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.reInvite(id, inviteId, user.sub);
+  }
+
   @Delete(':id/members/:userId')
   async removeMember(
     @Param('id') id: string,

@@ -68,27 +68,30 @@ function planFeatures(plan: PublicPlan): string[] {
 }
 
 async function getPublicPlans(): Promise<PublicPlan[]> {
-  const candidates = [
+  const bases = [
     process.env.NEXT_PUBLIC_BILLING_API_URL,
     process.env.NEXT_PUBLIC_API_BASE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    "https://app.kolaybase.com",
     "http://platform-api:4000",
     "http://localhost:4000",
   ].filter(Boolean) as string[];
-
-  for (const base of candidates) {
-    for (const path of ["/api/billing/plans", "/billing/plans"]) {
-      try {
-        const res = await fetch(`${base}${path}`, { cache: "no-store" });
-        if (!res.ok) continue;
-        const data = (await res.json()) as PublicPlan[];
-        if (Array.isArray(data) && data.length > 0) {
-          return data
-            .filter((p) => p.isPublic)
-            .sort((a, b) => a.priceMonthly - b.priceMonthly);
-        }
-      } catch {
-        // Try next path/base URL
+  const endpoints = [
+    ...bases.flatMap((base) => [`${base}/api/billing/plans`, `${base}/billing/plans`]),
+    "https://app.kolaybase.com/api/proxy/billing/plans",
+  ];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = (await res.json()) as PublicPlan[];
+      if (Array.isArray(data) && data.length > 0) {
+        return data
+          .filter((p) => p.isPublic)
+          .sort((a, b) => a.priceMonthly - b.priceMonthly);
       }
+    } catch {
+      // Try next endpoint
     }
   }
 

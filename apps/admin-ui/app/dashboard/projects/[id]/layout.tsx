@@ -214,13 +214,13 @@ export default function ProjectLayout({
   return (
     <div
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 gap-0 -m-6',
+        'flex h-full min-h-full min-w-0 gap-0 -m-6',
         isResizing && 'select-none',
       )}
     >
       <aside
         className={cn(
-          'relative shrink-0 border-r bg-card flex flex-col overflow-hidden',
+          'relative h-full shrink-0 border-r bg-card flex flex-col overflow-hidden',
           'transition-[width] duration-200 ease-out motion-reduce:transition-none',
         )}
         style={{ width: asideWidthPx }}
@@ -442,8 +442,8 @@ export default function ProjectLayout({
 
       <main
         className={cn(
-          'min-h-0 min-w-0 flex-1 p-6',
-          isLogsRoute ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
+          'h-full min-h-0 min-w-0 flex-1 p-6',
+          isLogsRoute ? 'flex flex-col overflow-hidden' : '',
         )}
       >
         {children}

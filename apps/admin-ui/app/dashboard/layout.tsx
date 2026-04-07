@@ -53,6 +53,9 @@ export default function DashboardLayout({
   const [billingBanner, setBillingBanner] = useState<{ planName: string } | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const pathname = usePathname();
+  const isProjectDetailRoute =
+    pathname.startsWith('/dashboard/projects/') &&
+    pathname !== '/dashboard/projects';
 
   useEffect(() => {
     const forcePasswordChange = Cookies.get('kb_force_password_change') === '1';
@@ -182,7 +185,13 @@ export default function DashboardLayout({
                 </div>
               </div>
             )}
-            <div className="flex-1 p-3 sm:p-4 md:p-6">
+            <div
+              className={
+                isProjectDetailRoute
+                  ? 'flex h-full min-h-0 flex-1'
+                  : 'flex-1 p-3 sm:p-4 md:p-6'
+              }
+            >
               {children}
             </div>
           </main>

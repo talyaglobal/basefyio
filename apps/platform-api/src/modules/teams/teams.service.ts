@@ -376,6 +376,46 @@ export class TeamsService {
     return { message: 'Invite cancelled' };
   }
 
+  async reInvite(teamId: string, inviteId: string, ownerUserId: string) {
+    await this.assertOwner(teamId, ownerUserId);
+
+    const invite = await this.prisma.teamInvite.findFirst({
+      where: { id: inviteId, teamId, status: 'PENDING' },
+      include: {
+        invitedUser: { select: { username: true, email: true } },
+      },
+    });
+    if (!invite) {
+      throw new NotFoundException('Pending invite not found');
+    }
+
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { name: true },
+    });
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: ownerUserId },
+      select: { username: true },
+    });
+    if (!team || !inviter) {
+      throw new NotFoundException('Team or inviter not found');
+    }
+
+    const targetEmail = invite.invitedUser?.email ?? invite.invitedEmail;
+    if (!targetEmail) {
+      throw new NotFoundException('Invite target email not found');
+    }
+    const targetName =
+      invite.invitedUser?.username ?? invite.invitedEmail?.split('@')[0] ?? 'user';
+    const isEmailInvite = !invite.invitedUserId;
+
+    this.email
+      .sendTeamInvite(targetEmail, targetName, inviter.username, team.name, isEmailInvite)
+      .catch(() => {});
+
+    return { message: `Re-invite email sent to ${targetEmail}` };
+  }
+
   async removeMember(teamId: string, ownerUserId: string, targetUserId: string) {
     await this.assertOwner(teamId, ownerUserId);
 

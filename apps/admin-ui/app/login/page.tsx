@@ -135,6 +135,11 @@ function LoginForm() {
         return;
       }
 
+      if (normalizedMessage.includes('ACCOUNT_INACTIVE')) {
+        toast.error('Your account is inactive. Please contact an administrator.');
+        return;
+      }
+
       toast.error(rawMessage || 'Login failed');
     } finally {
       setLoading(false);

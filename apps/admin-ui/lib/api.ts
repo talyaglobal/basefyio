@@ -292,6 +292,11 @@ export const api = {
         method: 'DELETE',
       });
     },
+    reInvite(teamId: string, inviteId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/invites/${inviteId}/reinvite`, {
+        method: 'POST',
+      });
+    },
     myInvites() {
       return request<TeamInvite[]>('/teams/invites');
     },
@@ -1135,6 +1140,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       });
+    },
+    deleteManagementPlan(planName: string, replacementPlanName = 'free') {
+      const qs = `?replacementPlanName=${encodeURIComponent(replacementPlanName)}`;
+      return request<{ deletedPlan: string; replacementPlan: string; migratedSubscriptions: number }>(
+        `/billing/management/plans/${encodeURIComponent(planName)}${qs}`,
+        { method: 'DELETE' },
+      );
     },
     managementUserPackages() {
       return request<ManagementUserPackage[]>('/billing/management/user-packages');

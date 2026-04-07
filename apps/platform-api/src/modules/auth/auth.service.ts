@@ -363,6 +363,22 @@ export class AuthService {
     captchaAnswer?: string,
   ) {
     const normalizedEmail = this.normalizeEmail(email);
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    if (existingUser) {
+      try {
+        const isEnabled = await this.keycloak.getPlatformUserEnabledById(existingUser.id);
+        if (!isEnabled) {
+          throw new UnauthorizedException('ACCOUNT_INACTIVE');
+        }
+      } catch (err) {
+        if (err instanceof UnauthorizedException) {
+          throw err;
+        }
+      }
+    }
     const security = await this.prisma.loginSecurityState.upsert({
       where: { email: normalizedEmail },
       create: { email: normalizedEmail },
@@ -929,6 +945,14 @@ export class AuthService {
       },
     });
     const enabledMap = new Map<string, boolean>();
+    const signInMap = new Map<
+      string,
+      {
+        authProvider: 'local' | 'google' | 'github';
+        linkedProviders: Array<'google' | 'github'>;
+        hasPasswordAuth: boolean;
+      }
+    >();
     await Promise.all(
       users.map(async (u) => {
         try {
@@ -937,11 +961,24 @@ export class AuthService {
         } catch {
           enabledMap.set(u.id, true);
         }
+        try {
+          const methods = await this.keycloak.getPlatformUserSignInMethodsById(u.id);
+          signInMap.set(u.id, methods);
+        } catch {
+          signInMap.set(u.id, {
+            authProvider: 'local',
+            linkedProviders: [],
+            hasPasswordAuth: true,
+          });
+        }
       }),
     );
     return users.map((u) => ({
       ...u,
       isActive: enabledMap.get(u.id) ?? true,
+      authProvider: signInMap.get(u.id)?.authProvider ?? 'local',
+      linkedProviders: signInMap.get(u.id)?.linkedProviders ?? [],
+      hasPasswordAuth: signInMap.get(u.id)?.hasPasswordAuth ?? true,
     }));
   }
 

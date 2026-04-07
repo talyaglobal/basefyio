@@ -13,6 +13,7 @@ import {
   Query,
   Patch,
   Param,
+  Delete,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -280,6 +281,15 @@ export class BillingController {
       maxMau: body.maxMau,
       isPublic: body.isPublic,
     });
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Delete('management/plans/:planName')
+  async deleteManagementPlan(
+    @Param('planName') planName: string,
+    @Query('replacementPlanName') replacementPlanName?: string,
+  ) {
+    return this.billing.deleteManagementPlan(planName, replacementPlanName || 'free');
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)

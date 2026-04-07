@@ -55,7 +55,7 @@ export class BillingService implements OnModuleInit {
 
         if (!plan.stripePriceId) {
           const price = await this.stripe.createPrice({
-            productId,
+            productId: productId!,
             unitAmount: plan.priceMonthly,
             currency: 'usd',
             interval: 'month',
@@ -768,10 +768,104 @@ export class BillingService implements OnModuleInit {
     },
   ) {
     const plan = await this.getPlanByName(planName);
-    return this.prisma.plan.update({
+    const prevPrice = plan.priceMonthly;
+    const updated = await this.prisma.plan.update({
       where: { id: plan.id },
       data,
     });
+    if (this.stripe.isEnabled()) {
+      try {
+        if (updated.stripeProductId) {
+          await this.stripe.getClient().products.update(updated.stripeProductId, {
+            name: `Kolaybase ${updated.displayName}`,
+          });
+        } else if (updated.priceMonthly > 0) {
+          const product = await this.stripe.createProduct(
+            `Kolaybase ${updated.displayName}`,
+            `${updated.displayName} plan`,
+          );
+          await this.prisma.plan.update({
+            where: { id: updated.id },
+            data: { stripeProductId: product.id },
+          });
+          updated.stripeProductId = product.id;
+        }
+
+        if (updated.priceMonthly > 0 && updated.stripeProductId) {
+          let nextPriceId = updated.stripePriceId;
+          if (!nextPriceId || prevPrice !== updated.priceMonthly) {
+            const price = await this.stripe.createPrice({
+              productId: updated.stripeProductId,
+              unitAmount: updated.priceMonthly,
+              currency: 'usd',
+              interval: 'month',
+            });
+            nextPriceId = price.id;
+            await this.prisma.plan.update({
+              where: { id: updated.id },
+              data: { stripePriceId: nextPriceId },
+            });
+            updated.stripePriceId = nextPriceId;
+          }
+          if (prevPrice !== updated.priceMonthly && nextPriceId) {
+            const subs = await this.prisma.subscription.findMany({
+              where: { planId: updated.id, stripeSubscriptionId: { not: null } },
+              select: { id: true, stripeSubscriptionId: true },
+            });
+            for (const s of subs) {
+              if (!s.stripeSubscriptionId) continue;
+              try {
+                await this.stripe.changeSubscriptionPlan(s.stripeSubscriptionId, nextPriceId);
+              } catch (err: any) {
+                this.logger.warn(
+                  `Failed to migrate stripe subscription ${s.id} to new price: ${err.message}`,
+                );
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Stripe sync failed on plan update (${updated.name}): ${err.message}`);
+      }
+    }
+    return updated;
+  }
+
+  async deleteManagementPlan(planName: string, replacementPlanName = 'free') {
+    const plan = await this.getPlanByName(planName);
+    if (plan.name === 'free') {
+      throw new BadRequestException('Free plan cannot be deleted');
+    }
+    const replacement = await this.getPlanByName(replacementPlanName);
+    if (replacement.id === plan.id) {
+      throw new BadRequestException('Replacement plan must be different');
+    }
+    const subs = await this.prisma.subscription.findMany({
+      where: { planId: plan.id },
+      select: { id: true, stripeSubscriptionId: true },
+    });
+    if (this.stripe.isEnabled() && replacement.stripePriceId) {
+      for (const s of subs) {
+        if (!s.stripeSubscriptionId) continue;
+        try {
+          await this.stripe.changeSubscriptionPlan(s.stripeSubscriptionId, replacement.stripePriceId);
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to migrate stripe subscription ${s.id} while deleting plan ${plan.name}: ${err.message}`,
+          );
+        }
+      }
+    }
+    await this.prisma.subscription.updateMany({
+      where: { planId: plan.id },
+      data: { planId: replacement.id },
+    });
+    await this.prisma.plan.delete({ where: { id: plan.id } });
+    return {
+      deletedPlan: plan.name,
+      replacementPlan: replacement.name,
+      migratedSubscriptions: subs.length,
+    };
   }
 
   async createManagementPlan(data: {
@@ -792,7 +886,7 @@ export class BillingService implements OnModuleInit {
     if (!name || !displayName) {
       throw new BadRequestException('Plan name and display name are required');
     }
-    return this.prisma.plan.create({
+    let created = await this.prisma.plan.create({
       data: {
         name,
         displayName,
@@ -807,6 +901,27 @@ export class BillingService implements OnModuleInit {
         isPublic: data.isPublic ?? true,
       },
     });
+    if (this.stripe.isEnabled() && created.priceMonthly > 0) {
+      try {
+        const product = await this.stripe.createProduct(
+          `Kolaybase ${created.displayName}`,
+          `${created.displayName} plan`,
+        );
+        const price = await this.stripe.createPrice({
+          productId: product.id,
+          unitAmount: created.priceMonthly,
+          currency: 'usd',
+          interval: 'month',
+        });
+        created = await this.prisma.plan.update({
+          where: { id: created.id },
+          data: { stripeProductId: product.id, stripePriceId: price.id },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Stripe setup failed for new plan ${created.name}: ${err.message}`);
+      }
+    }
+    return created;
   }
 
   async listManagementUserPackages() {

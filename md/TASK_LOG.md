@@ -1,5 +1,36 @@
 # Task Log
 
+## 2026-04-07 (pricing sync + delete + website source hardening)
+- **Stripe sync on plan update:** Management plan updates now synchronize with Stripe; when monthly price changes, a new Stripe price is created and existing subscriptions on that plan are migrated to the new price.
+- **Plan delete flow:** Added root-only plan deletion with safe migration (`DELETE /billing/management/plans/:planName`), moving existing subscriptions to a replacement plan (default `free`).
+- **Management UI delete action:** Added `Delete` action in Pricing Plans tab (free plan protected), with confirmation and migration summary toast.
+- **Website pricing reliability:** Website pricing loader now tries multiple public endpoints including `https://app.kolaybase.com/api/proxy/billing/plans` to stay aligned with management-edited plans.
+
+## 2026-04-07 (inactive user login warning)
+- **Inactive login guard:** Login now checks Keycloak `enabled` state before token issuance and returns `ACCOUNT_INACTIVE` for disabled users.
+- **Login toast warning:** Admin UI login page now shows a dedicated toast: `Your account is inactive. Please contact an administrator.`
+
+## 2026-04-07 (sql editor excel export)
+- **SQL export format update:** Replaced `Download CSV` with `Download Excel` in SQL Editor.
+- **XLSX generation:** SQL query results are now exported as `.xlsx` files using ordered columns from query fields.
+
+## 2026-04-07 (team pending invite reminder)
+- **Re-invite API:** Added `POST /teams/:id/invites/:inviteId/reinvite` for owners to resend reminder emails for pending invites.
+- **Mail resend behavior:** Re-invite reuses existing team invite email flow and sends reminder to pending invite target email.
+- **Team UI button:** Added `Re-invite` action next to pending invite entries in `/dashboard/team`, with loading state and success/error toasts.
+
+## 2026-04-07 (project detail sidebar full height)
+- **Project layout height fix:** Updated project detail layout container/aside/main sizing to use full available height (`h-full` / `min-h-full`) so the left sidebar is no longer visually cut off at the bottom.
+
+## 2026-04-07 (management users sign-in methods)
+- **Management users enrichment:** Added user sign-in method fields in management users response (`authProvider`, `linkedProviders`, `hasPasswordAuth`).
+- **Keycloak method detection:** Management now checks federated identities (`google`/`github`) and password credential presence for each user.
+- **Users table UI:** Added `Sign In` column in `/dashboard/management` Users tab to show how each user signs in and what providers are linked.
+
+## 2026-04-07 (project detail scroll + sidebar stretch)
+- **Single-scroll fix:** Removed nested scrolling in project detail content area so dashboard no longer shows dual vertical scrollbars.
+- **Full-height project detail frame:** Updated dashboard content wrapper for project detail routes to use full-height container, letting left project sidebar extend to the bottom without visual gap.
+
 ## 2026-04-07 (management users activate/deactivate)
 - **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
 - **Backend endpoint:** Added `PATCH /auth/management/users/:id/active` (root-only) to enable/disable platform users.

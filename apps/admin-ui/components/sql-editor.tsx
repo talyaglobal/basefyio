@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 import { api } from '@/lib/api';
 import type { SqlResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -97,22 +98,6 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     return [head, sep, ...rows].join('\n');
   }
 
-  function buildCsv(sqlResult: SqlResult): string {
-    if (!sqlResult.fields?.length) return '';
-    const headers = sqlResult.fields.map((f) => f.name);
-    const quote = (value: unknown) => {
-      const text = value === null || value === undefined ? '' : String(value);
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-    const lines = [
-      headers.map((h) => quote(h)).join(','),
-      ...(sqlResult.rows ?? []).map((row) =>
-        headers.map((h) => quote((row as Record<string, unknown>)[h])).join(','),
-      ),
-    ];
-    return lines.join('\n');
-  }
-
   function updateActiveTab(
     updater: (tab: SqlTab) => SqlTab,
   ) {
@@ -191,23 +176,27 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     toast.success('Result copied as JSON');
   }
 
-  function downloadResultAsCsv() {
+  function downloadResultAsExcel() {
     if (!result) return;
-    const csv = buildCsv(result);
-    if (!csv) {
+    if (!result.fields?.length) {
       toast.error('No tabular result to export');
       return;
     }
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sql-result-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    toast.success('CSV downloaded');
+    const headers = result.fields.map((f) => f.name);
+    const rows = (result.rows ?? []).map((row) =>
+      headers.map((h) => {
+        const value = (row as Record<string, unknown>)[h];
+        return value === null || value === undefined ? '' : value;
+      }),
+    );
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'SQL Result');
+    XLSX.writeFile(
+      workbook,
+      `sql-result-${new Date().toISOString().replace(/[:.]/g, '-')}.xlsx`,
+    );
+    toast.success('Excel downloaded');
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -351,9 +340,9 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
                 Copy as JSON
               </Button>
-              <Button variant="outline" size="sm" onClick={downloadResultAsCsv}>
+              <Button variant="outline" size="sm" onClick={downloadResultAsExcel}>
                 <FileDown className="mr-1.5 h-3.5 w-3.5" />
-                Download CSV
+                Download Excel
               </Button>
             </div>
           </div>

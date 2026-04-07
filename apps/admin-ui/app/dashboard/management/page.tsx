@@ -312,6 +312,7 @@ export default function ManagementPage() {
               <tr className="border-b text-xs text-muted-foreground">
                 <th className="px-2 py-2">Name</th>
                 <th className="px-2 py-2">Email</th>
+                <th className="px-2 py-2">Sign In</th>
                 <th className="px-2 py-2">Teams</th>
                 <th className="px-2 py-2">Package</th>
                 <th className="px-2 py-2">Created</th>
@@ -329,6 +330,28 @@ export default function ManagementPage() {
                       : u.username}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">{u.email}</td>
+                  <td className="px-2 py-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">
+                        {u.authProvider || 'local'}
+                      </span>
+                      {(u.linkedProviders || []).includes('google') && (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] text-blue-700">
+                          Google linked
+                        </span>
+                      )}
+                      {(u.linkedProviders || []).includes('github') && (
+                        <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-800">
+                          GitHub linked
+                        </span>
+                      )}
+                      {u.hasPasswordAuth && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700">
+                          Password
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-2 py-2">{u._count.teamMembers}</td>
                   <td className="px-2 py-2">
                     {(() => {
@@ -512,6 +535,7 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">API Req / Mo</th>
                 <th className="px-2 py-2">Bandwidth (MB/GB)</th>
                 <th className="px-2 py-2">Public</th>
+                <th className="px-2 py-2">Delete</th>
               </tr>
             </thead>
             <tbody>
@@ -656,6 +680,32 @@ export default function ManagementPage() {
                       />
                       {d.isPublic ? 'Yes' : 'No'}
                     </label>
+                  </td>
+                  <td className="px-2 py-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:text-red-700"
+                      disabled={p.name === 'free'}
+                      onClick={async () => {
+                        if (p.name === 'free') return;
+                        const ok = window.confirm(
+                          `Delete "${p.displayName}" plan? Existing subscriptions will be moved to Free.`,
+                        );
+                        if (!ok) return;
+                        try {
+                          const res = await api.billing.deleteManagementPlan(p.name, 'free');
+                          toast.success(
+                            `${res.deletedPlan} deleted, ${res.migratedSubscriptions} subscription(s) moved to ${res.replacementPlan}.`,
+                          );
+                          await load();
+                        } catch (err: any) {
+                          toast.error(err.message || 'Failed to delete plan');
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
                   </td>
                       </>
                     );

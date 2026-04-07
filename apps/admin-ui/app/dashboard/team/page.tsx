@@ -269,6 +269,7 @@ export default function TeamSettingsPage() {
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reinvitingInviteId, setReinvitingInviteId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // Team name editing — owner only
@@ -378,6 +379,19 @@ export default function TeamSettingsPage() {
       loadAll();
     } catch (err: any) {
       toast.error(err.message);
+    }
+  }
+
+  async function handleReInvite(inviteId: string) {
+    if (!activeTeamId) return;
+    setReinvitingInviteId(inviteId);
+    try {
+      const res = await api.teams.reInvite(activeTeamId, inviteId);
+      toast.success(res.message || 'Reminder email sent');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send reminder email');
+    } finally {
+      setReinvitingInviteId(null);
     }
   }
 
@@ -643,15 +657,32 @@ export default function TeamSettingsPage() {
                       <p className="text-xs text-muted-foreground">Invite sent</p>
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
-                      onClick={() => handleCancelInvite(inv.id)}
-                      title="Cancel invite"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        disabled={reinvitingInviteId === inv.id}
+                        onClick={() => handleReInvite(inv.id)}
+                        title="Send reminder email"
+                      >
+                        {reinvitingInviteId === inv.id ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Mail className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        Re-invite
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
+                        onClick={() => handleCancelInvite(inv.id)}
+                        title="Cancel invite"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })}

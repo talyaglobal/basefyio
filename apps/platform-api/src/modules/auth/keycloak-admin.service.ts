@@ -666,20 +666,52 @@ export class KeycloakAdminService implements OnModuleInit {
   async getPlatformUserAuthProviderById(
     userId: string,
   ): Promise<'local' | 'google' | 'github'> {
+    const methods = await this.getPlatformUserSignInMethodsById(userId);
+    return methods.authProvider;
+  }
+
+  async getPlatformUserSignInMethodsById(
+    userId: string,
+  ): Promise<{
+    authProvider: 'local' | 'google' | 'github';
+    linkedProviders: Array<'google' | 'github'>;
+    hasPasswordAuth: boolean;
+  }> {
     await this.ensureAuth();
     const adminToken = await this.getAdminAccessToken();
     const baseUrl = this.config.get<string>('keycloak.url');
     const headers = { Authorization: `Bearer ${adminToken}` };
-    const { data } = await axios.get(
+    const { data: federatedData } = await axios.get(
       `${baseUrl}/admin/realms/master/users/${userId}/federated-identity`,
       { headers },
     );
-    const providers = Array.isArray(data)
-      ? data.map((x: any) => String(x?.identityProvider || '').toLowerCase())
+    const providers = Array.isArray(federatedData)
+      ? federatedData.map((x: any) => String(x?.identityProvider || '').toLowerCase())
       : [];
-    if (providers.includes('google')) return 'google';
-    if (providers.includes('github')) return 'github';
-    return 'local';
+    const linkedProviders: Array<'google' | 'github'> = [];
+    if (providers.includes('google')) linkedProviders.push('google');
+    if (providers.includes('github')) linkedProviders.push('github');
+
+    let hasPasswordAuth = true;
+    try {
+      const { data: credentials } = await axios.get(
+        `${baseUrl}/admin/realms/master/users/${userId}/credentials`,
+        { headers },
+      );
+      hasPasswordAuth = Array.isArray(credentials)
+        ? credentials.some((c: any) => String(c?.type || '').toLowerCase() === 'password')
+        : true;
+    } catch {
+      hasPasswordAuth = true;
+    }
+
+    if (linkedProviders.includes('google')) {
+      return { authProvider: 'google', linkedProviders, hasPasswordAuth };
+    }
+    if (linkedProviders.includes('github')) {
+      return { authProvider: 'github', linkedProviders, hasPasswordAuth };
+    }
+    return { authProvider: 'local', linkedProviders, hasPasswordAuth };
   }
 
   async getPlatformUserEnabledById(userId: string): Promise<boolean> {

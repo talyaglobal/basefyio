@@ -214,6 +214,9 @@ export interface ManagementUser {
   lastName: string | null;
   role: 'USER' | 'ADMIN' | 'ROOT';
   isActive?: boolean;
+  authProvider?: 'local' | 'google' | 'github';
+  linkedProviders?: Array<'google' | 'github'>;
+  hasPasswordAuth?: boolean;
   createdAt: string;
   _count: { teamMembers: number };
 }
