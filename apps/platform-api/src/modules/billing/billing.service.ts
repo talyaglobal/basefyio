@@ -774,6 +774,41 @@ export class BillingService implements OnModuleInit {
     });
   }
 
+  async createManagementPlan(data: {
+    name: string;
+    displayName: string;
+    priceMonthly?: number;
+    maxProjects?: number | null;
+    maxStorageBytes?: bigint | null;
+    maxTeamMembers?: number | null;
+    maxDbSizeBytes?: bigint | null;
+    maxApiRequests?: number | null;
+    maxBandwidthBytes?: bigint | null;
+    maxMau?: number | null;
+    isPublic?: boolean;
+  }) {
+    const name = data.name.trim().toLowerCase();
+    const displayName = data.displayName.trim();
+    if (!name || !displayName) {
+      throw new BadRequestException('Plan name and display name are required');
+    }
+    return this.prisma.plan.create({
+      data: {
+        name,
+        displayName,
+        priceMonthly: data.priceMonthly ?? 0,
+        maxProjects: data.maxProjects ?? null,
+        maxStorageBytes: data.maxStorageBytes ?? null,
+        maxTeamMembers: data.maxTeamMembers ?? null,
+        maxDbSizeBytes: data.maxDbSizeBytes ?? null,
+        maxApiRequests: data.maxApiRequests ?? null,
+        maxBandwidthBytes: data.maxBandwidthBytes ?? null,
+        maxMau: data.maxMau ?? null,
+        isPublic: data.isPublic ?? true,
+      },
+    });
+  }
+
   async listManagementUserPackages() {
     const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },

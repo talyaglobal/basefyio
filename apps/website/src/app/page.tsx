@@ -76,17 +76,19 @@ async function getPublicPlans(): Promise<PublicPlan[]> {
   ].filter(Boolean) as string[];
 
   for (const base of candidates) {
-    try {
-      const res = await fetch(`${base}/billing/plans`, { cache: "no-store" });
-      if (!res.ok) continue;
-      const data = (await res.json()) as PublicPlan[];
-      if (Array.isArray(data) && data.length > 0) {
-        return data
-          .filter((p) => p.isPublic)
-          .sort((a, b) => a.priceMonthly - b.priceMonthly);
+    for (const path of ["/api/billing/plans", "/billing/plans"]) {
+      try {
+        const res = await fetch(`${base}${path}`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const data = (await res.json()) as PublicPlan[];
+        if (Array.isArray(data) && data.length > 0) {
+          return data
+            .filter((p) => p.isPublic)
+            .sort((a, b) => a.priceMonthly - b.priceMonthly);
+        }
+      } catch {
+        // Try next path/base URL
       }
-    } catch {
-      // Try next base URL
     }
   }
 

@@ -101,13 +101,14 @@ export class AuthController {
   @Post('change-password')
   async changePassword(
     @CurrentUser() user: JwtPayload,
-    @Body() body: { currentPassword: string; newPassword: string },
+    @Body() body: ChangePasswordDto,
   ) {
     return this.authService.changePassword(
       user.sub,
       user.email,
-      body.currentPassword,
+      body.currentPassword || '',
       body.newPassword,
+      !!body.allowIdentityEdit,
     );
   }
 
@@ -151,6 +152,16 @@ export class AuthController {
       newPassword,
       !!forceChangeOnFirstLogin,
     );
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/users/:id/active')
+  async updateManagementUserActive(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body('isActive') isActive: boolean,
+  ) {
+    return this.authService.setManagementUserActiveByRoot(user.sub, id, !!isActive);
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)

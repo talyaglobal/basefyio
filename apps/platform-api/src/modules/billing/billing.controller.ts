@@ -235,6 +235,54 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Post('management/plans')
+  async createManagementPlan(
+    @Body()
+    body: {
+      name: string;
+      displayName: string;
+      priceMonthly?: number;
+      maxProjects?: number | null;
+      maxStorageBytes?: string | null;
+      maxTeamMembers?: number | null;
+      maxDbSizeBytes?: string | null;
+      maxApiRequests?: number | null;
+      maxBandwidthBytes?: string | null;
+      maxMau?: number | null;
+      isPublic?: boolean;
+    },
+  ) {
+    return this.billing.createManagementPlan({
+      name: body.name,
+      displayName: body.displayName,
+      priceMonthly: body.priceMonthly,
+      maxProjects: body.maxProjects,
+      maxStorageBytes:
+        body.maxStorageBytes === undefined
+          ? undefined
+          : body.maxStorageBytes === null
+            ? null
+            : BigInt(body.maxStorageBytes),
+      maxTeamMembers: body.maxTeamMembers,
+      maxDbSizeBytes:
+        body.maxDbSizeBytes === undefined
+          ? undefined
+          : body.maxDbSizeBytes === null
+            ? null
+            : BigInt(body.maxDbSizeBytes),
+      maxApiRequests: body.maxApiRequests,
+      maxBandwidthBytes:
+        body.maxBandwidthBytes === undefined
+          ? undefined
+          : body.maxBandwidthBytes === null
+            ? null
+            : BigInt(body.maxBandwidthBytes),
+      maxMau: body.maxMau,
+      isPublic: body.isPublic,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Get('management/user-packages')
   async managementUserPackages() {
     return this.billing.listManagementUserPackages();

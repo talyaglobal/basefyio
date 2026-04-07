@@ -501,13 +501,31 @@ export class AuthService {
     }
   }
 
-  async changePassword(userId: string, email: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    email: string,
+    currentPassword: string,
+    newPassword: string,
+    allowIdentityEdit = false,
+  ) {
     this.ensureStrongPassword(newPassword);
-
+    let authProvider: 'local' | 'google' | 'github' = 'local';
     try {
-      await this.login(email, currentPassword);
+      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
     } catch {
-      throw new UnauthorizedException('Current password is incorrect');
+      authProvider = 'local';
+    }
+    if (authProvider !== 'local' && !allowIdentityEdit) {
+      throw new BadRequestException(
+        `This account uses ${authProvider} sign-in. Use "Enable identity edits" first.`,
+      );
+    }
+    if (authProvider === 'local') {
+      try {
+        await this.login(email, currentPassword);
+      } catch {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
     }
 
     try {
@@ -727,6 +745,12 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+    let authProvider: 'local' | 'google' | 'github' = 'local';
+    try {
+      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
+    } catch {
+      authProvider = 'local';
+    }
 
     return {
       id: user.id,
@@ -740,6 +764,8 @@ export class AuthService {
       notifyTeamInvite: user.notifyTeamInvite,
       role: user.role,
       createdAt: user.createdAt,
+      authProvider,
+      canEditIdentityFields: authProvider === 'local',
     };
   }
 
@@ -754,9 +780,23 @@ export class AuthService {
       avatarUrl?: string;
       notifySignIn?: boolean;
       notifyTeamInvite?: boolean;
+      allowIdentityEdit?: boolean;
     },
   ) {
     const updateData: Record<string, any> = {};
+    let authProvider: 'local' | 'google' | 'github' = 'local';
+    try {
+      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
+    } catch {
+      authProvider = 'local';
+    }
+    const changingIdentityFields =
+      data.username !== undefined || data.email !== undefined;
+    if (authProvider !== 'local' && changingIdentityFields && !data.allowIdentityEdit) {
+      throw new BadRequestException(
+        `This account uses ${authProvider} sign-in. Use "Enable identity edits" first.`,
+      );
+    }
 
     if (data.username !== undefined) {
       const existing = await this.prisma.user.findFirst({
@@ -825,6 +865,8 @@ export class AuthService {
       notifyTeamInvite: user.notifyTeamInvite,
       role: user.role,
       createdAt: user.createdAt,
+      authProvider,
+      canEditIdentityFields: authProvider === 'local',
     };
   }
 
@@ -871,7 +913,7 @@ export class AuthService {
   }
 
   async listManagementUsers() {
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -886,6 +928,21 @@ export class AuthService {
         },
       },
     });
+    const enabledMap = new Map<string, boolean>();
+    await Promise.all(
+      users.map(async (u) => {
+        try {
+          const enabled = await this.keycloak.getPlatformUserEnabledById(u.id);
+          enabledMap.set(u.id, enabled);
+        } catch {
+          enabledMap.set(u.id, true);
+        }
+      }),
+    );
+    return users.map((u) => ({
+      ...u,
+      isActive: enabledMap.get(u.id) ?? true,
+    }));
   }
 
   async updateUserRoleByRoot(currentUserId: string, targetUserId: string, role: string) {
@@ -978,6 +1035,21 @@ export class AuthService {
       projectCount: team._count.projects,
       owner: team.members[0]?.user ?? null,
     }));
+  }
+
+  async setManagementUserActiveByRoot(currentUserId: string, targetUserId: string, isActive: boolean) {
+    if (currentUserId === targetUserId && !isActive) {
+      throw new BadRequestException('Root user cannot deactivate own account');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true, username: true },
+    });
+    if (!target) {
+      throw new BadRequestException('User not found');
+    }
+    await this.keycloak.setPlatformUserEnabledById(targetUserId, isActive);
+    return { id: target.id, email: target.email, username: target.username, isActive };
   }
 
 }

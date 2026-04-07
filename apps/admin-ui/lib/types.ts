@@ -202,6 +202,8 @@ export interface UserProfile {
   notifyTeamInvite: boolean;
   role: string;
   createdAt: string;
+  authProvider?: 'local' | 'google' | 'github';
+  canEditIdentityFields?: boolean;
 }
 
 export interface ManagementUser {
@@ -211,6 +213,7 @@ export interface ManagementUser {
   firstName: string | null;
   lastName: string | null;
   role: 'USER' | 'ADMIN' | 'ROOT';
+  isActive?: boolean;
   createdAt: string;
   _count: { teamMembers: number };
 }

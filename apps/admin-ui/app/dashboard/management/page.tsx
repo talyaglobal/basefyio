@@ -17,6 +17,64 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
+const BYTE_UNITS = ['MB', 'GB'] as const;
+type ByteUnit = (typeof BYTE_UNITS)[number];
+
+type PlanDraft = {
+  id: string;
+  name: string;
+  displayName: string;
+  priceMonthlyDollars: string;
+  maxProjects: string;
+  maxStorageValue: string;
+  maxStorageUnit: ByteUnit;
+  maxDbValue: string;
+  maxDbUnit: ByteUnit;
+  maxTeamMembers: string;
+  maxApiRequests: string;
+  maxBandwidthValue: string;
+  maxBandwidthUnit: ByteUnit;
+  isPublic: boolean;
+};
+
+function toBigIntString(value: string, unit: ByteUnit): string | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const multiplier = unit === 'GB' ? 1024 ** 3 : 1024 ** 2;
+  return String(Math.round(n * multiplier));
+}
+
+function fromBytes(value: string | number | null): { amount: string; unit: ByteUnit } {
+  if (value === null || value === undefined || value === '') return { amount: '', unit: 'GB' };
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return { amount: '', unit: 'GB' };
+  const gb = 1024 ** 3;
+  const mb = 1024 ** 2;
+  if (n >= gb) return { amount: String(Math.round((n / gb) * 100) / 100), unit: 'GB' };
+  return { amount: String(Math.round((n / mb) * 100) / 100), unit: 'MB' };
+}
+
+function planToDraft(p: ManagementPlan): PlanDraft {
+  const storage = fromBytes(p.maxStorageBytes);
+  const db = fromBytes(p.maxDbSizeBytes);
+  const bandwidth = fromBytes(p.maxBandwidthBytes);
+  return {
+    id: p.id,
+    name: p.name,
+    displayName: p.displayName,
+    priceMonthlyDollars: String((p.priceMonthly || 0) / 100),
+    maxProjects: p.maxProjects === null ? '' : String(p.maxProjects),
+    maxStorageValue: storage.amount,
+    maxStorageUnit: storage.unit,
+    maxDbValue: db.amount,
+    maxDbUnit: db.unit,
+    maxTeamMembers: p.maxTeamMembers === null ? '' : String(p.maxTeamMembers),
+    maxApiRequests: p.maxApiRequests === null ? '' : String(p.maxApiRequests),
+    maxBandwidthValue: bandwidth.amount,
+    maxBandwidthUnit: bandwidth.unit,
+    isPublic: p.isPublic,
+  };
+}
 
 export default function ManagementPage() {
   const router = useRouter();
@@ -27,12 +85,22 @@ export default function ManagementPage() {
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
+  const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
   const [savingPackageUserId, setSavingPackageUserId] = useState<string | null>(null);
   const [savingPlanName, setSavingPlanName] = useState<string | null>(null);
+  const [planDrafts, setPlanDrafts] = useState<Record<string, PlanDraft>>({});
+  const [savingAllPlans, setSavingAllPlans] = useState(false);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [newPlan, setNewPlan] = useState({
+    name: '',
+    displayName: '',
+    priceMonthlyDollars: '0',
+  });
   const [passwordDialogUser, setPasswordDialogUser] = useState<ManagementUser | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [forceChangeOnFirstLogin, setForceChangeOnFirstLogin] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState<'users' | 'plans' | 'teams'>('users');
 
   const isRoot = profile?.role === 'ROOT';
 
@@ -48,6 +116,12 @@ export default function ManagementPage() {
       setUsers(usersData);
       setTeams(teamsData);
       setPlans(plansData);
+      setPlanDrafts(
+        plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
+          acc[p.id] = planToDraft(p);
+          return acc;
+        }, {}),
+      );
       setUserPackages(packagesData);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load management data');
@@ -98,6 +172,72 @@ export default function ManagementPage() {
     load();
   }, [profile, isRoot, router]);
 
+  async function handleSavePlanChanges() {
+    setSavingAllPlans(true);
+    try {
+      const originalById = plans.reduce<Record<string, ManagementPlan>>((acc, p) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+      for (const draft of Object.values(planDrafts)) {
+        const original = originalById[draft.id];
+        if (!original) continue;
+        const payload = {
+          displayName: draft.displayName.trim(),
+          priceMonthly: Math.round((Number(draft.priceMonthlyDollars || '0') || 0) * 100),
+          maxProjects: draft.maxProjects.trim() === '' ? null : Number(draft.maxProjects),
+          maxStorageBytes:
+            draft.maxStorageValue.trim() === ''
+              ? null
+              : toBigIntString(draft.maxStorageValue, draft.maxStorageUnit),
+          maxDbSizeBytes:
+            draft.maxDbValue.trim() === ''
+              ? null
+              : toBigIntString(draft.maxDbValue, draft.maxDbUnit),
+          maxTeamMembers:
+            draft.maxTeamMembers.trim() === '' ? null : Number(draft.maxTeamMembers),
+          maxApiRequests:
+            draft.maxApiRequests.trim() === '' ? null : Number(draft.maxApiRequests),
+          maxBandwidthBytes:
+            draft.maxBandwidthValue.trim() === ''
+              ? null
+              : toBigIntString(draft.maxBandwidthValue, draft.maxBandwidthUnit),
+          isPublic: draft.isPublic,
+        };
+        await api.billing.updateManagementPlan(original.name, payload);
+      }
+      toast.success('Plan changes saved');
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save plan changes');
+    } finally {
+      setSavingAllPlans(false);
+    }
+  }
+
+  async function handleCreatePlan() {
+    if (!newPlan.name.trim() || !newPlan.displayName.trim()) {
+      toast.error('Plan name and display name are required');
+      return;
+    }
+    setCreatingPlan(true);
+    try {
+      await api.billing.createManagementPlan({
+        name: newPlan.name.trim().toLowerCase(),
+        displayName: newPlan.displayName.trim(),
+        priceMonthly: Math.round((Number(newPlan.priceMonthlyDollars || '0') || 0) * 100),
+        isPublic: true,
+      });
+      toast.success('New plan created');
+      setNewPlan({ name: '', displayName: '', priceMonthlyDollars: '0' });
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create plan');
+    } finally {
+      setCreatingPlan(false);
+    }
+  }
+
   if (profile === null || loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -127,6 +267,43 @@ export default function ManagementPage() {
         </Button>
       </div>
 
+      <div className="inline-flex rounded-lg border bg-muted p-1">
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'users'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('users')}
+        >
+          Users
+        </button>
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'plans'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('plans')}
+        >
+          Pricing Plans
+        </button>
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'teams'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('teams')}
+        >
+          Teams
+        </button>
+      </div>
+
+      {activeTab === 'users' && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">Users</h2>
         <div className="overflow-x-auto">
@@ -139,6 +316,7 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">Package</th>
                 <th className="px-2 py-2">Created</th>
                 <th className="px-2 py-2">Role</th>
+                <th className="px-2 py-2">Status</th>
                 <th className="px-2 py-2">Password</th>
               </tr>
             </thead>
@@ -203,6 +381,47 @@ export default function ManagementPage() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-2 py-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          u.isActive === false
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {u.isActive === false ? 'Inactive' : 'Active'}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={savingActiveUserId === u.id}
+                        onClick={async () => {
+                          const next = !(u.isActive !== false);
+                          setSavingActiveUserId(u.id);
+                          try {
+                            const updated = await api.auth.updateManagementUserActive(u.id, next);
+                            setUsers((prev) =>
+                              prev.map((x) =>
+                                x.id === u.id ? { ...x, isActive: updated.isActive } : x,
+                              ),
+                            );
+                            toast.success(
+                              updated.isActive
+                                ? `${u.username} activated`
+                                : `${u.username} deactivated`,
+                            );
+                          } catch (err: any) {
+                            toast.error(err.message || 'Failed to update user status');
+                          } finally {
+                            setSavingActiveUserId(null);
+                          }
+                        }}
+                      >
+                        {u.isActive === false ? 'Activate' : 'Deactivate'}
+                      </Button>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
                     <select
                       value={u.role}
                       disabled={savingRoleUserId === u.id}
@@ -249,9 +468,37 @@ export default function ManagementPage() {
           </table>
         </div>
       </section>
+      )}
 
+      {activeTab === 'plans' && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
-        <h2 className="text-base font-semibold">Pricing Plans</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Pricing Plans</h2>
+          <Button onClick={handleSavePlanChanges} disabled={savingAllPlans || !!savingPlanName}>
+            {savingAllPlans ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+        <div className="grid gap-2 rounded-lg border p-3 md:grid-cols-4">
+          <Input
+            placeholder="plan-name (e.g. enterprise)"
+            value={newPlan.name}
+            onChange={(e) => setNewPlan((p) => ({ ...p, name: e.target.value }))}
+          />
+          <Input
+            placeholder="Display name"
+            value={newPlan.displayName}
+            onChange={(e) => setNewPlan((p) => ({ ...p, displayName: e.target.value }))}
+          />
+          <Input
+            type="number"
+            placeholder="Monthly USD"
+            value={newPlan.priceMonthlyDollars}
+            onChange={(e) => setNewPlan((p) => ({ ...p, priceMonthlyDollars: e.target.value }))}
+          />
+          <Button onClick={handleCreatePlan} disabled={creatingPlan}>
+            {creatingPlan ? 'Creating...' : 'Add New Plan'}
+          </Button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1320px] text-left text-sm">
             <thead>
@@ -259,235 +506,169 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">Plan Name</th>
                 <th className="px-2 py-2">Price Monthly (USD)</th>
                 <th className="px-2 py-2">Projects</th>
-                <th className="px-2 py-2">Storage (bytes)</th>
-                <th className="px-2 py-2">DB Size (bytes)</th>
+                <th className="px-2 py-2">Storage (MB/GB)</th>
+                <th className="px-2 py-2">DB Size (MB/GB)</th>
                 <th className="px-2 py-2">Team Members</th>
                 <th className="px-2 py-2">API Req / Mo</th>
-                <th className="px-2 py-2">Bandwidth (bytes)</th>
+                <th className="px-2 py-2">Bandwidth (MB/GB)</th>
                 <th className="px-2 py-2">Public</th>
               </tr>
             </thead>
             <tbody>
               {plans.map((p) => (
                 <tr key={p.id} className="border-b last:border-0">
+                  {(() => {
+                    const d = planDrafts[p.id] ?? planToDraft(p);
+                    return (
+                      <>
                   <td className="px-2 py-2">
                     <Input
-                      defaultValue={p.displayName}
+                      value={d.displayName}
                       className="h-8 w-40"
-                      onBlur={async (e) => {
-                        const next = e.target.value.trim();
-                        if (!next || next === p.displayName) return;
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            displayName: next,
-                          });
-                          setPlans((prev) =>
-                            prev.map((x) =>
-                              x.id === p.id ? { ...x, displayName: updated.displayName } : x,
-                            ),
-                          );
-                          toast.success(`${p.name} name updated`);
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to update plan name');
-                        } finally {
-                          setSavingPlanName(null);
-                        }
-                      }}
+                      onChange={(e) =>
+                        setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, displayName: e.target.value } }))
+                      }
                       disabled={savingPlanName === p.name}
                     />
                   </td>
                   <td className="px-2 py-2">
                     <Input
                       type="number"
-                      defaultValue={(p.priceMonthly / 100).toString()}
+                      value={d.priceMonthlyDollars}
                       className="h-8 w-24"
-                      onBlur={async (e) => {
-                        const dollars = Number(e.target.value);
-                        if (!Number.isFinite(dollars) || dollars < 0) return;
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            priceMonthly: Math.round(dollars * 100),
-                          });
-                          setPlans((prev) =>
-                            prev.map((x) =>
-                              x.id === p.id ? { ...x, priceMonthly: updated.priceMonthly } : x,
-                            ),
-                          );
-                          toast.success(`${p.displayName} price updated`);
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to update price');
-                        } finally {
-                          setSavingPlanName(null);
-                        }
-                      }}
+                      onChange={(e) =>
+                        setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, priceMonthlyDollars: e.target.value } }))
+                      }
                       disabled={savingPlanName === p.name}
                     />
                   </td>
                   <td className="px-2 py-2">
                     <Input
                       type="number"
-                      defaultValue={p.maxProjects ?? ''}
+                      value={d.maxProjects}
                       placeholder="Unlimited"
                       className="h-8 w-24"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        const next = raw === '' ? null : Number(raw);
-                        if (raw !== '' && (!Number.isFinite(next) || (next as number) < 0)) return;
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxProjects: next as number | null,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxProjects: updated.maxProjects } : x)));
-                        } finally {
-                          setSavingPlanName(null);
-                        }
-                      }}
+                      onChange={(e) =>
+                        setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxProjects: e.target.value } }))
+                      }
                       disabled={savingPlanName === p.name}
                     />
                   </td>
                   <td className="px-2 py-2">
-                    <Input
-                      type="text"
-                      defaultValue={p.maxStorageBytes ?? ''}
-                      placeholder="Unlimited"
-                      className="h-8 w-36"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxStorageBytes: raw === '' ? null : raw,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxStorageBytes: updated.maxStorageBytes } : x)));
-                        } finally {
-                          setSavingPlanName(null);
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        value={d.maxStorageValue}
+                        placeholder="Unlimited"
+                        className="h-8 w-24"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxStorageValue: e.target.value } }))
                         }
-                      }}
-                      disabled={savingPlanName === p.name}
-                    />
+                      />
+                      <select
+                        value={d.maxStorageUnit}
+                        className="h-8 rounded-md border bg-background px-2 text-xs"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxStorageUnit: e.target.value as ByteUnit } }))
+                        }
+                      >
+                        {BYTE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
-                    <Input
-                      type="text"
-                      defaultValue={p.maxDbSizeBytes ?? ''}
-                      placeholder="Unlimited"
-                      className="h-8 w-36"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxDbSizeBytes: raw === '' ? null : raw,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxDbSizeBytes: updated.maxDbSizeBytes } : x)));
-                        } finally {
-                          setSavingPlanName(null);
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        value={d.maxDbValue}
+                        placeholder="Unlimited"
+                        className="h-8 w-24"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxDbValue: e.target.value } }))
                         }
-                      }}
-                      disabled={savingPlanName === p.name}
-                    />
+                      />
+                      <select
+                        value={d.maxDbUnit}
+                        className="h-8 rounded-md border bg-background px-2 text-xs"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxDbUnit: e.target.value as ByteUnit } }))
+                        }
+                      >
+                        {BYTE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
                     <Input
                       type="number"
-                      defaultValue={p.maxTeamMembers ?? ''}
+                      value={d.maxTeamMembers}
                       placeholder="Unlimited"
                       className="h-8 w-24"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        const next = raw === '' ? null : Number(raw);
-                        if (raw !== '' && (!Number.isFinite(next) || (next as number) < 0)) return;
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxTeamMembers: next as number | null,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxTeamMembers: updated.maxTeamMembers } : x)));
-                        } finally {
-                          setSavingPlanName(null);
-                        }
-                      }}
+                      onChange={(e) =>
+                        setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxTeamMembers: e.target.value } }))
+                      }
                       disabled={savingPlanName === p.name}
                     />
                   </td>
                   <td className="px-2 py-2">
                     <Input
                       type="number"
-                      defaultValue={p.maxApiRequests ?? ''}
+                      value={d.maxApiRequests}
                       placeholder="Unlimited"
                       className="h-8 w-28"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        const next = raw === '' ? null : Number(raw);
-                        if (raw !== '' && (!Number.isFinite(next) || (next as number) < 0)) return;
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxApiRequests: next as number | null,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxApiRequests: updated.maxApiRequests } : x)));
-                        } finally {
-                          setSavingPlanName(null);
-                        }
-                      }}
+                      onChange={(e) =>
+                        setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxApiRequests: e.target.value } }))
+                      }
                       disabled={savingPlanName === p.name}
                     />
                   </td>
                   <td className="px-2 py-2">
-                    <Input
-                      type="text"
-                      defaultValue={p.maxBandwidthBytes ?? ''}
-                      placeholder="Unlimited"
-                      className="h-8 w-36"
-                      onBlur={async (e) => {
-                        const raw = e.target.value.trim();
-                        setSavingPlanName(p.name);
-                        try {
-                          const updated = await api.billing.updateManagementPlan(p.name, {
-                            maxBandwidthBytes: raw === '' ? null : raw,
-                          });
-                          setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, maxBandwidthBytes: updated.maxBandwidthBytes } : x)));
-                        } finally {
-                          setSavingPlanName(null);
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        value={d.maxBandwidthValue}
+                        placeholder="Unlimited"
+                        className="h-8 w-24"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxBandwidthValue: e.target.value } }))
                         }
-                      }}
-                      disabled={savingPlanName === p.name}
-                    />
+                      />
+                      <select
+                        value={d.maxBandwidthUnit}
+                        className="h-8 rounded-md border bg-background px-2 text-xs"
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxBandwidthUnit: e.target.value as ByteUnit } }))
+                        }
+                      >
+                        {BYTE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
                     <label className="inline-flex items-center gap-2 text-xs">
                       <input
                         type="checkbox"
-                        checked={p.isPublic}
-                        onChange={async (e) => {
-                          const next = e.target.checked;
-                          setSavingPlanName(p.name);
-                          try {
-                            const updated = await api.billing.updateManagementPlan(p.name, {
-                              isPublic: next,
-                            });
-                            setPlans((prev) =>
-                              prev.map((x) => (x.id === p.id ? { ...x, isPublic: updated.isPublic } : x)),
-                            );
-                          } finally {
-                            setSavingPlanName(null);
-                          }
-                        }}
+                        checked={d.isPublic}
+                        onChange={(e) =>
+                          setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, isPublic: e.target.checked } }))
+                        }
                         disabled={savingPlanName === p.name}
                       />
-                      {p.isPublic ? 'Yes' : 'No'}
+                      {d.isPublic ? 'Yes' : 'No'}
                     </label>
                   </td>
+                      </>
+                    );
+                  })()}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
+      )}
 
+      {activeTab === 'teams' && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">Teams</h2>
         <div className="overflow-x-auto">
@@ -521,6 +702,7 @@ export default function ManagementPage() {
           </table>
         </div>
       </section>
+      )}
 
       <Dialog
         open={!!passwordDialogUser}

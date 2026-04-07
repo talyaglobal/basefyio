@@ -62,6 +62,7 @@ export default function AccountPage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [identityEditEnabled, setIdentityEditEnabled] = useState(false);
   const forcePasswordChange = searchParams.get('forcePasswordChange') === '1';
 
   useEffect(() => {
@@ -115,12 +116,15 @@ export default function AccountPage() {
       firstName.trim() !== (profile.firstName ?? '') ||
       lastName.trim() !== (profile.lastName ?? '') ||
       pendingAvatarDataUrl !== null);
+  const authProvider = profile?.authProvider ?? 'local';
+  const isExternalAuth = authProvider !== 'local';
+  const canEditIdentity = !isExternalAuth || identityEditEnabled || forcePasswordChange;
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
     setSaving(true);
     try {
-      const updates: Record<string, string> = {};
+      const updates: Record<string, string | boolean> = {};
       if (username !== profile!.username) updates.username = username;
       if (email !== profile!.email) updates.email = email;
       const fn = firstName.trim();
@@ -128,6 +132,7 @@ export default function AccountPage() {
       if (fn !== (profile!.firstName ?? '')) updates.firstName = fn;
       if (ln !== (profile!.lastName ?? '')) updates.lastName = ln;
       if (pendingAvatarDataUrl !== null) updates.avatarUrl = pendingAvatarDataUrl;
+      if (isExternalAuth && canEditIdentity) updates.allowIdentityEdit = true;
 
       const updated = await api.auth.updateProfile(updates);
       setProfile(updated);
@@ -211,7 +216,11 @@ export default function AccountPage() {
   };
 
   const handleChangePassword = async () => {
-    if (!currentPassword) {
+    if (isExternalAuth && !canEditIdentity) {
+      toast.error('Enable identity edits first');
+      return;
+    }
+    if (!isExternalAuth && !currentPassword) {
       toast.error('Enter your current password');
       return;
     }
@@ -225,7 +234,11 @@ export default function AccountPage() {
     }
     setChangingPassword(true);
     try {
-      await api.auth.changePassword(currentPassword, newPassword);
+      await api.auth.changePassword(
+        currentPassword,
+        newPassword,
+        isExternalAuth && canEditIdentity,
+      );
       Cookies.remove('kb_force_password_change', { path: '/' });
       toast.success('Password changed successfully');
       setCurrentPassword('');
@@ -328,6 +341,7 @@ export default function AccountPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
+              disabled={!canEditIdentity}
             />
           </div>
           <div className="space-y-2">
@@ -338,9 +352,20 @@ export default function AccountPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
+              disabled={!canEditIdentity}
             />
           </div>
         </div>
+        {isExternalAuth && !canEditIdentity && (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            <span>
+              This account uses {authProvider} sign-in. Username, email, and password are locked.
+            </span>
+            <Button type="button" size="sm" variant="outline" onClick={() => setIdentityEditEnabled(true)}>
+              Enable identity edits
+            </Button>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -368,7 +393,10 @@ export default function AccountPage() {
         </div>
 
         <div className="flex items-center justify-between">
-          <Badge variant="secondary" className="text-xs">{profile.role}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-xs">{profile.role}</Badge>
+            <Badge variant="outline" className="text-xs uppercase">{authProvider}</Badge>
+          </div>
           <Button onClick={handleSaveProfile} disabled={!hasProfileChanges || saving} size="sm">
             {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
             Save changes
@@ -530,10 +558,13 @@ export default function AccountPage() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Enter your current password first, then set a new password.
+          {isExternalAuth
+            ? 'Social sign-in account. Enable identity edits to set a local password.'
+            : 'Enter your current password first, then set a new password.'}
         </p>
 
         <div className="space-y-4">
+          {!isExternalAuth && (
           <div className="space-y-2">
             <Label htmlFor="account-current-pw">Current password</Label>
             <div className="relative">
@@ -554,6 +585,7 @@ export default function AccountPage() {
               </button>
             </div>
           </div>
+          )}
 
           <Separator />
 
@@ -607,7 +639,13 @@ export default function AccountPage() {
         <div className="flex justify-end">
           <Button
             onClick={handleChangePassword}
-            disabled={changingPassword || !currentPassword || newPassword.length < 6 || newPassword !== confirmPassword}
+            disabled={
+              changingPassword ||
+              (!isExternalAuth && !currentPassword) ||
+              (isExternalAuth && !canEditIdentity) ||
+              newPassword.length < 6 ||
+              newPassword !== confirmPassword
+            }
             size="sm"
           >
             {changingPassword ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1.5 h-3.5 w-3.5" />}

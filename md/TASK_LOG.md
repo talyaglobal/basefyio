@@ -1,5 +1,35 @@
 # Task Log
 
+## 2026-04-07 (management users activate/deactivate)
+- **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
+- **Backend endpoint:** Added `PATCH /auth/management/users/:id/active` (root-only) to enable/disable platform users.
+- **Keycloak integration:** User activation state now maps to Keycloak user `enabled` flag, so deactivated users cannot sign in.
+- **UI actions:** Users table now shows `Active/Inactive` badge and `Deactivate/Activate` button per user.
+- **Safety rule:** Root cannot deactivate own account.
+
+## 2026-04-07 (management page tabbed layout)
+- **UI navigation update:** Converted `/dashboard/management` sections into top tabs.
+- **Tabs added:** `Users`, `Pricing Plans`, and `Teams` are now rendered as selectable tabs.
+- **Behavior:** Only the active tab content is displayed at a time for a cleaner management workflow.
+
+## 2026-04-07 (website pricing unavailable fix)
+- **Root cause:** Website pricing fetch targeted `/billing/plans`, while platform API is mounted under `/api/*` in this stack.
+- **Fix:** Updated website plan fetch logic to try `/api/billing/plans` first (with `/billing/plans` fallback) across candidate base URLs.
+- **Result:** `Pricing plans are temporarily unavailable` fallback no longer appears when API is healthy.
+
+## 2026-04-07 (management plans: save flow + MB/GB + create)
+- **Plan edit UX:** Converted pricing plan editing on `/dashboard/management` to draft-based editing with a single `Save Changes` button.
+- **Human units:** Replaced raw byte editing with value + unit selectors (`MB` / `GB`) for storage, DB size, and bandwidth fields.
+- **Create plan support:** Added root-only create-plan flow (new API endpoint + UI form) so new pricing plans can be added directly from management page.
+- **API updates:** Added `POST /billing/management/plans` and corresponding admin UI client method `api.billing.createManagementPlan(...)`.
+
+## 2026-04-07 (social sign-in identity field protection)
+- **Sign-in type detection:** Added Keycloak federated-identity check to identify platform auth provider as `local`, `google`, or `github`.
+- **Backend protection:** For `google/github` users, email/username/password updates are blocked by default.
+- **Explicit override flow:** Added `allowIdentityEdit` guard flag so identity edits only proceed when user explicitly enables it from UI.
+- **Profile payload enriched:** `/auth/profile` now returns `authProvider` and `canEditIdentityFields` for client-side behavior.
+- **Account UI update:** On `/dashboard/account`, social users now see locked identity fields and an `Enable identity edits` button that unlocks username/email/password changes intentionally.
+
 ## 2026-04-07 (root account recovery after accidental reset)
 - **Issue diagnosed:** Root login failed because Keycloak user record for `016f202d-409d-4627-9cfc-77369b79bb22` had no email set, causing `user_not_found` during password-grant login with email.
 - **Recovery applied:** Restored Keycloak email to `bsaygin@outlook.com`, ensured account enabled with empty `requiredActions`, and set a new temporary root password.

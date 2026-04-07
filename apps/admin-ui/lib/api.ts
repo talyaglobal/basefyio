@@ -155,16 +155,21 @@ export const api = {
       avatarUrl?: string;
       notifySignIn?: boolean;
       notifyTeamInvite?: boolean;
+      allowIdentityEdit?: boolean;
     }) {
       return request<UserProfile>('/auth/profile', {
         method: 'PUT',
         body: JSON.stringify(data),
       });
     },
-    changePassword(currentPassword: string, newPassword: string) {
+    changePassword(
+      currentPassword: string,
+      newPassword: string,
+      allowIdentityEdit = false,
+    ) {
       return request<{ message: string }>('/auth/change-password', {
         method: 'POST',
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword, newPassword, allowIdentityEdit }),
       });
     },
     async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
@@ -205,6 +210,15 @@ export const api = {
         {
           method: 'PATCH',
           body: JSON.stringify({ role }),
+        },
+      );
+    },
+    updateManagementUserActive(userId: string, isActive: boolean) {
+      return request<{ id: string; email: string; username: string; isActive: boolean }>(
+        `/auth/management/users/${userId}/active`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive }),
         },
       );
     },
@@ -1101,6 +1115,24 @@ export const api = {
     ) {
       return request<ManagementPlan>(`/billing/management/plans/${encodeURIComponent(planName)}`, {
         method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    createManagementPlan(data: {
+      name: string;
+      displayName: string;
+      priceMonthly?: number;
+      maxProjects?: number | null;
+      maxStorageBytes?: string | null;
+      maxTeamMembers?: number | null;
+      maxDbSizeBytes?: string | null;
+      maxApiRequests?: number | null;
+      maxBandwidthBytes?: string | null;
+      maxMau?: number | null;
+      isPublic?: boolean;
+    }) {
+      return request<ManagementPlan>('/billing/management/plans', {
+        method: 'POST',
         body: JSON.stringify(data),
       });
     },

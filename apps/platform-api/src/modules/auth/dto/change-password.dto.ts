@@ -1,9 +1,9 @@
-import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  currentPassword: string;
+  currentPassword?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -15,4 +15,8 @@ export class ChangePasswordDto {
     message: 'Password must include at least one punctuation character',
   })
   newPassword: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowIdentityEdit?: boolean;
 }

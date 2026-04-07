@@ -37,4 +37,8 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsBoolean()
   notifyTeamInvite?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowIdentityEdit?: boolean;
 }

@@ -663,6 +663,36 @@ export class KeycloakAdminService implements OnModuleInit {
     return user?.attributes?.kb_force_password_change?.[0] === 'true';
   }
 
+  async getPlatformUserAuthProviderById(
+    userId: string,
+  ): Promise<'local' | 'google' | 'github'> {
+    await this.ensureAuth();
+    const adminToken = await this.getAdminAccessToken();
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const { data } = await axios.get(
+      `${baseUrl}/admin/realms/master/users/${userId}/federated-identity`,
+      { headers },
+    );
+    const providers = Array.isArray(data)
+      ? data.map((x: any) => String(x?.identityProvider || '').toLowerCase())
+      : [];
+    if (providers.includes('google')) return 'google';
+    if (providers.includes('github')) return 'github';
+    return 'local';
+  }
+
+  async getPlatformUserEnabledById(userId: string): Promise<boolean> {
+    await this.ensureAuth();
+    const user = await this.client.users.findOne({ realm: 'master', id: userId });
+    return user?.enabled !== false;
+  }
+
+  async setPlatformUserEnabledById(userId: string, enabled: boolean): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.update({ realm: 'master', id: userId }, { enabled });
+  }
+
   // ── Identity provider operations ──
 
   async upsertIdentityProvider(
