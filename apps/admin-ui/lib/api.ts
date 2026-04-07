@@ -851,6 +851,17 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    history(id: string) {
+      return request<{
+        id: string;
+        feedbackId: string;
+        userId: string;
+        username: string;
+        action: string;
+        detail?: string | null;
+        createdAt: string;
+      }[]>(`/feedback/${id}/history`);
+    },
   },
 
   storage: {

@@ -62,6 +62,7 @@ export default function FeedbacksPage() {
   const { profile } = useDashboard();
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -72,6 +73,12 @@ export default function FeedbacksPage() {
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
   const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; username: string } | null>>({});
   const [preview, setPreview] = useState<{ url: string; isVideo: boolean } | null>(null);
+  const [selectedFilesOpenByFeedback, setSelectedFilesOpenByFeedback] = useState<Record<string, boolean>>({});
+  const [historyFeedbackId, setHistoryFeedbackId] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState<
+    { id: string; username: string; action: string; detail?: string | null; createdAt: string }[]
+  >([]);
 
   const isRoot = profile?.role === 'ROOT';
 
@@ -138,9 +145,47 @@ export default function FeedbacksPage() {
     }
   }
 
-  const filtered = filterStatus
-    ? feedbacks.filter((f) => f.status === filterStatus)
-    : feedbacks;
+  function removeCommentFile(feedbackId: string, fileIndex: number) {
+    setCommentFiles((prev) => {
+      const current = prev[feedbackId] || [];
+      return {
+        ...prev,
+        [feedbackId]: current.filter((_, idx) => idx !== fileIndex),
+      };
+    });
+  }
+
+  async function openHistory(feedbackId: string) {
+    setHistoryFeedbackId(feedbackId);
+    setHistoryLoading(true);
+    try {
+      const items = await api.feedback.history(feedbackId);
+      setHistoryItems(items);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load activity history');
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = feedbacks.filter((f) => {
+    if (filterStatus && f.status !== filterStatus) return false;
+    if (!normalizedSearch) return true;
+    const haystack = [
+      f.title,
+      f.description || '',
+      f.username,
+      f.email,
+      f.url,
+      f.status,
+      f.type,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(normalizedSearch);
+  });
 
   const counts = feedbacks.reduce<Record<string, number>>((acc, f) => {
     acc[f.status] = (acc[f.status] || 0) + 1;
@@ -198,6 +243,14 @@ export default function FeedbacksPage() {
         })}
       </div>
 
+      <div className="max-w-md">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search feedback title, description, user, email..."
+        />
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -218,6 +271,10 @@ export default function FeedbacksPage() {
             const canManage = (isRoot || isOwner) && !isDeleted;
             const canComment = (isRoot || isOwner) && !isDeleted;
             const rootComments = comments.filter((c) => !c.parentCommentId);
+            const commentById = comments.reduce<Record<string, (typeof comments)[number]>>((acc, c) => {
+              acc[c.id] = c;
+              return acc;
+            }, {});
             const repliesByParent = comments.reduce<Record<string, typeof comments>>((acc, c) => {
               if (!c.parentCommentId) return acc;
               if (!acc[c.parentCommentId]) acc[c.parentCommentId] = [];
@@ -343,7 +400,11 @@ export default function FeedbacksPage() {
                         Page
                       </a>
                     </div>
-                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => openHistory(fb.id)}
+                      className="w-full rounded-md border bg-muted/30 px-3 py-2 text-left text-xs hover:bg-muted/50"
+                    >
                       <span className="font-medium text-foreground">Developer action:</span>{' '}
                       {isDeleted
                         ? 'Deleted by user'
@@ -354,7 +415,7 @@ export default function FeedbacksPage() {
                             : fb.status === 'DONE'
                               ? 'Marked as completed'
                               : 'Closed by developer'}
-                    </div>
+                    </button>
 
                     {comments.length > 0 && (
                       <div className="space-y-2 rounded-md border bg-muted/30 p-3">
@@ -439,6 +500,11 @@ export default function FeedbacksPage() {
                                             </Button>
                                           )}
                                         </div>
+                                        {r.parentCommentId && commentById[r.parentCommentId] && (
+                                          <p className="text-[11px] text-muted-foreground">
+                                            Reply to <strong>{commentById[r.parentCommentId].username}</strong>
+                                          </p>
+                                        )}
                                         <p className="text-sm">{r.comment}</p>
                                         {rAttachments.length > 0 && (
                                           <div className="flex flex-wrap gap-2 pt-1">
@@ -557,6 +623,7 @@ export default function FeedbacksPage() {
                                 );
                                 setCommentByFeedback((prev) => ({ ...prev, [fb.id]: '' }));
                                 setCommentFiles((prev) => ({ ...prev, [fb.id]: [] }));
+                                setSelectedFilesOpenByFeedback((prev) => ({ ...prev, [fb.id]: false }));
                                 setReplyToByFeedback((prev) => ({ ...prev, [fb.id]: null }));
                               } catch (err: any) {
                                 toast.error(err.message || 'Failed to comment');
@@ -569,11 +636,44 @@ export default function FeedbacksPage() {
                             Comment
                           </Button>
                           {(commentFiles[fb.id]?.length || 0) > 0 && (
-                            <span className="text-xs text-muted-foreground">
+                            <button
+                              type="button"
+                              className="text-xs text-primary underline-offset-2 hover:underline"
+                              onClick={() =>
+                                setSelectedFilesOpenByFeedback((prev) => ({
+                                  ...prev,
+                                  [fb.id]: !prev[fb.id],
+                                }))
+                              }
+                            >
                               {(commentFiles[fb.id] || []).length} file(s) selected
-                            </span>
+                            </button>
                           )}
                         </div>
+                        {selectedFilesOpenByFeedback[fb.id] && (commentFiles[fb.id] || []).length > 0 && (
+                          <div className="space-y-1 rounded-md border bg-muted/20 p-2">
+                            {(commentFiles[fb.id] || []).map((file, index) => (
+                              <div
+                                key={`${fb.id}-${file.name}-${index}`}
+                                className="flex items-center gap-2 rounded bg-background px-2 py-1.5 text-xs"
+                              >
+                                <span className="min-w-0 flex-1 truncate font-medium">{file.name}</span>
+                                <span className="shrink-0 text-muted-foreground">
+                                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                                  onClick={() => removeCommentFile(fb.id, index)}
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -621,6 +721,9 @@ export default function FeedbacksPage() {
                             size="sm"
                             variant="destructive"
                             onClick={async () => {
+                              if (!window.confirm('Are you sure you want to delete this feedback?')) {
+                                return;
+                              }
                               try {
                                 await api.feedback.remove(fb.id);
                                 setFeedbacks((prev) => prev.filter((x) => x.id !== fb.id));
@@ -661,6 +764,33 @@ export default function FeedbacksPage() {
               alt="Attachment preview"
               className="mx-auto max-h-[82vh] w-auto max-w-full rounded-md object-contain"
             />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!historyFeedbackId} onOpenChange={(open) => !open && setHistoryFeedbackId(null)}>
+        <DialogContent className="max-h-[85vh] w-[95vw] max-w-2xl">
+          <DialogTitle>Feedback activity history</DialogTitle>
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : historyItems.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">No activity yet.</div>
+          ) : (
+            <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
+              {historyItems.map((item) => (
+                <div key={item.id} className="rounded-md border bg-muted/20 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-semibold">{item.username}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium">{item.action.replaceAll('_', ' ')}</p>
+                  {item.detail && <p className="text-xs text-muted-foreground">{item.detail}</p>}
+                </div>
+              ))}
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -22,6 +22,32 @@
 - **Feedback comment paste:** Added `Ctrl+V` support in feedback comment textarea to attach pasted screenshots/media instantly.
 - **Attachment UX:** Kept file-limit checks and added paste hint text for both create-feedback and comment flows.
 
+## 2026-04-07 (selected comment files review before send)
+- **Selected files toggle:** Made `N file(s) selected` clickable in feedback comment composer.
+- **Pre-send review:** Added expandable selected-files list showing file names and sizes before submit.
+- **Pre-send remove:** Added per-file remove action so attachments can be deleted before sending comment.
+
+## 2026-04-07 (feedback reply target visibility)
+- **Reply context clarity:** Added inline `Reply to <username>` text on rendered replies so it is clear who was replied to.
+- **Thread readability:** Improved nested reply comprehension by showing reply target directly above reply content.
+
+## 2026-04-07 (feedback delete confirmation)
+- **Delete safety:** Added confirmation prompt before deleting feedback tasks on `/dashboard/feedbacks`.
+
+## 2026-04-07 (feedback developer action modal history)
+- **Clickable developer action:** Made `Developer action` area clickable in feedback cards.
+- **History modal:** Added feedback activity modal that lists timeline entries with actor, date/time, action, and details.
+- **Backend event log:** Added persistent feedback event tracking (`create`, `status change`, `edit`, `delete`, `comment/reply`) and exposed `GET /feedback/:id/history`.
+
+## 2026-04-07 (feedback search)
+- **Feedback search:** Added live search input on `/dashboard/feedbacks`.
+- **Filter scope:** Search now matches title, description, username, email, page URL, status, and type.
+
+## 2026-04-07 (notifications incoming-only filter)
+- **Notification filtering:** Updated header notification logic to suppress self-originated notifications.
+- **AI/import muted for self:** Disabled AI reply/import-complete notification feed entries from same user session.
+- **Feedback incoming-only:** Feedback status/comment notifications now show only when action/comment comes from another user.
+
 ## 2026-04-07 (signup password requirements hover info)
 - **Signup UX update:** Added an info (`i`) icon next to the password label on `/signup`.
 - **Hover details:** Password policy now appears on hover (8+ chars, uppercase, lowercase, number, special character).

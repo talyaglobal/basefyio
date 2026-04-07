@@ -62,6 +62,7 @@ export function useNotifications() {
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
   );
@@ -121,9 +122,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    api.auth
+      .getProfile()
+      .then((p) => setCurrentUserId(p.id))
+      .catch(() => setCurrentUserId(null));
+  }, []);
+
+  useEffect(() => {
     const onAppNotify = (event: Event) => {
       const detail = (event as CustomEvent<NotifyPayload>).detail;
       if (!detail?.title || !detail?.message || !detail?.type) return;
+      // "Incoming only": AI/import notifications are always initiated from the same user session.
+      if (detail.type === 'ai' || detail.type === 'import') return;
       addNotification(detail);
     };
     window.addEventListener(KB_NOTIFY_EVENT, onAppNotify as EventListener);
@@ -131,19 +141,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [addNotification]);
 
   useEffect(() => {
-    if (!activeImport) return;
-    if (activeImport.status !== 'completed') return;
-    if (modalShowingImport) return;
-    if (lastImportNotifiedRef.current === activeImport.jobId) return;
-
-    addNotification({
-      type: 'import',
-      title: 'Import completed',
-      message: `${activeImport.projectName} import finished successfully.`,
-      href: activeImport.projectId ? `/dashboard/projects/${activeImport.projectId}/logs` : '/dashboard/projects',
-    });
-    lastImportNotifiedRef.current = activeImport.jobId;
-  }, [activeImport, modalShowingImport, addNotification]);
+    // Keep refs/reads to avoid unused values and maintain compatibility.
+    void activeImport;
+    void modalShowingImport;
+    void lastImportNotifiedRef;
+  }, [activeImport, modalShowingImport]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,21 +168,40 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             const prev = lastFeedbackRef.current[item.id];
             if (!prev) continue;
             if (prev.status !== item.status) {
-              addNotification({
-                type: 'feedback',
-                title: 'Feedback status updated',
-                message: `"${item.title}" is now ${item.status.replace('_', ' ').toLowerCase()}.`,
-                href: '/dashboard/feedbacks',
-              });
+              let statusChangedByOther = true;
+              if (currentUserId) {
+                try {
+                  const history = await api.feedback.history(item.id);
+                  const latestStatus = history.find((h) => h.action === 'STATUS_CHANGED');
+                  statusChangedByOther = !!latestStatus && latestStatus.userId !== currentUserId;
+                } catch {
+                  statusChangedByOther = false;
+                }
+              }
+              if (statusChangedByOther) {
+                addNotification({
+                  type: 'feedback',
+                  title: 'Feedback status updated',
+                  message: `"${item.title}" is now ${item.status.replace('_', ' ').toLowerCase()}.`,
+                  href: '/dashboard/feedbacks',
+                });
+              }
             }
             const nextCount = Array.isArray(item.comments) ? item.comments.length : 0;
             if (nextCount > prev.commentCount) {
-              addNotification({
-                type: 'feedback',
-                title: 'New feedback comment',
-                message: `${nextCount - prev.commentCount} new comment on "${item.title}".`,
-                href: '/dashboard/feedbacks',
-              });
+              const allComments = Array.isArray(item.comments) ? item.comments : [];
+              const newComments = allComments.slice(prev.commentCount);
+              const incomingComments = currentUserId
+                ? newComments.filter((c) => c.userId !== currentUserId)
+                : newComments;
+              if (incomingComments.length > 0) {
+                addNotification({
+                  type: 'feedback',
+                  title: 'New feedback comment',
+                  message: `${incomingComments.length} new comment on "${item.title}".`,
+                  href: '/dashboard/feedbacks',
+                });
+              }
             }
           }
         } else {
@@ -199,7 +220,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [addNotification]);
+  }, [addNotification, currentUserId]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 

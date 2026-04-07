@@ -55,6 +55,26 @@ export class FeedbackService {
     );
   }
 
+  private async appendEvent(params: {
+    feedbackId: string;
+    userId: string;
+    username: string;
+    action: string;
+    detail?: string;
+    metadata?: Prisma.InputJsonValue;
+  }) {
+    await this.prisma.feedbackEvent.create({
+      data: {
+        feedbackId: params.feedbackId,
+        userId: params.userId,
+        username: params.username,
+        action: params.action,
+        detail: params.detail,
+        metadata: params.metadata,
+      },
+    });
+  }
+
   async create(dto: CreateFeedbackDto) {
     const attachmentsJson: Prisma.InputJsonValue | undefined =
       dto.attachments && dto.attachments.length > 0
@@ -72,6 +92,13 @@ export class FeedbackService {
         type: dto.type || FeedbackType.GENERAL,
         attachments: attachmentsJson,
       },
+    });
+    await this.appendEvent({
+      feedbackId: feedback.id,
+      userId: dto.userId,
+      username: dto.username,
+      action: 'FEEDBACK_CREATED',
+      detail: dto.title,
     });
 
     this.logger.log(`Feedback created: "${dto.title}" by ${dto.username} (${feedback.id})`);
@@ -142,34 +169,62 @@ export class FeedbackService {
     });
   }
 
-  async updateStatus(userId: string, id: string, status: FeedbackStatus) {
-    const { isRoot } = await this.assertCanAccessFeedback(userId, id);
+  async updateStatus(userId: string, username: string, id: string, status: FeedbackStatus) {
+    const { isRoot, feedback } = await this.assertCanAccessFeedback(userId, id);
     if (!isRoot && status !== FeedbackStatus.DONE) {
       throw new ForbiddenException('You can only mark your own feedback as done');
     }
 
-    return this.prisma.feedback.update({
+    const updated = await this.prisma.feedback.update({
       where: { id },
       data: { status },
     });
+    await this.appendEvent({
+      feedbackId: id,
+      userId,
+      username,
+      action: 'STATUS_CHANGED',
+      detail: `${feedback.status} -> ${status}`,
+      metadata: { from: feedback.status, to: status } as unknown as Prisma.InputJsonValue,
+    });
+    return updated;
   }
 
-  async updateFeedback(userId: string, id: string, dto: UpdateFeedbackDto) {
-    await this.assertCanAccessFeedback(userId, id);
-    return this.prisma.feedback.update({
+  async updateFeedback(userId: string, username: string, id: string, dto: UpdateFeedbackDto) {
+    const { feedback } = await this.assertCanAccessFeedback(userId, id);
+    const updated = await this.prisma.feedback.update({
       where: { id },
       data: {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.description !== undefined ? { description: dto.description || null } : {}),
       },
     });
+    await this.appendEvent({
+      feedbackId: id,
+      userId,
+      username,
+      action: 'FEEDBACK_EDITED',
+      detail: 'Feedback content updated',
+      metadata: {
+        titleChanged: dto.title !== undefined && dto.title !== feedback.title,
+        descriptionChanged: dto.description !== undefined && dto.description !== (feedback.description || ''),
+      } as unknown as Prisma.InputJsonValue,
+    });
+    return updated;
   }
 
-  async removeFeedback(userId: string, id: string) {
-    await this.assertCanAccessFeedback(userId, id);
+  async removeFeedback(userId: string, username: string, id: string) {
+    const { feedback } = await this.assertCanAccessFeedback(userId, id);
     await this.prisma.feedback.update({
       where: { id },
       data: { deletedAt: new Date() },
+    });
+    await this.appendEvent({
+      feedbackId: id,
+      userId,
+      username,
+      action: 'FEEDBACK_DELETED',
+      detail: 'Feedback deleted',
     });
     return { success: true };
   }
@@ -208,7 +263,7 @@ export class FeedbackService {
         ? (dto.attachments as unknown as Prisma.InputJsonValue)
         : undefined;
 
-    return this.prisma.feedbackComment.create({
+    const created = await this.prisma.feedbackComment.create({
       data: {
         feedbackId,
         userId,
@@ -217,6 +272,25 @@ export class FeedbackService {
         attachments: attachmentsJson,
         parentCommentId: dto.parentCommentId || null,
       },
+    });
+    await this.appendEvent({
+      feedbackId,
+      userId,
+      username,
+      action: dto.parentCommentId ? 'COMMENT_REPLIED' : 'COMMENT_ADDED',
+      detail: dto.comment.slice(0, 120),
+      metadata: dto.parentCommentId
+        ? ({ parentCommentId: dto.parentCommentId } as unknown as Prisma.InputJsonValue)
+        : undefined,
+    });
+    return created;
+  }
+
+  async listHistory(userId: string, feedbackId: string) {
+    await this.assertCanAccessFeedback(userId, feedbackId);
+    return this.prisma.feedbackEvent.findMany({
+      where: { feedbackId },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }
