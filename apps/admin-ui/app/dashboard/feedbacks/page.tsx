@@ -285,6 +285,7 @@ export default function FeedbacksPage() {
             return (
               <div
                 key={fb.id}
+                id={`feedback-${fb.id}`}
                 className="rounded-lg border bg-card p-4 transition-colors hover:bg-accent/30"
               >
                 <div className="flex items-start justify-between gap-4">

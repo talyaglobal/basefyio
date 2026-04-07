@@ -183,7 +183,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                   type: 'feedback',
                   title: 'Feedback status updated',
                   message: `"${item.title}" is now ${item.status.replace('_', ' ').toLowerCase()}.`,
-                  href: '/dashboard/feedbacks',
+                  href: `/dashboard/feedbacks#feedback-${item.id}`,
                 });
               }
             }
@@ -199,7 +199,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                   type: 'feedback',
                   title: 'New feedback comment',
                   message: `${incomingComments.length} new comment on "${item.title}".`,
-                  href: '/dashboard/feedbacks',
+                  href: `/dashboard/feedbacks#feedback-${item.id}`,
                 });
               }
             }

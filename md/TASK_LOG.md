@@ -48,6 +48,14 @@
 - **AI/import muted for self:** Disabled AI reply/import-complete notification feed entries from same user session.
 - **Feedback incoming-only:** Feedback status/comment notifications now show only when action/comment comes from another user.
 
+## 2026-04-07 (navbar dropdown outside-click close)
+- **Global close behavior:** Added outside-click handling so open navbar dropdowns close when clicking anywhere else on the page.
+- **Applied to nav menus:** Team switcher, projects menu, docs menu, and user menu now consistently close on external click.
+
+## 2026-04-07 (notification deep-link to relevant feedback)
+- **Targeted notification navigation:** Feedback notifications now link to exact feedback card anchors.
+- **In-page jump:** Added per-feedback DOM anchor ids so clicking a notification scrolls directly to the related item.
+
 ## 2026-04-07 (signup password requirements hover info)
 - **Signup UX update:** Added an info (`i`) icon next to the password label on `/signup`.
 - **Hover details:** Password policy now appears on hover (8+ chars, uppercase, lowercase, number, special character).

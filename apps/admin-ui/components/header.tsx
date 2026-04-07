@@ -77,6 +77,21 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
+    const onGlobalPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-nav-dropdown-root="true"]')) return;
+      setDropdownOpen(false);
+      setProjectsMenuOpen(false);
+      setUserMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onGlobalPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onGlobalPointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
   }, [activeTeamId, refreshKey]);
@@ -262,7 +277,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <Menu className="h-4 w-4" />
         </button>
         {/* Team Switcher */}
-        <div className="relative hidden md:block">
+        <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             onClick={() => {
               setProjectsMenuOpen(false);
@@ -368,7 +383,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         </div>
 
         {/* Projects (active team) */}
-        <div className="relative hidden md:block">
+        <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             type="button"
             onClick={() => {
@@ -546,7 +561,7 @@ function DocsMenu() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="relative">
+    <div className="relative" data-nav-dropdown-root="true">
       <Button
         variant="ghost"
         size="sm"
@@ -598,7 +613,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
   const avatarUrl = profile?.avatarUrl;
 
   return (
-    <div className="relative">
+    <div className="relative" data-nav-dropdown-root="true">
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
