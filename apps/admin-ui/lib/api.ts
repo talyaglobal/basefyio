@@ -222,6 +222,20 @@ export const api = {
         },
       );
     },
+    updateManagementUserSignInMethod(
+      userId: string,
+      requiredSignInMethod: 'local' | 'google' | 'github' | null,
+    ) {
+      return request<{
+        id: string;
+        username: string;
+        email: string;
+        requiredSignInMethod: 'local' | 'google' | 'github' | null;
+      }>(`/auth/management/users/${userId}/sign-in-method`, {
+        method: 'PATCH',
+        body: JSON.stringify({ requiredSignInMethod }),
+      });
+    },
     resetManagementUserPassword(
       userId: string,
       data: { newPassword: string; forceChangeOnFirstLogin: boolean },

@@ -56,6 +56,11 @@
 - **Google/GitHub parity:** Users who signed up with Google can sign in with GitHub (and vice versa) into the same app profile, without creating duplicate app users.
 - **Scope safety:** Mapping is applied only when token has both `sub` and `email`, and only if `sub` is unknown but email already exists in app users.
 
+## 2026-04-07 (root-managed sign-in method policy)
+- **Root policy control:** Added root-only user policy endpoint to set required sign-in method per user (`local`, `google`, `github`, or clear).
+- **Management UI update:** Added `Sign In Policy` selector in `/dashboard/management` Users tab so ROOT can enforce user login method.
+- **Enforcement:** Local login and OAuth callback now enforce required sign-in method and return explicit login errors when method does not match policy.
+
 ## 2026-04-07 (management users activate/deactivate)
 - **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
 - **Backend endpoint:** Added `PATCH /auth/management/users/:id/active` (root-only) to enable/disable platform users.

@@ -675,10 +675,12 @@ export class KeycloakAdminService implements OnModuleInit {
   ): Promise<{
     authProvider: 'local' | 'google' | 'github';
     signOnMethod: 'local' | 'google' | 'github';
+    requiredSignInMethod: 'local' | 'google' | 'github' | null;
     linkedProviders: Array<'google' | 'github'>;
     hasPasswordAuth: boolean;
   }> {
     await this.ensureAuth();
+    const user = await this.client.users.findOne({ realm: 'master', id: userId });
     const adminToken = await this.getAdminAccessToken();
     const baseUrl = this.config.get<string>('keycloak.url');
     const headers = { Authorization: `Bearer ${adminToken}` };
@@ -706,13 +708,54 @@ export class KeycloakAdminService implements OnModuleInit {
       hasPasswordAuth = true;
     }
 
+    const requiredRaw = String(
+      user?.attributes?.kb_required_sign_in_method?.[0] || '',
+    ).toLowerCase();
+    const requiredSignInMethod: 'local' | 'google' | 'github' | null =
+      requiredRaw === 'local' || requiredRaw === 'google' || requiredRaw === 'github'
+        ? requiredRaw
+        : null;
+
     if (linkedProviders.includes('google')) {
-      return { authProvider: 'google', signOnMethod: 'google', linkedProviders, hasPasswordAuth };
+      return {
+        authProvider: 'google',
+        signOnMethod: 'google',
+        requiredSignInMethod,
+        linkedProviders,
+        hasPasswordAuth,
+      };
     }
     if (linkedProviders.includes('github')) {
-      return { authProvider: 'github', signOnMethod: 'github', linkedProviders, hasPasswordAuth };
+      return {
+        authProvider: 'github',
+        signOnMethod: 'github',
+        requiredSignInMethod,
+        linkedProviders,
+        hasPasswordAuth,
+      };
     }
-    return { authProvider: 'local', signOnMethod: 'local', linkedProviders, hasPasswordAuth };
+    return {
+      authProvider: 'local',
+      signOnMethod: 'local',
+      requiredSignInMethod,
+      linkedProviders,
+      hasPasswordAuth,
+    };
+  }
+
+  async setPlatformUserRequiredSignInMethodById(
+    userId: string,
+    method: 'local' | 'google' | 'github' | null,
+  ): Promise<void> {
+    await this.ensureAuth();
+    const existing = await this.client.users.findOne({ realm: 'master', id: userId });
+    const attributes = { ...(existing?.attributes || {}) } as Record<string, string[]>;
+    if (method) {
+      attributes.kb_required_sign_in_method = [method];
+    } else {
+      delete attributes.kb_required_sign_in_method;
+    }
+    await this.client.users.update({ realm: 'master', id: userId }, { attributes });
   }
 
   async getPlatformUserEnabledById(userId: string): Promise<boolean> {

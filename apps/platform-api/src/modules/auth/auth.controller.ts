@@ -165,6 +165,26 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/users/:id/sign-in-method')
+  async updateManagementUserSignInMethod(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body('requiredSignInMethod') requiredSignInMethod?: 'local' | 'google' | 'github' | null,
+  ) {
+    const normalized =
+      requiredSignInMethod === 'local' ||
+      requiredSignInMethod === 'google' ||
+      requiredSignInMethod === 'github'
+        ? requiredSignInMethod
+        : null;
+    return this.authService.setManagementUserRequiredSignInMethodByRoot(
+      user.sub,
+      id,
+      normalized,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Get('management/teams')
   async managementTeams() {
     return this.authService.listManagementTeams();
@@ -207,7 +227,8 @@ export class AuthController {
 
       res.redirect(`${appUrl}#${params.toString()}`);
     } catch (err: any) {
-      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent('OAuth authentication failed')}`;
+      const msg = err?.message || 'OAuth authentication failed';
+      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent(msg)}`;
       res.redirect(loginUrl);
     }
   }
