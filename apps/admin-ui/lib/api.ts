@@ -802,6 +802,7 @@ export const api = {
         }[];
         type: string;
         status: string;
+        deletedAt?: string | null;
         createdAt: string;
       }[]>('/feedback');
     },

@@ -179,7 +179,8 @@ export default function FeedbacksPage() {
             const attachments = parseAttachments(fb.attachments);
             const comments = Array.isArray(fb.comments) ? fb.comments : [];
             const isOwner = profile?.id === fb.userId;
-            const canManage = isRoot || isOwner;
+            const isDeleted = !!fb.deletedAt;
+            const canManage = (isRoot || isOwner) && !isDeleted;
 
             return (
               <div
@@ -198,6 +199,11 @@ export default function FeedbacksPage() {
                         {statusCfg.icon}
                         {statusCfg.label}
                       </Badge>
+                      {isDeleted && (
+                        <Badge variant="outline" className="border-red-300 bg-red-50 text-red-700 text-[11px]">
+                          Deleted
+                        </Badge>
+                      )}
                     </div>
 
                     {editingId === fb.id ? (
@@ -296,10 +302,15 @@ export default function FeedbacksPage() {
                     </div>
                     <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
                       <span className="font-medium text-foreground">Developer action:</span>{' '}
-                      {fb.status === 'OPEN' && 'Waiting for review'}
-                      {fb.status === 'IN_PROGRESS' && 'Developer is working on it'}
-                      {fb.status === 'DONE' && 'Marked as completed'}
-                      {fb.status === 'CLOSED' && 'Closed by developer'}
+                      {isDeleted
+                        ? 'Deleted by user'
+                        : fb.status === 'OPEN'
+                          ? 'Waiting for review'
+                          : fb.status === 'IN_PROGRESS'
+                            ? 'Developer is working on it'
+                            : fb.status === 'DONE'
+                              ? 'Marked as completed'
+                              : 'Closed by developer'}
                     </div>
 
                     {comments.length > 0 && (

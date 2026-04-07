@@ -126,11 +126,13 @@ export class FeedbackController {
     });
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get()
   async findAll(@CurrentUser() user: JwtPayload) {
     return this.feedbackService.findAllForUser(user.sub);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   async updateStatus(
     @CurrentUser() user: JwtPayload,

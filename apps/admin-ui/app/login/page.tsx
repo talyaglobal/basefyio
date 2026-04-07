@@ -85,8 +85,7 @@ function LoginForm() {
       .catch(() => {});
   }, [router, searchParams]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitLogin() {
     setLoading(true);
 
     try {
@@ -96,7 +95,18 @@ function LoginForm() {
       toast.success('Welcome back');
       window.location.assign('/dashboard');
     } catch (err: any) {
-      if (err?.code === 'CAPTCHA_REQUIRED') {
+      const rawMessage = String(err?.message || '');
+      const normalizedMessage = rawMessage.toUpperCase();
+
+      if (normalizedMessage.includes('ACCOUNT IS LOCKED')) {
+        setCaptchaRequired(false);
+        setCaptchaQuestion('');
+        setCaptchaAnswer('');
+        toast.error('Your account is temporarily locked after too many failed attempts. Please wait 30 minutes and try again.');
+        return;
+      }
+
+      if (err?.code === 'CAPTCHA_REQUIRED' || normalizedMessage.includes('CAPTCHA_REQUIRED')) {
         try {
           const captcha = await api.auth.getCaptcha(email);
           if (captcha.required && captcha.question) {
@@ -109,10 +119,26 @@ function LoginForm() {
           toast.error('Captcha could not be loaded');
         }
       }
-      toast.error(err.message || 'Login failed');
+
+      if (normalizedMessage.includes('INVALID CAPTCHA ANSWER')) {
+        toast.error('Captcha answer is incorrect. Please try again.');
+        return;
+      }
+
+      if (normalizedMessage.includes('INVALID CREDENTIALS')) {
+        toast.error('Email or password is incorrect.');
+        return;
+      }
+
+      toast.error(rawMessage || 'Login failed');
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    void submitLogin();
   }
 
   async function handleOAuthLogin(provider: string) {
@@ -232,7 +258,14 @@ function LoginForm() {
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={loading}
+            onClick={() => {
+              void submitLogin();
+            }}
+          >
             {loading ? 'Signing in...' : 'Sign in'}
           </Button>
         </form>

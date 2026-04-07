@@ -97,8 +97,9 @@ export class FeedbackService {
     return feedback;
   }
 
-  async findAll() {
+  async findAll(includeDeleted = false) {
     return this.prisma.feedback.findMany({
+      where: includeDeleted ? {} : { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { comments: { orderBy: { createdAt: 'asc' } } },
     });
@@ -120,6 +121,9 @@ export class FeedbackService {
     const role = await this.getUserRole(userId);
     const isRoot = role === UserRole.ROOT;
     const isOwner = feedback.userId === userId;
+    if (feedback.deletedAt && !isRoot) {
+      throw new NotFoundException('Feedback not found');
+    }
     if (!isRoot && !isOwner) {
       throw new ForbiddenException('You can only access your own feedback');
     }
@@ -129,10 +133,10 @@ export class FeedbackService {
   async findAllForUser(userId: string) {
     const role = await this.getUserRole(userId);
     if (role === UserRole.ROOT) {
-      return this.findAll();
+      return this.findAll(true);
     }
     return this.prisma.feedback.findMany({
-      where: { userId },
+      where: { userId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { comments: { orderBy: { createdAt: 'asc' } } },
     });
@@ -163,7 +167,10 @@ export class FeedbackService {
 
   async removeFeedback(userId: string, id: string) {
     await this.assertCanAccessFeedback(userId, id);
-    await this.prisma.feedback.delete({ where: { id } });
+    await this.prisma.feedback.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
     return { success: true };
   }
 

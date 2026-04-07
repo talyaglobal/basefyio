@@ -35,6 +35,8 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [runningTabId, setRunningTabId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   useEffect(() => {
     try {
@@ -141,6 +143,25 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     });
   }
 
+  function startRenaming(tab: SqlTab) {
+    setRenamingTabId(tab.id);
+    setRenameValue(tab.title);
+  }
+
+  function commitRename(tabId: string) {
+    const nextTitle = renameValue.trim();
+    if (!nextTitle) {
+      setRenamingTabId(null);
+      setRenameValue('');
+      return;
+    }
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId ? { ...t, title: nextTitle } : t)),
+    );
+    setRenamingTabId(null);
+    setRenameValue('');
+  }
+
   async function execute() {
     if (!activeTab || !query.trim()) return;
 
@@ -207,7 +228,39 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
               tab.id === activeTabId ? 'bg-background font-medium' : 'text-muted-foreground hover:bg-muted'
             }`}
           >
-            <span className="max-w-[140px] truncate">{tab.title}</span>
+            {renamingTabId === tab.id ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={() => commitRename(tab.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitRename(tab.id);
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setRenamingTabId(null);
+                    setRenameValue('');
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-[140px] rounded border bg-background px-1.5 py-0.5 text-xs"
+              />
+            ) : (
+              <button
+                type="button"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startRenaming(tab);
+                }}
+                className="max-w-[140px] truncate text-left"
+                title="Double-click to rename"
+              >
+                {tab.title}
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => {

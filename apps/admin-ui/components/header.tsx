@@ -29,7 +29,6 @@ import {
   User,
   Users,
   Menu,
-  ListChecks,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -247,16 +246,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground md:inline-flex"
-          onClick={() => router.push('/dashboard/feedbacks')}
-        >
-          <ListChecks className="h-3.5 w-3.5" />
-          <span>My Feedbacks</span>
-        </Button>
-
         <div className="hidden md:block">
           <DocsMenu />
         </div>
@@ -518,13 +507,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             >
               <MessageSquarePlus className="h-4 w-4" />
               Feedback
-            </button>
-            <button
-              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/feedbacks'); }}
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
-            >
-              <ListChecks className="h-4 w-4" />
-              My Feedbacks
             </button>
             <div className="my-1 border-t" />
             <div className="px-3 py-1 text-xs text-muted-foreground">

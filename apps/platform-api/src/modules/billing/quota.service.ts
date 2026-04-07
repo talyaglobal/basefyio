@@ -24,13 +24,43 @@ export class QuotaService {
   ) {}
 
   private async getTeamPlanAndUsage(teamId: string) {
-    const sub = await this.prisma.subscription.findUnique({
+    let sub = await this.prisma.subscription.findUnique({
       where: { teamId },
       include: { plan: true },
     });
 
     if (!sub) {
-      throw new ForbiddenException('Team has no subscription');
+      const freePlan = await this.prisma.plan.findUnique({
+        where: { name: 'free' },
+      });
+
+      if (!freePlan) {
+        throw new ForbiddenException('Team has no subscription (free plan is not initialized)');
+      }
+
+      sub = await this.prisma.subscription.create({
+        data: {
+          teamId,
+          planId: freePlan.id,
+          status: 'ACTIVE',
+        },
+        include: { plan: true },
+      });
+
+      await this.prisma.teamUsage.upsert({
+        where: { teamId },
+        update: {},
+        create: {
+          teamId,
+          projectCount: 0,
+          storageBytes: BigInt(0),
+          memberCount: 1,
+          dbSizeBytes: BigInt(0),
+          apiRequestsMonth: 0,
+          bandwidthMonth: BigInt(0),
+          mauCount: 0,
+        },
+      });
     }
 
     const currentUsage = await this.usage.getTeamUsage(teamId);

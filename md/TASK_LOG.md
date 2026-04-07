@@ -1,5 +1,46 @@
 # Task Log
 
+## 2026-04-07 (SQL Editor tab rename support)
+- **Tab rename added:** Users can now rename SQL tabs in `apps/admin-ui/components/sql-editor.tsx`.
+- **UX behavior:** Double-click a tab title to edit inline; `Enter` or blur saves, `Escape` cancels.
+- **Persistence:** Renamed titles are persisted in existing localStorage tab state.
+- **Validation:** Rebuilt/restarted Docker stack successfully.
+
+## 2026-04-07 (root can view deleted feedbacks)
+- **Soft delete added for feedbacks:** Introduced `deleted_at` on `feedbacks` (Prisma schema + migration file) so deleted items are retained instead of hard-deleted.
+- **Service behavior updated:** `removeFeedback` now sets `deletedAt` timestamp. Normal users only query non-deleted feedbacks; `ROOT` users get full list including deleted items.
+- **Access control tightened:** Non-root users cannot access deleted feedback by ID; root access remains allowed.
+- **UI visibility:** `/dashboard/feedbacks` now marks deleted entries with a `Deleted` badge and disables edit/delete actions on deleted records.
+- **DB/runtime apply:** Applied `ALTER TABLE ... ADD COLUMN deleted_at` + index directly on local DB and rebuilt Docker stack.
+
+## 2026-04-07 (billing no-plan fix - seeded plans + auto-heal subscription)
+- **Root cause found:** `plans` table was empty in local DB; free/pro/business plans were never seeded, causing billing page to show `No Plan` and project creation to fail with `Team has no subscription`.
+- **Data fix applied:** Ran Prisma seed inside `platform-api` container (`npx prisma db seed`) to create `legacy/free/pro/business` plans and backfill subscriptions for teams without one.
+- **Code hardening:** Updated `apps/platform-api/src/modules/billing/quota.service.ts` so missing team subscription auto-creates a `free` subscription + `team_usage` row (when free plan exists), instead of immediately throwing.
+- **Validation:** Rebuilt/restarted Docker stack; platform-api is running with updated quota logic.
+
+## 2026-04-07 (feedbacks crash fix - missing auth guards)
+- **Root cause:** `apps/platform-api/src/modules/feedback/feedback.controller.ts` had missing `JwtAuthGuard` on `GET /feedback` and `PATCH /feedback/:id`; `@CurrentUser()` could be undefined, causing runtime `Cannot read properties of undefined (reading 'sub')`.
+- **Fix:** Added `@UseGuards(JwtAuthGuard)` to both endpoints so `user.sub` is always available.
+- **Validation:** Rebuilt/restarted Docker stack successfully.
+
+## 2026-04-07 (header cleanup - removed My Feedbacks shortcut)
+- **Desktop header:** Removed `My Feedbacks` button from `apps/admin-ui/components/header.tsx` top navigation actions.
+- **Mobile menu:** Removed `My Feedbacks` entry from the mobile dropdown menu in the same header component.
+- **Icon cleanup:** Removed now-unused `ListChecks` import.
+- **Validation:** Rebuilt/restarted Docker stack and verified admin UI build passes.
+
+## 2026-04-07 (local login 401 - account lock reset)
+- **Root cause found:** Local login `401` was caused by login security lock in `login_security_states` for `bsaygin@outlook.com.tr` (`failed_attempts=10`, `consecutive_failed=10`, `locked_until` set).
+- **Immediate fix applied:** Reset lock/captcha counters in DB (`failed_attempts=0`, `consecutive_failed=0`, `locked_until=NULL`, captcha fields cleared) for the affected email.
+- **Verification:** Confirmed row now shows zero counters and no lock timestamp.
+
+## 2026-04-07 (login UX - clear toast messaging for lock/captcha/invalid credentials)
+- **Lock feedback:** `apps/admin-ui/app/login/page.tsx` now detects backend lock messages and shows explicit toast: account is temporarily locked for 30 minutes.
+- **Captcha feedback:** Added clearer toast mapping for `CAPTCHA_REQUIRED` and invalid captcha answer.
+- **Credential feedback:** Added specific toast for invalid email/password instead of generic error.
+- **Validation:** Rebuilt Docker stack and confirmed admin UI starts with updated login error handling.
+
 ## 2026-03-30 (pricing policy made more aggressive)
 - **Website pricing updated (`/#pricing`):** Free plan changed to `5 projects`, `2 GB storage`, `1 GB database`, `3 team members`.
 - **Pro plan scaled up:** Updated to `20 projects`, `200 GB storage`, `16 GB database`, `10 team members`, with higher API/bandwidth quotas.
@@ -41,6 +82,11 @@
 - **Middleware-safe marker:** Added lightweight `kb_logged_in=1` cookie on login and removed it on logout/clear; middleware now allows dashboard routes when either `kb_access_token` or `kb_logged_in` exists.
 - **Navigation reliability:** Login flow uses hard redirect (`window.location.assign('/dashboard')`) after successful sign-in to ensure cookie visibility on the next request cycle.
 - **Validation:** Rebuilt and restarted admin UI container after the auth-state updates.
+
+## 2026-04-07 (login submit hardening - prevent form refresh fallback)
+- **Submit path hardened:** Refactored login submit logic in `apps/admin-ui/app/login/page.tsx` into shared `submitLogin()` and wired both form `onSubmit` and button click to it.
+- **Refresh fallback removed:** Changed sign-in button to `type="button"` with explicit click handler to avoid native form-post refresh when submit event is not captured.
+- **Validation:** Rebuilt and restarted admin UI container with updated login flow.
 
 ## 2026-04-07 (login loops on /login after 200 sign-in)
 - **Auth cookie scope fix:** Updated `apps/admin-ui/lib/auth.ts` token cookies to always set/remove with `path: '/'` so middleware can read `kb_access_token` on `/dashboard/*`.
