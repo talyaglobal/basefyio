@@ -1,5 +1,32 @@
 # Task Log
 
+## 2026-04-07 (feedback attachments modal preview)
+- **Feedbacks media UX:** Added large modal preview for attachments on `/dashboard/feedbacks`.
+- **Click-to-preview:** Both main feedback attachments and comment attachments now open in a dialog when clicked.
+- **Media support:** Images open in large `object-contain` preview; videos open in large modal player with controls/autoplay.
+
+## 2026-04-07 (feedback comment replies)
+- **Feedback threads:** Added comment reply support in `/dashboard/feedbacks` so users can respond directly to a specific comment.
+- **Backend support:** Added optional `parentCommentId` to feedback comments with validation and DB relation.
+- **Permissions:** Feedback owner and ROOT can now comment/reply on accessible feedback records.
+- **UI update:** Added `Reply` actions, reply target indicator, and nested rendering of replies under parent comments.
+
+## 2026-04-07 (global realtime notifications)
+- **Header notifications:** Added a notification bell next to the theme button in the dashboard header.
+- **In-app notification center:** Implemented a centralized notifications provider with unread counts, mark-read, and clear actions.
+- **Browser notifications:** Added permission flow and Web Notification support for Chrome/other modern browsers.
+- **AI/import/feedback triggers:** Added notifications for AI replies (when assistant is not open), import completion (when import modal is not visible), and feedback status/comment updates via periodic realtime-like polling.
+
+## 2026-04-07 (feedback paste screenshot attachments)
+- **Feedback modal paste:** Added `Ctrl+V` support so pasted screenshots/media are attached directly while creating feedback.
+- **Feedback comment paste:** Added `Ctrl+V` support in feedback comment textarea to attach pasted screenshots/media instantly.
+- **Attachment UX:** Kept file-limit checks and added paste hint text for both create-feedback and comment flows.
+
+## 2026-04-07 (signup password requirements hover info)
+- **Signup UX update:** Added an info (`i`) icon next to the password label on `/signup`.
+- **Hover details:** Password policy now appears on hover (8+ chars, uppercase, lowercase, number, special character).
+- **Input alignment:** Updated password placeholder and `minLength` to 8 to match server-side rules.
+
 ## 2026-04-07 (SQL Editor tab rename support)
 - **Tab rename added:** Users can now rename SQL tabs in `apps/admin-ui/components/sql-editor.tsx`.
 - **UX behavior:** Double-click a tab title to edit inline; `Enter` or blur saves, `Escape` cancels.

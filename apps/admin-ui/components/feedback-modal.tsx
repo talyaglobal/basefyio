@@ -67,6 +67,40 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     });
   }
 
+  function addFilesFromArray(items: File[]) {
+    if (!items.length) return false;
+    let added = 0;
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const f of items) {
+        if (next.length >= MAX_FILES) break;
+        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue;
+        next.push(f);
+        added += 1;
+      }
+      return next;
+    });
+    if (added > 0) {
+      toast.success(`${added} media pasted`);
+      return true;
+    }
+    return false;
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const clipboardItems = Array.from(e.clipboardData?.items || []);
+    if (!clipboardItems.length) return;
+    const files = clipboardItems
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => !!f);
+    if (!files.length) return;
+    const added = addFilesFromArray(files);
+    if (added) {
+      e.preventDefault();
+    }
+  }
+
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
@@ -113,7 +147,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 space-y-4">
+        <form onSubmit={handleSubmit} onPaste={handlePaste} className="flex flex-col flex-1 min-h-0 space-y-4">
           <div className="space-y-2 shrink-0">
             <Label className="text-xs text-muted-foreground">Page</Label>
             <Input value={currentUrl} disabled className="text-xs opacity-70" />
@@ -194,6 +228,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
               <span className="text-xs text-muted-foreground">
                 {files.length}/{MAX_FILES}
               </span>
+              <span className="text-xs text-muted-foreground">Tip: paste screenshot with Ctrl+V</span>
             </div>
             {files.length > 0 && (
               <ul className="flex flex-col gap-2 max-h-[140px] overflow-y-auto rounded-md border p-2">

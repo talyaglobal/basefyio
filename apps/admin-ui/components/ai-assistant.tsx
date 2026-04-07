@@ -10,6 +10,7 @@ import {
   dispatchKbAiMessage,
   type KbAiSendDetail,
 } from '@/lib/kb-ai-events';
+import { dispatchKbNotification } from '@/lib/notifications-context';
 import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
 import {
@@ -186,6 +187,8 @@ export function AiAssistant() {
     if (typeof window === 'undefined') return true;
     return (localStorage.getItem('kb_ai_open') ?? 'true') === 'true';
   });
+  const openRef = useRef(open);
+  openRef.current = open;
 
   // ── Resizable width ──────────────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -433,9 +436,23 @@ export function AiAssistant() {
       if (mode === 'agent') {
         const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
+        if (!openRef.current) {
+          dispatchKbNotification({
+            type: 'ai',
+            title: 'AI replied',
+            message: 'New AI response is ready in assistant.',
+          });
+        }
       } else {
         const { reply } = await api.ai.chat(trimmed, history, { ...ctx, mode });
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content: reply, mode }]);
+        if (!openRef.current) {
+          dispatchKbNotification({
+            type: 'ai',
+            title: 'AI replied',
+            message: 'New AI response is ready in assistant.',
+          });
+        }
       }
     } catch (err: any) {
       toast.error('AI error: ' + err.message);

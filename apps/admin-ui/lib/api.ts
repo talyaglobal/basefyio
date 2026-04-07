@@ -798,6 +798,7 @@ export const api = {
           username: string;
           comment: string;
           attachments?: unknown;
+          parentCommentId?: string | null;
           createdAt: string;
         }[];
         type: string;
@@ -831,10 +832,11 @@ export const api = {
         username: string;
         comment: string;
         attachments?: unknown;
+        parentCommentId?: string | null;
         createdAt: string;
       }[]>(`/feedback/${id}/comments`);
     },
-    addComment(id: string, data: { comment: string; attachments?: { url: string; mimeType: string; kind: 'image' | 'video' }[] }) {
+    addComment(id: string, data: { comment: string; attachments?: { url: string; mimeType: string; kind: 'image' | 'video' }[]; parentCommentId?: string }) {
       return request<{
         id: string;
         feedbackId: string;
@@ -842,6 +844,7 @@ export const api = {
         username: string;
         comment: string;
         attachments?: unknown;
+        parentCommentId?: string | null;
         createdAt: string;
       }>(`/feedback/${id}/comments`, {
         method: 'POST',

@@ -20,6 +20,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   IsArray,
   ValidateNested,
 } from 'class-validator';
@@ -83,6 +84,10 @@ class AddCommentDto {
   @ValidateNested({ each: true })
   @Type(() => FeedbackAttachmentDto)
   attachments?: FeedbackAttachmentDto[];
+
+  @IsOptional()
+  @IsUUID()
+  parentCommentId?: string;
 }
 
 @Controller('feedback')

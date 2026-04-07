@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
   Bug,
   CheckCircle2,
@@ -55,6 +56,7 @@ const TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {
   FEATURE: { label: 'Feature', icon: <Lightbulb className="h-3.5 w-3.5 text-purple-500" /> },
   GENERAL: { label: 'General', icon: <MessageSquare className="h-3.5 w-3.5 text-blue-500" /> },
 };
+const MAX_COMMENT_FILES = 5;
 
 export default function FeedbacksPage() {
   const { profile } = useDashboard();
@@ -68,6 +70,8 @@ export default function FeedbacksPage() {
   const [commentByFeedback, setCommentByFeedback] = useState<Record<string, string>>({});
   const [commentFiles, setCommentFiles] = useState<Record<string, File[]>>({});
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
+  const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; username: string } | null>>({});
+  const [preview, setPreview] = useState<{ url: string; isVideo: boolean } | null>(null);
 
   const isRoot = profile?.role === 'ROOT';
 
@@ -100,6 +104,37 @@ export default function FeedbacksPage() {
       toast.error(err.message || 'Failed to update status');
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  function appendCommentFiles(feedbackId: string, incoming: File[]) {
+    if (!incoming.length) return 0;
+    let added = 0;
+    setCommentFiles((prev) => {
+      const existing = prev[feedbackId] || [];
+      const next = [...existing];
+      for (const f of incoming) {
+        if (next.length >= MAX_COMMENT_FILES) break;
+        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue;
+        next.push(f);
+        added += 1;
+      }
+      return { ...prev, [feedbackId]: next };
+    });
+    return added;
+  }
+
+  function handleCommentPaste(feedbackId: string, e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = Array.from(e.clipboardData?.items || []);
+    const pastedFiles = items
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => !!f);
+    if (!pastedFiles.length) return;
+    const added = appendCommentFiles(feedbackId, pastedFiles);
+    if (added > 0) {
+      toast.success(`${added} media pasted`);
+      e.preventDefault();
     }
   }
 
@@ -181,6 +216,14 @@ export default function FeedbacksPage() {
             const isOwner = profile?.id === fb.userId;
             const isDeleted = !!fb.deletedAt;
             const canManage = (isRoot || isOwner) && !isDeleted;
+            const canComment = (isRoot || isOwner) && !isDeleted;
+            const rootComments = comments.filter((c) => !c.parentCommentId);
+            const repliesByParent = comments.reduce<Record<string, typeof comments>>((acc, c) => {
+              if (!c.parentCommentId) return acc;
+              if (!acc[c.parentCommentId]) acc[c.parentCommentId] = [];
+              acc[c.parentCommentId].push(c);
+              return acc;
+            }, {});
 
             return (
               <div
@@ -261,23 +304,23 @@ export default function FeedbacksPage() {
                               key={`${fb.id}-v-${i}`}
                               src={a.url}
                               controls
-                              className="max-h-40 max-w-full rounded-md border bg-black/5"
+                              onClick={() => setPreview({ url: a.url, isVideo: true })}
+                              className="max-h-40 max-w-full cursor-zoom-in rounded-md border bg-black/5"
                             />
                           ) : (
-                            <a
+                            <button
+                              type="button"
                               key={`${fb.id}-i-${i}`}
-                              href={a.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              onClick={() => setPreview({ url: a.url, isVideo: false })}
                               className="block"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element -- MinIO public URLs */}
                               <img
                                 src={a.url}
                                 alt=""
-                                className="max-h-40 max-w-[200px] rounded-md border object-cover"
+                                className="max-h-40 max-w-[200px] cursor-zoom-in rounded-md border object-cover"
                               />
-                            </a>
+                            </button>
                           ),
                         )}
                       </div>
@@ -316,24 +359,118 @@ export default function FeedbacksPage() {
                     {comments.length > 0 && (
                       <div className="space-y-2 rounded-md border bg-muted/30 p-3">
                         <p className="text-xs font-medium text-muted-foreground">Comments</p>
-                        {comments.map((c) => {
+                        {rootComments.map((c) => {
                           const cAttachments = parseAttachments(c.attachments);
+                          const replies = repliesByParent[c.id] || [];
                           return (
                             <div key={c.id} className="space-y-1 rounded border bg-background p-2">
-                              <div className="text-xs">
-                                <strong>{c.username}</strong> · {new Date(c.createdAt).toLocaleString()}
+                              <div className="flex items-center justify-between gap-2 text-xs">
+                                <span>
+                                  <strong>{c.username}</strong> · {new Date(c.createdAt).toLocaleString()}
+                                </span>
+                                {canComment && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-[11px]"
+                                    onClick={() => {
+                                      setReplyToByFeedback((prev) => ({
+                                        ...prev,
+                                        [fb.id]: { id: c.id, username: c.username },
+                                      }));
+                                    }}
+                                  >
+                                    Reply
+                                  </Button>
+                                )}
                               </div>
                               <p className="text-sm">{c.comment}</p>
                               {cAttachments.length > 0 && (
                                 <div className="flex flex-wrap gap-2 pt-1">
                                   {cAttachments.map((a, i) =>
                                     a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
-                                      <video key={`${c.id}-v-${i}`} src={a.url} controls className="max-h-32 rounded-md border" />
+                                      <video
+                                        key={`${c.id}-v-${i}`}
+                                        src={a.url}
+                                        controls
+                                        onClick={() => setPreview({ url: a.url, isVideo: true })}
+                                        className="max-h-32 cursor-zoom-in rounded-md border"
+                                      />
                                     ) : (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img key={`${c.id}-i-${i}`} src={a.url} alt="" className="max-h-32 rounded-md border object-cover" />
+                                      <button
+                                        key={`${c.id}-i-${i}`}
+                                        type="button"
+                                        onClick={() => setPreview({ url: a.url, isVideo: false })}
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={a.url}
+                                          alt=""
+                                          className="max-h-32 cursor-zoom-in rounded-md border object-cover"
+                                        />
+                                      </button>
                                     ),
                                   )}
+                                </div>
+                              )}
+                              {replies.length > 0 && (
+                                <div className="mt-2 space-y-2 border-l pl-3">
+                                  {replies.map((r) => {
+                                    const rAttachments = parseAttachments(r.attachments);
+                                    return (
+                                      <div key={r.id} className="space-y-1 rounded border bg-muted/20 p-2">
+                                        <div className="flex items-center justify-between gap-2 text-xs">
+                                          <span>
+                                            <strong>{r.username}</strong> · {new Date(r.createdAt).toLocaleString()}
+                                          </span>
+                                          {canComment && (
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-6 px-2 text-[11px]"
+                                              onClick={() => {
+                                                setReplyToByFeedback((prev) => ({
+                                                  ...prev,
+                                                  [fb.id]: { id: r.id, username: r.username },
+                                                }));
+                                              }}
+                                            >
+                                              Reply
+                                            </Button>
+                                          )}
+                                        </div>
+                                        <p className="text-sm">{r.comment}</p>
+                                        {rAttachments.length > 0 && (
+                                          <div className="flex flex-wrap gap-2 pt-1">
+                                            {rAttachments.map((a, i) =>
+                                              a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
+                                                <video
+                                                  key={`${r.id}-v-${i}`}
+                                                  src={a.url}
+                                                  controls
+                                                  onClick={() => setPreview({ url: a.url, isVideo: true })}
+                                                  className="max-h-32 cursor-zoom-in rounded-md border"
+                                                />
+                                              ) : (
+                                                <button
+                                                  key={`${r.id}-i-${i}`}
+                                                  type="button"
+                                                  onClick={() => setPreview({ url: a.url, isVideo: false })}
+                                                >
+                                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                  <img
+                                                    src={a.url}
+                                                    alt=""
+                                                    className="max-h-32 cursor-zoom-in rounded-md border object-cover"
+                                                  />
+                                                </button>
+                                              ),
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -342,15 +479,36 @@ export default function FeedbacksPage() {
                       </div>
                     )}
 
-                    {isRoot && (
+                    {canComment && (
                       <div className="space-y-2 rounded-md border p-3">
+                        {replyToByFeedback[fb.id] && (
+                          <div className="flex items-center justify-between rounded-md border bg-muted/30 px-2 py-1 text-xs">
+                            <span>
+                              Replying to <strong>{replyToByFeedback[fb.id]?.username}</strong>
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-[11px]"
+                              onClick={() =>
+                                setReplyToByFeedback((prev) => ({
+                                  ...prev,
+                                  [fb.id]: null,
+                                }))
+                              }
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
                         <Textarea
                           value={commentByFeedback[fb.id] || ''}
                           onChange={(e) =>
                             setCommentByFeedback((prev) => ({ ...prev, [fb.id]: e.target.value }))
                           }
+                          onPaste={(e) => handleCommentPaste(fb.id, e)}
                           rows={2}
-                          placeholder="Write a comment for this task"
+                          placeholder="Write a comment for this task (you can paste screenshot with Ctrl+V)"
                         />
                         <div className="flex items-center gap-2">
                           <input
@@ -360,8 +518,8 @@ export default function FeedbacksPage() {
                             multiple
                             className="hidden"
                             onChange={(e) => {
-                              const list = Array.from(e.target.files || []).slice(0, 5);
-                              setCommentFiles((prev) => ({ ...prev, [fb.id]: list }));
+                              const list = Array.from(e.target.files || []);
+                              appendCommentFiles(fb.id, list);
                               e.currentTarget.value = '';
                             }}
                           />
@@ -388,6 +546,7 @@ export default function FeedbacksPage() {
                                 const comment = await api.feedback.addComment(fb.id, {
                                   comment: (commentByFeedback[fb.id] || '').trim(),
                                   attachments: attachments.length ? attachments : undefined,
+                                  parentCommentId: replyToByFeedback[fb.id]?.id || undefined,
                                 });
                                 setFeedbacks((prev) =>
                                   prev.map((x) =>
@@ -398,6 +557,7 @@ export default function FeedbacksPage() {
                                 );
                                 setCommentByFeedback((prev) => ({ ...prev, [fb.id]: '' }));
                                 setCommentFiles((prev) => ({ ...prev, [fb.id]: [] }));
+                                setReplyToByFeedback((prev) => ({ ...prev, [fb.id]: null }));
                               } catch (err: any) {
                                 toast.error(err.message || 'Failed to comment');
                               } finally {
@@ -483,6 +643,27 @@ export default function FeedbacksPage() {
           })}
         </div>
       )}
+
+      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl p-2 sm:p-3">
+          <DialogTitle className="sr-only">Attachment preview</DialogTitle>
+          {preview?.isVideo ? (
+            <video
+              src={preview.url}
+              controls
+              autoPlay
+              className="mx-auto max-h-[82vh] w-full rounded-md bg-black"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={preview?.url}
+              alt="Attachment preview"
+              className="mx-auto max-h-[82vh] w-auto max-w-full rounded-md object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { NotificationsBell } from '@/components/notifications-bell';
 import type { UserProfile } from '@/lib/types';
 
 interface HeaderProps {
@@ -463,6 +464,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
         <div className="hidden md:block">
           <ThemeToggle />
+        </div>
+        <div className="hidden md:block">
+          <NotificationsBell />
         </div>
 
         <UserMenu user={user} profile={profile ?? null} onLogout={handleLogout} />

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Database, Check } from 'lucide-react';
+import { Database, Check, Info } from 'lucide-react';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -258,14 +258,35 @@ function SignupForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="group relative">
+                <button
+                  type="button"
+                  aria-label="Password requirements"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
+                <div className="pointer-events-none invisible absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-md border bg-popover p-3 text-xs text-popover-foreground opacity-0 shadow-md transition-all group-hover:visible group-hover:opacity-100">
+                  <p className="mb-1 font-medium">Password requirements</p>
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    <li>At least 8 characters</li>
+                    <li>At least one uppercase letter</li>
+                    <li>At least one lowercase letter</li>
+                    <li>At least one number</li>
+                    <li>At least one punctuation/special character</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
             <PasswordInput
               id="password"
               value={form.password}
               onChange={(e) => update('password', e.target.value)}
-              placeholder="Min 6 characters"
+              placeholder="At least 8 characters"
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
 

@@ -186,17 +186,22 @@ export class FeedbackService {
     userId: string,
     username: string,
     feedbackId: string,
-    dto: { comment: string; attachments?: FeedbackAttachmentRef[] },
+    dto: { comment: string; attachments?: FeedbackAttachmentRef[]; parentCommentId?: string },
   ) {
-    const role = await this.getUserRole(userId);
-    if (role !== UserRole.ROOT) {
-      throw new ForbiddenException('Only root users can comment on tasks');
+    const { isRoot, isOwner } = await this.assertCanAccessFeedback(userId, feedbackId);
+    if (!isRoot && !isOwner) {
+      throw new ForbiddenException('You are not allowed to comment on this feedback');
     }
-    const target = await this.prisma.feedback.findUnique({
-      where: { id: feedbackId },
-      select: { id: true },
-    });
-    if (!target) throw new NotFoundException('Feedback not found');
+
+    if (dto.parentCommentId) {
+      const parent = await this.prisma.feedbackComment.findUnique({
+        where: { id: dto.parentCommentId },
+        select: { id: true, feedbackId: true },
+      });
+      if (!parent || parent.feedbackId !== feedbackId) {
+        throw new NotFoundException('Reply target comment not found');
+      }
+    }
 
     const attachmentsJson: Prisma.InputJsonValue | undefined =
       dto.attachments && dto.attachments.length > 0
@@ -210,6 +215,7 @@ export class FeedbackService {
         username,
         comment: dto.comment,
         attachments: attachmentsJson,
+        parentCommentId: dto.parentCommentId || null,
       },
     });
   }
