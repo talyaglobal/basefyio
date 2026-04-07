@@ -125,6 +125,19 @@ export default function DashboardLayout({
     Cookies.set('kb_active_team', id, { expires: 365, path: '/' });
   }, []);
 
+  const handleHeaderTeamChange = useCallback(
+    (id: string, opts?: { source?: 'user-switch' | 'route-sync' }) => {
+      handleTeamChange(id);
+      const source = opts?.source ?? 'user-switch';
+      const isProjectDetailPage =
+        pathname.startsWith('/dashboard/projects/') && pathname !== '/dashboard/projects';
+      if (source === 'user-switch' && isProjectDetailPage) {
+        router.push('/dashboard/projects');
+      }
+    },
+    [handleTeamChange, pathname, router],
+  );
+
   const refreshUser = useCallback(() => {
     api.auth.getProfile().then((p) => {
       setProfile(p);
@@ -153,7 +166,7 @@ export default function DashboardLayout({
   return (
     <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile }}>
       <div className="flex h-screen flex-col overflow-hidden">
-        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleTeamChange} refreshKey={refreshKey} profile={profile} />
+        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <DashboardSidebar
             activeTeamId={activeTeamId}
@@ -188,7 +201,7 @@ export default function DashboardLayout({
             <div
               className={
                 isProjectDetailRoute
-                  ? 'flex h-full min-h-0 flex-1'
+                  ? 'flex h-full min-h-0 flex-1 p-3 sm:p-4 md:p-6'
                   : 'flex-1 p-3 sm:p-4 md:p-6'
               }
             >

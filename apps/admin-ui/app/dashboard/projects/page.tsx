@@ -61,6 +61,8 @@ import {
   Trash2,
   X,
   Zap,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
 
@@ -115,6 +117,9 @@ interface ProjectsState {
   sortBy: SortValue;
 }
 
+type ProjectsViewMode = 'grid' | 'list';
+const PROJECTS_VIEW_MODE_KEY = 'kb_projects_view_mode';
+
 function saveProjectsState(state: ProjectsState) {
   try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(state)); } catch {}
 }
@@ -161,6 +166,11 @@ export default function ProjectsPage() {
   const [thisMonthOnly, setThisMonthOnly]   = useState(urlFilter === 'this-month' ? true : (savedState?.thisMonthOnly ?? false));
   const [sortBy, setSortBy]                 = useState<SortValue>(savedState?.sortBy ?? 'newest');
   const [sortOpen, setSortOpen]             = useState(false);
+  const [viewMode, setViewMode]             = useState<ProjectsViewMode>(() => {
+    if (typeof window === 'undefined') return 'grid';
+    const stored = localStorage.getItem(PROJECTS_VIEW_MODE_KEY);
+    return stored === 'list' ? 'list' : 'grid';
+  });
 
   // Multi-select
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
@@ -271,6 +281,10 @@ export default function ProjectsPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PROJECTS_VIEW_MODE_KEY, viewMode);
+  }, [viewMode]);
 
   // ── Tag project counts ────────────────────────────────────────────────────────
   const tagProjectCount = useMemo(() => {
@@ -767,6 +781,26 @@ export default function ProjectsPage() {
           <Button variant="outline" size="icon" className="h-8 w-8" onClick={loadAll}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
+          <div className="inline-flex items-center rounded-lg border bg-background p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`rounded-md p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Grid view"
+              aria-label="Grid view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`rounded-md p-1.5 transition-colors ${viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="List view"
+              aria-label="List view"
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
           <Button onClick={() => setDialogOpen(true)} size="sm" className="bg-brand-gradient text-white border-0 hover:opacity-90">
             <Plus className="mr-1 h-3.5 w-3.5" /> New Project
           </Button>
@@ -1045,34 +1079,57 @@ export default function ProjectsPage() {
 
             <div className="p-6">
               {loading ? (
-                <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="rounded-xl border bg-card h-48 animate-pulse" />
-                  ))}
-                </div>
+                viewMode === 'grid' ? (
+                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="rounded-xl border bg-card h-48 animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="h-16 rounded-lg border bg-card animate-pulse" />
+                    ))}
+                  </div>
+                )
               ) : filtered.length === 0 ? (
                 <EmptyState
                   onNew={() => setDialogOpen(true)}
                   hasFilters={selectedFolder !== 'all' || selectedTags.length > 0 || !!searchQuery || !!statusFilter || thisMonthOnly}
                 />
               ) : (
-                <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {filtered.map((project) => (
-                    <DroppableProjectCard
-                      key={project.id}
-                      project={project}
-                      folders={folders}
-                      allTags={tags}
-                      isSelected={selectedProjects.has(project.id)}
-                      hasSelection={selectedProjects.size > 0}
-                      onOpen={() => openProject(project.id)}
-                      onSelect={() => toggleProjectSelection(project.id)}
-                      onMoveFolder={(fid) => moveToFolder(project.id, fid)}
-                      onToggleTag={(tid) => toggleTag(project.id, tid)}
-                      onContextMenu={(e) => handleContextMenu(e, project)}
-                    />
-                  ))}
-                </div>
+                viewMode === 'grid' ? (
+                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filtered.map((project) => (
+                      <DroppableProjectCard
+                        key={project.id}
+                        project={project}
+                        folders={folders}
+                        allTags={tags}
+                        isSelected={selectedProjects.has(project.id)}
+                        hasSelection={selectedProjects.size > 0}
+                        onOpen={() => openProject(project.id)}
+                        onSelect={() => toggleProjectSelection(project.id)}
+                        onMoveFolder={(fid) => moveToFolder(project.id, fid)}
+                        onToggleTag={(tid) => toggleTag(project.id, tid)}
+                        onContextMenu={(e) => handleContextMenu(e, project)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filtered.map((project) => (
+                      <ProjectListRow
+                        key={project.id}
+                        project={project}
+                        isSelected={selectedProjects.has(project.id)}
+                        onOpen={() => openProject(project.id)}
+                        onSelect={() => toggleProjectSelection(project.id)}
+                        onContextMenu={(e) => handleContextMenu(e, project)}
+                      />
+                    ))}
+                  </div>
+                )
               )}
             </div>
             </>
@@ -1360,6 +1417,49 @@ export default function ProjectsPage() {
         </Modal>
       )}
     </DndContext>
+  );
+}
+
+function ProjectListRow({
+  project,
+  isSelected,
+  onOpen,
+  onSelect,
+  onContextMenu,
+}: {
+  project: ProjectListItem;
+  isSelected: boolean;
+  onOpen: () => void;
+  onSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      onClick={onOpen}
+      onContextMenu={onContextMenu}
+      className={`flex cursor-pointer items-center gap-3 rounded-lg border bg-card px-3 py-2 transition-colors hover:bg-accent/40 ${
+        isSelected ? 'ring-2 ring-primary border-primary/50' : ''
+      }`}
+    >
+      <span
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+          isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
+        }`}
+      >
+        {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+      </span>
+      <Database className="h-4 w-4 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{project.name}</p>
+      </div>
+      <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
+        {project.status}
+      </span>
+    </div>
   );
 }
 

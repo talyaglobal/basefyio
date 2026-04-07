@@ -39,7 +39,7 @@ import type { UserProfile } from '@/lib/types';
 interface HeaderProps {
   user: UserInfo;
   activeTeamId: string | null;
-  onTeamChange: (teamId: string) => void;
+  onTeamChange: (teamId: string, opts?: { source?: 'user-switch' | 'route-sync' }) => void;
   refreshKey?: number;
   profile?: UserProfile | null;
 }
@@ -133,7 +133,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           try {
             await api.teams.setActive(p.teamId);
             Cookies.set('kb_active_team', p.teamId, { expires: 365 });
-            onTeamChange(p.teamId);
+            onTeamChange(p.teamId, { source: 'route-sync' });
           } catch {
             /* keep header label from route project even if team switch fails */
           }
@@ -175,7 +175,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     try {
       await api.teams.setActive(teamId);
       Cookies.set('kb_active_team', teamId, { expires: 365 });
-      onTeamChange(teamId);
+      onTeamChange(teamId, { source: 'user-switch' });
       setDropdownOpen(false);
       setProjectsMenuOpen(false);
     } catch (err: any) {
@@ -192,7 +192,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       import('js-cookie').then(({ default: Cookies }) => {
         Cookies.set('kb_active_team', team.id, { expires: 365 });
       });
-      onTeamChange(team.id);
+      onTeamChange(team.id, { source: 'user-switch' });
       setNewTeamName('');
       setNewTeamOpen(false);
       setDropdownOpen(false);

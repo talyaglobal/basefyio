@@ -30,6 +30,13 @@
 ## 2026-04-07 (project detail scroll + sidebar stretch)
 - **Single-scroll fix:** Removed nested scrolling in project detail content area so dashboard no longer shows dual vertical scrollbars.
 - **Full-height project detail frame:** Updated dashboard content wrapper for project detail routes to use full-height container, letting left project sidebar extend to the bottom without visual gap.
+- **Alignment correction:** Restored route padding for project detail wrapper while keeping full-height behavior, fixing page shift/misalignment on screen.
+
+## 2026-04-07 (projects grid/list toggle)
+- **View switcher:** Added grid/list view toggle icons to `/dashboard/projects` top toolbar.
+- **Persisted preference:** Selected view mode now persists via localStorage (`kb_projects_view_mode`).
+- **List rendering mode:** Added compact list row rendering for project cards while preserving selection and context-menu behavior.
+- **Team-switch route safety:** When team is switched from header while on a project detail route, app now redirects to `/dashboard/projects` so the newly selected team's project list is shown.
 
 ## 2026-04-07 (management users activate/deactivate)
 - **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
