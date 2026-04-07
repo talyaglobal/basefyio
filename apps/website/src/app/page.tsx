@@ -10,7 +10,91 @@ import {
   Check,
 } from "lucide-react";
 
-export default function Home() {
+type PublicPlan = {
+  id: string;
+  name: string;
+  displayName: string;
+  priceMonthly: number;
+  maxProjects: number | null;
+  maxStorageBytes: number | string | null;
+  maxDbSizeBytes: number | string | null;
+  maxTeamMembers: number | null;
+  maxApiRequests: number | null;
+  maxBandwidthBytes: number | string | null;
+  dedicatedDb: boolean;
+  dedicatedStorage: boolean;
+  isPublic: boolean;
+};
+
+function numOrNull(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatBytes(v: number | string | null | undefined): string {
+  const n = numOrNull(v);
+  if (n === null || n <= 0) return "Unlimited";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = n;
+  let i = 0;
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024;
+    i += 1;
+  }
+  const fixed = size >= 10 ? size.toFixed(0) : size.toFixed(1);
+  return `${fixed} ${units[i]}`;
+}
+
+function formatReq(v: number | null | undefined): string {
+  if (v === null || v === undefined || v <= 0) return "Unlimited";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1_000 === 0 ? 0 : 1)}K`;
+  return String(v);
+}
+
+function planFeatures(plan: PublicPlan): string[] {
+  return [
+    `${plan.maxProjects ?? "Unlimited"} projects`,
+    `${formatBytes(plan.maxStorageBytes)} storage`,
+    `${formatBytes(plan.maxDbSizeBytes)} database`,
+    `${plan.maxTeamMembers ?? "Unlimited"} team members`,
+    `${formatReq(plan.maxApiRequests)} API requests/mo`,
+    `${formatBytes(plan.maxBandwidthBytes)} bandwidth/mo`,
+    plan.dedicatedDb || plan.dedicatedStorage
+      ? "Dedicated infrastructure"
+      : "Shared infrastructure",
+  ];
+}
+
+async function getPublicPlans(): Promise<PublicPlan[]> {
+  const candidates = [
+    process.env.NEXT_PUBLIC_BILLING_API_URL,
+    process.env.NEXT_PUBLIC_API_BASE_URL,
+    "http://platform-api:4000",
+    "http://localhost:4000",
+  ].filter(Boolean) as string[];
+
+  for (const base of candidates) {
+    try {
+      const res = await fetch(`${base}/billing/plans`, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = (await res.json()) as PublicPlan[];
+      if (Array.isArray(data) && data.length > 0) {
+        return data
+          .filter((p) => p.isPublic)
+          .sort((a, b) => a.priceMonthly - b.priceMonthly);
+      }
+    } catch {
+      // Try next base URL
+    }
+  }
+
+  return [];
+}
+
+export default async function Home() {
+  const plans = await getPublicPlans();
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -147,86 +231,59 @@ export default function Home() {
           </p>
 
           <div className="mt-16 grid gap-6 lg:grid-cols-3">
-            {/* Free */}
-            <div className="rounded-2xl border border-border bg-card p-8 flex flex-col">
-              <h3 className="text-lg font-semibold">Free</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold">$0</span>
-                <span className="text-muted-foreground">/mo</span>
+            {plans.map((plan) => {
+              const featured = plan.name.toLowerCase() === "pro";
+              const features = planFeatures(plan);
+              return (
+                <div
+                  key={plan.id}
+                  className={`rounded-2xl bg-card p-8 flex flex-col relative ${
+                    featured ? "border-2 border-primary" : "border border-border"
+                  }`}
+                >
+                  {featured && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
+                      Most Popular
+                    </div>
+                  )}
+                  <h3 className="text-lg font-semibold">{plan.displayName}</h3>
+                  <div className="mt-4">
+                    <span className="text-4xl font-bold">${(plan.priceMonthly / 100).toFixed(0)}</span>
+                    <span className="text-muted-foreground">/mo</span>
+                  </div>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {plan.priceMonthly === 0
+                      ? "Perfect for hobby projects and learning."
+                      : "Scale your project with higher limits and resources."}
+                  </p>
+                  <ul className="mt-6 space-y-3 text-sm flex-1">
+                    {features.map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                        <span className="text-muted-foreground">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href={`https://app.kolaybase.com/signup?plan=${encodeURIComponent(plan.name)}`}
+                    className={`mt-8 inline-flex items-center justify-center rounded-xl px-6 py-3 text-sm transition-colors ${
+                      featured
+                        ? "bg-primary font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+                        : "border border-border font-medium text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {plan.priceMonthly === 0
+                      ? "Get Started Free"
+                      : `Get Started with ${plan.displayName}`}
+                  </Link>
+                </div>
+              );
+            })}
+            {plans.length === 0 && (
+              <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground lg:col-span-3">
+                Pricing plans are temporarily unavailable.
               </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Perfect for hobby projects and learning.
-              </p>
-              <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["5 projects", "2 GB storage", "1 GB database", "3 team members", "500K API requests/mo", "2 GB bandwidth/mo", "Shared infrastructure"].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                    <span className="text-muted-foreground">{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="https://app.kolaybase.com/signup?plan=free"
-                className="mt-8 inline-flex items-center justify-center rounded-xl border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-accent transition-colors"
-              >
-                Get Started Free
-              </Link>
-            </div>
-
-            {/* Pro */}
-            <div className="rounded-2xl border-2 border-primary bg-card p-8 flex flex-col relative">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
-                Most Popular
-              </div>
-              <h3 className="text-lg font-semibold">Pro</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold">$25</span>
-                <span className="text-muted-foreground">/mo</span>
-              </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                For growing apps that need dedicated resources.
-              </p>
-              <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["20 projects", "200 GB storage", "16 GB database", "10 team members", "5M API requests/mo", "500 GB bandwidth/mo", "Dedicated database", "Daily backups"].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                    <span className="text-muted-foreground">{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="https://app.kolaybase.com/signup?plan=pro"
-                className="mt-8 inline-flex items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
-              >
-                Get Started with Pro
-              </Link>
-            </div>
-
-            {/* Business */}
-            <div className="rounded-2xl border border-border bg-card p-8 flex flex-col">
-              <h3 className="text-lg font-semibold">Business</h3>
-              <div className="mt-4">
-                <span className="text-4xl font-bold">$99</span>
-                <span className="text-muted-foreground">/mo</span>
-              </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                For teams that need maximum performance and support.
-              </p>
-              <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["50 projects", "1 TB storage", "64 GB database", "30 team members", "20M API requests/mo", "2 TB bandwidth/mo", "Dedicated database & storage", "Daily backups", "Priority support"].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                    <span className="text-muted-foreground">{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="https://app.kolaybase.com/signup?plan=business"
-                className="mt-8 inline-flex items-center justify-center rounded-xl border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-accent transition-colors"
-              >
-                Get Started with Business
-              </Link>
-            </div>
+            )}
           </div>
         </div>
       </section>

@@ -6,11 +6,12 @@ import { AuthService } from './auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { BillingModule } from '../billing/billing.module';
+import { RootRoleGuard } from '../../common/guards/root-role.guard';
 
 @Module({
   imports: [PassportModule, HttpModule, BillingModule],
   controllers: [AuthController],
-  providers: [AuthService, KeycloakAdminService, JwtStrategy],
+  providers: [AuthService, KeycloakAdminService, JwtStrategy, RootRoleGuard],
   exports: [KeycloakAdminService],
 })
 export class AuthModule {}

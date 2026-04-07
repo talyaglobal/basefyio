@@ -34,6 +34,10 @@ import type {
   TeamMember,
   TeamVercelStatus,
   UserInfo,
+  ManagementTeam,
+  ManagementUser,
+  ManagementPlan,
+  ManagementUserPackage,
   UserProfile,
   VercelDeployment,
   VercelIntegration,
@@ -191,6 +195,33 @@ export const api = {
     getOAuthRedirect(provider: string, redirectTo?: string) {
       const qs = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
       return request<{ url: string; provider: string }>(`/auth/oauth/${provider}${qs}`);
+    },
+    managementUsers() {
+      return request<ManagementUser[]>('/auth/management/users');
+    },
+    updateManagementUserRole(userId: string, role: 'USER' | 'ADMIN' | 'ROOT') {
+      return request<{ id: string; username: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
+        `/auth/management/users/${userId}/role`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ role }),
+        },
+      );
+    },
+    resetManagementUserPassword(
+      userId: string,
+      data: { newPassword: string; forceChangeOnFirstLogin: boolean },
+    ) {
+      return request<{ id: string; email: string; forceChangeOnFirstLogin: boolean }>(
+        `/auth/management/users/${userId}/reset-password`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+      );
+    },
+    managementTeams() {
+      return request<ManagementTeam[]>('/auth/management/teams');
     },
   },
 
@@ -1048,6 +1079,45 @@ export const api = {
       return request<{ message: string }>('/billing/change-plan', {
         method: 'POST',
         body: JSON.stringify({ teamId, planName }),
+      });
+    },
+    managementPlans() {
+      return request<ManagementPlan[]>('/billing/management/plans');
+    },
+    updateManagementPlan(
+      planName: string,
+      data: {
+        displayName?: string;
+        priceMonthly?: number;
+        maxProjects?: number | null;
+        maxStorageBytes?: string | null;
+        maxTeamMembers?: number | null;
+        maxDbSizeBytes?: string | null;
+        maxApiRequests?: number | null;
+        maxBandwidthBytes?: string | null;
+        maxMau?: number | null;
+        isPublic?: boolean;
+      },
+    ) {
+      return request<ManagementPlan>(`/billing/management/plans/${encodeURIComponent(planName)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    managementUserPackages() {
+      return request<ManagementUserPackage[]>('/billing/management/user-packages');
+    },
+    updateManagementUserPackage(userId: string, planName: string) {
+      return request<{
+        userId: string;
+        teamId: string;
+        teamName: string;
+        planName: string;
+        planDisplayName: string;
+        planPriceMonthly: number;
+      }>(`/billing/management/user-packages/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ planName }),
       });
     },
   },

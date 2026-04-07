@@ -92,6 +92,11 @@ function LoginForm() {
       const tokens = await api.auth.login(email, password, captchaRequired ? captchaAnswer : undefined);
       setTokens(tokens);
       startProactiveRefresh();
+      if (tokens.forcePasswordChange) {
+        toast.warning('You must change your password before continuing.');
+        window.location.assign('/dashboard/account?forcePasswordChange=1');
+        return;
+      }
       toast.success('Welcome back');
       window.location.assign('/dashboard');
     } catch (err: any) {

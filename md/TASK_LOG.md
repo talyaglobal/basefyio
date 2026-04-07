@@ -1,5 +1,24 @@
 # Task Log
 
+## 2026-04-07 (root account recovery after accidental reset)
+- **Issue diagnosed:** Root login failed because Keycloak user record for `016f202d-409d-4627-9cfc-77369b79bb22` had no email set, causing `user_not_found` during password-grant login with email.
+- **Recovery applied:** Restored Keycloak email to `bsaygin@outlook.com`, ensured account enabled with empty `requiredActions`, and set a new temporary root password.
+- **Security state cleanup:** Reset `login_security_states` counters and captcha/lock fields for `bsaygin@outlook.com`.
+- **Verification:** Confirmed successful token issuance from Keycloak using the recovered root email + temporary password.
+
+## 2026-04-07 (force-password-change enforcement hardening)
+- **Root cause:** Force-password-change check depended on email lookup, which could miss cases where login succeeded via username fallback or user profile drift.
+- **Backend hardening:** Login now decodes authenticated token `sub` and checks `kb_force_password_change` by Keycloak user id, with email lookup only as fallback.
+- **Result:** `Force user to change password on next login` now consistently redirects users to change-password flow before normal dashboard access.
+
+## 2026-04-07 (force password change login fix)
+- **Root cause:** Keycloak `UPDATE_PASSWORD` required action blocks direct password-grant login, causing `LOGIN_ERROR resolve_required_actions` for users reset with force-change.
+- **Backend fix:** Reworked force-change flow to use Keycloak user attribute `kb_force_password_change=true` during admin reset (without `temporary` password / required action), so login succeeds.
+- **Login enforcement:** Login response now includes `forcePasswordChange`; admin UI stores a `kb_force_password_change` cookie and redirects users to `/dashboard/account?forcePasswordChange=1`.
+- **Route guard behavior:** Dashboard layout now forces redirected users to account page until password is changed.
+- **Completion behavior:** On successful password change, backend clears Keycloak force flag and frontend clears `kb_force_password_change` cookie, then allows normal dashboard access.
+- **Follow-up fix:** Force flag read now uses full Keycloak user (`users.findOne`) instead of brief list response, ensuring `attributes.kb_force_password_change` is reliably detected at login.
+
 ## 2026-04-07 (feedback attachments modal preview)
 - **Feedbacks media UX:** Added large modal preview for attachments on `/dashboard/feedbacks`.
 - **Click-to-preview:** Both main feedback attachments and comment attachments now open in a dialog when clicked.
@@ -93,6 +112,43 @@
 - **Centralized dropdown state:** Connected `Docs` and `User` menus to header-level controlled state.
 - **Outside-click behavior:** Global outside click now closes Team, Projects, Docs, and User dropdowns consistently.
 - **Mutual exclusivity:** Opening one header dropdown now closes other header dropdown menus.
+
+## 2026-04-07 (root-only management area)
+- **Root-only management routes:** Added backend endpoints for root users to list platform users, list teams, and update user roles.
+- **Root-only dashboard page:** Added `/dashboard/management` with Users and Teams tables.
+- **Role management:** Root users can change user roles (`USER`, `ADMIN`, `ROOT`) from the UI.
+- **Navigation visibility:** `Management` navigation item is shown only for users with `ROOT` role.
+
+## 2026-04-07 (dashboard sidebar auto/open mode)
+- **Left menu behavior update:** Added `Auto / Open` mode to `/dashboard` left sidebar, similar to project detail sidebar behavior.
+- **Auto mode:** Sidebar stays as a compact rail and expands on hover.
+- **Open mode:** Sidebar remains fully expanded.
+- **Persistence:** Sidebar mode is saved in localStorage and legacy collapsed state is migrated.
+
+## 2026-04-07 (management pricing and user package controls)
+- **Root billing management APIs:** Added root-only billing endpoints for management plans and user package operations.
+- **Pricing management UI:** Added pricing plan table in `/dashboard/management` to update monthly plan price.
+- **User package management UI:** Added per-user package selector in `/dashboard/management` for changing user package via personal team subscription.
+
+## 2026-04-07 (management users package column and password reset)
+- **Users table package column:** Moved package management into Users table as a direct column per user.
+- **Root password reset controls:** Added root-only password reset action for each user with custom password input.
+- **Generate password button:** Added random strong password generation button in reset modal.
+- **Force password change option:** Added checkbox to force users to update password at next login (`UPDATE_PASSWORD` required action).
+
+## 2026-04-07 (pricing names and website sync)
+- **Management pricing edits expanded:** Added editable plan display name and major quota fields in Management pricing table.
+- **Website pricing data source:** Website `/#pricing` now reads plan names and limits dynamically from billing plans API.
+- **Auto sync effect:** Updating plan name/limits in Management now reflects on website pricing cards after refresh/redeploy.
+
+## 2026-04-07 (login refresh loop fix)
+- **Root cause:** Global notifications provider was polling protected endpoints on public pages (including `/login`), triggering 401 redirect cycles.
+- **Fix:** Notifications profile fetch and feedback polling now run only when an access token exists.
+- **Result:** Login page no longer hard-refreshes repeatedly due notification polling.
+
+## 2026-04-07 (management reset password copy icon)
+- **UX enhancement:** Added copy icon inside the reset-password textbox on `/dashboard/management`.
+- **One-click copy:** Root can copy generated/manual password directly to clipboard from the input field.
 
 ## 2026-04-07 (signup password requirements hover info)
 - **Signup UX update:** Added an info (`i`) icon next to the password label on `/signup`.

@@ -180,6 +180,7 @@ export interface AuthTokens {
   expiresIn: number;
   tokenType?: string;
   hasPendingInvites?: boolean;
+  forcePasswordChange?: boolean;
 }
 
 export interface UserInfo {
@@ -201,6 +202,58 @@ export interface UserProfile {
   notifyTeamInvite: boolean;
   role: string;
   createdAt: string;
+}
+
+export interface ManagementUser {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: 'USER' | 'ADMIN' | 'ROOT';
+  createdAt: string;
+  _count: { teamMembers: number };
+}
+
+export interface ManagementTeam {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  memberCount: number;
+  projectCount: number;
+  owner: {
+    id: string;
+    username: string;
+    email: string;
+  } | null;
+}
+
+export interface ManagementPlan {
+  id: string;
+  name: string;
+  displayName: string;
+  priceMonthly: number;
+  maxProjects: number | null;
+  maxStorageBytes: string | number | null;
+  maxTeamMembers: number | null;
+  maxDbSizeBytes: string | number | null;
+  maxApiRequests: number | null;
+  maxBandwidthBytes: string | number | null;
+  maxMau: number | null;
+  isPublic: boolean;
+}
+
+export interface ManagementUserPackage {
+  userId: string;
+  email: string;
+  username: string;
+  teamId: string | null;
+  teamName: string | null;
+  planName: string | null;
+  planDisplayName: string | null;
+  planPriceMonthly: number | null;
+  subscriptionStatus: string | null;
 }
 
 export interface SqlResult {

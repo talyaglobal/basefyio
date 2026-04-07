@@ -607,6 +607,62 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Password reset for platform user ${keycloakUserId}`);
   }
 
+  async resetPlatformUserPasswordWithPolicy(
+    keycloakUserId: string,
+    newPassword: string,
+    forceChangeOnFirstLogin: boolean,
+  ): Promise<void> {
+    await this.ensureAuth();
+    const existing = await this.client.users.findOne({
+      realm: 'master',
+      id: keycloakUserId,
+    });
+    const attributes = {
+      ...(existing?.attributes || {}),
+      kb_force_password_change: [forceChangeOnFirstLogin ? 'true' : 'false'],
+    };
+    await this.client.users.update(
+      { realm: 'master', id: keycloakUserId },
+      { attributes, requiredActions: [] },
+    );
+    await this.client.users.resetPassword({
+      realm: 'master',
+      id: keycloakUserId,
+      credential: {
+        type: 'password',
+        value: newPassword,
+        temporary: false,
+      },
+    });
+    this.logger.log(
+      `Password reset for platform user ${keycloakUserId} (forceChangeOnFirstLogin=${forceChangeOnFirstLogin})`,
+    );
+  }
+
+  async getPlatformUserForcePasswordChangeByEmail(email: string): Promise<boolean> {
+    await this.ensureAuth();
+    const user = await this.findPlatformUserByEmail(email);
+    if (!user?.id) return false;
+    const fullUser = await this.client.users.findOne({ realm: 'master', id: user.id });
+    return fullUser?.attributes?.kb_force_password_change?.[0] === 'true';
+  }
+
+  async clearPlatformUserForcePasswordChange(userId: string): Promise<void> {
+    await this.ensureAuth();
+    const existing = await this.client.users.findOne({ realm: 'master', id: userId });
+    const attributes = {
+      ...(existing?.attributes || {}),
+      kb_force_password_change: ['false'],
+    };
+    await this.client.users.update({ realm: 'master', id: userId }, { attributes });
+  }
+
+  async getPlatformUserForcePasswordChangeById(userId: string): Promise<boolean> {
+    await this.ensureAuth();
+    const user = await this.client.users.findOne({ realm: 'master', id: userId });
+    return user?.attributes?.kb_force_password_change?.[0] === 'true';
+  }
+
   // ── Identity provider operations ──
 
   async upsertIdentityProvider(

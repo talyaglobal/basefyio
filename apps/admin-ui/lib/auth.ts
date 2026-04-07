@@ -4,6 +4,7 @@ import type { AuthTokens, UserInfo } from './types';
 const TOKEN_KEY = 'kb_access_token';
 const REFRESH_KEY = 'kb_refresh_token';
 const AUTH_MARKER_KEY = 'kb_logged_in';
+const FORCE_PASSWORD_CHANGE_KEY = 'kb_force_password_change';
 
 function getStorage() {
   if (typeof window === 'undefined') return null;
@@ -35,6 +36,15 @@ export function setTokens(tokens: AuthTokens) {
     sameSite: 'lax',
     path: '/',
   });
+  if (tokens.forcePasswordChange) {
+    Cookies.set(FORCE_PASSWORD_CHANGE_KEY, '1', {
+      expires: 7,
+      sameSite: 'lax',
+      path: '/',
+    });
+  } else {
+    Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });
+  }
 }
 
 export function clearTokens() {
@@ -44,6 +54,7 @@ export function clearTokens() {
   Cookies.remove(TOKEN_KEY, { path: '/' });
   Cookies.remove(REFRESH_KEY, { path: '/' });
   Cookies.remove(AUTH_MARKER_KEY, { path: '/' });
+  Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });
 }
 
 export function getRefreshToken(): string | undefined {

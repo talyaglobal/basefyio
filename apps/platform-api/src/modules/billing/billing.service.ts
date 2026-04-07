@@ -747,4 +747,93 @@ export class BillingService implements OnModuleInit {
       return null;
     }
   }
+
+  async listManagementPlans() {
+    return this.getAllPlans();
+  }
+
+  async updateManagementPlan(
+    planName: string,
+    data: {
+      displayName?: string;
+      priceMonthly?: number;
+      maxProjects?: number | null;
+      maxStorageBytes?: bigint | null;
+      maxTeamMembers?: number | null;
+      maxDbSizeBytes?: bigint | null;
+      maxApiRequests?: number | null;
+      maxBandwidthBytes?: bigint | null;
+      maxMau?: number | null;
+      isPublic?: boolean;
+    },
+  ) {
+    const plan = await this.getPlanByName(planName);
+    return this.prisma.plan.update({
+      where: { id: plan.id },
+      data,
+    });
+  }
+
+  async listManagementUserPackages() {
+    const users = await this.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        personalTeam: {
+          select: {
+            id: true,
+            name: true,
+            subscription: {
+              select: {
+                status: true,
+                plan: {
+                  select: { name: true, displayName: true, priceMonthly: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return users.map((u) => ({
+      userId: u.id,
+      email: u.email,
+      username: u.username,
+      teamId: u.personalTeam?.id ?? null,
+      teamName: u.personalTeam?.name ?? null,
+      planName: u.personalTeam?.subscription?.plan?.name ?? null,
+      planDisplayName: u.personalTeam?.subscription?.plan?.displayName ?? null,
+      planPriceMonthly: u.personalTeam?.subscription?.plan?.priceMonthly ?? null,
+      subscriptionStatus: u.personalTeam?.subscription?.status ?? null,
+    }));
+  }
+
+  async updateManagementUserPackage(userId: string, planName: string) {
+    const plan = await this.getPlanByName(planName);
+    const personalTeam = await this.prisma.team.findUnique({
+      where: { personalForUserId: userId },
+      select: { id: true, name: true },
+    });
+    if (!personalTeam) {
+      throw new NotFoundException('Personal team not found for this user');
+    }
+
+    await this.prisma.subscription.upsert({
+      where: { teamId: personalTeam.id },
+      update: { planId: plan.id, status: 'ACTIVE' },
+      create: { teamId: personalTeam.id, planId: plan.id, status: 'ACTIVE' },
+    });
+
+    return {
+      userId,
+      teamId: personalTeam.id,
+      teamName: personalTeam.name,
+      planName: plan.name,
+      planDisplayName: plan.displayName,
+      planPriceMonthly: plan.priceMonthly,
+    };
+  }
 }

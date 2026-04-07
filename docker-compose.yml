@@ -181,6 +181,7 @@ services:
       - "${WEBSITE_PORT:-3002}:3000"
     environment:
       HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_BILLING_API_URL: http://platform-api:4000
 
 volumes:
   postgres_data:

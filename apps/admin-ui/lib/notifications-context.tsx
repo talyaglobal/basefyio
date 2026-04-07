@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
+import { getAccessToken } from '@/lib/auth';
 
 export const KB_NOTIFY_EVENT = 'kb-notify-event';
 
@@ -122,6 +123,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!getAccessToken()) {
+      setCurrentUserId(null);
+      return;
+    }
     api.auth
       .getProfile()
       .then((p) => setCurrentUserId(p.id))
@@ -148,6 +153,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [activeImport, modalShowingImport]);
 
   useEffect(() => {
+    if (!getAccessToken()) {
+      return;
+    }
     let cancelled = false;
 
     const poll = async () => {

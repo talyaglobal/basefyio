@@ -11,9 +11,12 @@ import {
   HttpCode,
   Logger,
   Query,
+  Patch,
+  Param,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { StripeService } from '../stripe/stripe.service';
@@ -176,6 +179,74 @@ export class BillingController {
     @Body() body: { teamId: string; planName: string },
   ) {
     return this.billing.changePlan(body.teamId, req.user.sub, body.planName);
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('management/plans')
+  async managementPlans() {
+    return this.billing.listManagementPlans();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/plans/:planName')
+  async updateManagementPlan(
+    @Param('planName') planName: string,
+    @Body()
+    body: {
+      displayName?: string;
+      priceMonthly?: number;
+      maxProjects?: number | null;
+      maxStorageBytes?: string | null;
+      maxTeamMembers?: number | null;
+      maxDbSizeBytes?: string | null;
+      maxApiRequests?: number | null;
+      maxBandwidthBytes?: string | null;
+      maxMau?: number | null;
+      isPublic?: boolean;
+    },
+  ) {
+    return this.billing.updateManagementPlan(planName, {
+      displayName: body.displayName,
+      priceMonthly: body.priceMonthly,
+      maxProjects: body.maxProjects,
+      maxStorageBytes:
+        body.maxStorageBytes === undefined
+          ? undefined
+          : body.maxStorageBytes === null
+            ? null
+            : BigInt(body.maxStorageBytes),
+      maxTeamMembers: body.maxTeamMembers,
+      maxDbSizeBytes:
+        body.maxDbSizeBytes === undefined
+          ? undefined
+          : body.maxDbSizeBytes === null
+            ? null
+            : BigInt(body.maxDbSizeBytes),
+      maxApiRequests: body.maxApiRequests,
+      maxBandwidthBytes:
+        body.maxBandwidthBytes === undefined
+          ? undefined
+          : body.maxBandwidthBytes === null
+            ? null
+            : BigInt(body.maxBandwidthBytes),
+      maxMau: body.maxMau,
+      isPublic: body.isPublic,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('management/user-packages')
+  async managementUserPackages() {
+    return this.billing.listManagementUserPackages();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/user-packages/:userId')
+  async updateManagementUserPackage(
+    @Param('userId') userId: string,
+    @Body('planName') planName: string,
+  ) {
+    return this.billing.updateManagementUserPackage(userId, planName);
   }
 
   @Post('webhook')

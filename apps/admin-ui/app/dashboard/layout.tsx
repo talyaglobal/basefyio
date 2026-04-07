@@ -55,6 +55,11 @@ export default function DashboardLayout({
   const pathname = usePathname();
 
   useEffect(() => {
+    const forcePasswordChange = Cookies.get('kb_force_password_change') === '1';
+    if (forcePasswordChange && pathname !== '/dashboard/account') {
+      router.replace('/dashboard/account?forcePasswordChange=1');
+      return;
+    }
     if (!isAuthenticated()) {
       router.replace('/login');
       return;
@@ -96,7 +101,7 @@ export default function DashboardLayout({
     init();
 
     return () => stopProactiveRefresh();
-  }, [router]);
+  }, [router, pathname]);
 
   useEffect(() => {
     if (!activeTeamId) return;
@@ -150,6 +155,7 @@ export default function DashboardLayout({
           <DashboardSidebar
             activeTeamId={activeTeamId}
             refreshKey={refreshKey}
+            isRoot={profile?.role === 'ROOT'}
           />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (

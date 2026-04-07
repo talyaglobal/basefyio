@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -10,6 +10,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import {
   CurrentUser,
   JwtPayload,
@@ -118,6 +119,44 @@ export class AuthController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.authService.uploadAvatar(user.sub, file);
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('management/users')
+  async managementUsers() {
+    return this.authService.listManagementUsers();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/users/:id/role')
+  async updateManagementUserRole(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body('role') role: string,
+  ) {
+    return this.authService.updateUserRoleByRoot(user.sub, id, role);
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Post('management/users/:id/reset-password')
+  async resetManagementUserPassword(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body('newPassword') newPassword: string,
+    @Body('forceChangeOnFirstLogin') forceChangeOnFirstLogin?: boolean,
+  ) {
+    return this.authService.resetManagementUserPasswordByRoot(
+      user.sub,
+      id,
+      newPassword,
+      !!forceChangeOnFirstLogin,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('management/teams')
+  async managementTeams() {
+    return this.authService.listManagementTeams();
   }
 
   @Get('oauth/providers')

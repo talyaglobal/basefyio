@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import Cookies from 'js-cookie';
 import { api } from '@/lib/api';
 import { useDashboard } from '@/app/dashboard/layout';
 import type { UserProfile } from '@/lib/types';
@@ -30,6 +31,7 @@ import {
 
 export default function AccountPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { refreshUser, refreshProfile } = useDashboard();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -60,6 +62,7 @@ export default function AccountPage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const forcePasswordChange = searchParams.get('forcePasswordChange') === '1';
 
   useEffect(() => {
     api.auth
@@ -223,10 +226,14 @@ export default function AccountPage() {
     setChangingPassword(true);
     try {
       await api.auth.changePassword(currentPassword, newPassword);
+      Cookies.remove('kb_force_password_change', { path: '/' });
       toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      if (forcePasswordChange) {
+        router.replace('/dashboard');
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to change password');
     } finally {
@@ -517,6 +524,11 @@ export default function AccountPage() {
           <KeyRound className="h-4 w-4" />
           Change password
         </div>
+        {forcePasswordChange && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            Your password was reset by an administrator. You must set a new password to continue.
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">
           Enter your current password first, then set a new password.
         </p>

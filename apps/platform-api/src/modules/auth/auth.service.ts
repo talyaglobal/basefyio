@@ -89,6 +89,17 @@ export class AuthService {
     return email.trim().toLowerCase();
   }
 
+  private decodeJwtSubject(token: string): string | null {
+    try {
+      const [, payload] = token.split('.');
+      if (!payload) return null;
+      const json = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      return typeof json?.sub === 'string' ? json.sub : null;
+    } catch {
+      return null;
+    }
+  }
+
   private ensureStrongPassword(password: string): void {
     if (password.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters long');
@@ -457,11 +468,26 @@ export class AuthService {
         },
       });
 
+      let forcePasswordChange = false;
+      try {
+        const userId = this.decodeJwtSubject(data.access_token);
+        if (userId) {
+          forcePasswordChange =
+            await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+        } else {
+          forcePasswordChange =
+            await this.keycloak.getPlatformUserForcePasswordChangeByEmail(normalizedEmail);
+        }
+      } catch {
+        forcePasswordChange = false;
+      }
+
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         expiresIn: data.expires_in,
         tokenType: data.token_type,
+        forcePasswordChange,
       };
     } catch {
       const failure = await this.registerFailedLogin(normalizedEmail);
@@ -486,6 +512,7 @@ export class AuthService {
 
     try {
       await this.keycloak.resetPlatformUserPassword(userId, newPassword);
+      await this.keycloak.clearPlatformUserForcePasswordChange(userId);
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to change password: ${err.message}`);
     }
@@ -841,6 +868,116 @@ export class AuthService {
 
     this.logger.log(`Avatar uploaded for user ${userId}: ${objectName}`);
     return { avatarUrl };
+  }
+
+  async listManagementUsers() {
+    return this.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        createdAt: true,
+        _count: {
+          select: { teamMembers: true },
+        },
+      },
+    });
+  }
+
+  async updateUserRoleByRoot(currentUserId: string, targetUserId: string, role: string) {
+    const allowedRoles = new Set(['USER', 'ADMIN', 'ROOT']);
+    if (!allowedRoles.has(role)) {
+      throw new BadRequestException('Invalid role');
+    }
+    if (currentUserId === targetUserId && role !== 'ROOT') {
+      throw new BadRequestException('Root user cannot remove own ROOT role');
+    }
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { role: role as 'USER' | 'ADMIN' | 'ROOT' },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        role: true,
+      },
+    });
+  }
+
+  async resetManagementUserPasswordByRoot(
+    currentUserId: string,
+    targetUserId: string,
+    newPassword: string,
+    forceChangeOnFirstLogin: boolean,
+  ) {
+    if (!newPassword || newPassword.trim().length === 0) {
+      throw new BadRequestException('Password is required');
+    }
+    this.ensureStrongPassword(newPassword);
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true },
+    });
+    if (!target) {
+      throw new BadRequestException('User not found');
+    }
+
+    await this.keycloak.resetPlatformUserPasswordWithPolicy(
+      targetUserId,
+      newPassword,
+      forceChangeOnFirstLogin,
+    );
+
+    this.logger.log(
+      `Root user ${currentUserId} reset password for ${targetUserId} (forceChangeOnFirstLogin=${forceChangeOnFirstLogin})`,
+    );
+
+    return {
+      id: target.id,
+      email: target.email,
+      forceChangeOnFirstLogin,
+    };
+  }
+
+  async listManagementTeams() {
+    const teams = await this.prisma.team.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        members: {
+          where: { role: 'OWNER' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+              },
+            },
+          },
+          take: 1,
+        },
+        _count: {
+          select: {
+            members: true,
+            projects: true,
+          },
+        },
+      },
+    });
+
+    return teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      slug: team.slug,
+      createdAt: team.createdAt,
+      memberCount: team._count.members,
+      projectCount: team._count.projects,
+      owner: team.members[0]?.user ?? null,
+    }));
   }
 
 }

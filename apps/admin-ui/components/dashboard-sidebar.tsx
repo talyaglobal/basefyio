@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
+  ShieldCheck,
   Box,
-  ChevronLeft,
   ChevronRight,
   CreditCard,
   Home,
@@ -20,8 +20,10 @@ import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
 
 const COLLAPSED_KEY = 'kb_dashboard_nav_collapsed';
+const SIDEBAR_MODE_KEY = 'kb_dashboard_sidebar_mode';
 const EXPANDED_W = 220;
 const COLLAPSED_W = 52;
+type SidebarMode = 'auto' | 'open';
 
 function isProjectDetailPath(pathname: string) {
   return /^\/dashboard\/projects\/[^/]+/.test(pathname);
@@ -74,22 +76,37 @@ const ALL_NAV_ITEMS: NavItem[] = [
   },
 ];
 
+const ROOT_NAV_ITEM: NavItem = {
+  href: '/dashboard/management',
+  label: 'Management',
+  icon: ShieldCheck,
+  isActive: (p) => p.startsWith('/dashboard/management'),
+};
+
 export function DashboardSidebar({
   activeTeamId,
   refreshKey,
+  isRoot = false,
 }: {
   activeTeamId: string;
   refreshKey: number;
+  isRoot?: boolean;
 }) {
   const pathname = usePathname() ?? '';
-  const [collapsed, setCollapsed] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('open');
+  const [autoExpanded, setAutoExpanded] = useState(false);
   const [team, setTeam] = useState<Team | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
-      const v = localStorage.getItem(COLLAPSED_KEY);
-      if (v === '1') setCollapsed(true);
+      const m = localStorage.getItem(SIDEBAR_MODE_KEY);
+      if (m === 'auto' || m === 'open') {
+        setSidebarMode(m);
+      } else {
+        const legacyCollapsed = localStorage.getItem(COLLAPSED_KEY);
+        setSidebarMode(legacyCollapsed === '1' ? 'auto' : 'open');
+      }
     } catch {
       /* ignore */
     }
@@ -107,24 +124,23 @@ export function DashboardSidebar({
       .catch(() => setTeam(null));
   }, [activeTeamId, refreshKey]);
 
-  function toggleCollapsed() {
-    setCollapsed((c) => {
-      const next = !c;
-      try {
-        localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(SIDEBAR_MODE_KEY, sidebarMode);
+      localStorage.setItem(COLLAPSED_KEY, sidebarMode === 'auto' ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarMode, hydrated]);
 
   if (isProjectDetailPath(pathname)) {
     return null;
   }
 
+  const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
-  const items = ALL_NAV_ITEMS;
+  const items = isRoot ? [...ALL_NAV_ITEMS, ROOT_NAV_ITEM] : ALL_NAV_ITEMS;
 
   return (
     <aside
@@ -134,6 +150,12 @@ export function DashboardSidebar({
         hydrated && 'opacity-100',
       )}
       style={{ width: w }}
+      onMouseEnter={() => {
+        if (sidebarMode === 'auto') setAutoExpanded(true);
+      }}
+      onMouseLeave={() => {
+        if (sidebarMode === 'auto') setAutoExpanded(false);
+      }}
     >
       {/* Breadcrumb / org row — Supabase-style */}
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-2">
@@ -192,22 +214,44 @@ export function DashboardSidebar({
       </nav>
 
       <div className="shrink-0 border-t border-border p-2">
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          className="flex h-9 w-full items-center justify-center gap-2 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title={collapsed ? 'Expand menu' : 'Collapse menu'}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? (
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => setSidebarMode('open')}
+            className="flex h-9 w-full items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
             <ChevronRight className="h-4 w-4" />
-          ) : (
-            <>
-              <ChevronLeft className="h-4 w-4 shrink-0" />
-              <span className="text-xs">Collapse</span>
-            </>
-          )}
-        </button>
+          </button>
+        ) : (
+          <div className="flex items-center gap-1 rounded-md bg-muted/70 p-1">
+            <button
+              type="button"
+              onClick={() => setSidebarMode('auto')}
+              className={cn(
+                'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                sidebarMode === 'auto'
+                  ? 'bg-background text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarMode('open')}
+              className={cn(
+                'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                sidebarMode === 'open'
+                  ? 'bg-background text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Open
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
