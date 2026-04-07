@@ -3,29 +3,52 @@ import type { AuthTokens, UserInfo } from './types';
 
 const TOKEN_KEY = 'kb_access_token';
 const REFRESH_KEY = 'kb_refresh_token';
+const AUTH_MARKER_KEY = 'kb_logged_in';
+
+function getStorage() {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage;
+}
 
 export function getAccessToken(): string | undefined {
-  return Cookies.get(TOKEN_KEY);
+  const storage = getStorage();
+  return storage?.getItem(TOKEN_KEY) || Cookies.get(TOKEN_KEY);
 }
 
 export function setTokens(tokens: AuthTokens) {
+  const storage = getStorage();
+  storage?.setItem(TOKEN_KEY, tokens.accessToken);
+  storage?.setItem(REFRESH_KEY, tokens.refreshToken);
   Cookies.set(TOKEN_KEY, tokens.accessToken, {
     expires: 7,
     sameSite: 'lax',
+    path: '/',
   });
   Cookies.set(REFRESH_KEY, tokens.refreshToken, {
     expires: 30,
     sameSite: 'lax',
+    path: '/',
+  });
+  // Small marker cookie for middleware checks; avoids JWT cookie size limits.
+  Cookies.set(AUTH_MARKER_KEY, '1', {
+    expires: 30,
+    sameSite: 'lax',
+    path: '/',
   });
 }
 
 export function clearTokens() {
-  Cookies.remove(TOKEN_KEY);
-  Cookies.remove(REFRESH_KEY);
+  const storage = getStorage();
+  storage?.removeItem(TOKEN_KEY);
+  storage?.removeItem(REFRESH_KEY);
+  Cookies.remove(TOKEN_KEY, { path: '/' });
+  Cookies.remove(REFRESH_KEY, { path: '/' });
+  Cookies.remove(AUTH_MARKER_KEY, { path: '/' });
 }
 
 export function getRefreshToken(): string | undefined {
-  return Cookies.get(REFRESH_KEY);
+  const storage = getStorage();
+  return storage?.getItem(REFRESH_KEY) || Cookies.get(REFRESH_KEY);
 }
 
 export function parseJwt(token: string): UserInfo | null {

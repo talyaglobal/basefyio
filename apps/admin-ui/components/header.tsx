@@ -28,6 +28,8 @@ import {
   Terminal,
   User,
   Users,
+  Menu,
+  ListChecks,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -72,6 +74,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [creatingTeam, setCreatingTeam] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
@@ -207,14 +210,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-3 sm:px-4 md:px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
-      <div className="flex items-center gap-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3 md:gap-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
-          <span className="text-lg font-bold gradient-text">Kolaybase</span>
+          <span className="hidden text-lg font-bold gradient-text sm:inline">Kolaybase</span>
         </Link>
 
         {/* Primary nav links */}
@@ -238,20 +241,38 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+          className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground sm:inline-flex"
           onClick={() => setFeedbackOpen(true)}
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground md:inline-flex"
+          onClick={() => router.push('/dashboard/feedbacks')}
+        >
+          <ListChecks className="h-3.5 w-3.5" />
+          <span>My Feedbacks</span>
+        </Button>
 
-        <DocsMenu />
+        <div className="hidden md:block">
+          <DocsMenu />
+        </div>
       </div>
 
       {/* ── Right: team switcher + invites + user ────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-3">
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"
+          aria-label="Open menu"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
         {/* Team Switcher */}
-        <div className="relative">
+        <div className="relative hidden md:block">
           <button
             onClick={() => {
               setProjectsMenuOpen(false);
@@ -357,7 +378,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         </div>
 
         {/* Projects (active team) */}
-        <div className="relative">
+        <div className="relative hidden md:block">
           <button
             type="button"
             onClick={() => {
@@ -443,7 +464,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <Button
             variant="outline"
             size="sm"
-            className="relative h-9"
+            className="relative hidden h-9 md:inline-flex"
             onClick={() => router.push('/dashboard/team')}
           >
             <Bell className="mr-1.5 h-3.5 w-3.5" />
@@ -451,12 +472,77 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           </Button>
         )}
 
-        <ThemeToggle />
+        <div className="hidden md:block">
+          <ThemeToggle />
+        </div>
 
         <UserMenu user={user} profile={profile ?? null} onLogout={handleLogout} />
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      {mobileMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
+          <div className="absolute right-3 top-14 z-50 w-64 rounded-lg border bg-card p-2 shadow-lg md:hidden">
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Dashboard
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/projects'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <FolderOpen className="h-4 w-4" />
+              Projects
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/team'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Users className="h-4 w-4" />
+              Team
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/account'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Settings className="h-4 w-4" />
+              Account
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); setFeedbackOpen(true); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              Feedback
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/feedbacks'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <ListChecks className="h-4 w-4" />
+              My Feedbacks
+            </button>
+            <div className="my-1 border-t" />
+            <div className="px-3 py-1 text-xs text-muted-foreground">
+              Team: {activeTeam?.name || 'Not selected'}
+            </div>
+            <div className="px-3 py-1 text-xs text-muted-foreground truncate">
+              User: {user.email}
+            </div>
+            <button
+              onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
     </header>
   );
 }

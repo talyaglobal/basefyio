@@ -6,6 +6,8 @@ import {
   Param,
   Patch,
   Post,
+  Delete,
+  Put,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,7 +24,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import {
   CurrentUser,
   JwtPayload,
@@ -59,6 +60,29 @@ class CreateFeedbackDto {
 class UpdateFeedbackStatusDto {
   @IsEnum(FeedbackStatus)
   status: FeedbackStatus;
+}
+
+class UpdateFeedbackDto {
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+}
+
+class AddCommentDto {
+  @IsString()
+  @IsNotEmpty()
+  comment: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => FeedbackAttachmentDto)
+  attachments?: FeedbackAttachmentDto[];
 }
 
 @Controller('feedback')
@@ -102,18 +126,55 @@ export class FeedbackController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Get()
-  async findAll() {
-    return this.feedbackService.findAll();
+  async findAll(@CurrentUser() user: JwtPayload) {
+    return this.feedbackService.findAllForUser(user.sub);
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Patch(':id')
   async updateStatus(
+    @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateFeedbackStatusDto,
   ) {
-    return this.feedbackService.updateStatus(id, dto.status);
+    return this.feedbackService.updateStatus(user.sub, id, dto.status);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id')
+  async updateFeedback(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateFeedbackDto,
+  ) {
+    return this.feedbackService.updateFeedback(user.sub, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async removeFeedback(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ) {
+    return this.feedbackService.removeFeedback(user.sub, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/comments')
+  async listComments(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ) {
+    return this.feedbackService.listComments(user.sub, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/comments')
+  async addComment(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: AddCommentDto,
+  ) {
+    return this.feedbackService.addComment(user.sub, user.preferred_username, id, dto);
   }
 }

@@ -1,9 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { StorageService } from '../storage/storage.service';
-import { FeedbackStatus, FeedbackType } from '@prisma/client';
+import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
 
 export interface FeedbackAttachmentRef {
   url: string;
@@ -20,6 +25,11 @@ interface CreateFeedbackDto {
   description?: string;
   type?: FeedbackType;
   attachments?: FeedbackAttachmentRef[];
+}
+
+interface UpdateFeedbackDto {
+  title?: string;
+  description?: string;
 }
 
 const NOTIFY_EMAILS = [
@@ -90,16 +100,110 @@ export class FeedbackService {
   async findAll() {
     return this.prisma.feedback.findMany({
       orderBy: { createdAt: 'desc' },
+      include: { comments: { orderBy: { createdAt: 'asc' } } },
     });
   }
 
-  async updateStatus(id: string, status: FeedbackStatus) {
-    const existing = await this.prisma.feedback.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Feedback not found');
+  private async getUserRole(userId: string): Promise<UserRole | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    return user?.role ?? null;
+  }
+
+  private async assertCanAccessFeedback(userId: string, feedbackId: string) {
+    const feedback = await this.prisma.feedback.findUnique({
+      where: { id: feedbackId },
+    });
+    if (!feedback) throw new NotFoundException('Feedback not found');
+    const role = await this.getUserRole(userId);
+    const isRoot = role === UserRole.ROOT;
+    const isOwner = feedback.userId === userId;
+    if (!isRoot && !isOwner) {
+      throw new ForbiddenException('You can only access your own feedback');
+    }
+    return { feedback, isRoot, isOwner };
+  }
+
+  async findAllForUser(userId: string) {
+    const role = await this.getUserRole(userId);
+    if (role === UserRole.ROOT) {
+      return this.findAll();
+    }
+    return this.prisma.feedback.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: { comments: { orderBy: { createdAt: 'asc' } } },
+    });
+  }
+
+  async updateStatus(userId: string, id: string, status: FeedbackStatus) {
+    const { isRoot } = await this.assertCanAccessFeedback(userId, id);
+    if (!isRoot && status !== FeedbackStatus.DONE) {
+      throw new ForbiddenException('You can only mark your own feedback as done');
+    }
 
     return this.prisma.feedback.update({
       where: { id },
       data: { status },
+    });
+  }
+
+  async updateFeedback(userId: string, id: string, dto: UpdateFeedbackDto) {
+    await this.assertCanAccessFeedback(userId, id);
+    return this.prisma.feedback.update({
+      where: { id },
+      data: {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.description !== undefined ? { description: dto.description || null } : {}),
+      },
+    });
+  }
+
+  async removeFeedback(userId: string, id: string) {
+    await this.assertCanAccessFeedback(userId, id);
+    await this.prisma.feedback.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async listComments(userId: string, feedbackId: string) {
+    await this.assertCanAccessFeedback(userId, feedbackId);
+    return this.prisma.feedbackComment.findMany({
+      where: { feedbackId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addComment(
+    userId: string,
+    username: string,
+    feedbackId: string,
+    dto: { comment: string; attachments?: FeedbackAttachmentRef[] },
+  ) {
+    const role = await this.getUserRole(userId);
+    if (role !== UserRole.ROOT) {
+      throw new ForbiddenException('Only root users can comment on tasks');
+    }
+    const target = await this.prisma.feedback.findUnique({
+      where: { id: feedbackId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('Feedback not found');
+
+    const attachmentsJson: Prisma.InputJsonValue | undefined =
+      dto.attachments && dto.attachments.length > 0
+        ? (dto.attachments as unknown as Prisma.InputJsonValue)
+        : undefined;
+
+    return this.prisma.feedbackComment.create({
+      data: {
+        feedbackId,
+        userId,
+        username,
+        comment: dto.comment,
+        attachments: attachmentsJson,
+      },
     });
   }
 }

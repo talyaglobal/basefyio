@@ -25,6 +25,11 @@ export class AuthService {
   private readonly minioPublicPort: number;
   private readonly minioPublicSsl: boolean;
   private static readonly AVATAR_BUCKET = 'kb-platform-avatars';
+  private static readonly MAX_FAILED_ATTEMPTS = 10;
+  private static readonly CAPTCHA_AFTER_CONSECUTIVE_FAILED = 4;
+  private static readonly CAPTCHA_TTL_MS = 5 * 60 * 1000;
+  private static readonly ACCOUNT_LOCK_MS = 30 * 60 * 1000;
+  private static readonly PASSWORD_PUNCTUATION_REGEX = /[!-/:-@[-`{-~]/;
 
   constructor(
     private readonly config: ConfigService,
@@ -80,6 +85,94 @@ export class AuthService {
     return `${base}${suffix}`;
   }
 
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private ensureStrongPassword(password: string): void {
+    if (password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters long');
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw new BadRequestException('Password must include at least one uppercase letter');
+    }
+    if (!/[a-z]/.test(password)) {
+      throw new BadRequestException('Password must include at least one lowercase letter');
+    }
+    if (!/[0-9]/.test(password)) {
+      throw new BadRequestException('Password must include at least one number');
+    }
+    if (!AuthService.PASSWORD_PUNCTUATION_REGEX.test(password)) {
+      throw new BadRequestException('Password must include at least one punctuation character');
+    }
+  }
+
+  private generateCaptcha(): { question: string; answer: string } {
+    const a = Math.floor(Math.random() * 9) + 1;
+    const b = Math.floor(Math.random() * 9) + 1;
+    return {
+      question: `${a} + ${b} = ?`,
+      answer: String(a + b),
+    };
+  }
+
+  private async registerFailedLogin(email: string): Promise<{
+    failedAttempts: number;
+    consecutiveFailed: number;
+    locked: boolean;
+  }> {
+    const state = await this.prisma.loginSecurityState.findUnique({
+      where: { email },
+      select: { failedAttempts: true, consecutiveFailed: true },
+    });
+    const failedAttempts = (state?.failedAttempts ?? 0) + 1;
+    const consecutiveFailed = (state?.consecutiveFailed ?? 0) + 1;
+    const locked = failedAttempts >= AuthService.MAX_FAILED_ATTEMPTS;
+    await this.prisma.loginSecurityState.update({
+      where: { email },
+      data: {
+        failedAttempts,
+        consecutiveFailed,
+        lockedUntil: locked ? new Date(Date.now() + AuthService.ACCOUNT_LOCK_MS) : null,
+      },
+    });
+    return { failedAttempts, consecutiveFailed, locked };
+  }
+
+  async getLoginCaptcha(email: string): Promise<{ required: boolean; question?: string; expiresInSeconds?: number }> {
+    const normalizedEmail = this.normalizeEmail(email);
+    if (!normalizedEmail) {
+      throw new BadRequestException('Email is required');
+    }
+
+    const state = await this.prisma.loginSecurityState.upsert({
+      where: { email: normalizedEmail },
+      create: { email: normalizedEmail },
+      update: {},
+    });
+
+    if (state.consecutiveFailed < AuthService.CAPTCHA_AFTER_CONSECUTIVE_FAILED) {
+      return { required: false };
+    }
+
+    const captcha = this.generateCaptcha();
+    const expiresAt = new Date(Date.now() + AuthService.CAPTCHA_TTL_MS);
+    await this.prisma.loginSecurityState.update({
+      where: { email: normalizedEmail },
+      data: {
+        captchaQuestion: captcha.question,
+        captchaAnswer: captcha.answer,
+        captchaExpiresAt: expiresAt,
+      },
+    });
+
+    return {
+      required: true,
+      question: captcha.question,
+      expiresInSeconds: Math.floor(AuthService.CAPTCHA_TTL_MS / 1000),
+    };
+  }
+
   async signup(data: {
     email: string;
     password: string;
@@ -87,6 +180,7 @@ export class AuthService {
     lastName?: string;
     planName?: string;
   }) {
+    this.ensureStrongPassword(data.password);
     const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
     if (existingEmail) {
       throw new ConflictException('Email already registered');
@@ -255,7 +349,46 @@ export class AuthService {
     email: string,
     password: string,
     meta?: { ipAddress?: string; userAgent?: string },
+    captchaAnswer?: string,
   ) {
+    const normalizedEmail = this.normalizeEmail(email);
+    const security = await this.prisma.loginSecurityState.upsert({
+      where: { email: normalizedEmail },
+      create: { email: normalizedEmail },
+      update: {},
+    });
+
+    if (security.lockedUntil && security.lockedUntil > new Date()) {
+      throw new UnauthorizedException('Account is locked after too many failed attempts');
+    }
+
+    const needsCaptcha =
+      security.consecutiveFailed >= AuthService.CAPTCHA_AFTER_CONSECUTIVE_FAILED;
+    if (needsCaptcha) {
+      const isExpired =
+        !security.captchaExpiresAt || security.captchaExpiresAt.getTime() < Date.now();
+      if (isExpired || !security.captchaQuestion || !security.captchaAnswer) {
+        const captcha = this.generateCaptcha();
+        await this.prisma.loginSecurityState.update({
+          where: { email: normalizedEmail },
+          data: {
+            captchaQuestion: captcha.question,
+            captchaAnswer: captcha.answer,
+            captchaExpiresAt: new Date(Date.now() + AuthService.CAPTCHA_TTL_MS),
+          },
+        });
+        throw new UnauthorizedException('CAPTCHA_REQUIRED');
+      }
+
+      if (!captchaAnswer || captchaAnswer.trim() !== security.captchaAnswer) {
+        const failure = await this.registerFailedLogin(normalizedEmail);
+        if (failure.locked) {
+          throw new UnauthorizedException('Account is locked after 10 failed attempts');
+        }
+        throw new UnauthorizedException('Invalid captcha answer');
+      }
+    }
+
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const clientId = this.config.get<string>('keycloak.adminClientId');
 
@@ -312,6 +445,18 @@ export class AuthService {
           .catch(() => {});
       }
 
+      await this.prisma.loginSecurityState.update({
+        where: { email: normalizedEmail },
+        data: {
+          failedAttempts: 0,
+          consecutiveFailed: 0,
+          lockedUntil: null,
+          captchaQuestion: null,
+          captchaAnswer: null,
+          captchaExpiresAt: null,
+        },
+      });
+
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -319,14 +464,19 @@ export class AuthService {
         tokenType: data.token_type,
       };
     } catch {
+      const failure = await this.registerFailedLogin(normalizedEmail);
+      if (failure.locked) {
+        throw new UnauthorizedException('Account is locked after 10 failed attempts');
+      }
+      if (failure.consecutiveFailed >= AuthService.CAPTCHA_AFTER_CONSECUTIVE_FAILED) {
+        throw new UnauthorizedException('CAPTCHA_REQUIRED');
+      }
       throw new UnauthorizedException('Invalid credentials');
     }
   }
 
   async changePassword(userId: string, email: string, currentPassword: string, newPassword: string) {
-    if (newPassword.length < 6) {
-      throw new BadRequestException('New password must be at least 6 characters');
-    }
+    this.ensureStrongPassword(newPassword);
 
     try {
       await this.login(email, currentPassword);
@@ -485,6 +635,7 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
+    this.ensureStrongPassword(newPassword);
     const resetToken = await this.prisma.passwordResetToken.findUnique({
       where: { token },
     });
@@ -523,6 +674,26 @@ export class AuthService {
     });
 
     this.logger.log(`Password successfully reset for ${resetToken.email}`);
+    await this.prisma.loginSecurityState.upsert({
+      where: { email: this.normalizeEmail(resetToken.email) },
+      create: {
+        email: this.normalizeEmail(resetToken.email),
+        failedAttempts: 0,
+        consecutiveFailed: 0,
+        lockedUntil: null,
+        captchaAnswer: null,
+        captchaQuestion: null,
+        captchaExpiresAt: null,
+      },
+      update: {
+        failedAttempts: 0,
+        consecutiveFailed: 0,
+        lockedUntil: null,
+        captchaAnswer: null,
+        captchaQuestion: null,
+        captchaExpiresAt: null,
+      },
+    });
     return { message: 'Your password has been reset. You can now sign in.' };
   }
 

@@ -1,39 +1,192 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { SqlResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { Play, Loader2, Trash2, Copy, Check } from 'lucide-react';
+import { Play, Loader2, Trash2, Copy, Check, Plus, X, FileDown } from 'lucide-react';
 
 interface SqlEditorProps {
   projectId: string;
 }
 
+interface SqlTab {
+  id: string;
+  title: string;
+  query: string;
+  result: SqlResult | null;
+  error: string | null;
+}
+
+function createTab(index: number): SqlTab {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: `SQL ${index}`,
+    query: 'SELECT NOW();',
+    result: null,
+    error: null,
+  };
+}
+
 export function SqlEditor({ projectId }: SqlEditorProps) {
-  const [query, setQuery] = useState('SELECT NOW();');
-  const [result, setResult] = useState<SqlResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  const storageKey = `kb_sql_editor_tabs_${projectId}`;
+  const [tabs, setTabs] = useState<SqlTab[]>([createTab(1)]);
+  const [activeTabId, setActiveTabId] = useState<string>('');
+  const [runningTabId, setRunningTabId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  async function execute() {
-    if (!query.trim()) return;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        const first = createTab(1);
+        setTabs([first]);
+        setActiveTabId(first.id);
+        return;
+      }
+      const parsed = JSON.parse(raw) as { tabs: SqlTab[]; activeTabId: string };
+      if (!parsed.tabs?.length) {
+        const first = createTab(1);
+        setTabs([first]);
+        setActiveTabId(first.id);
+        return;
+      }
+      setTabs(parsed.tabs);
+      setActiveTabId(parsed.activeTabId || parsed.tabs[0].id);
+    } catch {
+      const first = createTab(1);
+      setTabs([first]);
+      setActiveTabId(first.id);
+    }
+  }, [storageKey]);
 
-    setRunning(true);
-    setError(null);
-    setResult(null);
+  useEffect(() => {
+    if (!activeTabId || tabs.length === 0) return;
+    localStorage.setItem(storageKey, JSON.stringify({ tabs, activeTabId }));
+  }, [tabs, activeTabId, storageKey]);
+
+  const activeTab = useMemo(
+    () => tabs.find((t) => t.id === activeTabId) ?? null,
+    [tabs, activeTabId],
+  );
+
+  const query = activeTab?.query ?? '';
+  const result = activeTab?.result ?? null;
+  const error = activeTab?.error ?? null;
+  const running = runningTabId === activeTabId;
+
+  function escapeMarkdownCell(value: unknown): string {
+    const text = value === null || value === undefined ? 'NULL' : String(value);
+    return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  }
+
+  function buildMarkdownTable(sqlResult: SqlResult): string {
+    if (!sqlResult.fields?.length) {
+      return 'Query executed successfully.';
+    }
+    const headers = sqlResult.fields.map((f) => f.name);
+    const head = `| ${headers.join(' | ')} |`;
+    const sep = `| ${headers.map(() => '---').join(' | ')} |`;
+    const rows = (sqlResult.rows ?? []).map((row) => {
+      const cells = headers.map((h) => escapeMarkdownCell((row as Record<string, unknown>)[h]));
+      return `| ${cells.join(' | ')} |`;
+    });
+    return [head, sep, ...rows].join('\n');
+  }
+
+  function buildCsv(sqlResult: SqlResult): string {
+    if (!sqlResult.fields?.length) return '';
+    const headers = sqlResult.fields.map((f) => f.name);
+    const quote = (value: unknown) => {
+      const text = value === null || value === undefined ? '' : String(value);
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const lines = [
+      headers.map((h) => quote(h)).join(','),
+      ...(sqlResult.rows ?? []).map((row) =>
+        headers.map((h) => quote((row as Record<string, unknown>)[h])).join(','),
+      ),
+    ];
+    return lines.join('\n');
+  }
+
+  function updateActiveTab(
+    updater: (tab: SqlTab) => SqlTab,
+  ) {
+    if (!activeTabId) return;
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? updater(t) : t)));
+  }
+
+  function addTab() {
+    const next = createTab(tabs.length + 1);
+    setTabs((prev) => [...prev, next]);
+    setActiveTabId(next.id);
+  }
+
+  function closeTab(tabId: string) {
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (next.length === 0) {
+        const first = createTab(1);
+        setActiveTabId(first.id);
+        return [first];
+      }
+      if (activeTabId === tabId) {
+        const idx = prev.findIndex((t) => t.id === tabId);
+        const fallback = next[Math.max(0, idx - 1)] ?? next[0];
+        setActiveTabId(fallback.id);
+      }
+      return next;
+    });
+  }
+
+  async function execute() {
+    if (!activeTab || !query.trim()) return;
+
+    setRunningTabId(activeTab.id);
+    updateActiveTab((t) => ({ ...t, error: null, result: null }));
 
     try {
       const data = await api.sql.execute(projectId, query);
-      setResult(data);
+      updateActiveTab((t) => ({ ...t, result: data }));
     } catch (err: any) {
-      setError(err.message);
+      updateActiveTab((t) => ({ ...t, error: err.message }));
       toast.error(err.message);
     } finally {
-      setRunning(false);
+      setRunningTabId(null);
     }
+  }
+
+  function copyResultAsMarkdown() {
+    if (!result) return;
+    navigator.clipboard.writeText(buildMarkdownTable(result));
+    toast.success('Result copied as Markdown');
+  }
+
+  function copyResultAsJson() {
+    if (!result) return;
+    navigator.clipboard.writeText(JSON.stringify(result.rows ?? [], null, 2));
+    toast.success('Result copied as JSON');
+  }
+
+  function downloadResultAsCsv() {
+    if (!result) return;
+    const csv = buildCsv(result);
+    if (!csv) {
+      toast.error('No tabular result to export');
+      return;
+    }
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sql-result-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success('CSV downloaded');
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -45,10 +198,43 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
+      <div className="flex items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            onClick={() => setActiveTabId(tab.id)}
+            className={`inline-flex cursor-pointer items-center gap-2 rounded px-2.5 py-1 text-xs ${
+              tab.id === activeTabId ? 'bg-background font-medium' : 'text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            <span className="max-w-[140px] truncate">{tab.title}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeTab(tab.id);
+              }}
+              className="rounded p-0.5 hover:bg-muted"
+              aria-label={`Close ${tab.title}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={addTab}>
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
       <div className="relative">
         <textarea
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) =>
+            updateActiveTab((t) => ({
+              ...t,
+              query: e.target.value,
+            }))
+          }
           onKeyDown={handleKeyDown}
           className="min-h-[200px] w-full resize-y rounded-md border bg-muted/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="SELECT * FROM ..."
@@ -58,7 +244,9 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => { setQuery(''); setResult(null); setError(null); }}
+            onClick={() =>
+              updateActiveTab((t) => ({ ...t, query: '', result: null, error: null }))
+            }
             disabled={running || (!query && !result && !error)}
           >
             <Trash2 className="mr-2 h-4 w-4" />
@@ -96,9 +284,25 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
       {result && (
         <div className="space-y-2">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>{result.rowCount ?? 0} rows</span>
-            <span>{result.duration}ms</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4">
+              <span>{result.rowCount ?? 0} rows</span>
+              <span>{result.duration}ms</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={copyResultAsMarkdown}>
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                Copy as Markdown
+              </Button>
+              <Button variant="outline" size="sm" onClick={copyResultAsJson}>
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                Copy as JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadResultAsCsv}>
+                <FileDown className="mr-1.5 h-3.5 w-3.5" />
+                Download CSV
+              </Button>
+            </div>
           </div>
 
           {result.fields?.length ? (

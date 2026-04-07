@@ -116,7 +116,7 @@ export class ProjectsController {
         const status = await this.supabaseImport.getJobStatus(jobId);
 
         if (!status) {
-          sendEvent('error', { message: 'Job not found' });
+          sendEvent('failed', { error: 'Job not found' });
           finished = true;
           res.end();
           return;
@@ -169,7 +169,10 @@ export class ProjectsController {
           return;
         }
       } catch (err: any) {
-        sendEvent('error', { message: err.message });
+        sendEvent('failed', { error: err.message || 'Import status stream failed' });
+        finished = true;
+        res.end();
+        return;
       }
 
       if (!finished) {

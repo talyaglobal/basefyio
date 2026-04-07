@@ -20,6 +20,10 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from './project-activity.service';
 
 @Controller('projects/:projectId')
 @UseGuards(JwtOrApiKeyGuard)
@@ -28,6 +32,7 @@ export class ProjectDataController {
   constructor(
     private readonly dataService: ProjectDataService,
     private readonly projectsService: ProjectsService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   @Get('tables')
@@ -67,7 +72,14 @@ export class ProjectDataController {
     },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.createTable(projectId, user?.sub, body.name, body.columns);
+    const result = await this.dataService.createTable(projectId, user?.sub, body.name, body.columns);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_CREATED,
+      title: `Table created: ${body.name}`,
+      detail: `${body.columns.length} columns`,
+    });
+    return result;
   }
 
   @Post('tables/:tableName/rows')
@@ -77,7 +89,14 @@ export class ProjectDataController {
     @Body() body: Record<string, unknown>,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.insertRow(projectId, user?.sub, tableName, body);
+    const row = await this.dataService.insertRow(projectId, user?.sub, tableName, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_ROW_INSERTED,
+      title: `Row inserted: ${tableName}`,
+      detail: `${Object.keys(body).length} field(s)`,
+    });
+    return row;
   }
 
   @Put('tables/:tableName/rows')
@@ -87,7 +106,14 @@ export class ProjectDataController {
     @Body() body: { pkWhere: Record<string, unknown>; data: Record<string, unknown> },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.updateRow(projectId, user?.sub, tableName, body.pkWhere, body.data);
+    const row = await this.dataService.updateRow(projectId, user?.sub, tableName, body.pkWhere, body.data);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_ROW_UPDATED,
+      title: `Row updated: ${tableName}`,
+      detail: `PK: ${JSON.stringify(body.pkWhere)} | Changed: ${Object.keys(body.data || {}).length} field(s)`,
+    });
+    return row;
   }
 
   @Delete('tables/:tableName/rows')
@@ -97,7 +123,14 @@ export class ProjectDataController {
     @Body() body: { pkWhere: Record<string, unknown> },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.deleteRow(projectId, user?.sub, tableName, body.pkWhere);
+    const result = await this.dataService.deleteRow(projectId, user?.sub, tableName, body.pkWhere);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_ROW_DELETED,
+      title: `Row deleted: ${tableName}`,
+      detail: `PK: ${JSON.stringify(body.pkWhere)}`,
+    });
+    return result;
   }
 
   @Delete('tables/:tableName')
@@ -106,7 +139,13 @@ export class ProjectDataController {
     @Param('tableName') tableName: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.dropTable(projectId, user?.sub, tableName);
+    const result = await this.dataService.dropTable(projectId, user?.sub, tableName);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_DROPPED,
+      title: `Table dropped: ${tableName}`,
+    });
+    return result;
   }
 
   @Post('tables/:tableName/columns')
@@ -116,7 +155,13 @@ export class ProjectDataController {
     @Body() body: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.addColumn(projectId, user?.sub, tableName, body);
+    const result = await this.dataService.addColumn(projectId, user?.sub, tableName, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_COLUMN_ADDED,
+      title: `Column added: ${tableName}.${body.name}`,
+    });
+    return result;
   }
 
   @Put('tables/:tableName/columns/:columnName')
@@ -127,7 +172,14 @@ export class ProjectDataController {
     @Body() body: { name?: string; type?: string; nullable?: boolean; defaultValue?: string | null; isUnique?: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.editColumn(projectId, user?.sub, tableName, columnName, body);
+    const result = await this.dataService.editColumn(projectId, user?.sub, tableName, columnName, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_COLUMN_UPDATED,
+      title: `Column updated: ${tableName}.${columnName}`,
+      detail: Object.keys(body).join(', '),
+    });
+    return result;
   }
 
   @Delete('tables/:tableName/columns/:columnName')
@@ -137,7 +189,13 @@ export class ProjectDataController {
     @Param('columnName') columnName: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.deleteColumn(projectId, user?.sub, tableName, columnName);
+    const result = await this.dataService.deleteColumn(projectId, user?.sub, tableName, columnName);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_COLUMN_DELETED,
+      title: `Column deleted: ${tableName}.${columnName}`,
+    });
+    return result;
   }
 
   @Get('tables/:tableName/foreign-keys')
@@ -156,7 +214,14 @@ export class ProjectDataController {
     @Body() body: { columnName: string; foreignTableName: string; foreignColumnName: string },
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.addForeignKey(projectId, user?.sub, tableName, body);
+    const result = await this.dataService.addForeignKey(projectId, user?.sub, tableName, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_FK_ADDED,
+      title: `Foreign key added: ${tableName}.${body.columnName}`,
+      detail: `-> ${body.foreignTableName}.${body.foreignColumnName}`,
+    });
+    return result;
   }
 
   @Delete('tables/:tableName/foreign-keys/:constraintName')
@@ -166,7 +231,14 @@ export class ProjectDataController {
     @Param('constraintName') constraintName: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.deleteForeignKey(projectId, user?.sub, tableName, constraintName);
+    const result = await this.dataService.deleteForeignKey(projectId, user?.sub, tableName, constraintName);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_FK_DELETED,
+      title: `Foreign key removed: ${tableName}`,
+      detail: constraintName,
+    });
+    return result;
   }
 
   @Get('connect')

@@ -88,7 +88,13 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${res.status}`);
+    const err = new Error(body.message || `Request failed: ${res.status}`) as Error & {
+      code?: string;
+      status?: number;
+    };
+    err.code = body.code || body.message;
+    err.status = res.status;
+    throw err;
   }
 
   const contentType = res.headers.get('content-type') ?? '';
@@ -107,11 +113,16 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    login(email: string, password: string) {
+    login(email: string, password: string, captchaAnswer?: string) {
       return request<AuthTokens>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, captchaAnswer }),
       });
+    },
+    getCaptcha(email: string) {
+      return request<{ required: boolean; question?: string; expiresInSeconds?: number }>(
+        `/auth/captcha?email=${encodeURIComponent(email)}`,
+      );
     },
     me() {
       return request<UserInfo>('/auth/me');
@@ -380,6 +391,16 @@ export const api = {
         es.close();
       });
 
+      es.addEventListener('error', (e) => {
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          if (data?.message) {
+            callbacks.onFailed(data.message);
+            es.close();
+          }
+        } catch {}
+      });
+
       es.onerror = (e) => {
         callbacks.onError?.(e);
       };
@@ -461,7 +482,16 @@ export const api = {
       });
 
       es.addEventListener('error', (e) => {
-        // EventSource native error - not a named event from backend
+        // Backend may emit a named "error" event with JSON payload.
+        // If a message is present, treat it as a failed import.
+        try {
+          const data = JSON.parse((e as MessageEvent).data);
+          if (data?.message) {
+            callbacks.onFailed(data.message);
+            es.close();
+            return;
+          }
+        } catch {}
       });
 
       es.onerror = (e) => {
@@ -761,6 +791,15 @@ export const api = {
         title: string;
         description: string | null;
         attachments?: unknown;
+        comments?: {
+          id: string;
+          feedbackId: string;
+          userId: string;
+          username: string;
+          comment: string;
+          attachments?: unknown;
+          createdAt: string;
+        }[];
         type: string;
         status: string;
         createdAt: string;
@@ -770,6 +809,42 @@ export const api = {
       return request<{ id: string; status: string }>(`/feedback/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
+      });
+    },
+    update(id: string, data: { title?: string; description?: string }) {
+      return request<{ id: string; title: string; description: string | null }>(`/feedback/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    remove(id: string) {
+      return request<{ success: boolean }>(`/feedback/${id}`, {
+        method: 'DELETE',
+      });
+    },
+    listComments(id: string) {
+      return request<{
+        id: string;
+        feedbackId: string;
+        userId: string;
+        username: string;
+        comment: string;
+        attachments?: unknown;
+        createdAt: string;
+      }[]>(`/feedback/${id}/comments`);
+    },
+    addComment(id: string, data: { comment: string; attachments?: { url: string; mimeType: string; kind: 'image' | 'video' }[] }) {
+      return request<{
+        id: string;
+        feedbackId: string;
+        userId: string;
+        username: string;
+        comment: string;
+        attachments?: unknown;
+        createdAt: string;
+      }>(`/feedback/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify(data),
       });
     },
   },

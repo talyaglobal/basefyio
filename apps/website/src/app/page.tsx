@@ -158,7 +158,7 @@ export default function Home() {
                 Perfect for hobby projects and learning.
               </p>
               <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["2 projects", "1 GB storage", "500 MB database", "2 team members", "500K API requests/mo", "2 GB bandwidth/mo", "Shared infrastructure"].map((f) => (
+                {["5 projects", "2 GB storage", "1 GB database", "3 team members", "500K API requests/mo", "2 GB bandwidth/mo", "Shared infrastructure"].map((f) => (
                   <li key={f} className="flex items-start gap-2">
                     <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{f}</span>
@@ -187,7 +187,7 @@ export default function Home() {
                 For growing apps that need dedicated resources.
               </p>
               <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["10 projects", "100 GB storage", "8 GB database", "5 team members", "2M API requests/mo", "250 GB bandwidth/mo", "Dedicated database", "Daily backups"].map((f) => (
+                {["20 projects", "200 GB storage", "16 GB database", "10 team members", "5M API requests/mo", "500 GB bandwidth/mo", "Dedicated database", "Daily backups"].map((f) => (
                   <li key={f} className="flex items-start gap-2">
                     <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{f}</span>
@@ -213,7 +213,7 @@ export default function Home() {
                 For teams that need maximum performance and support.
               </p>
               <ul className="mt-6 space-y-3 text-sm flex-1">
-                {["25 projects", "500 GB storage", "20 GB database", "20 team members", "10M API requests/mo", "1 TB bandwidth/mo", "Dedicated database & storage", "Daily backups", "Priority support"].map((f) => (
+                {["50 projects", "1 TB storage", "64 GB database", "30 team members", "20M API requests/mo", "2 TB bandwidth/mo", "Dedicated database & storage", "Daily backups", "Priority support"].map((f) => (
                   <li key={f} className="flex items-start gap-2">
                     <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{f}</span>

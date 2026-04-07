@@ -47,6 +47,9 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [providers, setProviders] = useState<string[]>(['github']);
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [captchaQuestion, setCaptchaQuestion] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
@@ -72,7 +75,7 @@ function LoginForm() {
         startProactiveRefresh();
         window.history.replaceState(null, '', '/login');
         toast.success('Welcome back');
-        router.push('/dashboard');
+        window.location.assign('/dashboard');
         return;
       }
     }
@@ -87,12 +90,25 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const tokens = await api.auth.login(email, password);
+      const tokens = await api.auth.login(email, password, captchaRequired ? captchaAnswer : undefined);
       setTokens(tokens);
       startProactiveRefresh();
       toast.success('Welcome back');
-      router.push('/dashboard');
+      window.location.assign('/dashboard');
     } catch (err: any) {
+      if (err?.code === 'CAPTCHA_REQUIRED') {
+        try {
+          const captcha = await api.auth.getCaptcha(email);
+          if (captcha.required && captcha.question) {
+            setCaptchaRequired(true);
+            setCaptchaQuestion(captcha.question);
+            toast.error('Please solve the captcha to continue');
+            return;
+          }
+        } catch {
+          toast.error('Captcha could not be loaded');
+        }
+      }
       toast.error(err.message || 'Login failed');
     } finally {
       setLoading(false);
@@ -201,6 +217,20 @@ function LoginForm() {
               required
             />
           </div>
+
+          {captchaRequired && (
+            <div className="space-y-2">
+              <Label htmlFor="captcha">Captcha: {captchaQuestion}</Label>
+              <Input
+                id="captcha"
+                type="text"
+                value={captchaAnswer}
+                onChange={(e) => setCaptchaAnswer(e.target.value)}
+                placeholder="Enter captcha answer"
+                required={captchaRequired}
+              />
+            </div>
+          )}
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign in'}

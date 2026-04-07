@@ -89,7 +89,7 @@ export default function DashboardLayout({
       try {
         const { teamId } = await api.teams.getActive();
         setActiveTeamId(teamId);
-        Cookies.set('kb_active_team', teamId, { expires: 365 });
+        Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
       } catch {}
     }
 
@@ -114,7 +114,7 @@ export default function DashboardLayout({
 
   const handleTeamChange = useCallback((id: string) => {
     setActiveTeamId(id);
-    Cookies.set('kb_active_team', id, { expires: 365 });
+    Cookies.set('kb_active_team', id, { expires: 365, path: '/' });
   }, []);
 
   const refreshUser = useCallback(() => {
@@ -150,7 +150,6 @@ export default function DashboardLayout({
           <DashboardSidebar
             activeTeamId={activeTeamId}
             refreshKey={refreshKey}
-            canAccessFeedbacks={profile?.role === 'ROOT'}
           />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (
@@ -177,7 +176,7 @@ export default function DashboardLayout({
                 </div>
               </div>
             )}
-            <div className="flex-1 p-6">
+            <div className="flex-1 p-3 sm:p-4 md:p-6">
               {children}
             </div>
           </main>

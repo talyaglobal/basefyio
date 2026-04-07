@@ -65,7 +65,6 @@ export default function ProjectLogsPage() {
     (project.supabaseImportLog === null || project.supabaseImportLog === undefined) &&
     importLog !== null;
   const showImportLog = importLog && shouldShowSupabaseImportLog(importLog);
-  const hasActivity = activity.length > 0;
 
   return (
     <div className="flex w-full max-w-full min-w-0 flex-col gap-8 overflow-x-hidden pb-8">
@@ -115,22 +114,6 @@ export default function ProjectLogsPage() {
             className="min-h-[320px]"
           />
         </section>
-      ) : !hasActivity ? (
-        <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center">
-          <ScrollText className="mx-auto h-10 w-10 text-muted-foreground/60" />
-          <p className="mt-2 text-sm font-medium text-foreground">
-            No import summary yet
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Run a Supabase import from Connection or Overview to see the full
-            import breakdown here.
-          </p>
-          <Button className="mt-4 shrink-0" size="sm" asChild>
-            <Link href={`/dashboard/projects/${project.id}/connect`}>
-              Go to Connection
-            </Link>
-          </Button>
-        </div>
       ) : null}
 
       <CreateProjectDialog

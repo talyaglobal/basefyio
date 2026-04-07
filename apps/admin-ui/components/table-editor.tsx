@@ -662,6 +662,7 @@ function AddForeignKeyDialog({
 export function TableEditor({ projectId }: TableEditorProps) {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [data, setData] = useState<TableRows | null>(null);
   const [loading, setLoading] = useState(true);
@@ -741,14 +742,16 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       const result = await api.projects.tables(projectId);
       setTables(result);
+      setOpenTabs((prev) => prev.filter((name) => result.some((t) => t.name === name)));
       if (result.length > 0) {
         const target =
           selected && result.some((t) => t.name === selected)
             ? selected
             : result[0].name;
-        selectTable(target);
+        openTable(target);
       } else {
         setSelected(null);
+        setOpenTabs([]);
         setColumns([]);
         setData(null);
       }
@@ -757,6 +760,31 @@ export function TableEditor({ projectId }: TableEditorProps) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function openTable(name: string) {
+    setOpenTabs((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    selectTable(name);
+  }
+
+  function closeTab(name: string) {
+    setOpenTabs((prev) => {
+      const next = prev.filter((t) => t !== name);
+      if (selected === name) {
+        const fallback = next[next.length - 1] ?? null;
+        if (fallback) {
+          selectTable(fallback);
+        } else {
+          setSelected(null);
+          setColumns([]);
+          setData(null);
+          setEditingCell(null);
+          setAddingRow(false);
+          setSelectedRows(new Set());
+        }
+      }
+      return next;
+    });
   }
 
   async function selectTable(name: string) {
@@ -833,6 +861,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       await api.projects.dropTable(projectId, name);
       toast.success(`Table "${name}" dropped`);
+      setOpenTabs((prev) => prev.filter((t) => t !== name));
       if (selected === name) setSelected(null);
       loadTables();
     } catch (err: any) {
@@ -1074,7 +1103,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   <div key={t.name} className="group relative">
                     <button
                       onClick={() => {
-                        selectTable(t.name);
+                        openTable(t.name);
                         setColumnPanelOpen(true);
                       }}
                       className={cn(
@@ -1105,7 +1134,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                       <DropdownMenuContent align="end" className="w-40">
                         <DropdownMenuItem
                           onClick={() => {
-                            selectTable(t.name);
+                            openTable(t.name);
                             setColumnPanelOpen(true);
                           }}
                         >
@@ -1138,6 +1167,37 @@ export function TableEditor({ projectId }: TableEditorProps) {
           <div className="flex-1 min-w-0 flex flex-col">
             {selected ? (
               <>
+                <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5 overflow-x-auto">
+                  {openTabs.map((tab) => {
+                    const active = tab === selected;
+                    return (
+                      <div
+                        key={tab}
+                        onClick={() => selectTable(tab)}
+                        className={cn(
+                          'inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors',
+                          active
+                            ? 'border-primary/40 bg-primary/10 text-primary'
+                            : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
+                        )}
+                      >
+                        <span className="max-w-[140px] truncate">{tab}</span>
+                        <button
+                          type="button"
+                          aria-label={`Close ${tab}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(tab);
+                          }}
+                          className="rounded p-0.5 hover:bg-muted"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Toolbar */}
                 <div className="flex items-center justify-between gap-3 border-b px-4 py-2 bg-card">
                   <div className="flex items-center gap-3 min-w-0">
@@ -1468,7 +1528,12 @@ export function TableEditor({ projectId }: TableEditorProps) {
         open={createOpen}
         onOpenChange={setCreateOpen}
         projectId={projectId}
-        onCreated={loadTables}
+        onCreated={(createdTableName) => {
+          loadTables();
+          if (createdTableName) {
+            setTimeout(() => openTable(createdTableName), 0);
+          }
+        }}
       />
 
       {selected && (

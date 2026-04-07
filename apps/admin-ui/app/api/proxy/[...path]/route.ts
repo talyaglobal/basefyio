@@ -40,7 +40,11 @@ async function proxy(
 
     const upstreamCt = upstream.headers.get('content-type') || '';
 
-    if (upstreamCt.includes('application/octet-stream') || upstreamCt.includes('image/')) {
+    if (
+      upstreamCt.includes('application/octet-stream') ||
+      upstreamCt.includes('application/zip') ||
+      upstreamCt.includes('image/')
+    ) {
       const blob = await upstream.arrayBuffer();
       return new NextResponse(blob, {
         status: upstream.status,

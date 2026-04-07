@@ -1,5 +1,92 @@
 # Task Log
 
+## 2026-03-30 (pricing policy made more aggressive)
+- **Website pricing updated (`/#pricing`):** Free plan changed to `5 projects`, `2 GB storage`, `1 GB database`, `3 team members`.
+- **Pro plan scaled up:** Updated to `20 projects`, `200 GB storage`, `16 GB database`, `10 team members`, with higher API/bandwidth quotas.
+- **Business plan scaled up:** Updated to `50 projects`, `1 TB storage`, `64 GB database`, `30 team members`, with higher API/bandwidth quotas.
+- **Backend seed alignment:** Updated `apps/platform-api/prisma/seed.ts` plan limits so dashboard billing and enforced quotas stay consistent with website pricing.
+
+## 2026-03-30 (sql result export actions)
+- **SQL result actions added:** Implemented `Copy as Markdown`, `Copy as JSON`, and `Download CSV` in `SqlEditor` result toolbar.
+- **Markdown export:** Converts current tabular result into markdown table format with header/separator rows and escaped cell values.
+- **JSON export:** Copies current result rows as pretty-printed JSON.
+- **CSV download:** Generates CSV from current result rows and triggers browser download with timestamped filename.
+
+## 2026-03-30 (connection env keys renamed to KolayBase)
+- **Raw Editor env/json outputs updated:** Replaced Supabase-prefixed environment key names with KolayBase names in `ConnectionStringsView`.
+- **Next.js preset:** `NEXT_PUBLIC_KOLAYBASE_URL`, `NEXT_PUBLIC_KOLAYBASE_ANON_KEY`, `KOLAYBASE_SERVICE_ROLE_KEY`.
+- **Vite / Expo / Node presets:** Renamed all `SUPABASE_*`/`VITE_SUPABASE_*`/`EXPO_PUBLIC_SUPABASE_*` keys to KolayBase equivalents while preserving values.
+- **Project identifier retained:** `PROJECT_ID` remains unchanged and included in every preset.
+
+## 2026-03-30 (export stream + download proxy fix)
+- **Root cause:** Export progress stream used generic proxy route, which did not map EventSource `?token=` query into `Authorization` header. Backend SSE auth failed, so UI stayed at "Export started" without completion state.
+- **Fix:** Added dedicated export SSE proxy route at `app/api/proxy/projects/[projectId]/export/jobs/[jobId]/events/route.ts`, mirroring import stream behavior and forwarding bearer token correctly.
+- **Client resilience:** Updated export stream client in `lib/api.ts` to parse named `error` SSE events with payload and surface them via `onFailed`.
+- **Download proxy binary handling:** Updated generic proxy to treat `application/zip` as binary passthrough, preventing ZIP corruption when downloading export archives.
+
+## 2026-03-30 (sql editor multi-tab + query persistence)
+- **Multi-SQL tabs:** Updated `SqlEditor` to support multiple query screens at once with tab strip, add-tab, switch-tab, and close-tab actions.
+- **Per-tab state isolation:** Each SQL tab now preserves its own query text, last result, and last error independently.
+- **No query loss across tabs:** Switching between tabs no longer resets editor content; each tab keeps its query intact.
+- **Local persistence:** SQL tabs and active tab are stored in `localStorage` per project (`kb_sql_editor_tabs_<projectId>`), so tab content survives refresh/reopen.
+
+## 2026-03-30 (table editor multi-tab support)
+- **Multi-table tabs:** Updated `TableEditor` to allow opening and keeping multiple tables at once via `openTabs` state, with a tab strip in the editor content area.
+- **Tab interactions:** Added tab activate/switch and close actions; when an active tab is closed, editor automatically switches to the previous open tab.
+- **Sidebar integration:** Clicking a table from sidebar now opens it as a tab (if not already open) and focuses it.
+- **Create table flow:** Updated `CreateTableDialog` callback to return created table name and auto-open that table as a new tab after creation.
+
+## 2026-04-07 (login redirect loop hardening - auth marker cookie)
+- **Likely root cause addressed:** Added localStorage-backed token persistence in `apps/admin-ui/lib/auth.ts` to avoid JWT cookie size limits causing missing auth state.
+- **Middleware-safe marker:** Added lightweight `kb_logged_in=1` cookie on login and removed it on logout/clear; middleware now allows dashboard routes when either `kb_access_token` or `kb_logged_in` exists.
+- **Navigation reliability:** Login flow uses hard redirect (`window.location.assign('/dashboard')`) after successful sign-in to ensure cookie visibility on the next request cycle.
+- **Validation:** Rebuilt and restarted admin UI container after the auth-state updates.
+
+## 2026-04-07 (login loops on /login after 200 sign-in)
+- **Auth cookie scope fix:** Updated `apps/admin-ui/lib/auth.ts` token cookies to always set/remove with `path: '/'` so middleware can read `kb_access_token` on `/dashboard/*`.
+- **Post-login navigation:** Updated `apps/admin-ui/app/login/page.tsx` to use `router.replace('/dashboard')` after successful email/password and OAuth hash token login.
+- **Team cookie consistency:** Updated `apps/admin-ui/app/dashboard/layout.tsx` to set `kb_active_team` with `path: '/'` for consistent route access.
+- **Validation:** Rebuilt and restarted containers with `docker compose up -d --build`; admin UI/service startup completed successfully.
+
+## 2026-03-30 (project activity expansion + import summary empty-state removal)
+- **Project activity coverage expanded:** Added new activity kinds and logging for database CRUD operations in project data endpoints: table create/drop, row insert/update/delete, column add/edit/delete, and foreign key add/remove.
+- **Storage operations now tracked:** Added activity logs for storage bucket create/update/delete and object upload/delete, including path/count metadata where relevant.
+- **Auth user management tracked:** Added activity logs for project auth user create/update/password reset/delete actions.
+- **Timeline category mapping updated:** New activity kinds are now grouped under `Database`, `Storage`, and `Auth` on the project logs timeline.
+- **Import summary empty state removed:** Deleted the `No import summary yet` placeholder block from project logs page for non-import projects created from scratch.
+
+## 2026-04-07 (docker sign-in fix: frontend 3000 + backend 8000)
+- **Port alignment:** Local app ports were pinned in `.env` as `ADMIN_UI_PORT=3000` and `PLATFORM_API_PORT=8000`; public API URLs were aligned to `http://localhost:8000`.
+- **Port conflict handling:** Checked and force-cleaned listeners for ports `3000` and `8000` (no external listeners found after compose shutdown).
+- **Backend reachability fix:** Resolved `platform-api` restart loop by aligning local credentials for existing Docker volumes (`POSTGRES_PASSWORD` and `KEYCLOAK_ADMIN_PASSWORD` values used by running local stack).
+- **Startup ordering hardening:** Added `keycloak` healthcheck and changed `platform-api` dependency from `service_started` to `service_healthy` to prevent early boot `fetch failed / ECONNREFUSED`.
+- **Validation:** Rebuilt/restarted stack with Docker; final mappings confirmed: admin UI `localhost:3000`, platform API `localhost:8000`, keycloak `localhost:18080`.
+
+## 2026-03-30 (auth hardening: password policy + lock + captcha)
+- **Password policy:** Platform auth now enforces password rules in signup/reset/change: minimum 8 chars, at least 1 uppercase, 1 lowercase, 1 number, and 1 punctuation. Updated DTO validators (`signup`, `reset-password`, `change-password`) and backend guard in `AuthService`.
+- **Failed-login protection:** Added Prisma model/table `login_security_states` (migration `20260330191500_add_login_security_state`) to track failed attempts by email.
+- **Account lock:** After 10 failed login attempts, account login is blocked with lock window (`30 minutes` server-side) and returns lock error.
+- **Captcha after 4 consecutive failures:** Added `GET /auth/captcha?email=` and login flow support. After 4 consecutive failed attempts, backend requires captcha (`CAPTCHA_REQUIRED`), and login page now shows captcha question + answer input before retry.
+- **UI/API wiring:** `LoginDto` accepts optional `captchaAnswer`, `AuthController` forwards captcha to service, `admin-ui` API client supports `auth.getCaptcha` and sends `captchaAnswer` during login.
+
+## 2026-04-07 (feedback roles: edit/delete/done/comments/media)
+- **Permissions:** `GET /feedback` is now role-aware: `ROOT` users see all feedback tasks, normal users see only their own tasks.
+- **Task actions:** both `ROOT` and task owner can edit/delete task; normal users can only set status to `DONE` (completed), while `ROOT` can set any status.
+- **Comments:** added `feedback_comments` table and relation; `ROOT` users can comment on tasks and include image/video attachments in comments.
+- **API additions:** `PUT /feedback/:id`, `DELETE /feedback/:id`, `GET /feedback/:id/comments`, `POST /feedback/:id/comments`; existing list now returns comments with each feedback.
+- **UI updates:** `/dashboard/feedbacks` now works for both root and normal users with role-based actions, inline edit/delete, mark-done for owners, and root comment composer with media upload.
+
+## 2026-04-07 (supabase import stuck at first step fix)
+- **Root cause:** when import SSE status stream encountered missing job/poll error, backend emitted `error` event and frontend did not map that to a terminal failed state. UI remained on first step (`Queued, waiting for worker...`) indefinitely.
+- **Backend fix:** in `projects.controller` import SSE stream, converted terminal stream errors (`job not found`, poll exceptions) to `failed` events and closed the stream.
+- **Frontend fix:** in `admin-ui/lib/api.ts` import SSE client, named `error` payloads with a `message` are now treated as failure via `onFailed(...)`, then stream is closed.
+
+## 2026-04-07 (feedback tracking for normal users)
+- **Navigation access:** `/dashboard/feedbacks` is now visible for all authenticated users (not root-only). Updated dashboard sidebar and dashboard layout wiring.
+- **Header shortcuts:** added `My Feedbacks` quick access in desktop header and mobile menu so users can always reach the tracking screen.
+- **Tracking clarity:** feedback list subtitle and per-item `Developer action` status helper text now communicate current dev state (`OPEN/IN_PROGRESS/DONE/CLOSED`) for normal users.
+- **Result:** normal users can track all feedback they created and see developer actions/comments from the same list screen.
+
 ## 2026-03-29 (feedback attachments + ROOT-only list)
 - **DB:** `UserRole` + `ROOT`; `feedbacks.attachments` JSONB (migration `20260329180000_feedback_attachments_and_root_role`).
 - **API:** `POST /feedback/attachments` (multipart `file`, image ≤5MB / video ≤20MB) → MinIO bucket `kb-platform-feedback`; `POST /feedback` optional `attachments[]`; `GET`/`PATCH /feedback/:id` guarded by `RootRoleGuard` (Prisma `user.role === ROOT`).

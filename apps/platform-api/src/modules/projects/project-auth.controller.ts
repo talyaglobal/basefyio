@@ -18,6 +18,10 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from './project-activity.service';
 
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
@@ -27,6 +31,7 @@ export class ProjectAuthController {
     private readonly keycloak: KeycloakAdminService,
     private readonly authConfigService: ProjectAuthConfigService,
     private readonly configService: ConfigService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   @Get()
@@ -54,7 +59,13 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.createUser(project.keycloakRealm, body);
+    const created = await this.keycloak.createUser(project.keycloakRealm, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_CREATED,
+      title: `Auth user created: ${body.email}`,
+    });
+    return created;
   }
 
   @Patch('users/:userId')
@@ -66,6 +77,12 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     await this.keycloak.updateRealmUser(project.keycloakRealm, userId, body);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `Auth user updated: ${userId}`,
+      detail: Object.keys(body).join(', '),
+    });
     return { message: 'User updated' };
   }
 
@@ -78,6 +95,11 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     await this.keycloak.resetRealmUserPassword(project.keycloakRealm, userId, body.newPassword);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_PASSWORD_RESET,
+      title: `Auth user password reset: ${userId}`,
+    });
     return { message: 'Password reset successfully' };
   }
 
@@ -88,7 +110,13 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.deleteUser(project.keycloakRealm, userId);
+    const result = await this.keycloak.deleteUser(project.keycloakRealm, userId);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_DELETED,
+      title: `Auth user deleted: ${userId}`,
+    });
+    return result;
   }
 
   @Get('config')

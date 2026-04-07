@@ -10,7 +10,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get('kb_access_token')?.value;
+  const token =
+    request.cookies.get('kb_access_token')?.value ||
+    request.cookies.get('kb_logged_in')?.value;
 
   if (!token) {
     const loginUrl = new URL('/login', request.url);

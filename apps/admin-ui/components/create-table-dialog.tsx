@@ -58,7 +58,7 @@ interface CreateTableDialogProps {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   projectId: string;
-  onCreated: () => void;
+  onCreated: (tableName?: string) => void;
 }
 
 let nextId = 1;
@@ -123,7 +123,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
       toast.success(result.message);
       reset();
       onOpenChange(false);
-      onCreated();
+      onCreated(tableName.trim());
     } catch (err: any) {
       toast.error(err.message);
     } finally {

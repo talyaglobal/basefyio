@@ -36,7 +36,12 @@ export class AuthController {
     return this.authService.login(dto.email, dto.password, {
       ipAddress,
       userAgent,
-    });
+    }, dto.captchaAnswer);
+  }
+
+  @Get('captcha')
+  async getLoginCaptcha(@Query('email') email: string) {
+    return this.authService.getLoginCaptcha(email);
   }
 
   @Post('refresh')

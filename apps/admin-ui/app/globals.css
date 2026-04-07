@@ -77,6 +77,11 @@
   body {
     @apply bg-background text-foreground;
     min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  html {
+    overflow-x: hidden;
   }
 }
 

@@ -326,6 +326,22 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model LoginSecurityState {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  failedAttempts    Int       @default(0) @map("failed_attempts")
+  consecutiveFailed Int       @default(0) @map("consecutive_failed")
+  lockedUntil       DateTime? @map("locked_until")
+  captchaQuestion   String?   @map("captcha_question")
+  captchaAnswer     String?   @map("captcha_answer")
+  captchaExpiresAt  DateTime? @map("captcha_expires_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@map("login_security_states")
+}
+
 model Feedback {
   id          String         @id @default(uuid())
   userId      String         @map("user_id")
@@ -339,9 +355,25 @@ model Feedback {
   type        FeedbackType   @default(GENERAL)
   status      FeedbackStatus @default(OPEN)
   createdAt   DateTime       @default(now()) @map("created_at")
+  comments    FeedbackComment[]
 
   @@index([userId])
   @@map("feedbacks")
+}
+
+model FeedbackComment {
+  id          String   @id @default(uuid())
+  feedbackId  String   @map("feedback_id")
+  userId      String   @map("user_id")
+  username    String
+  comment     String
+  attachments Json?    @map("attachments")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackId, createdAt])
+  @@map("feedback_comments")
 }
 
 // ── Billing ──────────────────────────────────────────────
