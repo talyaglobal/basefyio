@@ -373,6 +373,12 @@ export class AuthService {
         if (!isEnabled) {
           throw new UnauthorizedException('ACCOUNT_INACTIVE');
         }
+        const methods = await this.keycloak.getPlatformUserSignInMethodsById(existingUser.id);
+        if (methods.authProvider !== 'local') {
+          throw new UnauthorizedException(
+            `SOCIAL_LOGIN_ONLY:${methods.signOnMethod.toUpperCase()}`,
+          );
+        }
       } catch (err) {
         if (err instanceof UnauthorizedException) {
           throw err;
@@ -531,9 +537,9 @@ export class AuthService {
     } catch {
       authProvider = 'local';
     }
-    if (authProvider !== 'local' && !allowIdentityEdit) {
+    if (authProvider !== 'local') {
       throw new BadRequestException(
-        `This account uses ${authProvider} sign-in. Use "Enable identity edits" first.`,
+        `SOCIAL_PASSWORD_DISABLED:${authProvider.toUpperCase()}`,
       );
     }
     if (authProvider === 'local') {
@@ -949,6 +955,7 @@ export class AuthService {
       string,
       {
         authProvider: 'local' | 'google' | 'github';
+        signOnMethod: 'local' | 'google' | 'github';
         linkedProviders: Array<'google' | 'github'>;
         hasPasswordAuth: boolean;
       }
@@ -967,6 +974,7 @@ export class AuthService {
         } catch {
           signInMap.set(u.id, {
             authProvider: 'local',
+            signOnMethod: 'local',
             linkedProviders: [],
             hasPasswordAuth: true,
           });
@@ -977,6 +985,7 @@ export class AuthService {
       ...u,
       isActive: enabledMap.get(u.id) ?? true,
       authProvider: signInMap.get(u.id)?.authProvider ?? 'local',
+      signOnMethod: signInMap.get(u.id)?.signOnMethod ?? 'local',
       linkedProviders: signInMap.get(u.id)?.linkedProviders ?? [],
       hasPasswordAuth: signInMap.get(u.id)?.hasPasswordAuth ?? true,
     }));

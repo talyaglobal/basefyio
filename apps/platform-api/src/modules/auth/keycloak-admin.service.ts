@@ -674,6 +674,7 @@ export class KeycloakAdminService implements OnModuleInit {
     userId: string,
   ): Promise<{
     authProvider: 'local' | 'google' | 'github';
+    signOnMethod: 'local' | 'google' | 'github';
     linkedProviders: Array<'google' | 'github'>;
     hasPasswordAuth: boolean;
   }> {
@@ -706,12 +707,12 @@ export class KeycloakAdminService implements OnModuleInit {
     }
 
     if (linkedProviders.includes('google')) {
-      return { authProvider: 'google', linkedProviders, hasPasswordAuth };
+      return { authProvider: 'google', signOnMethod: 'google', linkedProviders, hasPasswordAuth };
     }
     if (linkedProviders.includes('github')) {
-      return { authProvider: 'github', linkedProviders, hasPasswordAuth };
+      return { authProvider: 'github', signOnMethod: 'github', linkedProviders, hasPasswordAuth };
     }
-    return { authProvider: 'local', linkedProviders, hasPasswordAuth };
+    return { authProvider: 'local', signOnMethod: 'local', linkedProviders, hasPasswordAuth };
   }
 
   async getPlatformUserEnabledById(userId: string): Promise<boolean> {

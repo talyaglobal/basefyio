@@ -62,7 +62,6 @@ export default function AccountPage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
-  const [identityEditEnabled, setIdentityEditEnabled] = useState(false);
   const forcePasswordChange = searchParams.get('forcePasswordChange') === '1';
 
   useEffect(() => {
@@ -118,7 +117,7 @@ export default function AccountPage() {
       pendingAvatarDataUrl !== null);
   const authProvider = profile?.authProvider ?? 'local';
   const isExternalAuth = authProvider !== 'local';
-  const canEditIdentity = !isExternalAuth || identityEditEnabled || forcePasswordChange;
+  const canEditIdentity = !isExternalAuth || forcePasswordChange;
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
@@ -132,8 +131,6 @@ export default function AccountPage() {
       if (fn !== (profile!.firstName ?? '')) updates.firstName = fn;
       if (ln !== (profile!.lastName ?? '')) updates.lastName = ln;
       if (pendingAvatarDataUrl !== null) updates.avatarUrl = pendingAvatarDataUrl;
-      if (isExternalAuth && canEditIdentity) updates.allowIdentityEdit = true;
-
       const updated = await api.auth.updateProfile(updates);
       setProfile(updated);
       setAvatarPreview(updated.avatarUrl || null);
@@ -216,8 +213,8 @@ export default function AccountPage() {
   };
 
   const handleChangePassword = async () => {
-    if (isExternalAuth && !canEditIdentity) {
-      toast.error('Enable identity edits first');
+    if (isExternalAuth) {
+      toast.error(`This account must use ${authProvider} sign-in. Password change is disabled.`);
       return;
     }
     if (!isExternalAuth && !currentPassword) {
@@ -359,11 +356,8 @@ export default function AccountPage() {
         {isExternalAuth && !canEditIdentity && (
           <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
             <span>
-              This account uses {authProvider} sign-in. Username, email, and password are locked.
+              This account uses {authProvider} sign-in. Username/email and password are locked. You can still update first and last name.
             </span>
-            <Button type="button" size="sm" variant="outline" onClick={() => setIdentityEditEnabled(true)}>
-              Enable identity edits
-            </Button>
           </div>
         )}
 
@@ -559,10 +553,11 @@ export default function AccountPage() {
         )}
         <p className="text-xs text-muted-foreground">
           {isExternalAuth
-            ? 'Social sign-in account. Enable identity edits to set a local password.'
+            ? `Social sign-in account (${authProvider}). Password sign-in is disabled for this account.`
             : 'Enter your current password first, then set a new password.'}
         </p>
 
+        {!isExternalAuth ? (
         <div className="space-y-4">
           {!isExternalAuth && (
           <div className="space-y-2">
@@ -635,6 +630,11 @@ export default function AccountPage() {
             <p className="text-xs text-destructive">Passwords do not match</p>
           )}
         </div>
+        ) : (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            This user can only sign in with {authProvider}. Password setup/change is disabled.
+          </div>
+        )}
 
         <div className="flex justify-end">
           <Button
@@ -642,7 +642,7 @@ export default function AccountPage() {
             disabled={
               changingPassword ||
               (!isExternalAuth && !currentPassword) ||
-              (isExternalAuth && !canEditIdentity) ||
+              isExternalAuth ||
               newPassword.length < 6 ||
               newPassword !== confirmPassword
             }

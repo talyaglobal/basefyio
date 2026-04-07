@@ -140,6 +140,16 @@ function LoginForm() {
         return;
       }
 
+      if (normalizedMessage.includes('SOCIAL_LOGIN_ONLY:GOOGLE')) {
+        toast.error('This account must sign in with Google.');
+        return;
+      }
+
+      if (normalizedMessage.includes('SOCIAL_LOGIN_ONLY:GITHUB')) {
+        toast.error('This account must sign in with GitHub.');
+        return;
+      }
+
       toast.error(rawMessage || 'Login failed');
     } finally {
       setLoading(false);

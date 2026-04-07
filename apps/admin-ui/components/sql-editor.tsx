@@ -207,7 +207,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
         {tabs.map((tab) => (
           <div
@@ -268,7 +268,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
         </Button>
       </div>
 
-      <div className="relative">
+      <div className="relative shrink-0">
         <textarea
           value={query}
           onChange={(e) =>
@@ -278,7 +278,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             }))
           }
           onKeyDown={handleKeyDown}
-          className="min-h-[200px] w-full resize-y rounded-md border bg-muted/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-[38vh] min-h-[260px] w-full resize-y rounded-md border bg-muted/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="SELECT * FROM ..."
           spellCheck={false}
         />

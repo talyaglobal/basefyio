@@ -215,6 +215,7 @@ export interface ManagementUser {
   role: 'USER' | 'ADMIN' | 'ROOT';
   isActive?: boolean;
   authProvider?: 'local' | 'google' | 'github';
+  signOnMethod?: 'local' | 'google' | 'github';
   linkedProviders?: Array<'google' | 'github'>;
   hasPasswordAuth?: boolean;
   createdAt: string;

@@ -38,6 +38,24 @@
 - **List rendering mode:** Added compact list row rendering for project cards while preserving selection and context-menu behavior.
 - **Team-switch route safety:** When team is switched from header while on a project detail route, app now redirects to `/dashboard/projects` so the newly selected team's project list is shown.
 
+## 2026-04-07 (sql editor area sizing)
+- **SQL page container fix:** Wrapped SQL editor in a full-height card container with `min-h-0 flex-1` so it uses available page area correctly.
+- **Editor input area enlarged:** Increased SQL query textarea default height to improve usability and avoid cramped rendering in small-looking area.
+
+## 2026-04-07 (management sign-in icons + sign-on method)
+- **Icon-only sign-in methods:** Replaced text labels in management users `Sign In` column with icons for Google, GitHub, and password auth.
+- **Sign-up method column:** Added `Sign Up` column to show the initial method (local/google/github) as icon, sourced from backend auth metadata.
+
+## 2026-04-07 (social auth password policy)
+- **Social users provider-only login:** Email/password login now rejects Google/GitHub accounts with provider-specific guidance (`SOCIAL_LOGIN_ONLY`).
+- **Password change disabled for social accounts:** Social-auth users can no longer set/change password from account settings or backend API.
+- **Profile rules clarified:** Social-auth users can still edit first/last name; local-signup users continue standard password + profile flow.
+
+## 2026-04-07 (cross-provider social login mapping)
+- **OAuth identity mapping fix:** JWT strategy now maps OAuth tokens to existing app user by email when token `sub` is missing in local DB.
+- **Google/GitHub parity:** Users who signed up with Google can sign in with GitHub (and vice versa) into the same app profile, without creating duplicate app users.
+- **Scope safety:** Mapping is applied only when token has both `sub` and `email`, and only if `sub` is unknown but email already exists in app users.
+
 ## 2026-04-07 (management users activate/deactivate)
 - **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
 - **Backend endpoint:** Added `PATCH /auth/management/users/:id/active` (root-only) to enable/disable platform users.

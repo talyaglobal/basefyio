@@ -4,10 +4,14 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
 import { JwtPayload } from '../../../common/decorators/current-user.decorator';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const keycloakUrl = config.get<string>('keycloak.url');
 
     super({
@@ -22,9 +26,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: Record<string, any>): JwtPayload {
+  async validate(payload: Record<string, any>): Promise<JwtPayload> {
+    const tokenSub = String(payload.sub || '');
+    const tokenEmail =
+      typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+
+    let resolvedSub = tokenSub;
+    if (tokenSub && tokenEmail) {
+      const bySub = await this.prisma.user.findUnique({
+        where: { id: tokenSub },
+        select: { id: true },
+      });
+      if (!bySub) {
+        const byEmail = await this.prisma.user.findUnique({
+          where: { email: tokenEmail },
+          select: { id: true },
+        });
+        if (byEmail?.id) {
+          // Cross-provider social sign-in support: keep one app user per email.
+          resolvedSub = byEmail.id;
+        }
+      }
+    }
+
     return {
-      sub: payload.sub,
+      sub: resolvedSub,
       email: payload.email,
       preferred_username: payload.preferred_username,
       roles: payload.realm_access?.roles ?? [],
