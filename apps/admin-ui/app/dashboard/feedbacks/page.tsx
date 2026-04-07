@@ -281,6 +281,80 @@ export default function FeedbacksPage() {
               acc[c.parentCommentId].push(c);
               return acc;
             }, {});
+            const renderCommentNode = (node: (typeof comments)[number], depth: number) => {
+              const nodeAttachments = parseAttachments(node.attachments);
+              const nodeReplies = (repliesByParent[node.id] || []).sort(
+                (a, b) =>
+                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+              );
+              const indentClass =
+                depth === 0 ? '' : 'mt-2 border-l pl-3';
+              return (
+                <div key={node.id} className={indentClass}>
+                  <div className="space-y-1 rounded border bg-background p-2">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span>
+                        <strong>{node.username}</strong> · {new Date(node.createdAt).toLocaleString()}
+                      </span>
+                      {canComment && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => {
+                            setReplyToByFeedback((prev) => ({
+                              ...prev,
+                              [fb.id]: { id: node.id, username: node.username },
+                            }));
+                          }}
+                        >
+                          Reply
+                        </Button>
+                      )}
+                    </div>
+                    {node.parentCommentId && commentById[node.parentCommentId] && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Reply to <strong>{commentById[node.parentCommentId].username}</strong>
+                      </p>
+                    )}
+                    <p className="text-sm">{node.comment}</p>
+                    {nodeAttachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {nodeAttachments.map((a, i) =>
+                          a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
+                            <video
+                              key={`${node.id}-v-${i}`}
+                              src={a.url}
+                              controls
+                              onClick={() => setPreview({ url: a.url, isVideo: true })}
+                              className="max-h-32 cursor-zoom-in rounded-md border"
+                            />
+                          ) : (
+                            <button
+                              key={`${node.id}-i-${i}`}
+                              type="button"
+                              onClick={() => setPreview({ url: a.url, isVideo: false })}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={a.url}
+                                alt=""
+                                className="max-h-32 cursor-zoom-in rounded-md border object-cover"
+                              />
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {nodeReplies.length > 0 && (
+                    <div className="space-y-2">
+                      {nodeReplies.map((reply) => renderCommentNode(reply, depth + 1))}
+                    </div>
+                  )}
+                </div>
+              );
+            };
 
             return (
               <div
@@ -421,128 +495,12 @@ export default function FeedbacksPage() {
                     {comments.length > 0 && (
                       <div className="space-y-2 rounded-md border bg-muted/30 p-3">
                         <p className="text-xs font-medium text-muted-foreground">Comments</p>
-                        {rootComments.map((c) => {
-                          const cAttachments = parseAttachments(c.attachments);
-                          const replies = repliesByParent[c.id] || [];
-                          return (
-                            <div key={c.id} className="space-y-1 rounded border bg-background p-2">
-                              <div className="flex items-center justify-between gap-2 text-xs">
-                                <span>
-                                  <strong>{c.username}</strong> · {new Date(c.createdAt).toLocaleString()}
-                                </span>
-                                {canComment && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 px-2 text-[11px]"
-                                    onClick={() => {
-                                      setReplyToByFeedback((prev) => ({
-                                        ...prev,
-                                        [fb.id]: { id: c.id, username: c.username },
-                                      }));
-                                    }}
-                                  >
-                                    Reply
-                                  </Button>
-                                )}
-                              </div>
-                              <p className="text-sm">{c.comment}</p>
-                              {cAttachments.length > 0 && (
-                                <div className="flex flex-wrap gap-2 pt-1">
-                                  {cAttachments.map((a, i) =>
-                                    a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
-                                      <video
-                                        key={`${c.id}-v-${i}`}
-                                        src={a.url}
-                                        controls
-                                        onClick={() => setPreview({ url: a.url, isVideo: true })}
-                                        className="max-h-32 cursor-zoom-in rounded-md border"
-                                      />
-                                    ) : (
-                                      <button
-                                        key={`${c.id}-i-${i}`}
-                                        type="button"
-                                        onClick={() => setPreview({ url: a.url, isVideo: false })}
-                                      >
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                          src={a.url}
-                                          alt=""
-                                          className="max-h-32 cursor-zoom-in rounded-md border object-cover"
-                                        />
-                                      </button>
-                                    ),
-                                  )}
-                                </div>
-                              )}
-                              {replies.length > 0 && (
-                                <div className="mt-2 space-y-2 border-l pl-3">
-                                  {replies.map((r) => {
-                                    const rAttachments = parseAttachments(r.attachments);
-                                    return (
-                                      <div key={r.id} className="space-y-1 rounded border bg-muted/20 p-2">
-                                        <div className="flex items-center justify-between gap-2 text-xs">
-                                          <span>
-                                            <strong>{r.username}</strong> · {new Date(r.createdAt).toLocaleString()}
-                                          </span>
-                                          {canComment && (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              className="h-6 px-2 text-[11px]"
-                                              onClick={() => {
-                                                setReplyToByFeedback((prev) => ({
-                                                  ...prev,
-                                                  [fb.id]: { id: r.id, username: r.username },
-                                                }));
-                                              }}
-                                            >
-                                              Reply
-                                            </Button>
-                                          )}
-                                        </div>
-                                        {r.parentCommentId && commentById[r.parentCommentId] && (
-                                          <p className="text-[11px] text-muted-foreground">
-                                            Reply to <strong>{commentById[r.parentCommentId].username}</strong>
-                                          </p>
-                                        )}
-                                        <p className="text-sm">{r.comment}</p>
-                                        {rAttachments.length > 0 && (
-                                          <div className="flex flex-wrap gap-2 pt-1">
-                                            {rAttachments.map((a, i) =>
-                                              a.kind === 'video' || a.mimeType?.startsWith('video/') ? (
-                                                <video
-                                                  key={`${r.id}-v-${i}`}
-                                                  src={a.url}
-                                                  controls
-                                                  onClick={() => setPreview({ url: a.url, isVideo: true })}
-                                                  className="max-h-32 cursor-zoom-in rounded-md border"
-                                                />
-                                              ) : (
-                                                <button
-                                                  key={`${r.id}-i-${i}`}
-                                                  type="button"
-                                                  onClick={() => setPreview({ url: a.url, isVideo: false })}
-                                                >
-                                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                  <img
-                                                    src={a.url}
-                                                    alt=""
-                                                    className="max-h-32 cursor-zoom-in rounded-md border object-cover"
-                                                  />
-                                                </button>
-                                              ),
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {rootComments
+                          .sort(
+                            (a, b) =>
+                              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+                          )
+                          .map((c) => renderCommentNode(c, 0))}
                       </div>
                     )}
 
@@ -698,10 +656,15 @@ export default function FeedbacksPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={updatingId === fb.id || fb.status === 'DONE' || !isOwner}
-                          onClick={() => handleStatusChange(fb.id, 'DONE')}
+                          disabled={updatingId === fb.id || fb.status === 'CLOSED' || !isOwner}
+                          onClick={() =>
+                            handleStatusChange(
+                              fb.id,
+                              fb.status === 'DONE' ? 'CLOSED' : 'DONE',
+                            )
+                          }
                         >
-                          Mark done
+                          {fb.status === 'DONE' ? 'Close Ticket' : 'Mark done'}
                         </Button>
                       )}
                       {canManage && (

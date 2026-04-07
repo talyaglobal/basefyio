@@ -107,6 +107,34 @@ export class ProjectActivityService {
       },
     });
 
-    return { items };
+    const userIds = Array.from(
+      new Set(items.map((item) => item.userId).filter((v): v is string => !!v)),
+    );
+    const users =
+      userIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          })
+        : [];
+    const userMap = new Map(
+      users.map((u) => [
+        u.id,
+        [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || u.email,
+      ]),
+    );
+
+    return {
+      items: items.map((item) => ({
+        ...item,
+        actorName: item.userId ? userMap.get(item.userId) || item.userId : 'System',
+      })),
+    };
   }
 }

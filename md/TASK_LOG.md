@@ -56,6 +56,44 @@
 - **Targeted notification navigation:** Feedback notifications now link to exact feedback card anchors.
 - **In-page jump:** Added per-feedback DOM anchor ids so clicking a notification scrolls directly to the related item.
 
+## 2026-04-07 (project logs search and pagination)
+- **Activity search:** Added live search input to Project Logs Activity timeline.
+- **Activity pagination:** Added client-side pagination with previous/next controls and page indicator.
+- **Result summary:** Added matching results counter to improve log browsing clarity.
+
+## 2026-04-07 (project activity actor visibility)
+- **Actor info in activity:** Added `by <user>` display for each Project Activity timeline item.
+- **Backend enrichment:** Project activity list now resolves `userId` to readable actor names from users table; falls back to `System` for automated events.
+
+## 2026-04-07 (table editor sidebar independent scroll)
+- **Fixed-height table editor viewport:** Set Table Editor split layout to viewport-based height.
+- **Independent left panel scroll:** Table list sidebar now scrolls within its own panel area instead of scrolling the whole page.
+
+## 2026-04-07 (table editor columns panel persisted state)
+- **Columns panel persistence:** Saved right-side Columns panel open/closed state to localStorage.
+- **Cross-table consistency:** Switching tables no longer forces panel open; closed stays closed, open stays open.
+
+## 2026-04-07 (non-root feedback close after done)
+- **Status flow update:** Non-root users can now close their own feedback after it is marked done.
+- **UI behavior:** For non-root owners, action button switches from `Mark done` to `Close` once status is `DONE`.
+- **Backend rule:** Enforced status transition for non-root as `DONE` first, then `CLOSED`.
+
+## 2026-04-07 (feedback nested replies infinite depth)
+- **Thread rendering fix:** Updated feedback comment UI to render replies recursively instead of only one level.
+- **Unlimited reply depth:** Users can now reply to replies indefinitely, and all nested levels are visible.
+- **Reply context preserved:** Each nested reply still shows `Reply to <username>` where applicable.
+
+## 2026-04-07 (feedback close button label)
+- **UI label update:** Changed non-root owner status button text from `Close` to `Close Task` when feedback is in `DONE` state.
+
+## 2026-04-07 (feedback close button label revised)
+- **UI label revision:** Updated non-root owner status button text from `Close Task` to `Close Ticket` when feedback is in `DONE` state.
+
+## 2026-04-07 (header dropdown global close hardening)
+- **Centralized dropdown state:** Connected `Docs` and `User` menus to header-level controlled state.
+- **Outside-click behavior:** Global outside click now closes Team, Projects, Docs, and User dropdowns consistently.
+- **Mutual exclusivity:** Opening one header dropdown now closes other header dropdown menus.
+
 ## 2026-04-07 (signup password requirements hover info)
 - **Signup UX update:** Added an info (`i`) icon next to the password label on `/signup`.
 - **Hover details:** Password policy now appears on hover (8+ chars, uppercase, lowercase, number, special character).

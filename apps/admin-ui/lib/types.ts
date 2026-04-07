@@ -104,6 +104,7 @@ export interface ProjectActivityItem {
   metadata: unknown;
   createdAt: string;
   userId: string | null;
+  actorName?: string;
 }
 
 export interface ProjectFolder {

@@ -716,7 +716,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
   }
 
   const [addColumnOpen, setAddColumnOpen] = useState(false);
-  const [columnPanelOpen, setColumnPanelOpen] = useState(false);
+  const [columnPanelOpen, setColumnPanelOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('kb_table_editor_column_panel_open') === 'true';
+  });
 
   const [filterText, setFilterText] = useState('');
   const [tableSearch, setTableSearch] = useState('');
@@ -736,6 +739,11 @@ export function TableEditor({ projectId }: TableEditorProps) {
   useEffect(() => {
     if (editRef.current) editRef.current.focus();
   }, [editingCell]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('kb_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
+  }, [columnPanelOpen]);
 
   async function loadTables() {
     setLoading(true);
@@ -1059,7 +1067,9 @@ export function TableEditor({ projectId }: TableEditorProps) {
           </Button>
         </div>
       ) : (
-        <div className="flex gap-0 rounded-lg border overflow-hidden" style={{ minHeight: 480 }}>
+        <div
+          className="flex h-[calc(100vh-220px)] min-h-[480px] max-h-[calc(100vh-220px)] gap-0 overflow-hidden rounded-lg border"
+        >
           {/* Sidebar: table list */}
           <div
             className="shrink-0 border-r bg-muted/30 flex flex-col relative"
@@ -1104,7 +1114,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     <button
                       onClick={() => {
                         openTable(t.name);
-                        setColumnPanelOpen(true);
                       }}
                       className={cn(
                         'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors pr-9',

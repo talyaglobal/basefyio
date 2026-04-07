@@ -171,8 +171,15 @@ export class FeedbackService {
 
   async updateStatus(userId: string, username: string, id: string, status: FeedbackStatus) {
     const { isRoot, feedback } = await this.assertCanAccessFeedback(userId, id);
-    if (!isRoot && status !== FeedbackStatus.DONE) {
-      throw new ForbiddenException('You can only mark your own feedback as done');
+    if (!isRoot) {
+      const canMarkDone = status === FeedbackStatus.DONE;
+      const canCloseAfterDone =
+        status === FeedbackStatus.CLOSED && feedback.status === FeedbackStatus.DONE;
+      if (!canMarkDone && !canCloseAfterDone) {
+        throw new ForbiddenException(
+          'You can only mark your own feedback as done, then close it',
+        );
+      }
     }
 
     const updated = await this.prisma.feedback.update({

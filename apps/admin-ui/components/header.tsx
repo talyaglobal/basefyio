@@ -68,6 +68,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [inviteCount, setInviteCount] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -83,6 +84,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       if (target.closest('[data-nav-dropdown-root="true"]')) return;
       setDropdownOpen(false);
       setProjectsMenuOpen(false);
+      setDocsMenuOpen(false);
       setUserMenuOpen(false);
     };
     document.addEventListener('mousedown', onGlobalPointerDown);
@@ -263,7 +265,17 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <span className="hidden sm:inline">Feedback</span>
         </Button>
         <div className="hidden md:block">
-          <DocsMenu />
+          <DocsMenu
+            open={docsMenuOpen}
+            onOpenChange={(next) => {
+              setDocsMenuOpen(next);
+              if (next) {
+                setDropdownOpen(false);
+                setProjectsMenuOpen(false);
+                setUserMenuOpen(false);
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -281,6 +293,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <button
             onClick={() => {
               setProjectsMenuOpen(false);
+              setDocsMenuOpen(false);
+              setUserMenuOpen(false);
               setDropdownOpen(!dropdownOpen);
             }}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
@@ -388,6 +402,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             type="button"
             onClick={() => {
               setDropdownOpen(false);
+              setDocsMenuOpen(false);
+              setUserMenuOpen(false);
               setProjectsMenuOpen(!projectsMenuOpen);
             }}
             disabled={!activeTeamId && !routeProject}
@@ -484,7 +500,20 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <NotificationsBell />
         </div>
 
-        <UserMenu user={user} profile={profile ?? null} onLogout={handleLogout} />
+        <UserMenu
+          user={user}
+          profile={profile ?? null}
+          open={userMenuOpen}
+          onOpenChange={(next) => {
+            setUserMenuOpen(next);
+            if (next) {
+              setDropdownOpen(false);
+              setProjectsMenuOpen(false);
+              setDocsMenuOpen(false);
+            }
+          }}
+          onLogout={handleLogout}
+        />
       </div>
 
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
@@ -557,16 +586,14 @@ const docsLinks = [
   { label: 'CLI', href: '/docs/cli', icon: Terminal },
 ];
 
-function DocsMenu() {
-  const [open, setOpen] = useState(false);
-
+function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <div className="relative" data-nav-dropdown-root="true">
       <Button
         variant="ghost"
         size="sm"
         className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen(!open)}
+        onClick={() => onOpenChange(!open)}
       >
         <Book className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">Docs</span>
@@ -575,7 +602,7 @@ function DocsMenu() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
           <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="p-1">
               {docsLinks.map((item) => (
@@ -584,7 +611,7 @@ function DocsMenu() {
                   href={`${docsBaseUrl}${item.href}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setOpen(false)}
+                  onClick={() => onOpenChange(false)}
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
                 >
                   <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
@@ -600,9 +627,20 @@ function DocsMenu() {
   );
 }
 
-function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserProfile | null; onLogout: () => void }) {
+function UserMenu({
+  user,
+  profile,
+  open,
+  onOpenChange,
+  onLogout,
+}: {
+  user: UserInfo;
+  profile: UserProfile | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onLogout: () => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
 
   const firstName = profile?.firstName ?? '';
   const lastName = profile?.lastName ?? '';
@@ -615,7 +653,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
   return (
     <div className="relative" data-nav-dropdown-root="true">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => onOpenChange(!open)}
         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
       >
         {/* Avatar */}
@@ -636,7 +674,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
@@ -655,7 +693,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
             </div>
             <div className="p-1">
               <button
-                onClick={() => { setOpen(false); router.push('/dashboard/account'); }}
+                onClick={() => { onOpenChange(false); router.push('/dashboard/account'); }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
               >
                 <KeyRound className="h-3.5 w-3.5" />
@@ -664,7 +702,7 @@ function UserMenu({ user, profile, onLogout }: { user: UserInfo; profile: UserPr
             </div>
             <div className="border-t p-1">
               <button
-                onClick={() => { setOpen(false); onLogout(); }}
+                onClick={() => { onOpenChange(false); onLogout(); }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <LogOut className="h-3.5 w-3.5" />

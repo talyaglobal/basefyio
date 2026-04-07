@@ -85,6 +85,9 @@ export function ProjectActivityTimeline({
               >
                 {new Date(item.createdAt).toLocaleString()}
               </time>
+              <span className="text-xs text-muted-foreground">
+                by {item.actorName || (item.userId ? item.userId : 'System')}
+              </span>
             </div>
             <p className="text-sm font-medium text-foreground">{item.title}</p>
             {item.detail ? (
