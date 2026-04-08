@@ -1,5 +1,11 @@
 # Task Log
 
+## 2026-04-08 (team delete check fixed for moved/deleted projects)
+- Fixed team deletion guard in `TeamsService.deleteTeam` to count only active projects (`status != DELETED`) instead of all historical projects.
+- This resolves false "Delete projects first..." errors after projects are moved away or soft-deleted.
+- Updated error text to: `Move or delete active projects first to remove this team`.
+- Added FK-safe cleanup during team deletion: soft-deleted project rows under that team are now purged before deleting the team, preventing `projects_team_id_fkey` violations.
+
 ## 2026-04-08 (ui notification for auto-cancelled stale imports)
 - Added user-facing warning toast in `import-progress-context` when an import fails due to stale-worker auto-cancel scenarios.
 - Detection covers backend recovery reasons (`stale import`, `health monitor`, `auto-cancelled`, `recovered after server restart`).

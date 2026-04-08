@@ -562,11 +562,6 @@ export class TeamsService {
         id: true,
         name: true,
         personalForUserId: true,
-        _count: {
-          select: {
-            projects: true,
-          },
-        },
       },
     });
     if (!team) {
@@ -575,19 +570,43 @@ export class TeamsService {
     if (team.personalForUserId) {
       throw new ForbiddenException('Personal teams cannot be deleted');
     }
-    if (team._count.projects > 0) {
-      throw new ForbiddenException('Delete projects first to remove this team');
+    const activeProjectCount = await this.prisma.project.count({
+      where: {
+        teamId,
+        status: { not: 'DELETED' },
+      },
+    });
+
+    if (activeProjectCount > 0) {
+      throw new ForbiddenException('Move or delete active projects first to remove this team');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.user.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      // Team deletion is blocked by projects.team_id FK even for soft-deleted projects.
+      // Purge already soft-deleted project rows first.
+      const purged = await tx.project.deleteMany({
+        where: {
+          teamId,
+          status: 'DELETED',
+        },
+      });
+      if (purged.count > 0) {
+        this.logger.log(`Purged ${purged.count} soft-deleted project(s) before team delete (${teamId})`);
+      }
+
+      const remainingProjects = await tx.project.count({ where: { teamId } });
+      if (remainingProjects > 0) {
+        throw new ForbiddenException('Move or delete active projects first to remove this team');
+      }
+
+      await tx.user.updateMany({
         where: { activeTeamId: teamId },
         data: { activeTeamId: null },
-      }),
-      this.prisma.team.delete({
+      });
+      await tx.team.delete({
         where: { id: teamId },
-      }),
-    ]);
+      });
+    });
 
     return { id: team.id, name: team.name, deleted: true as const };
   }
