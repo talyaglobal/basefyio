@@ -23,6 +23,7 @@ import {
   LogOut,
   MessageSquarePlus,
   Plus,
+  Search,
   Server,
   Settings,
   Terminal,
@@ -77,6 +78,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [newTeamName, setNewTeamName] = useState('');
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {
@@ -170,6 +173,22 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     }
     return list;
   }, [teamProjects, routeProject, currentProjectIdFromPath]);
+
+  const filteredTeams = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    if (!q) return teams;
+    return teams.filter((team) => team.name.toLowerCase().includes(q));
+  }, [teams, teamSearch]);
+
+  const filteredProjects = useMemo(() => {
+    const q = projectSearch.trim().toLowerCase();
+    if (!q) return menuProjects;
+    return menuProjects.filter((project) => {
+      const name = project.name.toLowerCase();
+      const slug = project.slug.toLowerCase();
+      return name.includes(q) || slug.includes(q);
+    });
+  }, [menuProjects, projectSearch]);
 
   async function switchTeam(teamId: string) {
     try {
@@ -306,6 +325,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
               setDropdownOpen(!dropdownOpen);
+              if (dropdownOpen) {
+                setTeamSearch('');
+              }
             }}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
           >
@@ -325,8 +347,24 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             <>
               <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
               <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+                <div className="border-b p-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={teamSearch}
+                      onChange={(e) => setTeamSearch(e.target.value)}
+                      placeholder="Search teams..."
+                      className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
                 <div className="p-1">
-                  {teams.map((team) => (
+                  {filteredTeams.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                      No teams found.
+                    </div>
+                  ) : filteredTeams.map((team) => (
                     <button
                       key={team.id}
                       onClick={() => switchTeam(team.id)}
@@ -415,6 +453,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
               setProjectsMenuOpen(!projectsMenuOpen);
+              if (projectsMenuOpen) {
+                setProjectSearch('');
+              }
             }}
             disabled={!activeTeamId && !routeProject}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
@@ -435,18 +476,28 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   <p className="text-xs font-medium text-muted-foreground">
                     Projects in {activeTeam?.name ?? 'team'}
                   </p>
+                  <div className="relative mt-2">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Search projects..."
+                      className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-1">
-                  {projectsLoading && menuProjects.length === 0 ? (
+                  {projectsLoading && filteredProjects.length === 0 ? (
                     <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                       Loading…
                     </div>
-                  ) : menuProjects.length === 0 ? (
+                  ) : filteredProjects.length === 0 ? (
                     <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                      No projects yet.
+                      No projects found.
                     </div>
                   ) : (
-                    menuProjects.map((project) => (
+                    filteredProjects.map((project) => (
                       <button
                         key={project.id}
                         type="button"

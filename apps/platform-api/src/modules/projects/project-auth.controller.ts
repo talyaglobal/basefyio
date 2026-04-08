@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -22,6 +23,18 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+
+const OAUTH_PROVIDERS = [
+  'google',
+  'microsoft',
+  'apple',
+  'github',
+  'gitlab',
+  'linkedin',
+  'facebook',
+  'twitter',
+] as const;
+type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
@@ -141,17 +154,21 @@ export class ProjectAuthController {
   @Put('providers/:provider')
   async saveProvider(
     @Param('projectId') projectId: string,
-    @Param('provider') provider: 'google' | 'github',
+    @Param('provider') provider: string,
     @Body() body: { clientId: string; clientSecret?: string; enabled: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
+    if (!OAUTH_PROVIDERS.includes(provider as OAuthProvider)) {
+      throw new BadRequestException(`Unsupported provider: ${provider}`);
+    }
+    const p = provider as OAuthProvider;
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const publicApiUrl = this.configService.get<string>('publicApiUrl');
-    const redirectUri = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
-
-    const enabledField = provider === 'google' ? 'googleEnabled' : 'githubEnabled';
-    const clientIdField = provider === 'google' ? 'googleClientId' : 'githubClientId';
-    const secretField = provider === 'google' ? 'googleClientSecret' : 'githubClientSecret';
+    const redirectUri = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${p}`;
+    const cap = `${p.charAt(0).toUpperCase()}${p.slice(1)}`;
+    const enabledField = `${p}Enabled`;
+    const clientIdField = `${p}ClientId`;
+    const secretField = `${p}ClientSecret`;
 
     const updateData: Record<string, any> = {
       [enabledField]: body.enabled,
@@ -172,12 +189,20 @@ export class ProjectAuthController {
       const secret = (rawCfg as any)[secretField];
       if (secret) {
         await this.keycloak.upsertIdentityProvider(
-          project.keycloakRealm, provider, body.clientId, secret, redirectUri,
+          project.keycloakRealm, p, body.clientId, secret, redirectUri,
         );
       }
     } else if (!body.enabled) {
-      await this.keycloak.deleteIdentityProvider(project.keycloakRealm, provider);
+      await this.keycloak.deleteIdentityProvider(project.keycloakRealm, p);
     }
+
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
+      title: `OAuth provider updated: ${cap}`,
+      detail: body.enabled ? 'Enabled' : 'Disabled',
+      metadata: { provider: p, enabled: body.enabled },
+    });
 
     return updated;
   }
@@ -189,12 +214,13 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const publicApiUrl = this.configService.get<string>('publicApiUrl');
+    const callbackUrls = OAUTH_PROVIDERS.reduce<Record<string, string>>((acc, p) => {
+      acc[p] = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${p}`;
+      return acc;
+    }, {});
 
     return {
-      callbackUrls: {
-        google: `${publicApiUrl}/rest/v1/auth/callback/${projectId}/google`,
-        github: `${publicApiUrl}/rest/v1/auth/callback/${projectId}/github`,
-      },
+      callbackUrls,
       providers: await this.keycloak.listIdentityProviders(project.keycloakRealm),
     };
   }

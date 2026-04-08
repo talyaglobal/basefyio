@@ -122,6 +122,30 @@ interface ProjectsState {
 type ProjectsViewMode = 'grid' | 'list';
 const PROJECTS_VIEW_MODE_KEY = 'kb_projects_view_mode';
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  return date.toLocaleString('tr-TR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatSize(bytes?: number | null) {
+  if (!bytes || bytes < 0) return 'N/A';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
 function saveProjectsState(state: ProjectsState) {
   try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(state)); } catch {}
 }
@@ -1471,6 +1495,9 @@ function ProjectListRow({
       <Database className="h-4 w-4 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{project.name}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          Created by {project.createdByName ?? 'Unknown'} - {formatDateTime(project.createdAt)} - Size: {formatSize(project.projectSizeBytes)}
+        </p>
       </div>
       <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
         {project.status}
@@ -1907,14 +1934,23 @@ function DroppableProjectCard({
       )}
 
       {/* Footer */}
-      <div className="flex items-center gap-3 pt-1 border-t">
+      <div className="space-y-1 pt-1 border-t">
+        <p className="text-xs text-muted-foreground">
+          Created by {project.createdByName ?? 'Unknown'}
+        </p>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Calendar className="h-3 w-3" />
-          <span>{new Date(project.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })} {new Date(project.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span>{formatDateTime(project.createdAt)}</span>
         </div>
-        <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-          <Zap className="h-3 w-3" />
-          <span className="font-mono text-[10px]">{project.slug}</span>
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Database className="h-3 w-3" />
+            <span>Size: {formatSize(project.projectSizeBytes)}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Zap className="h-3 w-3" />
+            <span className="font-mono text-[10px]">{project.slug}</span>
+          </div>
         </div>
       </div>
     </div>

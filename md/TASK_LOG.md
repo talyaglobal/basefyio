@@ -1,5 +1,32 @@
 # Task Log
 
+## 2026-04-08 (project auth providers visual logo refinement)
+- Verified project auth providers backend flow remains unchanged (provider save/list endpoints and Keycloak IdP upsert/delete logic preserved).
+- Updated providers UI cards to use recognizable provider logos/icons (Google, Microsoft, Apple, GitHub, GitLab, LinkedIn, Facebook, Twitter/X) while keeping the same enable/save behavior.
+- Kept previous provider configuration logic intact: callback URL, client id/secret save flow, and enable/disable switch behavior remain compatible with existing infrastructure.
+
+## 2026-04-08 (projects grid/list creator datetime and size details)
+- Extended projects list API response to include creator identity (`createdByName`) and per-project database size (`projectSizeBytes`).
+- Updated `/dashboard/projects` grid cards to show:
+  - project creator,
+  - created date/time,
+  - project size.
+- Updated `/dashboard/projects` list view rows to show the same metadata for each project entry.
+
+## 2026-04-08 (prod supabase import queue auto-resume)
+- Added auto-resume guard in Supabase import enqueue flow (`SupabaseImportService.importProject`).
+- Before adding a new `supabase-import` job, system now checks whether the `import` queue is paused and resumes it automatically.
+- Purpose: prevent production imports from getting stuck at `Queued, waiting for worker...` after restart/deploy/managed Redis pause scenarios.
+
+## 2026-04-08 (supabase-like sign-in providers extended for project auth)
+- Expanded project-level auth provider support from 2 providers to 8 providers:
+  - Google, Microsoft, Apple, GitHub, GitLab, LinkedIn, Facebook, Twitter.
+- Updated project auth providers UI to render a Supabase-like provider list dynamically from provider definitions.
+- Added backend provider mapping for Keycloak IdP upsert/delete with provider-specific `providerId` and default scopes.
+- Extended project auth config sanitization and frontend type contracts for all new provider enabled/client id/client secret fields.
+- Added new Prisma migration to store new provider configuration columns in `project_auth_configs`.
+- Extended providers callback URL response to include all supported providers per project.
+
 ## 2026-04-08 (session stability hardening - avoid random logout)
 - Updated API 401 handling to avoid immediate logout on transient refresh failures (network/proxy/server hiccups).
 - Session is now cleared only on definitive refresh auth failures (`400/401` from refresh endpoint).

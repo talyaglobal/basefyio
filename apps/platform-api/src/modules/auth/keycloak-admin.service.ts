@@ -15,6 +15,16 @@ export interface ProjectClients {
   serviceKey: string;
 }
 
+type SupportedIdpProvider =
+  | 'google'
+  | 'microsoft'
+  | 'apple'
+  | 'github'
+  | 'gitlab'
+  | 'linkedin'
+  | 'facebook'
+  | 'twitter';
+
 @Injectable()
 export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
@@ -792,7 +802,7 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async upsertIdentityProvider(
     realmName: string,
-    provider: 'google' | 'github',
+    provider: SupportedIdpProvider,
     clientId: string,
     clientSecret: string,
     redirectUri: string,
@@ -801,7 +811,24 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAutoLinkFlow(realmName);
 
     const alias = provider;
-    const providerId = provider === 'github' ? 'github' : 'google';
+    const map: Record<
+      SupportedIdpProvider,
+      { providerId: string; scope: string; extraConfig?: Record<string, string> }
+    > = {
+      google: {
+        providerId: 'google',
+        scope: 'openid email profile',
+        extraConfig: { prompt: 'login', max_age: '0' },
+      },
+      microsoft: { providerId: 'microsoft', scope: 'openid email profile' },
+      apple: { providerId: 'apple', scope: 'openid email name' },
+      github: { providerId: 'github', scope: 'user:email' },
+      gitlab: { providerId: 'gitlab', scope: 'read_user openid profile email' },
+      linkedin: { providerId: 'linkedin-openid', scope: 'openid profile email' },
+      facebook: { providerId: 'facebook', scope: 'email public_profile' },
+      twitter: { providerId: 'twitter', scope: 'users.read tweet.read offline.access' },
+    };
+    const resolved = map[provider];
     const flowAlias = KeycloakAdminService.AUTO_LINK_FLOW_ALIAS;
     const baseUrl = this.config.get<string>('keycloak.url');
     const adminToken = await this.getAdminAccessToken();
@@ -810,14 +837,15 @@ export class KeycloakAdminService implements OnModuleInit {
 
     const idpBody = {
       alias,
-      providerId,
+      providerId: resolved.providerId,
       enabled: true,
       trustEmail: true,
       firstBrokerLoginFlowAlias: flowAlias,
       config: {
         clientId,
         clientSecret,
-        defaultScope: provider === 'google' ? 'openid email profile' : 'user:email',
+        defaultScope: resolved.scope,
+        ...(resolved.extraConfig || {}),
       },
     };
 
@@ -831,7 +859,7 @@ export class KeycloakAdminService implements OnModuleInit {
     }
   }
 
-  async deleteIdentityProvider(realmName: string, provider: 'google' | 'github') {
+  async deleteIdentityProvider(realmName: string, provider: SupportedIdpProvider) {
     await this.ensureAuth();
     try {
       await this.client.identityProviders.del({ realm: realmName, alias: provider });

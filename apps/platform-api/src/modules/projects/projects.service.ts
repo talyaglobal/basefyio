@@ -162,7 +162,7 @@ export class ProjectsService {
   async findAll(teamId: string, userId: string) {
     await this.assertTeamMember(teamId, userId);
 
-    return this.prisma.project.findMany({
+    const projects = await this.prisma.project.findMany({
       where: { teamId, status: { not: 'DELETED' } },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -178,10 +178,80 @@ export class ProjectsService {
             tag: { select: { id: true, name: true, color: true } },
           },
         },
+        createdBy: true,
+        dbName: true,
         createdAt: true,
         updatedAt: true,
       },
     });
+
+    const creatorIds = Array.from(
+      new Set(
+        projects
+          .map((project) => project.createdBy)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    const creators =
+      creatorIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: creatorIds } },
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          })
+        : [];
+    const creatorById = new Map(
+      creators.map((creator) => {
+        const fullName = [creator.firstName, creator.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const displayName = fullName || creator.username || creator.email;
+        return [creator.id, displayName] as const;
+      }),
+    );
+
+    const dbSizeByName = new Map<string, number>();
+    const dbNames = Array.from(new Set(projects.map((project) => project.dbName)));
+    if (dbNames.length > 0) {
+      try {
+        const pool = this.getAdminPool();
+        const client = await pool.connect();
+        try {
+          const result = await client.query<{
+            datname: string;
+            size_bytes: string;
+          }>(
+            `
+              SELECT datname, pg_database_size(datname)::bigint AS size_bytes
+              FROM pg_database
+              WHERE datname = ANY($1::text[])
+            `,
+            [dbNames],
+          );
+          for (const row of result.rows) {
+            dbSizeByName.set(row.datname, Number(row.size_bytes));
+          }
+        } finally {
+          client.release();
+          await pool.end();
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to resolve project DB sizes: ${err.message}`);
+      }
+    }
+
+    return projects.map(({ createdBy, dbName, ...project }) => ({
+      ...project,
+      createdBy,
+      createdByName: createdBy ? creatorById.get(createdBy) ?? null : null,
+      projectSizeBytes: dbSizeByName.get(dbName) ?? null,
+    }));
   }
 
   async update(

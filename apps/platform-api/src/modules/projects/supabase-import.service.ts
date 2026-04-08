@@ -197,6 +197,17 @@ export class SupabaseImportService {
       preserveProjectOnCancel,
     };
 
+    // Managed Redis/BullMQ deployments may leave queues paused after restarts.
+    // Ensure the import queue is resumed before enqueueing a new job.
+    try {
+      const paused = await this.importQueue.isPaused();
+      if (paused) {
+        await this.importQueue.resume();
+      }
+    } catch {
+      // Ignore queue state probe failures; add() below still reports actual enqueue errors.
+    }
+
     const job = await this.importQueue.add('supabase-import', jobData, {
       attempts: 1,
       removeOnComplete: { age: 3600 },

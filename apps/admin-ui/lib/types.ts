@@ -135,6 +135,9 @@ export interface ProjectListItem {
   folderId: string | null;
   folder?: { id: string; name: string; color: string } | null;
   tags?: { tag: { id: string; name: string; color: string } }[];
+  createdBy?: string | null;
+  createdByName?: string | null;
+  projectSizeBytes?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -415,6 +418,24 @@ export interface ProjectAuthConfig {
   githubEnabled: boolean;
   githubClientId: string | null;
   githubClientSecret: string | null;
+  microsoftEnabled: boolean;
+  microsoftClientId: string | null;
+  microsoftClientSecret: string | null;
+  appleEnabled: boolean;
+  appleClientId: string | null;
+  appleClientSecret: string | null;
+  gitlabEnabled: boolean;
+  gitlabClientId: string | null;
+  gitlabClientSecret: string | null;
+  linkedinEnabled: boolean;
+  linkedinClientId: string | null;
+  linkedinClientSecret: string | null;
+  facebookEnabled: boolean;
+  facebookClientId: string | null;
+  facebookClientSecret: string | null;
+  twitterEnabled: boolean;
+  twitterClientId: string | null;
+  twitterClientSecret: string | null;
 }
 
 export interface ConnectionStrings {

@@ -112,6 +112,24 @@ export class ProjectAuthConfigService {
     result.githubEnabled = config.githubEnabled ?? false;
     result.githubClientId = config.githubClientId ?? null;
     result.githubClientSecret = config.githubClientSecret ? '••••••••' : null;
+    result.microsoftEnabled = config.microsoftEnabled ?? false;
+    result.microsoftClientId = config.microsoftClientId ?? null;
+    result.microsoftClientSecret = config.microsoftClientSecret ? '••••••••' : null;
+    result.appleEnabled = config.appleEnabled ?? false;
+    result.appleClientId = config.appleClientId ?? null;
+    result.appleClientSecret = config.appleClientSecret ? '••••••••' : null;
+    result.gitlabEnabled = config.gitlabEnabled ?? false;
+    result.gitlabClientId = config.gitlabClientId ?? null;
+    result.gitlabClientSecret = config.gitlabClientSecret ? '••••••••' : null;
+    result.linkedinEnabled = config.linkedinEnabled ?? false;
+    result.linkedinClientId = config.linkedinClientId ?? null;
+    result.linkedinClientSecret = config.linkedinClientSecret ? '••••••••' : null;
+    result.facebookEnabled = config.facebookEnabled ?? false;
+    result.facebookClientId = config.facebookClientId ?? null;
+    result.facebookClientSecret = config.facebookClientSecret ? '••••••••' : null;
+    result.twitterEnabled = config.twitterEnabled ?? false;
+    result.twitterClientId = config.twitterClientId ?? null;
+    result.twitterClientSecret = config.twitterClientSecret ? '••••••••' : null;
 
     return result;
   }
