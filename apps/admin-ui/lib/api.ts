@@ -493,6 +493,15 @@ export const api = {
         body: JSON.stringify({ supabaseUrl, serviceRoleKey }),
       });
     },
+    getImportJobStatus(jobId: string) {
+      return request<{
+        id: string;
+        state: string;
+        progress: any;
+        result?: any;
+        failedReason?: string;
+      }>(`/projects/import-supabase/jobs/${jobId}/status`);
+    },
     cancelImport(jobId: string) {
       return request<{ message: string }>(`/projects/import-supabase/jobs/${jobId}/cancel`, {
         method: 'POST',

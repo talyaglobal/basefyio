@@ -651,7 +651,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private async connectPoolWithRetry(pool: Pool, label: string, maxRetries = 5): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const client = await pool.connect();
+        this.logger.log(`DB pool "${label}" connect attempt ${attempt}/${maxRetries}...`);
+        const connectPromise = pool.connect();
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Connection to "${label}" timed out after 20s`)), 20_000),
+        );
+        const client = await Promise.race([connectPromise, timeoutPromise]);
         client.release();
         this.logger.log(`DB pool "${label}" connected (attempt ${attempt})`);
         return;
@@ -672,6 +677,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     progress: ImportProgress,
     onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
   ) {
+    this.logger.log(`Fetching OpenAPI spec from ${baseUrl}...`);
+    if (onProgress) {
+      await onProgress('Fetching database schema from Supabase...', 5);
+    }
     const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
     const tables = this.extractTablesFromOpenApi(openApi);
 
@@ -683,9 +692,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
+      connectionTimeoutMillis: 15_000,
+      statement_timeout: 120_000,
+      idle_in_transaction_session_timeout: 120_000,
     });
 
+    if (onProgress) {
+      await onProgress('Connecting to project database...', 6);
+    }
     await this.connectPoolWithRetry(pool, project.dbName);
+    this.logger.log(`Local project DB pool connected (${project.dbHost}:${project.dbPort}/${project.dbName})`);
 
     let sourcePool: Pool | null = null;
     const pwd: string | undefined = project.supabaseDatabasePassword;
@@ -693,6 +709,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (pwd) {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
       if (ref) {
+        if (onProgress) {
+          await onProgress(`Connecting to Supabase Postgres (db.${ref}.supabase.co)...`, 7);
+        }
         try {
           sourcePool = new Pool({
             host: `db.${ref}.supabase.co`,
@@ -702,6 +721,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             database: 'postgres',
             ssl: { rejectUnauthorized: false },
             max: 3,
+            connectionTimeoutMillis: 20_000,
+            statement_timeout: 120_000,
           });
           await this.connectPoolWithRetry(sourcePool, `supabase-remote-${ref}`);
           this.logger.log(
@@ -829,6 +850,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
+      connectionTimeoutMillis: 15_000,
+      statement_timeout: 120_000,
     });
 
     await this.connectPoolWithRetry(pool, `${project.dbName}-migrations`);

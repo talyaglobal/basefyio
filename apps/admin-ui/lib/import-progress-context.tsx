@@ -107,14 +107,23 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
   const [activeImport, setActiveImport] = useState<ActiveImport | null>(null);
   const [modalShowingImport, setModalShowingImport] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onCompletedRef = useRef<((data: ImportProgressData) => void) | null>(null);
   const [onReopenModal, setOnReopenModalState] = useState<(() => void) | null>(null);
   const resumedRef = useRef(false);
 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
   const dismiss = useCallback(() => {
     setActiveImport(null);
     clearPersistedJob();
-  }, []);
+    stopPolling();
+  }, [stopPolling]);
 
   const cancelImport = useCallback(async () => {
     const current = activeImportRef.current;
@@ -126,10 +135,11 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
 
     esRef.current?.close();
     esRef.current = null;
+    stopPolling();
     setActiveImport(null);
     clearPersistedJob();
     setModalShowingImport(false);
-  }, []);
+  }, [stopPolling]);
 
   const activeImportRef = useRef(activeImport);
   activeImportRef.current = activeImport;
@@ -149,6 +159,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
       projectId?: string,
     ) => {
     esRef.current?.close();
+    stopPolling();
     onCompleteCallbackRef.current = onComplete || null;
 
     const t0 = startedAt ?? Date.now();
@@ -165,6 +176,54 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
       status: 'running',
     });
 
+    const handleCompleted = (data: any) => {
+      try {
+        const rawProgress = data?.progress ?? data?.result ?? data;
+        const progress = normalizeImportProgressData(rawProgress);
+        if (projectId) {
+          try {
+            saveProjectSupabaseImportLog(projectId, progress);
+          } catch (saveErr) {
+            console.warn('[import-progress] Failed to save import log to localStorage:', saveErr);
+          }
+        }
+        setActiveImport((prev) => {
+          if (!prev || prev.jobId !== jobId) return prev;
+          return {
+            ...prev,
+            ...(projectId ? { projectId } : {}),
+            step: 'completed',
+            detail: 'Import complete',
+            percent: 100,
+            status: 'completed',
+            result: progress,
+          };
+        });
+        clearPersistedJob();
+        stopPolling();
+        onCompletedRef.current?.(progress);
+        onCompleteCallbackRef.current?.();
+      } catch (err) {
+        console.error('[import-progress] Error in onCompleted handler:', err);
+      }
+    };
+
+    const handleFailed = (error: string) => {
+      setActiveImport((prev) => {
+        if (!prev || prev.jobId !== jobId) return prev;
+        return {
+          ...prev,
+          step: 'failed',
+          detail: error,
+          percent: prev.percent,
+          status: 'failed',
+          error,
+        };
+      });
+      clearPersistedJob();
+      stopPolling();
+    };
+
     const es = api.projects.streamImportProgress(jobId, {
       onProgress: (data: ImportJobProgressEvent) => {
         setActiveImport((prev) => {
@@ -179,55 +238,62 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
         });
       },
       onCompleted: (data: any) => {
-        try {
-          const rawProgress = data?.progress ?? data?.result ?? data;
-          const progress = normalizeImportProgressData(rawProgress);
-          if (projectId) {
-            try {
-              saveProjectSupabaseImportLog(projectId, progress);
-            } catch (saveErr) {
-              console.warn('[import-progress] Failed to save import log to localStorage:', saveErr);
-            }
-          }
-          setActiveImport((prev) => {
-            if (!prev || prev.jobId !== jobId) return prev;
-            return {
-              ...prev,
-              ...(projectId ? { projectId } : {}),
-              step: 'completed',
-              detail: 'Import complete',
-              percent: 100,
-              status: 'completed',
-              result: progress,
-            };
-          });
-          clearPersistedJob();
-          onCompletedRef.current?.(progress);
-          onCompleteCallbackRef.current?.();
-        } catch (err) {
-          console.error('[import-progress] Error in onCompleted handler:', err);
-        }
+        handleCompleted(data);
         es.close();
       },
       onFailed: (error: string) => {
-        setActiveImport((prev) => {
-          if (!prev || prev.jobId !== jobId) return prev;
-          return {
-            ...prev,
-            step: 'failed',
-            detail: error,
-            percent: prev.percent,
-            status: 'failed',
-            error,
-          };
-        });
-        clearPersistedJob();
+        handleFailed(error);
         es.close();
       },
     });
 
     esRef.current = es;
-  }, []);
+
+    pollRef.current = setInterval(async () => {
+      const current = activeImportRef.current;
+      if (!current || current.status !== 'running' || current.jobId !== jobId) {
+        stopPolling();
+        return;
+      }
+      try {
+        const status = await api.projects.getImportJobStatus(jobId);
+        if (!status) return;
+
+        if (status.state === 'completed') {
+          const resultData = status.result ?? status.progress;
+          handleCompleted(resultData);
+          esRef.current?.close();
+          return;
+        }
+
+        if (status.state === 'failed') {
+          handleFailed(status.failedReason || 'Import failed');
+          esRef.current?.close();
+          return;
+        }
+
+        if (status.progress && typeof status.progress === 'object') {
+          const p = status.progress as any;
+          if (p.step && p.detail) {
+            setActiveImport((prev) => {
+              if (!prev || prev.jobId !== jobId || prev.status !== 'running') return prev;
+              const newPercent = p.percent ?? prev.percent;
+              if (newPercent <= prev.percent && p.detail === prev.detail) return prev;
+              return {
+                ...prev,
+                step: p.step,
+                detail: p.detail,
+                percent: newPercent,
+                ...(p.strategy ? { strategy: p.strategy } : {}),
+              };
+            });
+          }
+        }
+      } catch {
+        // Polling error — SSE may still be working, ignore
+      }
+    }, 3000);
+  }, [stopPolling]);
 
   useEffect(() => {
     if (resumedRef.current) return;

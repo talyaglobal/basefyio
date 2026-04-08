@@ -1,12 +1,17 @@
 # Task Log
 
-## 2026-04-08 (production import queue definitive fix - enableReadyCheck + stale job recovery)
-- **Root cause identified**: `enableReadyCheck` (ioredis default) causes BullMQ Worker to hang on Redis connect when Redis is slow to respond after Docker restart. Queue (enqueue) side works with a separate connection, so jobs get added but Worker never picks them up.
-- **Secondary cause**: Stale "active" jobs from previous container instances remain in Redis after restart, consuming all concurrency slots (`concurrency: 2`). New Worker can't process waiting jobs because the active count already equals the limit.
-- **Fix 1 — Redis connection** (`queue.module.ts`): Added `enableReadyCheck: false` and `enableOfflineQueue: true` to the shared BullMQ Redis connection config. This prevents the Worker from hanging during Redis connection establishment.
-- **Fix 2 — Stale job cleanup** (`import.processor.ts` + `supabase-import.service.ts`): On startup (`onModuleInit`), all "active" import jobs are moved to "failed" since they are guaranteed to be orphans from a previous container instance. Worker `onReady` event also runs recovery as a safety net.
-- **Fix 3 — Periodic health monitor** (`supabase-import.service.ts`): A 60-second interval monitors the import queue — auto-resumes if paused, force-fails any active jobs running beyond the 50-minute threshold, and logs queue state for diagnostics.
-- **Fix 4 — Worker tuning** (`import.processor.ts` + `export.processor.ts`): Set explicit `lockDuration: 60s`, `stalledInterval: 15s`, `maxStalledCount: 2` for faster stalled job detection. Applied same pattern to ExportProcessor for consistency.
+## 2026-04-08 (production import queue definitive fix - enableReadyCheck + stale job recovery + Pool timeouts)
+- **Root cause 1**: `enableReadyCheck` (ioredis default) causes BullMQ Worker to hang on Redis connect when Redis is slow to respond after Docker restart. Queue (enqueue) side works with a separate connection, so jobs get added but Worker never picks them up.
+- **Root cause 2**: Stale "active" jobs from previous container instances remain in Redis after restart, consuming all concurrency slots (`concurrency: 2`). New Worker can't process waiting jobs because the active count already equals the limit.
+- **Root cause 3**: All `pg.Pool` instances had no `connectionTimeoutMillis` — in production if outbound port 5432 is blocked (direct Supabase Postgres) or the local DB is slow to respond, the pool connection hangs indefinitely, blocking the entire import.
+- **Root cause 4**: Import progress relied 100% on SSE with no REST fallback polling. In production, Traefik/proxy can interrupt SSE streams, leaving the frontend stuck showing stale progress.
+- **Fix 1 — Redis connection** (`queue.module.ts`): Added `enableReadyCheck: false` and `enableOfflineQueue: true`.
+- **Fix 2 — Stale job cleanup** (`import.processor.ts` + `supabase-import.service.ts`): On startup (`onModuleInit`) + worker `onReady`, all stale "active" import jobs are moved to "failed".
+- **Fix 3 — Periodic health monitor** (`supabase-import.service.ts`): 60-second interval auto-resumes paused queues and force-fails active jobs exceeding 50-minute threshold.
+- **Fix 4 — Worker tuning** (`import.processor.ts` + `export.processor.ts`): Set explicit `lockDuration: 60s`, `stalledInterval: 15s`, `maxStalledCount: 2`.
+- **Fix 5 — Pool connection timeouts** (`supabase-import.service.ts`): All 3 `pg.Pool` instances now have `connectionTimeoutMillis: 15000` (local DB) or `20000` (Supabase remote). Added `statement_timeout: 120000` safety net. `connectPoolWithRetry` now uses `Promise.race` with 20s hard timeout per attempt.
+- **Fix 6 — Granular progress events**: Added progress updates before each potentially-hanging operation (fetching schema, connecting to project DB, connecting to Supabase Postgres) so the frontend shows what's happening.
+- **Fix 7 — Frontend fallback polling** (`import-progress-context.tsx`): Added `getImportJobStatus` REST API function and a 3-second polling interval alongside SSE. If SSE drops, REST polling keeps the UI updated. Completion/failure detected from either channel.
 
 ## 2026-04-08 (project auth providers visual logo refinement)
 - Verified project auth providers backend flow remains unchanged (provider save/list endpoints and Keycloak IdP upsert/delete logic preserved).
