@@ -1,5 +1,15 @@
 # Task Log
 
+## 2026-04-08 (management tab order update)
+- Reordered `/dashboard/management` top tabs.
+- `Permissions` tab is now rendered first.
+- `Audit Logs` tab is now always rendered as the last tab.
+
+## 2026-04-08 (audit logs persistence fix)
+- Reworked API `AuditLogInterceptor` to persist request audits into `audit_logs` table (not only console output).
+- Added success/failure logging for intercepted endpoints with traceId, actor role, action, resource type, latency, and status code metadata.
+- This fixes empty `No audit records yet` view by ensuring project/integration/sql flows write DB audit entries.
+
 ## 2026-04-08 (project re-import source-based button)
 - Added project-level `importSource` tracking (`MANUAL`, `SUPABASE`, `ZIP`) in backend project creation flow.
 - Supabase-created projects now store `SUPABASE`, ZIP-created projects now store `ZIP`, manual projects remain `MANUAL`.

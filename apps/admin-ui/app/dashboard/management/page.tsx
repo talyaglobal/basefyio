@@ -304,6 +304,19 @@ export default function ManagementPage() {
       </div>
 
       <div className="inline-flex rounded-lg border bg-muted p-1">
+        {isRoot && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'permissions'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('permissions')}
+        >
+          Permissions
+        </button>
+        )}
         {(managementPermissions?.canManageUsers || isRoot) && (
         <button
           type="button"
@@ -354,19 +367,6 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('audit')}
         >
           Audit Logs
-        </button>
-        )}
-        {isRoot && (
-        <button
-          type="button"
-          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-            activeTab === 'permissions'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('permissions')}
-        >
-          Permissions
         </button>
         )}
       </div>
