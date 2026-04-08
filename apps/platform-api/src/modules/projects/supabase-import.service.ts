@@ -20,6 +20,7 @@ import { StorageService } from '../storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
+import { ProjectActivityKind, ProjectActivityService } from './project-activity.service';
 
 /** Known built-in PostgreSQL base type identifiers (without [] suffix).
  *  Anything NOT in this set is treated as a custom/enum type and falls back
@@ -98,8 +99,30 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     private readonly keycloak: KeycloakAdminService,
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
+    private readonly activity: ProjectActivityService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
   ) {}
+
+  private async notifyAutoCancelledJob(
+    job: { id?: string | number; data?: Partial<ImportJobData> },
+    reason: string,
+  ) {
+    const projectId = job.data?.projectId;
+    if (!projectId) return;
+    await this.activity.append(projectId, {
+      userId: job.data?.userId ?? null,
+      kind: ProjectActivityKind.SUPABASE_IMPORT_CANCELLED,
+      title: 'Supabase import auto-cancelled',
+      detail: reason,
+      metadata: {
+        reason,
+        autoCancelled: true,
+        source: 'queue-recovery',
+        jobId: String(job.id ?? ''),
+        projectName: job.data?.projectName ?? null,
+      },
+    });
+  }
 
   async onModuleInit() {
     await this.cleanStaleActiveJobs();
@@ -129,6 +152,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             true,
           );
           cleaned++;
+          await this.notifyAutoCancelledJob(
+            job,
+            'A previous import worker instance stopped unexpectedly. This queued import was auto-cancelled and can be retried safely.',
+          );
           this.logger.warn(
             `Cleaned stale active import job ${job.id} (project: ${job.data?.projectName ?? 'unknown'})`,
           );
@@ -169,6 +196,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
                 new Error('Import job exceeded maximum runtime (health monitor)'),
                 job.token || '0',
                 true,
+              );
+              await this.notifyAutoCancelledJob(
+                job,
+                'Import exceeded runtime limit and was auto-cancelled by health monitor. Please retry the import.',
               );
               this.logger.warn(`Force-failed stuck import job ${job.id} (active for ${Math.round((now - processedOn) / 60_000)} min)`);
             } catch {

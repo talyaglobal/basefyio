@@ -1,7 +1,6 @@
-import { InjectQueue } from '@nestjs/bullmq';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
-import { Job, Queue } from 'bullmq';
+import { Job } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseImportService, ImportProgress } from '../projects/supabase-import.service';
@@ -61,42 +60,18 @@ export class ImportProcessor extends WorkerHost {
     private readonly importService: SupabaseImportService,
     private readonly prisma: PrismaService,
     private readonly activity: ProjectActivityService,
-    @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
   ) {
     super();
   }
 
   @OnWorkerEvent('ready')
-  async onReady() {
+  onReady() {
     this.logger.log('Supabase import worker is ready');
-    await this.recoverStaleActiveJobs();
   }
 
   @OnWorkerEvent('error')
   onError(error: Error) {
     this.logger.error(`Supabase import worker error: ${error.message}`, error.stack);
-  }
-
-  private async recoverStaleActiveJobs() {
-    try {
-      const active = await this.importQueue.getActive();
-      if (active.length === 0) return;
-      for (const job of active) {
-        try {
-          await job.moveToFailed(
-            new Error('Stale import job recovered after server restart'),
-            job.token || '0',
-            true,
-          );
-          this.logger.warn(`Cleaned stale active import job ${job.id} (project: ${job.data?.projectName})`);
-        } catch (err: any) {
-          this.logger.warn(`Could not clean stale job ${job.id}: ${err.message}`);
-        }
-      }
-      this.logger.warn(`Recovered ${active.length} stale active import job(s) on worker startup`);
-    } catch (err: any) {
-      this.logger.warn(`Failed to recover stale active jobs: ${err.message}`);
-    }
   }
 
   async process(job: Job<ImportJobData>): Promise<ImportProgress> {

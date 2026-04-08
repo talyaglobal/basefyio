@@ -1,5 +1,20 @@
 # Task Log
 
+## 2026-04-08 (ui notification for auto-cancelled stale imports)
+- Added user-facing warning toast in `import-progress-context` when an import fails due to stale-worker auto-cancel scenarios.
+- Detection covers backend recovery reasons (`stale import`, `health monitor`, `auto-cancelled`, `recovered after server restart`).
+- Added dedupe guard so the same job shows the warning toast only once.
+- Rebuilt Docker stack after UI change.
+
+## 2026-04-08 (auto-cancel stale import jobs with user notification)
+- Updated stale import recovery to always auto-cancel orphaned `active` jobs from previous worker instances.
+- Added per-job user-facing notification via `ProjectActivityService` (`supabase_import.cancelled`) with `autoCancelled: true` metadata.
+- Notification is attributed to the original job owner (`userId`) so the relevant user receives realtime project activity updates.
+- Added explicit auto-cancel reasons for both:
+  - startup stale-job cleanup,
+  - health-monitor runtime over-limit cancellations.
+- Kept queue self-healing behavior (`resume`, stalled detection) and rebuilt Docker stack to apply changes.
+
 ## 2026-04-08 (production import queue definitive fix - enableReadyCheck + stale job recovery + Pool timeouts)
 - **Root cause 1**: `enableReadyCheck` (ioredis default) causes BullMQ Worker to hang on Redis connect when Redis is slow to respond after Docker restart. Queue (enqueue) side works with a separate connection, so jobs get added but Worker never picks them up.
 - **Root cause 2**: Stale "active" jobs from previous container instances remain in Redis after restart, consuming all concurrency slots (`concurrency: 2`). New Worker can't process waiting jobs because the active count already equals the limit.

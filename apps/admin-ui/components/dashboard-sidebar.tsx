@@ -62,7 +62,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
     isActive: (p) => p.startsWith('/dashboard/billing'),
   },
   {
-    href: '/dashboard/profile',
+    href: '/dashboard/account',
     label: 'Account',
     icon: UserCircle,
     isActive: (p) =>

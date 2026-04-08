@@ -8,6 +8,7 @@ import {
   type ImportJobProgressEvent,
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from './import-log-storage';
+import { toast } from 'sonner';
 
 const STORAGE_KEY = 'kolaybase_active_import';
 
@@ -111,6 +112,17 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
   const onCompletedRef = useRef<((data: ImportProgressData) => void) | null>(null);
   const [onReopenModal, setOnReopenModalState] = useState<(() => void) | null>(null);
   const resumedRef = useRef(false);
+  const lastAutoCancelToastJobRef = useRef<string | null>(null);
+
+  const isAutoCancelledFailure = useCallback((error: string) => {
+    const value = (error || '').toLowerCase();
+    return (
+      value.includes('auto-cancelled') ||
+      value.includes('stale import job') ||
+      value.includes('health monitor') ||
+      value.includes('recovered after server restart')
+    );
+  }, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -222,6 +234,12 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
       });
       clearPersistedJob();
       stopPolling();
+      if (isAutoCancelledFailure(error) && lastAutoCancelToastJobRef.current !== jobId) {
+        lastAutoCancelToastJobRef.current = jobId;
+        toast.warning('Previous stuck import was auto-cancelled', {
+          description: 'Your import worker recovered old queue items. Please retry this import.',
+        });
+      }
     };
 
     const es = api.projects.streamImportProgress(jobId, {
@@ -293,7 +311,7 @@ export function ImportProgressProvider({ children }: { children: ReactNode }) {
         // Polling error — SSE may still be working, ignore
       }
     }, 3000);
-  }, [stopPolling]);
+  }, [isAutoCancelledFailure, stopPolling]);
 
   useEffect(() => {
     if (resumedRef.current) return;
