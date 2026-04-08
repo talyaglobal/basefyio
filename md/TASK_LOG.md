@@ -5,6 +5,11 @@
 - Updated providers UI cards to use recognizable provider logos/icons (Google, Microsoft, Apple, GitHub, GitLab, LinkedIn, Facebook, Twitter/X) while keeping the same enable/save behavior.
 - Kept previous provider configuration logic intact: callback URL, client id/secret save flow, and enable/disable switch behavior remain compatible with existing infrastructure.
 
+## 2026-04-08 (production supabase import queue self-heal hardening)
+- Added explicit `@Injectable()` to `ImportProcessor` and worker lifecycle logging (`ready`, `error`) to ensure worker registration/diagnostics are stable in production.
+- Added import queue health guard `ensureImportQueueRunning()` in `SupabaseImportService`.
+- Queue health guard now runs before enqueue (forced) and on status checks (throttled) to auto-resume paused `import` queues and reduce `Queued, waiting for worker...` deadlock scenarios.
+
 ## 2026-04-08 (projects grid/list creator datetime and size details)
 - Extended projects list API response to include creator identity (`createdByName`) and per-project database size (`projectSizeBytes`).
 - Updated `/dashboard/projects` grid cards to show:

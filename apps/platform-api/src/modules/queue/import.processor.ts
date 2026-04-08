@@ -1,5 +1,5 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -46,6 +46,7 @@ export interface ImportJobProgress {
   strategy?: string;
 }
 
+@Injectable()
 @Processor(IMPORT_QUEUE, { concurrency: 2 })
 export class ImportProcessor extends WorkerHost {
   private readonly logger = new Logger(ImportProcessor.name);
@@ -56,6 +57,16 @@ export class ImportProcessor extends WorkerHost {
     private readonly activity: ProjectActivityService,
   ) {
     super();
+  }
+
+  @OnWorkerEvent('ready')
+  onReady() {
+    this.logger.log('Supabase import worker is ready');
+  }
+
+  @OnWorkerEvent('error')
+  onError(error: Error) {
+    this.logger.error(`Supabase import worker error: ${error.message}`, error.stack);
   }
 
   async process(job: Job<ImportJobData>): Promise<ImportProgress> {

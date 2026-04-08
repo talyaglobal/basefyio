@@ -85,6 +85,7 @@ interface SupabaseStorageObject {
 export class SupabaseImportService {
   private readonly logger = new Logger(SupabaseImportService.name);
   private readonly cancelledJobs = new Set<string>();
+  private lastQueueHealthCheckAt = 0;
 
   constructor(
     private readonly http: HttpService,
@@ -103,6 +104,23 @@ export class SupabaseImportService {
   private markJobCancelled(jobId: string) {
     this.cancelledJobs.add(jobId);
     setTimeout(() => this.cancelledJobs.delete(jobId), 5 * 60 * 1000);
+  }
+
+  private async ensureImportQueueRunning(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastQueueHealthCheckAt < 10_000) {
+      return;
+    }
+    this.lastQueueHealthCheckAt = now;
+    try {
+      const paused = await this.importQueue.isPaused();
+      if (paused) {
+        this.logger.warn('Import queue was paused; resuming automatically');
+        await this.importQueue.resume();
+      }
+    } catch (err: any) {
+      this.logger.warn(`Import queue health check failed: ${err.message}`);
+    }
   }
 
   /**
@@ -198,15 +216,8 @@ export class SupabaseImportService {
     };
 
     // Managed Redis/BullMQ deployments may leave queues paused after restarts.
-    // Ensure the import queue is resumed before enqueueing a new job.
-    try {
-      const paused = await this.importQueue.isPaused();
-      if (paused) {
-        await this.importQueue.resume();
-      }
-    } catch {
-      // Ignore queue state probe failures; add() below still reports actual enqueue errors.
-    }
+    // Self-heal queue state before enqueue.
+    await this.ensureImportQueueRunning(true);
 
     const job = await this.importQueue.add('supabase-import', jobData, {
       attempts: 1,
@@ -312,6 +323,7 @@ export class SupabaseImportService {
   }
 
   async getJobStatus(jobId: string) {
+    await this.ensureImportQueueRunning();
     const job = await this.importQueue.getJob(jobId);
     if (!job) return null;
 
