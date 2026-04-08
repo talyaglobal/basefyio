@@ -1,6 +1,6 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { createWriteStream } from 'fs';
@@ -52,7 +52,12 @@ export interface ExportJobResult {
 }
 
 @Injectable()
-@Processor(EXPORT_QUEUE, { concurrency: 1 })
+@Processor(EXPORT_QUEUE, {
+  concurrency: 1,
+  lockDuration: 60_000,
+  stalledInterval: 15_000,
+  maxStalledCount: 2,
+})
 export class ExportProcessor extends WorkerHost {
   private readonly logger = new Logger(ExportProcessor.name);
   private readonly exportBucket = 'kb-platform-exports';
@@ -63,8 +68,37 @@ export class ExportProcessor extends WorkerHost {
     private readonly storage: StorageService,
     private readonly keycloak: KeycloakAdminService,
     private readonly activity: ProjectActivityService,
+    @InjectQueue(EXPORT_QUEUE) private readonly exportQueue: Queue,
   ) {
     super();
+  }
+
+  @OnWorkerEvent('ready')
+  async onReady() {
+    this.logger.log('Export worker is ready');
+    try {
+      const active = await this.exportQueue.getActive();
+      for (const job of active) {
+        try {
+          await job.moveToFailed(
+            new Error('Stale export job recovered after server restart'),
+            job.token || '0',
+            true,
+          );
+          this.logger.warn(`Cleaned stale active export job ${job.id}`);
+        } catch {}
+      }
+      if (active.length > 0) {
+        this.logger.warn(`Recovered ${active.length} stale active export job(s)`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Export stale job cleanup failed: ${err.message}`);
+    }
+  }
+
+  @OnWorkerEvent('error')
+  onError(error: Error) {
+    this.logger.error(`Export worker error: ${error.message}`, error.stack);
   }
 
   async process(job: Job<ExportJobData>): Promise<ExportJobResult> {

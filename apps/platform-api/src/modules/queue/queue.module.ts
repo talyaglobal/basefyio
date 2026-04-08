@@ -29,8 +29,9 @@ export const EXPORT_QUEUE = 'export';
             password: url.password || undefined,
             db,
             ...(isTls ? { tls: {} } : {}),
-            // Required by BullMQ workers on some managed Redis providers.
             maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+            enableOfflineQueue: true,
           },
         };
       },

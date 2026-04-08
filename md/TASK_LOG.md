@@ -1,5 +1,13 @@
 # Task Log
 
+## 2026-04-08 (production import queue definitive fix - enableReadyCheck + stale job recovery)
+- **Root cause identified**: `enableReadyCheck` (ioredis default) causes BullMQ Worker to hang on Redis connect when Redis is slow to respond after Docker restart. Queue (enqueue) side works with a separate connection, so jobs get added but Worker never picks them up.
+- **Secondary cause**: Stale "active" jobs from previous container instances remain in Redis after restart, consuming all concurrency slots (`concurrency: 2`). New Worker can't process waiting jobs because the active count already equals the limit.
+- **Fix 1 — Redis connection** (`queue.module.ts`): Added `enableReadyCheck: false` and `enableOfflineQueue: true` to the shared BullMQ Redis connection config. This prevents the Worker from hanging during Redis connection establishment.
+- **Fix 2 — Stale job cleanup** (`import.processor.ts` + `supabase-import.service.ts`): On startup (`onModuleInit`), all "active" import jobs are moved to "failed" since they are guaranteed to be orphans from a previous container instance. Worker `onReady` event also runs recovery as a safety net.
+- **Fix 3 — Periodic health monitor** (`supabase-import.service.ts`): A 60-second interval monitors the import queue — auto-resumes if paused, force-fails any active jobs running beyond the 50-minute threshold, and logs queue state for diagnostics.
+- **Fix 4 — Worker tuning** (`import.processor.ts` + `export.processor.ts`): Set explicit `lockDuration: 60s`, `stalledInterval: 15s`, `maxStalledCount: 2` for faster stalled job detection. Applied same pattern to ExportProcessor for consistency.
+
 ## 2026-04-08 (project auth providers visual logo refinement)
 - Verified project auth providers backend flow remains unchanged (provider save/list endpoints and Keycloak IdP upsert/delete logic preserved).
 - Updated providers UI cards to use recognizable provider logos/icons (Google, Microsoft, Apple, GitHub, GitLab, LinkedIn, Facebook, Twitter/X) while keeping the same enable/save behavior.

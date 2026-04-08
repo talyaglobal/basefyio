@@ -3,6 +3,8 @@ import {
   Logger,
   BadRequestException,
   ForbiddenException,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -82,10 +84,12 @@ interface SupabaseStorageObject {
 }
 
 @Injectable()
-export class SupabaseImportService {
+export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SupabaseImportService.name);
   private readonly cancelledJobs = new Set<string>();
   private lastQueueHealthCheckAt = 0;
+  private healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
+  private static readonly STALE_JOB_THRESHOLD_MS = 50 * 60 * 1000; // 50 min (job timeout is 45 min)
 
   constructor(
     private readonly http: HttpService,
@@ -96,6 +100,87 @@ export class SupabaseImportService {
     private readonly prisma: PrismaService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
   ) {}
+
+  async onModuleInit() {
+    await this.cleanStaleActiveJobs();
+    this.startQueueHealthMonitor();
+  }
+
+  onModuleDestroy() {
+    if (this.healthMonitorInterval) {
+      clearInterval(this.healthMonitorInterval);
+      this.healthMonitorInterval = null;
+    }
+  }
+
+  private async cleanStaleActiveJobs() {
+    try {
+      const active = await this.importQueue.getActive();
+      if (active.length === 0) {
+        this.logger.log('Import queue: no stale active jobs on startup');
+        return;
+      }
+      let cleaned = 0;
+      for (const job of active) {
+        try {
+          await job.moveToFailed(
+            new Error('Stale import job recovered after server restart'),
+            job.token || '0',
+            true,
+          );
+          cleaned++;
+          this.logger.warn(
+            `Cleaned stale active import job ${job.id} (project: ${job.data?.projectName ?? 'unknown'})`,
+          );
+        } catch {
+          // Job may have already been handled by the worker's stalled checker
+        }
+      }
+      if (cleaned > 0) {
+        this.logger.warn(`Cleaned ${cleaned} stale active import job(s) on startup`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to clean stale active jobs on startup: ${err.message}`);
+    }
+  }
+
+  private startQueueHealthMonitor() {
+    this.healthMonitorInterval = setInterval(async () => {
+      try {
+        await this.ensureImportQueueRunning(true);
+
+        const [activeJobs, waitingCount] = await Promise.all([
+          this.importQueue.getActive(),
+          this.importQueue.getWaitingCount(),
+        ]);
+
+        if (waitingCount > 0 || activeJobs.length > 0) {
+          this.logger.log(
+            `Import queue health: active=${activeJobs.length}, waiting=${waitingCount}`,
+          );
+        }
+
+        const now = Date.now();
+        for (const job of activeJobs) {
+          const processedOn = job.processedOn || job.timestamp || 0;
+          if (processedOn && now - processedOn > SupabaseImportService.STALE_JOB_THRESHOLD_MS) {
+            try {
+              await job.moveToFailed(
+                new Error('Import job exceeded maximum runtime (health monitor)'),
+                job.token || '0',
+                true,
+              );
+              this.logger.warn(`Force-failed stuck import job ${job.id} (active for ${Math.round((now - processedOn) / 60_000)} min)`);
+            } catch {
+              // Job may have already completed or been handled
+            }
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Import queue health monitor error: ${err.message}`);
+      }
+    }, 60_000);
+  }
 
   isJobCancelled(jobId: string): boolean {
     return this.cancelledJobs.has(jobId);
