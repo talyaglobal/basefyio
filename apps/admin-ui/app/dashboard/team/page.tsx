@@ -360,6 +360,35 @@ export default function TeamSettingsPage() {
     }
   }
 
+  async function handleDeleteTeam() {
+    if (!activeTeamId) return;
+    if (
+      !confirm(
+        'Delete this team? Team must not have projects. This action cannot be undone.',
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const deletedId = activeTeamId;
+      await api.teams.deleteTeam(deletedId);
+      const teams = await api.teams.list();
+      if (teams.length > 0) {
+        const nextTeamId = teams[0].id;
+        await api.teams.setActive(nextTeamId);
+        setActiveTeamId(nextTeamId);
+      } else {
+        setActiveTeamId('');
+      }
+      refreshTeams();
+      toast.success('Team deleted');
+      router.push('/dashboard/projects');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete team');
+    }
+  }
+
   async function handleRemove(userId: string, username: string) {
     if (!activeTeamId || !confirm(`Remove "${username}" from this team?`)) return;
     try {
@@ -543,6 +572,17 @@ export default function TeamSettingsPage() {
           ) : (
             <p className="text-sm font-medium">{teamName}</p>
           )}
+          <div className="pt-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteTeam}
+              disabled={members.length === 0}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete Team
+            </Button>
+          </div>
         </div>
       )}
 

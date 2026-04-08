@@ -315,4 +315,39 @@ export class TeamsController {
       throw err;
     }
   }
+
+  @Delete(':id')
+  async deleteTeam(
+    @Req() req: RequestWithTraceId,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const startedAt = Date.now();
+    try {
+      const result = await this.teamsService.deleteTeam(id, user.sub);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_DELETED_BY_OWNER',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'CRITICAL',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_DELETED_BY_OWNER',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  }
 }

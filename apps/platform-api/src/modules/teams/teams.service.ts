@@ -553,6 +553,45 @@ export class TeamsService {
     return { message: 'Ownership transferred' };
   }
 
+  async deleteTeam(teamId: string, ownerUserId: string) {
+    await this.assertOwner(teamId, ownerUserId);
+
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        id: true,
+        name: true,
+        personalForUserId: true,
+        _count: {
+          select: {
+            projects: true,
+          },
+        },
+      },
+    });
+    if (!team) {
+      throw new NotFoundException('Team not found');
+    }
+    if (team.personalForUserId) {
+      throw new ForbiddenException('Personal teams cannot be deleted');
+    }
+    if (team._count.projects > 0) {
+      throw new ForbiddenException('Delete projects first to remove this team');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.updateMany({
+        where: { activeTeamId: teamId },
+        data: { activeTeamId: null },
+      }),
+      this.prisma.team.delete({
+        where: { id: teamId },
+      }),
+    ]);
+
+    return { id: team.id, name: team.name, deleted: true as const };
+  }
+
   async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
     const pending = await this.prisma.teamInvite.findMany({
       where: { invitedEmail: email.toLowerCase(), status: 'PENDING', invitedUserId: null },

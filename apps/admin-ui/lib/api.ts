@@ -312,6 +312,11 @@ export const api = {
         body: JSON.stringify({ teamId }),
       });
     },
+    deleteTeam(teamId: string) {
+      return request<{ id: string; name: string; deleted: true }>(`/teams/${teamId}`, {
+        method: 'DELETE',
+      });
+    },
     updateTeam(teamId: string, name: string) {
       return request<{ id: string; name: string }>(`/teams/${teamId}`, {
         method: 'PATCH',

@@ -16,6 +16,8 @@ export default function ProjectExportPage() {
   const [progress, setProgress] = useState<ExportJobProgressEvent | null>(null);
   const [result, setResult] = useState<ExportJobResult | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [jobState, setJobState] = useState<string | null>(null);
+  const [waitingWarning, setWaitingWarning] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
@@ -29,23 +31,46 @@ export default function ProjectExportPage() {
 
   useEffect(() => {
     if (!jobId) return;
+    setJobState('waiting');
+    setWaitingWarning(false);
+    const waitingTimer = setTimeout(() => {
+      setWaitingWarning(true);
+    }, 20_000);
     const es = api.projects.streamExportProgress(id, jobId, {
+      onState: (state) => {
+        setJobState(state);
+        if (state !== 'waiting' && state !== 'delayed') {
+          setWaitingWarning(false);
+          clearTimeout(waitingTimer);
+        }
+      },
       onProgress: (data) => setProgress(data),
       onCompleted: (data) => {
         setResult(data);
+        setJobState('completed');
+        setWaitingWarning(false);
+        clearTimeout(waitingTimer);
         setProgress({ step: 'completed', detail: 'Export completed', percent: 100 });
         toast.success('Export ready for download');
       },
       onFailed: (error) => {
         setFailed(error);
+        setJobState('failed');
+        setWaitingWarning(false);
+        clearTimeout(waitingTimer);
         toast.error(error);
       },
       onError: () => {
         setFailed('Export stream disconnected');
+        setWaitingWarning(false);
+        clearTimeout(waitingTimer);
       },
     });
 
-    return () => es.close();
+    return () => {
+      clearTimeout(waitingTimer);
+      es.close();
+    };
   }, [id, jobId]);
 
   const progressPercent = useMemo(
@@ -185,6 +210,17 @@ export default function ProjectExportPage() {
       {(progress || failed || result) && (
         <section className="rounded-xl border bg-card p-6 space-y-4">
           <h2 className="text-base font-semibold">Export progress</h2>
+          {waitingWarning && (jobState === 'waiting' || jobState === 'delayed') && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              Export job is still waiting in queue. In production this usually means worker/redis issue.
+              Check platform-api logs and queue connection.
+            </div>
+          )}
+          {failed && (
+            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+              Export failed: {failed}
+            </div>
+          )}
           <div className="space-y-2">
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div

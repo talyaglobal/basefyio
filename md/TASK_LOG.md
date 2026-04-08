@@ -1,5 +1,33 @@
 # Task Log
 
+## 2026-04-08 (prod export queue redis compatibility)
+- Updated BullMQ Redis connection parsing to support production-grade Redis URLs.
+- Added support for `rediss://` TLS connections, Redis username, and DB index from URL path.
+- Added `maxRetriesPerRequest: null` to improve worker compatibility on managed Redis providers.
+- Goal: ensure export/import workers consume queued jobs in production like local.
+
+## 2026-04-08 (export queue visibility improvements)
+- Added export job state tracking in project backup/export page.
+- Added waiting-queue warning banner when export stays in `waiting/delayed` for 20s+.
+- Added explicit failed-reason error panel in export progress section for faster prod diagnosis.
+
+## 2026-04-08 (feedback selected files thumbnail + preview modal)
+- Updated feedback comment file selection UI so each selected file row shows a thumbnail/icon before file name.
+- Made selected file thumbnail/name clickable to open preview modal.
+- Added local-file preview support for not-yet-uploaded files using object URLs.
+- Reused existing preview dialog to show large image/video preview for selected local files.
+
+## 2026-04-08 (team delete owner-only on dashboard/team)
+- Added owner-only team delete endpoint in teams module: `DELETE /teams/:id`.
+- Enforced delete constraints in backend:
+  - only team owner can delete
+  - personal teams cannot be deleted
+  - teams with existing projects cannot be deleted
+  - users pointing to deleted team as `activeTeamId` are reset before deletion
+- Added `api.teams.deleteTeam(...)` client method.
+- Added `Delete Team` action in `/dashboard/team` visible only to owner.
+- After delete, UI now switches to another available team (if exists), refreshes team context, and routes to `/dashboard/projects`.
+
 ## 2026-04-08 (backup menu/link + zip import flow update)
 - Updated project detail sidebar item label from `Export` to `Backup & Export`.
 - Changed project detail sidebar link target from `/export` to `/backup` and added `/backup` page route delegating to backup/export UI.

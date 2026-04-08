@@ -75,7 +75,7 @@ export default function FeedbacksPage() {
   const [commentFiles, setCommentFiles] = useState<Record<string, File[]>>({});
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
   const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; username: string } | null>>({});
-  const [preview, setPreview] = useState<{ url: string; isVideo: boolean } | null>(null);
+  const [preview, setPreview] = useState<{ url: string; isVideo: boolean; revokeOnClose?: boolean } | null>(null);
   const [selectedFilesOpenByFeedback, setSelectedFilesOpenByFeedback] = useState<Record<string, boolean>>({});
   const [historyFeedbackId, setHistoryFeedbackId] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -189,6 +189,24 @@ export default function FeedbacksPage() {
         ...prev,
         [feedbackId]: current.filter((_, idx) => idx !== fileIndex),
       };
+    });
+  }
+
+  function openPreview(url: string, isVideo: boolean, revokeOnClose = false) {
+    setPreview({ url, isVideo, revokeOnClose });
+  }
+
+  function openLocalFilePreview(file: File) {
+    const objectUrl = URL.createObjectURL(file);
+    openPreview(objectUrl, file.type.startsWith('video/'), true);
+  }
+
+  function closePreview() {
+    setPreview((prev) => {
+      if (prev?.revokeOnClose) {
+        URL.revokeObjectURL(prev.url);
+      }
+      return null;
     });
   }
 
@@ -363,14 +381,14 @@ export default function FeedbacksPage() {
                               key={`${node.id}-v-${i}`}
                               src={a.url}
                               controls
-                              onClick={() => setPreview({ url: a.url, isVideo: true })}
+                              onClick={() => openPreview(a.url, true)}
                               className="max-h-32 cursor-zoom-in rounded-md border"
                             />
                           ) : (
                             <button
                               key={`${node.id}-i-${i}`}
                               type="button"
-                              onClick={() => setPreview({ url: a.url, isVideo: false })}
+                              onClick={() => openPreview(a.url, false)}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
@@ -473,14 +491,14 @@ export default function FeedbacksPage() {
                               key={`${fb.id}-v-${i}`}
                               src={a.url}
                               controls
-                              onClick={() => setPreview({ url: a.url, isVideo: true })}
+                              onClick={() => openPreview(a.url, true)}
                               className="max-h-40 max-w-full cursor-zoom-in rounded-md border bg-black/5"
                             />
                           ) : (
                             <button
                               type="button"
                               key={`${fb.id}-i-${i}`}
-                              onClick={() => setPreview({ url: a.url, isVideo: false })}
+                              onClick={() => openPreview(a.url, false)}
                               className="block"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element -- MinIO public URLs */}
@@ -653,7 +671,34 @@ export default function FeedbacksPage() {
                                 key={`${fb.id}-${file.name}-${index}`}
                                 className="flex items-center gap-2 rounded bg-background px-2 py-1.5 text-xs"
                               >
-                                <span className="min-w-0 flex-1 truncate font-medium">{file.name}</span>
+                                <button
+                                  type="button"
+                                  className="h-8 w-8 shrink-0 overflow-hidden rounded border bg-muted/30"
+                                  onClick={() => openLocalFilePreview(file)}
+                                  title="Preview file"
+                                >
+                                  {file.type.startsWith('video/') ? (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                      <Video className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                  ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={URL.createObjectURL(file)}
+                                      alt={file.name}
+                                      className="h-full w-full object-cover"
+                                      onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                                    />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
+                                  onClick={() => openLocalFilePreview(file)}
+                                  title={file.name}
+                                >
+                                  {file.name}
+                                </button>
                                 <span className="shrink-0 text-muted-foreground">
                                   {(file.size / 1024 / 1024).toFixed(1)} MB
                                 </span>
@@ -748,7 +793,7 @@ export default function FeedbacksPage() {
         </div>
       )}
 
-      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreview(null)}>
+      <Dialog open={!!preview} onOpenChange={(open) => !open && closePreview()}>
         <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl p-2 sm:p-3">
           <DialogTitle className="sr-only">Attachment preview</DialogTitle>
           {preview?.isVideo ? (
