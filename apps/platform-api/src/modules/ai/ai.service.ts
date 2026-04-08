@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { PrismaService } from '../../prisma/prisma.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -23,7 +24,10 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   private openai: OpenAI | null = null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const apiKey = config.get<string>('openai.apiKey');
     if (apiKey) {
       this.openai = new OpenAI({ apiKey });
@@ -32,7 +36,12 @@ export class AiService {
     }
   }
 
-  async chat(message: string, history: ChatMessage[], context: AiContext) {
+  async chat(
+    userId: string,
+    message: string,
+    history: ChatMessage[],
+    context: AiContext,
+  ) {
     if (!this.openai) {
       return {
         reply:
@@ -40,7 +49,41 @@ export class AiService {
       };
     }
 
-    const systemPrompt = this.buildSystemPrompt(context);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeTeamId: true },
+    });
+    const activeTeamId = user?.activeTeamId || null;
+    const teamProjects = activeTeamId
+      ? await this.prisma.project.findMany({
+          where: { teamId: activeTeamId, status: { not: 'DELETED' } },
+          select: { id: true, name: true },
+          orderBy: { createdAt: 'desc' },
+          take: 300,
+        })
+      : [];
+
+    if (!this.isKolaybaseScopedMessage(message, teamProjects.map((p) => p.name))) {
+      return {
+        reply:
+          'I only answer Kolaybase questions for your active team projects. Ask about your project, SQL, auth, storage, backup/export, billing, team, or management.',
+      };
+    }
+
+    const safeContext: AiContext = {
+      ...context,
+      allProjects: teamProjects,
+    };
+    if (
+      safeContext.projectId &&
+      !teamProjects.some((p) => p.id === safeContext.projectId)
+    ) {
+      delete safeContext.projectId;
+      delete safeContext.projectName;
+      delete safeContext.tables;
+    }
+
+    const systemPrompt = this.buildSystemPrompt(safeContext);
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -65,6 +108,45 @@ export class AiService {
       this.logger.error('OpenAI API error', err.message);
       return { reply: `Error: ${err.message}` };
     }
+  }
+
+  private isKolaybaseScopedMessage(
+    message: string,
+    allowedProjectNames: string[],
+  ): boolean {
+    const m = message.toLowerCase();
+    if (allowedProjectNames.some((name) => m.includes(name.toLowerCase()))) {
+      return true;
+    }
+    const kbKeywords = [
+      'kolaybase',
+      'project',
+      'team',
+      'dashboard',
+      'sql',
+      'table',
+      'query',
+      'postgres',
+      'database',
+      'auth',
+      'keycloak',
+      'storage',
+      'bucket',
+      'backup',
+      'export',
+      'import',
+      'billing',
+      'plan',
+      'management',
+      'feedback',
+      'audit',
+      'trace',
+      'alert',
+      'rls',
+      'policy',
+      'migration',
+    ];
+    return kbKeywords.some((k) => m.includes(k));
   }
 
   private buildSystemPrompt(context: AiContext): string {
@@ -105,7 +187,8 @@ General rules:
 - Always wrap SQL in \`\`\`sql fenced blocks.
 - Avoid suggesting destructive commands (e.g. DROP DATABASE, DROP ROLE) unless the user explicitly asks for danger-aware guidance.
 - Never say you cannot access or inspect the database — instead output concrete SQL the user can run in the platform.
-- When a table list is provided, tailor SQL to those tables, not generic examples.`;
+- When a table list is provided, tailor SQL to those tables, not generic examples.
+- You are strictly limited to Kolaybase and the user's active team projects only. Refuse out-of-scope topics in one sentence.`;
 
     if (context.projectName) {
       prompt += `\n\nActive project: "${context.projectName}"`;

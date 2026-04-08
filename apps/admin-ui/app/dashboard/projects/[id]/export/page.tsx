@@ -302,7 +302,7 @@ export default function ProjectExportPage() {
           setModalShowingExport(open);
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" hideClose>
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
               <div>

@@ -1,5 +1,6 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { AiService } from './ai.service';
 
 @Controller('ai')
@@ -9,6 +10,7 @@ export class AiController {
 
   @Post('chat')
   chat(
+    @CurrentUser() user: JwtPayload,
     @Body()
     body: {
       message: string;
@@ -24,6 +26,7 @@ export class AiController {
     },
   ) {
     return this.aiService.chat(
+      user.sub,
       body.message,
       body.history ?? [],
       body.context ?? {},

@@ -1,13 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Loader2, Maximize2, X } from 'lucide-react';
+import { Loader2, Maximize2 } from 'lucide-react';
 import { useExportProgress } from '@/lib/export-progress-context';
 
 export function ExportProgressToast() {
   const {
     activeExports,
-    dismiss,
     modalShowingExport,
     setModalShowingExport,
     onReopenModal,
@@ -42,14 +41,6 @@ export function ExportProgressToast() {
             title="Open export status"
           >
             <Maximize2 className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => dismiss()}
-            title="Dismiss finished only"
-          >
-            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>

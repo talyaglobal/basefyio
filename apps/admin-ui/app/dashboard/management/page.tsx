@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Copy, Github, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
@@ -120,6 +120,12 @@ export default function ManagementPage() {
   const [newPassword, setNewPassword] = useState('');
   const [forceChangeOnFirstLogin, setForceChangeOnFirstLogin] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditActionPreview, setAuditActionPreview] = useState<{
+    id: string;
+    action: string;
+  } | null>(null);
   const [managementPermissions, setManagementPermissions] = useState<RolePermissionMatrix | null>(
     null,
   );
@@ -129,6 +135,27 @@ export default function ManagementPage() {
 
   const isRoot = profile?.role === 'ROOT';
   const canAccessManagement = isRoot || !!managementPermissions?.canAccessManagement;
+  const AUDIT_PAGE_SIZE = 20;
+
+  const filteredAuditLogs = useMemo(() => {
+    const q = auditSearch.trim().toLowerCase();
+    if (!q) return auditLogs;
+    return auditLogs.filter((log) => {
+      return (
+        log.action.toLowerCase().includes(q) ||
+        log.actorUserId.toLowerCase().includes(q) ||
+        log.resourceType.toLowerCase().includes(q) ||
+        (log.resourceId || '').toLowerCase().includes(q) ||
+        log.traceId.toLowerCase().includes(q)
+      );
+    });
+  }, [auditLogs, auditSearch]);
+
+  const auditTotalPages = Math.max(1, Math.ceil(filteredAuditLogs.length / AUDIT_PAGE_SIZE));
+  const pagedAuditLogs = useMemo(() => {
+    const start = (auditPage - 1) * AUDIT_PAGE_SIZE;
+    return filteredAuditLogs.slice(start, start + AUDIT_PAGE_SIZE);
+  }, [filteredAuditLogs, auditPage]);
 
   async function load() {
     setLoading(true);
@@ -207,6 +234,16 @@ export default function ManagementPage() {
     if (profile === null) return;
     load();
   }, [profile, router]);
+
+  useEffect(() => {
+    setAuditPage(1);
+  }, [auditSearch]);
+
+  useEffect(() => {
+    if (auditPage > auditTotalPages) {
+      setAuditPage(auditTotalPages);
+    }
+  }, [auditPage, auditTotalPages]);
 
   async function handleSavePlanChanges() {
     setSavingAllPlans(true);
@@ -941,7 +978,38 @@ export default function ManagementPage() {
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Audit Logs</h2>
-          <p className="text-xs text-muted-foreground">Last {auditLogs.length} records</p>
+          <p className="text-xs text-muted-foreground">
+            Showing {pagedAuditLogs.length} / {filteredAuditLogs.length} records
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Input
+            value={auditSearch}
+            onChange={(e) => setAuditSearch(e.target.value)}
+            placeholder="Search action, actor, resource, trace id..."
+            className="h-9 w-full max-w-sm"
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={auditPage <= 1}
+              onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Page {auditPage} / {auditTotalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={auditPage >= auditTotalPages}
+              onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1220px] text-left text-sm">
@@ -957,14 +1025,14 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
-              {auditLogs.length === 0 ? (
+              {filteredAuditLogs.length === 0 ? (
                 <tr>
                   <td className="px-2 py-6 text-center text-muted-foreground" colSpan={7}>
-                    No audit records yet.
+                    No matching audit records.
                   </td>
                 </tr>
               ) : (
-                auditLogs.map((log) => (
+                pagedAuditLogs.map((log) => (
                   <tr key={log.id} className="border-b last:border-0">
                     <td className="px-2 py-2 text-muted-foreground">
                       {new Date(log.createdAt).toLocaleString()}
@@ -993,8 +1061,15 @@ export default function ManagementPage() {
                         {log.success ? 'SUCCESS' : 'FAILED'}
                       </span>
                     </td>
-                    <td className="max-w-[280px] truncate px-2 py-2 font-medium" title={log.action}>
-                      {log.action}
+                    <td className="max-w-[280px] px-2 py-2">
+                      <button
+                        type="button"
+                        className="w-full truncate text-left font-medium hover:underline"
+                        title="Click to view full action"
+                        onClick={() => setAuditActionPreview({ id: log.id, action: log.action })}
+                      >
+                        {log.action}
+                      </button>
                     </td>
                     <td className="px-2 py-2 text-muted-foreground">{log.actorUserId}</td>
                     <td className="px-2 py-2 text-muted-foreground">
@@ -1012,6 +1087,23 @@ export default function ManagementPage() {
         </div>
       </section>
       )}
+
+      <Dialog
+        open={!!auditActionPreview}
+        onOpenChange={(open) => {
+          if (!open) setAuditActionPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogTitle>Audit Action</DialogTitle>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Log ID: {auditActionPreview?.id}</p>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="break-all text-sm font-medium">{auditActionPreview?.action}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!passwordDialogUser}

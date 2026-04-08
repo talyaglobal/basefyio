@@ -1,5 +1,26 @@
 # Task Log
 
+## 2026-04-08 (ai scope restricted to kolaybase + active team projects)
+- Restricted AI chat backend to active-team scope by resolving projects from server-side `activeTeamId` and overriding client-provided project list/context.
+- Added scope guard that refuses out-of-domain prompts early (without calling OpenAI) to reduce unnecessary token usage.
+- Enforced project boundary: if `context.projectId` is not in the active team, project context is dropped before prompt build.
+- Updated AI system prompt with strict instruction to stay within Kolaybase + active team project context and refuse out-of-scope requests.
+
+## 2026-04-08 (export modal close icon removed fully)
+- Updated export status modal to always hide top-right close (`X`) button.
+- Close behavior now only uses explicit minimize/flow controls.
+
+## 2026-04-08 (management audit logs search + pagination + action preview)
+- Added client-side search input for audit logs (action, actor, resource, resource id, trace id).
+- Added client-side pagination (20 rows/page) with Prev/Next controls.
+- Added clickable `Action` cell to open full action text in a modal.
+- Reduced heavy table rendering by paginating filtered results before mapping rows.
+
+## 2026-04-08 (export modal close/minimize reliability)
+- Removed close (`X`) control from export toast so running export indicator cannot be accidentally hidden.
+- Disabled dialog corner `X` while export is running (`hideClose`) and forced minimize workflow via explicit minimize button.
+- Fixes inability to maximize export status after minimize.
+
 ## 2026-04-08 (export modal + queue visibility)
 - Added global export progress tracking context with persistent running jobs and SSE/polling sync.
 - Added export progress toast (minimize/maximize workflow similar to Supabase import flow).
