@@ -203,7 +203,9 @@ export interface UserProfile {
   role: string;
   createdAt: string;
   authProvider?: 'local' | 'google' | 'github';
+  signOnMethod?: 'local' | 'google' | 'github';
   canEditIdentityFields?: boolean;
+  canChangePassword?: boolean;
 }
 
 export interface ManagementUser {
@@ -430,6 +432,24 @@ export interface ProjectExportRequest {
 
 export interface ProjectExportJobResponse {
   jobId: string;
+}
+
+export interface ProjectArchiveImportResponse {
+  project: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  importedName: string;
+  appliedName: string;
+  warnings: string[];
+}
+
+export interface CloudBackupItem {
+  objectKey: string;
+  filename: string;
+  size: number;
+  lastModified: string;
 }
 
 export interface ImportProgressData {

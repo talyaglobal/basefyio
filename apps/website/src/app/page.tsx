@@ -101,12 +101,15 @@ async function getPublicPlans(): Promise<PublicPlan[]> {
 export default async function Home() {
   const plans = await getPublicPlans();
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <Link href="/" className="text-xl font-bold text-primary">
-            Kolaybase
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-card/95 backdrop-blur-sm shadow-sm">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
+              <Database className="h-4 w-4" />
+            </div>
+            <span className="text-lg font-bold gradient-text">Kolaybase</span>
           </Link>
           <nav className="flex items-center gap-6">
             <Link
@@ -139,7 +142,7 @@ export default async function Home() {
 
       {/* Hero */}
       <section className="relative overflow-hidden pt-32 pb-24 px-6">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,hsl(var(--muted)),transparent)]" />
+        <div className="absolute inset-0 bg-brand-gradient-subtle" />
         <div className="relative mx-auto max-w-4xl text-center">
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
             Backend in{" "}
@@ -168,7 +171,7 @@ export default async function Home() {
       </section>
 
       {/* Features */}
-      <section className="py-24 px-6">
+      <section className="py-24 px-6 bg-background">
         <div className="mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold sm:text-4xl">
             Everything in one platform
@@ -212,7 +215,7 @@ export default async function Home() {
             ].map(({ icon: Icon, title, desc }) => (
               <div
                 key={title}
-                className="rounded-2xl border border-border bg-card p-6 hover:border-muted-foreground/30 transition-colors"
+                className="rounded-2xl border border-border bg-card p-6 hover:border-primary/40 transition-colors shadow-sm"
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-primary">
                   <Icon className="h-6 w-6" />
@@ -226,7 +229,7 @@ export default async function Home() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="py-24 px-6 bg-muted/30">
+      <section id="pricing" className="py-24 px-6 bg-brand-gradient-subtle">
         <div className="mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold sm:text-4xl">
             Simple, transparent pricing
@@ -242,7 +245,7 @@ export default async function Home() {
               return (
                 <div
                   key={plan.id}
-                  className={`rounded-2xl bg-card p-8 flex flex-col relative ${
+                  className={`rounded-2xl bg-card p-8 flex flex-col relative shadow-sm ${
                     featured ? "border-2 border-primary" : "border border-border"
                   }`}
                 >
@@ -295,7 +298,7 @@ export default async function Home() {
 
       {/* CTA */}
       <section className="py-24 px-6">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-border bg-card p-12 text-center">
+        <div className="mx-auto max-w-4xl rounded-3xl border border-primary/30 bg-brand-gradient-subtle p-12 text-center shadow-sm">
           <h2 className="text-2xl font-bold sm:text-3xl">
             Get started for free
           </h2>

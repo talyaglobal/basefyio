@@ -374,7 +374,7 @@ export class AuthService {
           throw new UnauthorizedException('ACCOUNT_INACTIVE');
         }
         const methods = await this.keycloak.getPlatformUserSignInMethodsById(existingUser.id);
-        if (methods.authProvider !== 'local') {
+        if (methods.signOnMethod !== 'local') {
           throw new UnauthorizedException(
             `SOCIAL_LOGIN_ONLY:${methods.signOnMethod.toUpperCase()}`,
           );
@@ -531,18 +531,33 @@ export class AuthService {
     allowIdentityEdit = false,
   ) {
     this.ensureStrongPassword(newPassword);
-    let authProvider: 'local' | 'google' | 'github' = 'local';
+    let methods: {
+      authProvider: 'local' | 'google' | 'github';
+      signOnMethod: 'local' | 'google' | 'github';
+      linkedProviders: Array<'google' | 'github'>;
+      hasPasswordAuth: boolean;
+    } = {
+      authProvider: 'local',
+      signOnMethod: 'local',
+      linkedProviders: [],
+      hasPasswordAuth: true,
+    };
     try {
-      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
+      methods = await this.keycloak.getPlatformUserSignInMethodsById(userId);
     } catch {
-      authProvider = 'local';
+      methods = {
+        authProvider: 'local',
+        signOnMethod: 'local',
+        linkedProviders: [],
+        hasPasswordAuth: true,
+      };
     }
-    if (authProvider !== 'local') {
+    if (methods.signOnMethod !== 'local') {
       throw new BadRequestException(
-        `SOCIAL_PASSWORD_DISABLED:${authProvider.toUpperCase()}`,
+        `SOCIAL_PASSWORD_DISABLED:${methods.signOnMethod.toUpperCase()}`,
       );
     }
-    if (authProvider === 'local') {
+    if (methods.signOnMethod === 'local') {
       try {
         await this.login(email, currentPassword);
       } catch {
@@ -680,6 +695,18 @@ export class AuthService {
       // Return success even if user doesn't exist to prevent email enumeration
       return { message: 'If that email exists, a reset link has been sent.' };
     }
+    try {
+      const methods = await this.keycloak.getPlatformUserSignInMethodsById(
+        kcUser.id!,
+        email,
+      );
+      if (methods.signOnMethod !== 'local') {
+        // Keep generic success response to avoid account-enumeration leaks.
+        return { message: 'If that email exists, a reset link has been sent.' };
+      }
+    } catch {
+      // If provider check fails, continue with generic flow.
+    }
 
     // Invalidate any previous unused tokens for this email
     await this.prisma.passwordResetToken.updateMany({
@@ -726,11 +753,35 @@ export class AuthService {
       if (!kcUser || !kcUser.id) {
         throw new BadRequestException('User account not found.');
       }
+      try {
+        const methods = await this.keycloak.getPlatformUserSignInMethodsById(
+          kcUser.id,
+          resetToken.email,
+        );
+        if (methods.signOnMethod !== 'local') {
+          throw new BadRequestException(
+            `SOCIAL_PASSWORD_DISABLED:${methods.signOnMethod.toUpperCase()}`,
+          );
+        }
+      } catch (err) {
+        if (err instanceof BadRequestException) {
+          throw err;
+        }
+      }
       await this.keycloak.resetUserPasswordInRealm(resetToken.realm, kcUser.id, newPassword);
     } else {
       kcUser = await this.keycloak.findPlatformUserByEmail(resetToken.email);
       if (!kcUser || !kcUser.id) {
         throw new BadRequestException('User account not found.');
+      }
+      const methods = await this.keycloak.getPlatformUserSignInMethodsById(
+        kcUser.id,
+        resetToken.email,
+      );
+      if (methods.signOnMethod !== 'local') {
+        throw new BadRequestException(
+          `SOCIAL_PASSWORD_DISABLED:${methods.signOnMethod.toUpperCase()}`,
+        );
       }
       await this.keycloak.resetPlatformUserPassword(kcUser.id, newPassword);
     }
@@ -768,10 +819,14 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
     let authProvider: 'local' | 'google' | 'github' = 'local';
+    let signOnMethod: 'local' | 'google' | 'github' = 'local';
     try {
-      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
+      const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId, user.email);
+      authProvider = methods.authProvider;
+      signOnMethod = methods.signOnMethod;
     } catch {
       authProvider = 'local';
+      signOnMethod = 'local';
     }
 
     return {
@@ -787,7 +842,9 @@ export class AuthService {
       role: user.role,
       createdAt: user.createdAt,
       authProvider,
+      signOnMethod,
       canEditIdentityFields: authProvider === 'local',
+      canChangePassword: signOnMethod === 'local',
     };
   }
 
@@ -807,10 +864,14 @@ export class AuthService {
   ) {
     const updateData: Record<string, any> = {};
     let authProvider: 'local' | 'google' | 'github' = 'local';
+    let signOnMethod: 'local' | 'google' | 'github' = 'local';
     try {
-      authProvider = await this.keycloak.getPlatformUserAuthProviderById(userId);
+      const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId);
+      authProvider = methods.authProvider;
+      signOnMethod = methods.signOnMethod;
     } catch {
       authProvider = 'local';
+      signOnMethod = 'local';
     }
     const changingIdentityFields =
       data.username !== undefined || data.email !== undefined;
@@ -888,7 +949,9 @@ export class AuthService {
       role: user.role,
       createdAt: user.createdAt,
       authProvider,
+      signOnMethod,
       canEditIdentityFields: authProvider === 'local',
+      canChangePassword: signOnMethod === 'local',
     };
   }
 

@@ -9,6 +9,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ProjectsService } from './projects.service';
+import { ProjectArchiveImportService } from './project-archive-import.service';
 import { EXPORT_QUEUE } from '../queue/queue.module';
 import type {
   ExportJobData,
@@ -24,6 +25,7 @@ export class ProjectExportService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly projectsService: ProjectsService,
+    private readonly projectArchiveImport: ProjectArchiveImportService,
     @InjectQueue(EXPORT_QUEUE) private readonly exportQueue: Queue,
   ) {}
 
@@ -126,6 +128,48 @@ export class ProjectExportService {
     if (result?.bucket && result?.objectKey) {
       await this.storage.removePlatformObject(result.bucket, result.objectKey);
     }
+  }
+
+  async listCloudBackups(projectId: string, userId: string) {
+    await this.projectsService.findOne(projectId, userId);
+    await this.storage.ensurePlatformBucket(EXPORT_BUCKET);
+    const objects = await this.storage.listPlatformObjects(EXPORT_BUCKET, `${projectId}/`);
+    return objects
+      .map((o) => ({
+        objectKey: o.name,
+        filename: o.name.split('/').pop() || o.name,
+        size: o.size,
+        lastModified: o.lastModified.toISOString(),
+      }))
+      .sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1));
+  }
+
+  async restoreCloudBackup(
+    projectId: string,
+    userId: string,
+    body: {
+      objectKey: string;
+      teamId: string;
+      nameMode?: 'existing' | 'new';
+      newProjectName?: string;
+    },
+  ) {
+    await this.projectsService.findOne(projectId, userId);
+    const objectKey = body.objectKey?.trim();
+    if (!objectKey?.startsWith(`${projectId}/`)) {
+      throw new ForbiddenException('Backup does not belong to this project');
+    }
+    const { stream } = await this.storage.getPlatformObject(EXPORT_BUCKET, objectKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const zipBuffer = Buffer.concat(chunks);
+    return this.projectArchiveImport.importArchiveBuffer(zipBuffer, userId, {
+      teamId: body.teamId,
+      nameMode: body.nameMode || 'existing',
+      newProjectName: body.newProjectName,
+    });
   }
 
   getExportBucketName(): string {

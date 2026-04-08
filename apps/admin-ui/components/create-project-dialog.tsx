@@ -134,6 +134,10 @@ export function CreateProjectDialog({
       importResult.auth.skipped > 0);
   const [importProjectName, setImportProjectName] = useState('');
   const [importProjectId, setImportProjectId] = useState<string | null>(null);
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipNameMode, setZipNameMode] = useState<'existing' | 'new'>('existing');
+  const [zipNewName, setZipNewName] = useState('');
+  const [zipImporting, setZipImporting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const dismissedDuringImportRef = useRef(false);
@@ -364,6 +368,10 @@ export function CreateProjectDialog({
     setImportResult(null);
     setImportProjectName('');
     setImportProjectId(null);
+    setZipFile(null);
+    setZipNameMode('existing');
+    setZipNewName('');
+    setZipImporting(false);
     setLoading(false);
     setCancelling(false);
     dismissedDuringImportRef.current = false;
@@ -633,6 +641,44 @@ export function CreateProjectDialog({
       });
       toast.error(`Import failed: ${err.message}`);
       setView('import');
+    }
+  }
+
+  async function handleImportExportZip(e: React.FormEvent) {
+    e.preventDefault();
+    if (!zipFile) {
+      toast.error('Please select an export ZIP file.');
+      return;
+    }
+    if (zipNameMode === 'new' && !zipNewName.trim()) {
+      toast.error('Please enter a new project name.');
+      return;
+    }
+
+    setZipImporting(true);
+    try {
+      const result = await api.projects.importFromExportZip({
+        file: zipFile,
+        teamId,
+        nameMode: zipNameMode,
+        newProjectName: zipNameMode === 'new' ? zipNewName.trim() : undefined,
+      });
+
+      if (result.warnings.length > 0) {
+        toast.warning(
+          `ZIP import completed with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.`,
+        );
+      } else {
+        toast.success(`Project "${result.project.name}" imported from ZIP.`);
+      }
+      resetState();
+      onCreated();
+      onOpenChange(false);
+      router.push(`/dashboard/projects/${result.project.id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'ZIP import failed');
+    } finally {
+      setZipImporting(false);
     }
   }
 
@@ -918,6 +964,71 @@ export function CreateProjectDialog({
                   {reimportTarget ? 'Start re-import' : 'Start Import'}
                 </Button>
               </DialogFooter>
+            </form>
+
+            <div className="relative my-2">
+              <Separator />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
+                or
+              </span>
+            </div>
+
+            <form onSubmit={handleImportExportZip} className="space-y-3 rounded-lg border p-3">
+              <div className="space-y-1">
+                <Label htmlFor="zip-file">Import Exported ZIP</Label>
+                <Input
+                  id="zip-file"
+                  type="file"
+                  accept=".zip,application/zip"
+                  onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Select a ZIP downloaded from the project export page.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium">Project name confirmation</p>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="h-4 w-4 accent-primary"
+                    checked={zipNameMode === 'existing'}
+                    onChange={() => setZipNameMode('existing')}
+                  />
+                  Import with exported project name
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="h-4 w-4 accent-primary"
+                    checked={zipNameMode === 'new'}
+                    onChange={() => setZipNameMode('new')}
+                  />
+                  Import with a new project name
+                </label>
+                {zipNameMode === 'new' && (
+                  <Input
+                    value={zipNewName}
+                    onChange={(e) => setZipNewName(e.target.value)}
+                    placeholder="new-project-name"
+                    minLength={2}
+                    maxLength={64}
+                    required
+                  />
+                )}
+              </div>
+
+              <Button type="submit" disabled={!zipFile || zipImporting} className="w-full">
+                {zipImporting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Importing ZIP...
+                  </>
+                ) : (
+                  'Import Export ZIP'
+                )}
+              </Button>
             </form>
           </>
         )}

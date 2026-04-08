@@ -1,5 +1,30 @@
 # Task Log
 
+## 2026-04-07 (feedback incoming intervention notifications + browser notification tab)
+- **Feedback intervention alerts:** Improved feedback polling to notify when another user changes status, adds comments, or updates/deletes feedback items.
+- **Incoming-only scope preserved:** Notifications continue to suppress self-originated events and only alert on other users’ actions.
+- **Profile notifications tabs:** Updated `/dashboard/profile` notifications card with two tabs: `Email Notifications` and `Browser Notifications`.
+- **User-level browser preferences:** Added per-user browser notification toggles (browser pop-up enable and feedback updates) so `USER`, `ADMIN`, and `ROOT` can manage their own settings independently.
+
+## 2026-04-07 (cloud backup restore support)
+- **Cloud backup persistence:** Export download no longer auto-deletes backup object; backups remain in cloud storage for restore scenarios.
+- **Cloud backup listing API:** Added `GET /projects/:id/backups` to list available cloud backups for a project.
+- **Cloud restore API:** Added `POST /projects/:id/backups/restore` to restore directly from selected cloud backup object.
+- **Restore name confirmation:** Cloud restore supports confirmation of import name mode (`existing` exported name vs `new` custom name).
+- **Export page UI:** Added `Cloud Backups & Restore` section with backup list, restore action, and name-mode controls.
+
+## 2026-04-07 (exported ZIP import + naming confirmation)
+- **ZIP import endpoint:** Added authenticated backend endpoint `POST /projects/import-export-zip` to import project exports from ZIP archives.
+- **Name confirmation on import:** Added import mode selection so users confirm whether import should use the exported project name or a new custom project name.
+- **UI integration:** Added `Import Exported ZIP` flow in create/import dialog with file picker, name-mode choice, and new-name input.
+- **Data restore flow:** ZIP import now restores database dump, re-creates auth users with temporary passwords, and imports storage buckets/objects (with warning list for skipped items).
+
+## 2026-04-07 (website design aligned with dashboard blue theme)
+- **Blue design language sync:** Updated website theme tokens to match dashboard's blue-based palette (primary/secondary/accent/border/radius).
+- **Shared brand styling:** Added dashboard-consistent brand gradient utilities and applied them across website surfaces.
+- **Logo consistency:** Replaced plain text logo in website header with the same icon badge + gradient wordmark style used in dashboard header.
+- **Section polish:** Updated hero, pricing, feature cards, and CTA backgrounds/borders to align with dashboard visual language.
+
 ## 2026-04-07 (pricing sync + delete + website source hardening)
 - **Stripe sync on plan update:** Management plan updates now synchronize with Stripe; when monthly price changes, a new Stripe price is created and existing subscriptions on that plan are migrated to the new price.
 - **Plan delete flow:** Added root-only plan deletion with safe migration (`DELETE /billing/management/plans/:planName`), moving existing subscriptions to a replacement plan (default `free`).
@@ -79,6 +104,19 @@
 ## 2026-04-08 (google re-login account prompt enforcement)
 - **No silent Google auto-login:** Updated Google OAuth parameters to force re-authentication on each login attempt (`prompt=login`, `max_age=0`).
 - **Provider config alignment:** Keycloak Google IdP config now enforces the same behavior so users can choose a different Google account after sign-out.
+
+## 2026-04-08 (social signup password lock enforcement)
+- **Login enforcement basis changed:** Email/password login now blocks users based on immutable `signOnMethod` (signup method), not mutable auth provider override.
+- **Password change/reset blocked for social signup:** `changePassword`, `forgotPassword`, and reset-token flow now prevent password operations for Google/GitHub signup users.
+- **Profile contract updated:** `/auth/profile` now exposes `signOnMethod` and `canChangePassword`, and account UI uses that to keep password actions disabled for social-signup users.
+
+## 2026-04-08 (management users sign-in editor removed)
+- **UI simplification:** Removed editable `Sign In` method column from `/dashboard/management` Users tab.
+- **Signup-only display:** Kept `Sign Up` method column as the single auth-method indicator in management view.
+
+## 2026-04-08 (profile password hint aligned with policy)
+- **Profile hint update:** Replaced legacy `6 characters` wording on `/dashboard/profile` password section with current password policy text.
+- **UI consistency:** Updated new-password placeholder and button-disable threshold to 8+ characters to match current policy baseline.
 
 ## 2026-04-07 (sign-in policy reverted)
 - **Policy removed:** Rolled back `Sign In Policy` management selector/endpoint and related enforcement logic.

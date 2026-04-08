@@ -43,6 +43,7 @@ function parseAttachments(raw: unknown): FeedbackAttachment[] {
 }
 
 const STATUS_OPTIONS = ['OPEN', 'IN_PROGRESS', 'DONE', 'CLOSED'] as const;
+const FEEDBACK_STATUS_FILTER_KEY = 'kb_feedbacks_status_filter';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   OPEN: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Circle className="h-3 w-3" /> },
@@ -64,7 +65,7 @@ export default function FeedbacksPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string | null>('OPEN');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -98,6 +99,28 @@ export default function FeedbacksPage() {
     if (!profile) return;
     load();
   }, [profile, load]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(FEEDBACK_STATUS_FILTER_KEY);
+    if (!saved || saved === 'ALL') {
+      setFilterStatus('OPEN');
+      return;
+    }
+    if (STATUS_OPTIONS.includes(saved as (typeof STATUS_OPTIONS)[number])) {
+      setFilterStatus(saved);
+      return;
+    }
+    setFilterStatus('OPEN');
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      FEEDBACK_STATUS_FILTER_KEY,
+      filterStatus ?? 'ALL',
+    );
+  }, [filterStatus]);
 
   async function handleStatusChange(id: string, status: string) {
     setUpdatingId(id);

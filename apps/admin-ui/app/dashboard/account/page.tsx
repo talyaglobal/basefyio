@@ -116,7 +116,8 @@ export default function AccountPage() {
       lastName.trim() !== (profile.lastName ?? '') ||
       pendingAvatarDataUrl !== null);
   const authProvider = profile?.authProvider ?? 'local';
-  const isExternalAuth = authProvider !== 'local';
+  const signOnMethod = profile?.signOnMethod ?? authProvider;
+  const isExternalAuth = signOnMethod !== 'local';
   const canEditIdentity = !isExternalAuth || forcePasswordChange;
 
   const handleSaveProfile = async () => {
@@ -214,7 +215,7 @@ export default function AccountPage() {
 
   const handleChangePassword = async () => {
     if (isExternalAuth) {
-      toast.error(`This account must use ${authProvider} sign-in. Password change is disabled.`);
+      toast.error(`This account must use ${signOnMethod} sign-in. Password change is disabled.`);
       return;
     }
     if (!isExternalAuth && !currentPassword) {
@@ -553,7 +554,7 @@ export default function AccountPage() {
         )}
         <p className="text-xs text-muted-foreground">
           {isExternalAuth
-            ? `Social sign-in account (${authProvider}). Password sign-in is disabled for this account.`
+            ? `Social sign-in account (${signOnMethod}). Password sign-in is disabled for this account.`
             : 'Enter your current password first, then set a new password.'}
         </p>
 
@@ -632,7 +633,7 @@ export default function AccountPage() {
         </div>
         ) : (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            This user can only sign in with {authProvider}. Password setup/change is disabled.
+            This user can only sign in with {signOnMethod}. Password setup/change is disabled.
           </div>
         )}
 

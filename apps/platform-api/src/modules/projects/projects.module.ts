@@ -22,6 +22,7 @@ import { FoldersController, TagsController } from './folders-tags.controller';
 import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
+import { ProjectArchiveImportService } from './project-archive-import.service';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ProjectExportService } from './project-export.service';
     PublicApiService,
     SupabaseImportService,
     ProjectExportService,
+    ProjectArchiveImportService,
     ImportProcessor,
     ExportProcessor,
     EmailProcessor,

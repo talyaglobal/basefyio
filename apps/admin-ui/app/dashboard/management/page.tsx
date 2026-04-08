@@ -97,7 +97,6 @@ export default function ManagementPage() {
   const [loading, setLoading] = useState(true);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
   const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
-  const [savingSignInUserId, setSavingSignInUserId] = useState<string | null>(null);
   const [savingPackageUserId, setSavingPackageUserId] = useState<string | null>(null);
   const [savingPlanName, setSavingPlanName] = useState<string | null>(null);
   const [planDrafts, setPlanDrafts] = useState<Record<string, PlanDraft>>({});
@@ -324,7 +323,6 @@ export default function ManagementPage() {
               <tr className="border-b text-xs text-muted-foreground">
                 <th className="px-2 py-2">Name</th>
                 <th className="px-2 py-2">Email</th>
-                <th className="px-2 py-2">Sign In</th>
                 <th className="px-2 py-2">Sign Up</th>
                 <th className="px-2 py-2">Teams</th>
                 <th className="px-2 py-2">Package</th>
@@ -343,34 +341,6 @@ export default function ManagementPage() {
                       : u.username}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">{u.email}</td>
-                  <td className="px-2 py-2">
-                    <select
-                      value={u.authProvider || 'local'}
-                      disabled={savingSignInUserId === u.id}
-                      onChange={async (e) => {
-                        const method = e.target.value as 'local' | 'google' | 'github';
-                        setSavingSignInUserId(u.id);
-                        try {
-                          const updated = await api.auth.updateManagementUserSignInMethod(u.id, method);
-                          setUsers((prev) =>
-                            prev.map((x) =>
-                              x.id === u.id ? { ...x, authProvider: updated.authProvider } : x,
-                            ),
-                          );
-                          toast.success(`Sign in method updated to ${method}`);
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to update sign in method');
-                        } finally {
-                          setSavingSignInUserId(null);
-                        }
-                      }}
-                      className="rounded-md border bg-background px-2 py-1 text-xs font-medium"
-                    >
-                      <option value="local">Local</option>
-                      <option value="google">Google</option>
-                      <option value="github">GitHub</option>
-                    </select>
-                  </td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-2">
                       {u.signOnMethod === 'google' ? (

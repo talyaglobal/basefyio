@@ -8,9 +8,11 @@ import {
   Query,
   Body,
   Res,
+  UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
@@ -24,6 +26,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 import { ProjectActivityService } from './project-activity.service';
+import { ProjectArchiveImportService } from './project-archive-import.service';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
@@ -33,6 +36,7 @@ export class ProjectsController {
     private readonly projectsService: ProjectsService,
     private readonly supabaseImport: SupabaseImportService,
     private readonly projectExport: ProjectExportService,
+    private readonly projectArchiveImport: ProjectArchiveImportService,
     private readonly projectActivity: ProjectActivityService,
   ) {}
 
@@ -58,6 +62,16 @@ export class ProjectsController {
       body.databasePassword,
       body.existingProjectId,
     );
+  }
+
+  @Post('import-export-zip')
+  @UseInterceptors(FileInterceptor('file', { storage: undefined }))
+  async importExportZip(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { teamId?: string; nameMode?: 'existing' | 'new'; newProjectName?: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.projectArchiveImport.importArchive(file, user.sub, body);
   }
 
   @Post('import-supabase/validate')
@@ -397,8 +411,28 @@ export class ProjectsController {
       res.setHeader('Content-Length', String(file.stat.size));
     }
     file.stream.pipe(res);
-    file.stream.on('end', () => {
-      this.projectExport.cleanupExport(id, jobId, user.sub).catch(() => {});
-    });
+  }
+
+  @Get(':id/backups')
+  async listCloudBackups(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectExport.listCloudBackups(id, user.sub);
+  }
+
+  @Post(':id/backups/restore')
+  async restoreCloudBackup(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body()
+    body: {
+      objectKey: string;
+      teamId: string;
+      nameMode?: 'existing' | 'new';
+      newProjectName?: string;
+    },
+  ) {
+    return this.projectExport.restoreCloudBackup(id, user.sub, body);
   }
 }

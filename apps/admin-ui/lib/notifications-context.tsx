@@ -30,7 +30,11 @@ type NotificationsContextValue = {
   notifications: AppNotification[];
   unreadCount: number;
   permission: NotificationPermission | 'unsupported';
+  browserNotificationsEnabled: boolean;
+  feedbackNotificationsEnabled: boolean;
   requestPermission: () => Promise<NotificationPermission | 'unsupported'>;
+  setBrowserNotificationsEnabled: (enabled: boolean) => void;
+  setFeedbackNotificationsEnabled: (enabled: boolean) => void;
   addNotification: (payload: NotifyPayload) => void;
   markAllRead: () => void;
   markRead: (id: string) => void;
@@ -41,7 +45,11 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   notifications: [],
   unreadCount: 0,
   permission: 'unsupported',
+  browserNotificationsEnabled: true,
+  feedbackNotificationsEnabled: true,
   requestPermission: async () => 'unsupported',
+  setBrowserNotificationsEnabled: () => {},
+  setFeedbackNotificationsEnabled: () => {},
   addNotification: () => {},
   markAllRead: () => {},
   markRead: () => {},
@@ -64,15 +72,31 @@ export function useNotifications() {
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(true);
+  const [feedbackNotificationsEnabled, setFeedbackNotificationsEnabled] = useState(true);
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
   );
-  const lastFeedbackRef = useRef<Record<string, { status: string; commentCount: number }>>({});
+  const lastFeedbackRef = useRef<
+    Record<
+      string,
+      {
+        status: string;
+        commentCount: number;
+        title: string;
+        description: string;
+        deletedAt: string;
+      }
+    >
+  >({});
+  const lastFeedbackEventRef = useRef<Record<string, string>>({});
   const isFirstFeedbackScanRef = useRef(true);
   const { activeImport, modalShowingImport } = useImportProgress();
   const lastImportNotifiedRef = useRef<string | null>(null);
 
   const addNotification = useCallback((payload: NotifyPayload) => {
+    if (payload.type === 'feedback' && !feedbackNotificationsEnabled) return;
+
     const entry: AppNotification = {
       id: uid(),
       type: payload.type,
@@ -85,7 +109,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
     setNotifications((prev) => [entry, ...prev].slice(0, 50));
 
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    if (
+      browserNotificationsEnabled &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
       try {
         const browserNotification = new Notification(payload.title, {
           body: payload.message,
@@ -101,7 +130,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         // Ignore browser notification errors; in-app feed still works.
       }
     }
-  }, []);
+  }, [browserNotificationsEnabled, feedbackNotificationsEnabled]);
 
   const markAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
@@ -134,6 +163,34 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!currentUserId || typeof window === 'undefined') return;
+    const browserPref = window.localStorage.getItem(`kb_browser_notifications_enabled_${currentUserId}`);
+    const feedbackPref = window.localStorage.getItem(`kb_feedback_notifications_enabled_${currentUserId}`);
+    setBrowserNotificationsEnabled(browserPref !== '0');
+    setFeedbackNotificationsEnabled(feedbackPref !== '0');
+  }, [currentUserId]);
+
+  const saveBrowserPreference = useCallback(
+    (enabled: boolean) => {
+      setBrowserNotificationsEnabled(enabled);
+      if (currentUserId && typeof window !== 'undefined') {
+        window.localStorage.setItem(`kb_browser_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
+      }
+    },
+    [currentUserId],
+  );
+
+  const saveFeedbackPreference = useCallback(
+    (enabled: boolean) => {
+      setFeedbackNotificationsEnabled(enabled);
+      if (currentUserId && typeof window !== 'undefined') {
+        window.localStorage.setItem(`kb_feedback_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
+      }
+    },
+    [currentUserId],
+  );
+
+  useEffect(() => {
     const onAppNotify = (event: Event) => {
       const detail = (event as CustomEvent<NotifyPayload>).detail;
       if (!detail?.title || !detail?.message || !detail?.type) return;
@@ -156,6 +213,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (!getAccessToken()) {
       return;
     }
+    if (!feedbackNotificationsEnabled) {
+      return;
+    }
     let cancelled = false;
 
     const poll = async () => {
@@ -163,11 +223,17 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const list = await api.feedback.list();
         if (cancelled) return;
 
-        const current: Record<string, { status: string; commentCount: number }> = {};
+        const current: Record<
+          string,
+          { status: string; commentCount: number; title: string; description: string; deletedAt: string }
+        > = {};
         for (const item of list) {
           current[item.id] = {
             status: item.status,
             commentCount: Array.isArray(item.comments) ? item.comments.length : 0,
+            title: item.title || '',
+            description: item.description || '',
+            deletedAt: item.deletedAt || '',
           };
         }
 
@@ -193,6 +259,30 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                   message: `"${item.title}" is now ${item.status.replace('_', ' ').toLowerCase()}.`,
                   href: `/dashboard/feedbacks#feedback-${item.id}`,
                 });
+              }
+            }
+
+            const hasOtherMutation =
+              prev.title !== (item.title || '') ||
+              prev.description !== (item.description || '') ||
+              prev.deletedAt !== (item.deletedAt || '');
+            if (hasOtherMutation && currentUserId) {
+              try {
+                const history = await api.feedback.history(item.id);
+                const latest = history[0];
+                if (latest && latest.id !== lastFeedbackEventRef.current[item.id]) {
+                  lastFeedbackEventRef.current[item.id] = latest.id;
+                  if (latest.userId !== currentUserId) {
+                    addNotification({
+                      type: 'feedback',
+                      title: 'Feedback updated by another user',
+                      message: `"${item.title}" was updated by ${latest.username}.`,
+                      href: `/dashboard/feedbacks#feedback-${item.id}`,
+                    });
+                  }
+                }
+              } catch {
+                // ignore history fetch issues
               }
             }
             const nextCount = Array.isArray(item.comments) ? item.comments.length : 0;
@@ -228,7 +318,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [addNotification, currentUserId]);
+  }, [addNotification, currentUserId, feedbackNotificationsEnabled]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
@@ -238,7 +328,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         notifications,
         unreadCount,
         permission,
+        browserNotificationsEnabled,
+        feedbackNotificationsEnabled,
         requestPermission,
+        setBrowserNotificationsEnabled: saveBrowserPreference,
+        setFeedbackNotificationsEnabled: saveFeedbackPreference,
         addNotification,
         markAllRead,
         markRead,

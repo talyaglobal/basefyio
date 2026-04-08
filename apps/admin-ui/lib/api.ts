@@ -14,6 +14,8 @@ import type {
   PendingInvite,
   Project,
   ProjectActivityItem,
+  ProjectArchiveImportResponse,
+  CloudBackupItem,
   ProjectAuthConfig,
   ProjectExportJobResponse,
   ProjectExportRequest,
@@ -378,6 +380,33 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    async importFromExportZip(data: {
+      file: File;
+      teamId: string;
+      nameMode: 'existing' | 'new';
+      newProjectName?: string;
+    }) {
+      const token = getAccessToken();
+      const form = new FormData();
+      form.append('file', data.file);
+      form.append('teamId', data.teamId);
+      form.append('nameMode', data.nameMode);
+      if (data.nameMode === 'new' && data.newProjectName?.trim()) {
+        form.append('newProjectName', data.newProjectName.trim());
+      }
+
+      const res = await fetch('/api/proxy/projects/import-export-zip', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || `ZIP import failed: ${res.status}`);
+      }
+      return (await res.json()) as ProjectArchiveImportResponse;
+    },
     validateSupabase(supabaseUrl: string, serviceRoleKey: string) {
       return request<SupabaseValidateResult>('/projects/import-supabase/validate', {
         method: 'POST',
@@ -492,6 +521,23 @@ export const api = {
       const filename = filenameMatch?.[1] || `project-export-${projectId}.zip`;
       const blob = await res.blob();
       return { blob, filename };
+    },
+    listCloudBackups(projectId: string) {
+      return request<CloudBackupItem[]>(`/projects/${projectId}/backups`);
+    },
+    restoreCloudBackup(
+      projectId: string,
+      data: {
+        objectKey: string;
+        teamId: string;
+        nameMode: 'existing' | 'new';
+        newProjectName?: string;
+      },
+    ) {
+      return request<ProjectArchiveImportResponse>(`/projects/${projectId}/backups/restore`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
     },
 
     streamImportProgress(

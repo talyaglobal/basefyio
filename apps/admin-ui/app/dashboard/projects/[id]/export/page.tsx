@@ -5,8 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Loader2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
+import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 export default function ProjectExportPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,11 @@ export default function ProjectExportPage() {
   const [result, setResult] = useState<ExportJobResult | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
+  const [nameMode, setNameMode] = useState<'existing' | 'new'>('existing');
+  const [newProjectName, setNewProjectName] = useState('');
   const [options, setOptions] = useState({
     includeDatabase: true,
     includeAuth: true,
@@ -90,6 +96,46 @@ export default function ProjectExportPage() {
       setDownloading(false);
     }
   }
+
+  async function loadCloudBackups() {
+    setLoadingBackups(true);
+    try {
+      const backups = await api.projects.listCloudBackups(id);
+      setCloudBackups(backups);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load cloud backups');
+    } finally {
+      setLoadingBackups(false);
+    }
+  }
+
+  async function handleRestoreFromCloud(objectKey: string) {
+    if (nameMode === 'new' && !newProjectName.trim()) {
+      toast.error('Please enter a new project name');
+      return;
+    }
+    setRestoringKey(objectKey);
+    try {
+      const { teamId } = await api.teams.getActive();
+      const result = await api.projects.restoreCloudBackup(id, {
+        objectKey,
+        teamId,
+        nameMode,
+        newProjectName: nameMode === 'new' ? newProjectName.trim() : undefined,
+      });
+      toast.success(`Backup restored: ${result.project.name}`);
+      router.push(`/dashboard/projects/${result.project.id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Cloud restore failed');
+    } finally {
+      setRestoringKey(null);
+    }
+  }
+
+  useEffect(() => {
+    loadCloudBackups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -180,6 +226,63 @@ export default function ProjectExportPage() {
           )}
         </section>
       )}
+
+      <section className="rounded-xl border bg-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Cloud Backups & Restore</h2>
+          <Button variant="outline" size="sm" onClick={loadCloudBackups} disabled={loadingBackups}>
+            {loadingBackups ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+          </Button>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Restore name option</p>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="radio" className="h-4 w-4 accent-primary" checked={nameMode === 'existing'} onChange={() => setNameMode('existing')} />
+            Use exported project name
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="radio" className="h-4 w-4 accent-primary" checked={nameMode === 'new'} onChange={() => setNameMode('new')} />
+            Use new project name
+          </label>
+          {nameMode === 'new' && (
+            <Input
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              placeholder="new-project-name"
+              maxLength={64}
+            />
+          )}
+        </div>
+        <div className="space-y-2">
+          {cloudBackups.length === 0 && (
+            <p className="text-sm text-muted-foreground">No cloud backups found for this project.</p>
+          )}
+          {cloudBackups.map((b) => (
+            <div key={b.objectKey} className="flex items-center justify-between rounded-lg border p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{b.filename}</p>
+                <p className="text-xs text-muted-foreground">
+                  {(b.size / 1024 / 1024).toFixed(2)} MB • {new Date(b.lastModified).toLocaleString()}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => handleRestoreFromCloud(b.objectKey)}
+                disabled={restoringKey === b.objectKey}
+              >
+                {restoringKey === b.objectKey ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Restoring...
+                  </>
+                ) : (
+                  'Restore'
+                )}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDashboard } from '@/app/dashboard/layout';
+import { useNotifications } from '@/lib/notifications-context';
 import type { UserProfile } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,6 +62,15 @@ export default function ProfilePage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [notifTab, setNotifTab] = useState<'email' | 'browser'>('email');
+  const {
+    permission,
+    requestPermission,
+    browserNotificationsEnabled,
+    feedbackNotificationsEnabled,
+    setBrowserNotificationsEnabled,
+    setFeedbackNotificationsEnabled,
+  } = useNotifications();
 
   useEffect(() => {
     api.auth
@@ -197,8 +207,8 @@ export default function ProfilePage() {
       toast.error('Enter your current password');
       return;
     }
-    if (newPassword.length < 6) {
-      toast.error('New password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -406,62 +416,139 @@ export default function ProfilePage() {
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Bell className="h-4 w-4" />
-          Email Notifications
+          Notifications
+        </div>
+        <div className="inline-flex rounded-md border p-1">
+          <button
+            type="button"
+            onClick={() => setNotifTab('email')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              notifTab === 'email' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Email Notifications
+          </button>
+          <button
+            type="button"
+            onClick={() => setNotifTab('browser')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              notifTab === 'browser' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Browser Notifications
+          </button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Choose which email notifications you want to receive.
+          {notifTab === 'email'
+            ? 'Choose which email notifications you want to receive.'
+            : 'Choose which in-app/browser notifications you want to receive. These settings are personal for your own account.'}
         </p>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-md border px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Sign-in alerts</p>
-              <p className="text-xs text-muted-foreground">
-                Get notified when someone signs in to your account
-              </p>
-            </div>
-            <button
-              onClick={() => setNotifySignIn(!notifySignIn)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                notifySignIn ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  notifySignIn ? 'translate-x-[22px]' : 'translate-x-[2px]'
-                } mt-[2px]`}
-              />
-            </button>
-          </div>
+        {notifTab === 'email' ? (
+          <>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Sign-in alerts</p>
+                  <p className="text-xs text-muted-foreground">
+                    Get notified when someone signs in to your account
+                  </p>
+                </div>
+                <button
+                  onClick={() => setNotifySignIn(!notifySignIn)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                    notifySignIn ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      notifySignIn ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                    } mt-[2px]`}
+                  />
+                </button>
+              </div>
 
-          <div className="flex items-center justify-between rounded-md border px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Team invitations</p>
-              <p className="text-xs text-muted-foreground">
-                Get notified when you are invited to a team
-              </p>
+              <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Team invitations</p>
+                  <p className="text-xs text-muted-foreground">
+                    Get notified when you are invited to a team
+                  </p>
+                </div>
+                <button
+                  onClick={() => setNotifyTeamInvite(!notifyTeamInvite)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                    notifyTeamInvite ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      notifyTeamInvite ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                    } mt-[2px]`}
+                  />
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => setNotifyTeamInvite(!notifyTeamInvite)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                notifyTeamInvite ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  notifyTeamInvite ? 'translate-x-[22px]' : 'translate-x-[2px]'
-                } mt-[2px]`}
-              />
-            </button>
-          </div>
-        </div>
 
-        <div className="flex justify-end">
-          <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
-            {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Save Preferences
-          </Button>
-        </div>
+            <div className="flex justify-end">
+              <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
+                {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                Save Preferences
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Allow browser pop-up notifications</p>
+                <p className="text-xs text-muted-foreground">
+                  Permission: {permission}. {permission !== 'granted' ? 'Enable permission to receive browser pop-ups.' : 'Browser pop-ups are available.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {permission !== 'granted' && permission !== 'unsupported' && (
+                  <Button size="sm" variant="outline" onClick={() => void requestPermission()}>
+                    Enable
+                  </Button>
+                )}
+                <button
+                  onClick={() => setBrowserNotificationsEnabled(!browserNotificationsEnabled)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                    browserNotificationsEnabled ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      browserNotificationsEnabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                    } mt-[2px]`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Feedback updates from other users</p>
+                <p className="text-xs text-muted-foreground">
+                  Notify me when another user comments or changes my feedback.
+                </p>
+              </div>
+              <button
+                onClick={() => setFeedbackNotificationsEnabled(!feedbackNotificationsEnabled)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                  feedbackNotificationsEnabled ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    feedbackNotificationsEnabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                  } mt-[2px]`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Change Password */}
@@ -471,7 +558,7 @@ export default function ProfilePage() {
           Change Password
         </div>
         <p className="text-xs text-muted-foreground">
-          Enter your current password first, then set a new password.
+          Enter your current password first, then set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).
         </p>
 
         <div className="space-y-4">
@@ -507,7 +594,7 @@ export default function ProfilePage() {
                   type={showNewPw ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="Min 8 chars + uppercase/lowercase/number/special"
                   className="pr-10"
                 />
                 <button
@@ -548,7 +635,7 @@ export default function ProfilePage() {
         <div className="flex justify-end">
           <Button
             onClick={handleChangePassword}
-            disabled={changingPassword || !currentPassword || newPassword.length < 6 || newPassword !== confirmPassword}
+            disabled={changingPassword || !currentPassword || newPassword.length < 8 || newPassword !== confirmPassword}
             size="sm"
           >
             {changingPassword ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1.5 h-3.5 w-3.5" />}
