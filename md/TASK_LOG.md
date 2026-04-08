@@ -1,5 +1,11 @@
 # Task Log
 
+## 2026-04-08 (export modal + queue visibility)
+- Added global export progress tracking context with persistent running jobs and SSE/polling sync.
+- Added export progress toast (minimize/maximize workflow similar to Supabase import flow).
+- Updated project export page to open a status modal after `Start Export`, support minimize/reopen, and show queued/running exports across projects.
+- Added queue list UI so users can see which project exports are currently in progress.
+
 ## 2026-04-08 (export page cloud backup visibility reliability)
 - Added automatic Cloud Backups refresh immediately when export completes.
 - Added fallback export status polling (`/export/jobs/:jobId/status`) every 2s to recover from SSE disconnect/missed events.

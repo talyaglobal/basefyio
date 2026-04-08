@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 import { ImportProgressProvider } from '@/lib/import-progress-context';
 import { ImportProgressToast } from '@/components/import-progress-toast';
+import { ExportProgressProvider } from '@/lib/export-progress-context';
+import { ExportProgressToast } from '@/components/export-progress-toast';
 import { ThemeProvider } from '@/components/theme-provider';
 import { NotificationsProvider } from '@/lib/notifications-context';
 import './globals.css';
@@ -26,10 +28,13 @@ export default function RootLayout({
       <body style={{ fontFamily: "'Inter', sans-serif" }}>
         <ThemeProvider>
           <ImportProgressProvider>
-            <NotificationsProvider>
-              {children}
-              <ImportProgressToast />
-            </NotificationsProvider>
+            <ExportProgressProvider>
+              <NotificationsProvider>
+                {children}
+                <ImportProgressToast />
+                <ExportProgressToast />
+              </NotificationsProvider>
+            </ExportProgressProvider>
           </ImportProgressProvider>
           <Toaster position="bottom-right" richColors />
         </ThemeProvider>

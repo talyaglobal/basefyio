@@ -3,20 +3,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowLeft, Download, Loader2, PackageCheck, Play } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useExportProgress } from '@/lib/export-progress-context';
 
 export default function ProjectExportPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const {
+    activeExports,
+    startTracking,
+    dismiss,
+    setModalShowingExport,
+    setOnReopenModal,
+  } = useExportProgress();
   const [starting, setStarting] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<ExportJobProgressEvent | null>(null);
-  const [result, setResult] = useState<ExportJobResult | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
-  const [jobState, setJobState] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [waitingWarning, setWaitingWarning] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
@@ -29,101 +35,25 @@ export default function ProjectExportPage() {
     includeConfig: true,
   });
 
-  useEffect(() => {
-    if (!jobId) return;
-    setJobState('waiting');
-    setWaitingWarning(false);
-    const waitingTimer = setTimeout(() => {
-      setWaitingWarning(true);
-    }, 20_000);
-    const es = api.projects.streamExportProgress(id, jobId, {
-      onState: (state) => {
-        setJobState(state);
-        if (state !== 'waiting' && state !== 'delayed') {
-          setWaitingWarning(false);
-          clearTimeout(waitingTimer);
-        }
-      },
-      onProgress: (data) => setProgress(data),
-      onCompleted: (data) => {
-        setResult(data);
-        setJobState('completed');
-        setWaitingWarning(false);
-        clearTimeout(waitingTimer);
-        setProgress({ step: 'completed', detail: 'Export completed', percent: 100 });
-        void loadCloudBackups();
-        toast.success('Export ready for download');
-      },
-      onFailed: (error) => {
-        setFailed(error);
-        setJobState('failed');
-        setWaitingWarning(false);
-        clearTimeout(waitingTimer);
-        toast.error(error);
-      },
-      onError: () => {
-        setFailed('Export stream disconnected');
-        setWaitingWarning(false);
-        clearTimeout(waitingTimer);
-      },
-    });
-
-    return () => {
-      clearTimeout(waitingTimer);
-      es.close();
-    };
-  }, [id, jobId]);
-
-  useEffect(() => {
-    if (!jobId || result || failed) return;
-    let cancelled = false;
-    let lastState = '';
-
-    const tick = async () => {
-      try {
-        const status = await api.projects.getExportStatus(id, jobId);
-        if (cancelled || !status) return;
-
-        if (status.state && status.state !== lastState) {
-          lastState = status.state;
-          setJobState(status.state);
-        }
-
-        if (status.progress) {
-          setProgress(status.progress);
-        }
-
-        if (status.state === 'completed' && status.result) {
-          setResult(status.result);
-          setFailed(null);
-          setProgress({ step: 'completed', detail: 'Export completed', percent: 100 });
-          setWaitingWarning(false);
-          void loadCloudBackups();
-          toast.success('Export ready for download');
-          return;
-        }
-
-        if (status.state === 'failed') {
-          const reason = status.failedReason || 'Export failed';
-          setFailed(reason);
-          setWaitingWarning(false);
-          toast.error(reason);
-        }
-      } catch {
-        // Keep silent; SSE still handles primary updates.
-      }
-    };
-
-    void tick();
-    const timer = setInterval(() => {
-      void tick();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [id, jobId, result, failed]);
+  const currentProjectExports = useMemo(
+    () => activeExports.filter((x) => x.projectId === id),
+    [activeExports, id],
+  );
+  const queuedExports = useMemo(
+    () => activeExports.filter((x) => x.status === 'running'),
+    [activeExports],
+  );
+  const selectedExport = useMemo(
+    () =>
+      currentProjectExports.find((x) => x.jobId === selectedJobId) ||
+      currentProjectExports[0] ||
+      null,
+    [currentProjectExports, selectedJobId],
+  );
+  const progress = selectedExport?.progress ?? null;
+  const failed = selectedExport?.status === 'failed' ? selectedExport.error || 'Export failed' : null;
+  const result = selectedExport?.result ?? null;
+  const jobState = selectedExport?.state ?? null;
 
   const progressPercent = useMemo(
     () => Math.max(0, Math.min(100, progress?.percent ?? 0)),
@@ -136,12 +66,20 @@ export default function ProjectExportPage() {
       return;
     }
     setStarting(true);
-    setFailed(null);
-    setResult(null);
-    setProgress(null);
     try {
+      const projectInfo = await api.projects.get(id).catch(() => null);
       const res = await api.projects.startExport(id, options);
-      setJobId(res.jobId);
+      startTracking(
+        res.jobId,
+        id,
+        projectInfo?.name || `Project ${id.slice(0, 8)}`,
+        () => {
+          void loadCloudBackups();
+        },
+      );
+      setSelectedJobId(res.jobId);
+      setExportModalOpen(true);
+      setModalShowingExport(true);
       toast.success('Export started');
     } catch (err: any) {
       toast.error(err.message || 'Failed to start export');
@@ -151,10 +89,10 @@ export default function ProjectExportPage() {
   }
 
   async function handleDownload() {
-    if (!jobId) return;
+    if (!selectedExport?.jobId) return;
     setDownloading(true);
     try {
-      const { blob, filename } = await api.projects.downloadExport(id, jobId);
+      const { blob, filename } = await api.projects.downloadExport(id, selectedExport.jobId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -205,6 +143,27 @@ export default function ProjectExportPage() {
     loadCloudBackups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (!selectedExport) return;
+    setWaitingWarning(false);
+    if (selectedExport.state !== 'waiting' && selectedExport.state !== 'delayed') return;
+    const timer = setTimeout(() => setWaitingWarning(true), 20_000);
+    return () => clearTimeout(timer);
+  }, [selectedExport?.jobId, selectedExport?.state]);
+
+  useEffect(() => {
+    const reopen = () => {
+      const current = activeExports.find((x) => x.projectId === id && x.status === 'running');
+      if (current) {
+        setSelectedJobId(current.jobId);
+        setExportModalOpen(true);
+        setModalShowingExport(true);
+      }
+    };
+    setOnReopenModal(reopen);
+    return () => setOnReopenModal(null);
+  }, [activeExports, id, setModalShowingExport, setOnReopenModal]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -259,51 +218,42 @@ export default function ProjectExportPage() {
         </Button>
       </section>
 
-      {(progress || failed || result) && (
-        <section className="rounded-xl border bg-card p-6 space-y-4">
-          <h2 className="text-base font-semibold">Export progress</h2>
-          {waitingWarning && (jobState === 'waiting' || jobState === 'delayed') && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-              Export job is still waiting in queue. In production this usually means worker/redis issue.
-              Check platform-api logs and queue connection.
-            </div>
-          )}
-          {failed && (
-            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800">
-              Export failed: {failed}
-            </div>
-          )}
-          <div className="space-y-2">
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                {failed || progress?.detail || 'Waiting...'}
-              </span>
-              <span className="font-medium tabular-nums">{progressPercent}%</span>
-            </div>
+      {queuedExports.length > 0 && (
+        <section className="rounded-xl border bg-card p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">Active export queue</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (selectedExport?.jobId) setSelectedJobId(selectedExport.jobId);
+                else if (queuedExports[0]) setSelectedJobId(queuedExports[0].jobId);
+                setExportModalOpen(true);
+                setModalShowingExport(true);
+              }}
+            >
+              Open Status Modal
+            </Button>
           </div>
-
-          {result && (
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm">
-                <PackageCheck className="h-4 w-4 text-emerald-600" />
-                <span>Archive ready: {result.filename}</span>
-              </div>
-              <Button onClick={handleDownload} disabled={downloading}>
-                {downloading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                {downloading ? 'Preparing...' : 'Download ZIP'}
-              </Button>
-            </div>
-          )}
+          <div className="space-y-2">
+            {queuedExports.map((q) => (
+              <button
+                key={q.jobId}
+                type="button"
+                className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  setSelectedJobId(q.jobId);
+                  setExportModalOpen(true);
+                  setModalShowingExport(true);
+                }}
+              >
+                <span className="truncate text-sm font-medium">{q.projectName}</span>
+                <span className="ml-2 text-xs text-muted-foreground tabular-nums">
+                  {q.progress?.percent ?? 0}%
+                </span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 
@@ -344,6 +294,124 @@ export default function ProjectExportPage() {
           ))}
         </div>
       </section>
+
+      <Dialog
+        open={exportModalOpen}
+        onOpenChange={(open) => {
+          setExportModalOpen(open);
+          setModalShowingExport(open);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <DialogTitle>Export Status</DialogTitle>
+                <DialogDescription>
+                  Track running exports. You can minimize and reopen anytime.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setExportModalOpen(false);
+                  setModalShowingExport(false);
+                }}
+                title="Minimize"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {queuedExports.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground">Queue Projects</p>
+                <div className="space-y-1.5">
+                  {queuedExports.map((q) => (
+                    <button
+                      key={q.jobId}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm ${
+                        selectedExport?.jobId === q.jobId ? 'border-primary bg-primary/5' : 'hover:bg-accent'
+                      }`}
+                      onClick={() => setSelectedJobId(q.jobId)}
+                    >
+                      <span className="truncate font-medium">{q.projectName}</span>
+                      <span className="ml-2 text-xs text-muted-foreground tabular-nums">
+                        {q.progress?.percent ?? 0}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedExport && (
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">{selectedExport.projectName}</p>
+                  <p className="text-xs text-muted-foreground">State: {jobState || 'waiting'}</p>
+                </div>
+
+                {waitingWarning && (jobState === 'waiting' || jobState === 'delayed') && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                    Export is still waiting in queue. Worker may be busy or unavailable.
+                  </div>
+                )}
+                {failed && (
+                  <div className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+                    Export failed: {failed}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-primary transition-all duration-300"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      {failed || progress?.detail || 'Waiting...'}
+                    </span>
+                    <span className="font-medium tabular-nums">{progressPercent}%</span>
+                  </div>
+                </div>
+
+                {result && (
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <PackageCheck className="h-4 w-4 text-emerald-600" />
+                      <span>Archive ready: {result.filename}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button onClick={handleDownload} disabled={downloading}>
+                        {downloading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="mr-2 h-4 w-4" />
+                        )}
+                        {downloading ? 'Preparing...' : 'Download ZIP'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => dismiss(selectedExport.jobId)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
