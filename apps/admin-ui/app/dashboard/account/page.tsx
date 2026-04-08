@@ -222,8 +222,8 @@ export default function AccountPage() {
       toast.error('Enter your current password');
       return;
     }
-    if (newPassword.length < 6) {
-      toast.error('New password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -555,7 +555,7 @@ export default function AccountPage() {
         <p className="text-xs text-muted-foreground">
           {isExternalAuth
             ? `Social sign-in account (${signOnMethod}). Password sign-in is disabled for this account.`
-            : 'Enter your current password first, then set a new password.'}
+            : 'Enter your current password first, then set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).'}
         </p>
 
         {!isExternalAuth ? (
@@ -594,7 +594,7 @@ export default function AccountPage() {
                   type={showNewPw ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="Min 8 chars + uppercase/lowercase/number/special"
                   className="pr-10"
                 />
                 <button

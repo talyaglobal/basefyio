@@ -49,6 +49,17 @@ export class ProjectExportService {
 
     await this.projectsService.findOne(projectId, userId);
 
+    // Some production Redis/BullMQ setups can keep a queue paused after restarts.
+    // Ensure export queue is resumed before enqueueing a new job.
+    try {
+      const paused = await this.exportQueue.isPaused();
+      if (paused) {
+        await this.exportQueue.resume();
+      }
+    } catch {
+      // Ignore queue state probe issues here; add() call below will still surface real errors.
+    }
+
     const data: ExportJobData = {
       projectId,
       userId,

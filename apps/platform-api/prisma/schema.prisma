@@ -168,6 +168,7 @@ model Project {
   serviceKey    String        @map("service_key")
   teamId        String        @map("team_id")
   createdBy     String?       @map("created_by")
+  importSource  String        @default("MANUAL") @map("import_source")
   /// Last successful Supabase import summary (tables, auth, storage, warnings).
   supabaseImportLog Json?     @map("supabase_import_log")
   status        ProjectStatus @default(ACTIVE)

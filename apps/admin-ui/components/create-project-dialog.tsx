@@ -33,13 +33,16 @@ export interface ReimportTarget {
   projectName: string;
 }
 
+export type ReimportSource = 'supabase' | 'zip';
+
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
   teamId: string;
-  /** When set, opens the Supabase import form for this existing project (overwrite-style re-import). */
+  /** When set, opens re-import flow for this existing project. */
   reimportTarget?: ReimportTarget | null;
+  reimportSource?: ReimportSource | null;
 }
 
 type DialogView = 'create' | 'import' | 'import-zip' | 'importing' | 'result';
@@ -93,6 +96,7 @@ export function CreateProjectDialog({
   onCreated,
   teamId,
   reimportTarget = null,
+  reimportSource = null,
 }: CreateProjectDialogProps) {
   const router = useRouter();
   const [view, setView] = useState<DialogView>('create');
@@ -250,6 +254,16 @@ export function CreateProjectDialog({
       return;
     }
 
+    if (reimportSource === 'zip') {
+      setView('import-zip');
+      setZipImportMode('override');
+      setZipExistingProjectId(reimportTarget.projectId);
+      setZipNameMode('existing');
+      setZipNewName('');
+      setZipFile(null);
+      return;
+    }
+
     setView('import');
     setImportName(reimportTarget.projectName);
     setImportNameManual(true);
@@ -261,6 +275,7 @@ export function CreateProjectDialog({
     open,
     reimportTarget?.projectId,
     reimportTarget?.projectName,
+    reimportSource,
     activeImport?.status,
     activeImport?.projectId,
     activeImport?.projectName,
@@ -1012,19 +1027,28 @@ export function CreateProjectDialog({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setView('create')}
+                  onClick={() =>
+                    reimportTarget ? handleOpenChange(false) : setView('create')
+                  }
                   className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  aria-label="Back"
+                  aria-label={reimportTarget ? 'Close' : 'Back'}
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
                 <div className="flex items-center gap-2">
                   <HardDrive className="h-5 w-5 text-blue-600" />
-                  <DialogTitle>Import from ZIP</DialogTitle>
+                  <DialogTitle>{reimportTarget ? 'Re-import from ZIP' : 'Import from ZIP'}</DialogTitle>
                 </div>
               </div>
               <DialogDescription>
-                Upload an exported ZIP and choose whether to create a duplicate project or overwrite an existing one.
+                {reimportTarget
+                  ? (
+                    <>
+                      Upload an exported ZIP to overwrite{' '}
+                      <span className="font-medium text-foreground">{reimportTarget.projectName}</span>.
+                    </>
+                  )
+                  : 'Upload an exported ZIP and choose whether to create a duplicate project or overwrite an existing one.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -1042,6 +1066,7 @@ export function CreateProjectDialog({
                 </p>
               </div>
 
+              {!reimportTarget && (
               <div className="space-y-2">
                 <p className="text-xs font-medium">Import target</p>
                 <label className="flex items-center gap-2 text-sm">
@@ -1081,8 +1106,9 @@ export function CreateProjectDialog({
                   </select>
                 )}
               </div>
+              )}
 
-              {zipImportMode === 'duplicate' && (
+              {!reimportTarget && zipImportMode === 'duplicate' && (
               <div className="space-y-2">
                 <p className="text-xs font-medium">Project name confirmation</p>
                 <label className="flex items-center gap-2 text-sm">
@@ -1123,7 +1149,7 @@ export function CreateProjectDialog({
                     Importing ZIP...
                   </>
                 ) : (
-                  'Import Export ZIP'
+                  reimportTarget ? 'Start re-import' : 'Import Export ZIP'
                 )}
               </Button>
             </form>

@@ -96,6 +96,7 @@ export class ProjectArchiveImportService {
         : await this.projectsService.create(
             { name: finalName!, teamId: body.teamId!.trim() },
             userId,
+            'ZIP',
           );
 
       const warnings: string[] = [];

@@ -37,7 +37,11 @@ export class ProjectsService {
     private readonly infra: InfrastructureService,
   ) {}
 
-  async create(dto: CreateProjectDto & { teamId: string }, userId: string) {
+  async create(
+    dto: CreateProjectDto & { teamId: string },
+    userId: string,
+    importSource: 'MANUAL' | 'SUPABASE' | 'ZIP' = 'MANUAL',
+  ) {
     await this.assertTeamMember(dto.teamId, userId);
     await this.quota.assertCanCreateProject(dto.teamId);
 
@@ -116,6 +120,7 @@ export class ProjectsService {
         serviceKey,
         teamId: dto.teamId,
         createdBy: userId,
+        importSource,
       },
     });
 

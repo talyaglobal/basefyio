@@ -89,6 +89,7 @@ export interface Project {
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   createdAt: string;
   updatedAt: string;
+  importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP';
   /** Persisted summary from the last completed Supabase import (if any). */
   supabaseImportLog?: unknown;
   github?: GitHubIntegration;

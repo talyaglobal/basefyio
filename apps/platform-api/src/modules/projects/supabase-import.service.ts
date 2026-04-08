@@ -166,6 +166,7 @@ export class SupabaseImportService {
       const created = await this.projectsService.create(
         { name: finalName, teamId },
         userId,
+        'SUPABASE',
       );
       project = {
         id: created.id,

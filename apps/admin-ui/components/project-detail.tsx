@@ -134,6 +134,14 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const importLogFromBrowser =
     (project.supabaseImportLog === null || project.supabaseImportLog === undefined) &&
     importLog !== null;
+  const reimportSource =
+    project.importSource === 'SUPABASE'
+      ? 'supabase'
+      : project.importSource === 'ZIP'
+        ? 'zip'
+        : null;
+  const reimportLabel =
+    reimportSource === 'zip' ? 'Re-import from ZIP' : 'Re-import Supabase';
 
   return (
     <div className="space-y-5">
@@ -157,10 +165,12 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               Move to Team
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => setReimportOpen(true)}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Re-import Supabase
-          </Button>
+          {reimportSource && (
+            <Button variant="outline" size="sm" onClick={() => setReimportOpen(true)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {reimportLabel}
+            </Button>
+          )}
           <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
             <Trash2 className="mr-2 h-4 w-4" />
             {deleting ? 'Deleting...' : 'Delete'}
@@ -407,8 +417,9 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         onOpenChange={setReimportOpen}
         onCreated={() => router.refresh()}
         teamId={project.teamId}
+        reimportSource={reimportSource}
         reimportTarget={
-          reimportOpen
+          reimportOpen && reimportSource
             ? { projectId: project.id, projectName: project.name }
             : null
         }

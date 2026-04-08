@@ -1,5 +1,24 @@
 # Task Log
 
+## 2026-04-08 (project re-import source-based button)
+- Added project-level `importSource` tracking (`MANUAL`, `SUPABASE`, `ZIP`) in backend project creation flow.
+- Supabase-created projects now store `SUPABASE`, ZIP-created projects now store `ZIP`, manual projects remain `MANUAL`.
+- Updated project detail action button behavior:
+  - ZIP projects show `Re-import from ZIP`.
+  - Supabase projects show `Re-import Supabase`.
+  - Manual projects show no re-import button.
+- Updated re-import dialog flow so ZIP re-import opens directly in ZIP override mode for the current project.
+
+## 2026-04-08 (prod export queue auto-resume)
+- Added auto-resume guard in export start flow (`ProjectExportService.startExport`).
+- Before adding a new export job, system now checks if export queue is paused and resumes it automatically.
+- Purpose: prevent production exports from staying in `waiting` when queue is left paused after restart/deploy.
+
+## 2026-04-08 (account password policy text fix)
+- Updated `/dashboard/account` password validation message from 6-character rule to current 8+ complexity rule.
+- Updated password change helper text to describe required uppercase/lowercase/number/special format.
+- Updated new password placeholder text to match the current password policy.
+
 ## 2026-04-08 (prod export queue redis compatibility)
 - Updated BullMQ Redis connection parsing to support production-grade Redis URLs.
 - Added support for `rediss://` TLS connections, Redis username, and DB index from URL path.
