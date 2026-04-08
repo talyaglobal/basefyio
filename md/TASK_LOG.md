@@ -76,6 +76,10 @@
 - **JWT claim fallback:** JWT strategy now uses `preferred_username` as email fallback when `email` claim is missing in OAuth tokens.
 - **User mapping stability:** OAuth-authenticated users are matched to existing app user by resolved email fallback before authorization checks.
 
+## 2026-04-08 (google re-login account prompt enforcement)
+- **No silent Google auto-login:** Updated Google OAuth parameters to force re-authentication on each login attempt (`prompt=login`, `max_age=0`).
+- **Provider config alignment:** Keycloak Google IdP config now enforces the same behavior so users can choose a different Google account after sign-out.
+
 ## 2026-04-07 (sign-in policy reverted)
 - **Policy removed:** Rolled back `Sign In Policy` management selector/endpoint and related enforcement logic.
 - **Users table behavior:** `Sign In` column now shows only one effective method icon (single method), not multiple linked-provider icons.

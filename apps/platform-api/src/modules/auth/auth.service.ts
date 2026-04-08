@@ -578,9 +578,9 @@ export class AuthService {
       redirect_uri: callbackUrl,
       state,
       kc_idp_hint: provider,
-      // For Google: force account picker so users choose which Gmail
-      // account to use. Keycloak forwards this to Google's auth endpoint.
-      ...(provider === 'google' ? { prompt: 'select_account' } : {}),
+      // For Google: always re-authenticate and show account chooser
+      // so sign-out does not auto-login with the previous account.
+      ...(provider === 'google' ? { prompt: 'login', max_age: '0' } : {}),
     });
 
     return { url: `${authUrl}?${params.toString()}`, provider };

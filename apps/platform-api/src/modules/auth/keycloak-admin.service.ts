@@ -205,9 +205,9 @@ export class KeycloakAdminService implements OnModuleInit {
         envId: 'oauth.googleClientId',
         envSecret: 'oauth.googleClientSecret',
         scope: 'openid email profile',
-        // Force Google account picker on every login so users can
-        // choose which Gmail account to use after sign-out.
-        extraConfig: { prompt: 'select_account' },
+        // Force Google re-auth + account chooser every login.
+        // Prevents silent auto-login with previous Google session.
+        extraConfig: { prompt: 'login', max_age: '0' },
       },
       {
         alias: 'github',
