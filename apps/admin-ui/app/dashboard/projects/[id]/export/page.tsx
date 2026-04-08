@@ -51,6 +51,7 @@ export default function ProjectExportPage() {
         setWaitingWarning(false);
         clearTimeout(waitingTimer);
         setProgress({ step: 'completed', detail: 'Export completed', percent: 100 });
+        void loadCloudBackups();
         toast.success('Export ready for download');
       },
       onFailed: (error) => {
@@ -72,6 +73,57 @@ export default function ProjectExportPage() {
       es.close();
     };
   }, [id, jobId]);
+
+  useEffect(() => {
+    if (!jobId || result || failed) return;
+    let cancelled = false;
+    let lastState = '';
+
+    const tick = async () => {
+      try {
+        const status = await api.projects.getExportStatus(id, jobId);
+        if (cancelled || !status) return;
+
+        if (status.state && status.state !== lastState) {
+          lastState = status.state;
+          setJobState(status.state);
+        }
+
+        if (status.progress) {
+          setProgress(status.progress);
+        }
+
+        if (status.state === 'completed' && status.result) {
+          setResult(status.result);
+          setFailed(null);
+          setProgress({ step: 'completed', detail: 'Export completed', percent: 100 });
+          setWaitingWarning(false);
+          void loadCloudBackups();
+          toast.success('Export ready for download');
+          return;
+        }
+
+        if (status.state === 'failed') {
+          const reason = status.failedReason || 'Export failed';
+          setFailed(reason);
+          setWaitingWarning(false);
+          toast.error(reason);
+        }
+      } catch {
+        // Keep silent; SSE still handles primary updates.
+      }
+    };
+
+    void tick();
+    const timer = setInterval(() => {
+      void tick();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id, jobId, result, failed]);
 
   const progressPercent = useMemo(
     () => Math.max(0, Math.min(100, progress?.percent ?? 0)),

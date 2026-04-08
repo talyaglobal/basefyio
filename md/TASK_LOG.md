@@ -1,5 +1,10 @@
 # Task Log
 
+## 2026-04-08 (export page cloud backup visibility reliability)
+- Added automatic Cloud Backups refresh immediately when export completes.
+- Added fallback export status polling (`/export/jobs/:jobId/status`) every 2s to recover from SSE disconnect/missed events.
+- UI now updates completed/failed state and downloadable result even if event stream is unstable in production.
+
 ## 2026-04-08 (management tab order update)
 - Reordered `/dashboard/management` top tabs.
 - `Permissions` tab is now rendered first.
