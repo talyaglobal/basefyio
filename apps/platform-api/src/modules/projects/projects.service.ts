@@ -42,13 +42,31 @@ export class ProjectsService {
     userId: string,
     importSource: 'MANUAL' | 'SUPABASE' | 'ZIP' = 'MANUAL',
   ) {
+    const normalizedName = dto.name.trim();
+    if (!normalizedName) {
+      throw new BadRequestException('Project name is required');
+    }
+    const existingByName = await this.prisma.project.findFirst({
+      where: {
+        name: {
+          equals: normalizedName,
+          mode: 'insensitive',
+        },
+        status: { not: 'DELETED' },
+      },
+      select: { id: true, name: true },
+    });
+    if (existingByName) {
+      throw new BadRequestException('A project with this name already exists');
+    }
+
     await this.assertTeamMember(dto.teamId, userId);
     await this.quota.assertCanCreateProject(dto.teamId);
 
     const needsDedicatedDb = await this.quota.shouldUseDedicatedDb(dto.teamId);
 
     const projectId = randomUUID();
-    const slug = await this.uniqueSlug(this.toSlug(dto.name));
+    const slug = await this.uniqueSlug(this.toSlug(normalizedName));
     const dbName = `kb_${slug}`;
     const dbUser = `kb_user_${slug}`;
     const dbPassword = randomBytes(24).toString('base64url');
@@ -107,7 +125,7 @@ export class ProjectsService {
     const project = await this.prisma.project.create({
       data: {
         id: projectId,
-        name: dto.name,
+        name: normalizedName,
         slug,
         description: dto.description,
         dbName,
@@ -378,7 +396,15 @@ export class ProjectsService {
     return { message: 'Project moved successfully' };
   }
 
-  async remove(id: string, userId: string) {
+  async remove(
+    id: string,
+    userId: string,
+    reason?: {
+      reasonCode?: string;
+      reasonLabel?: string;
+      details?: string;
+    },
+  ) {
     const project = await this.findOne(id, userId);
 
     const membership = await this.prisma.teamMember.findUnique({
@@ -449,9 +475,63 @@ export class ProjectsService {
       kind: ProjectActivityKind.PROJECT_DELETED,
       title: 'Project moved to trash',
       detail: project.name,
+      metadata: {
+        originalProjectName: project.name,
+        reasonCode: reason?.reasonCode || 'none',
+        reasonLabel: reason?.reasonLabel || 'None of the above',
+        details: reason?.details?.trim() || null,
+      },
     });
 
     return { message: 'Project deleted' };
+  }
+
+  async listDeletionReasons(userId: string, limit = 200) {
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (actor?.role !== 'ROOT') {
+      throw new ForbiddenException('Only ROOT can view project deletion reasons');
+    }
+
+    const rows = await this.prisma.projectActivityLog.findMany({
+      where: { kind: ProjectActivityKind.PROJECT_DELETED },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(limit || 200, 500)),
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            teamId: true,
+          },
+        },
+      },
+    });
+
+    return rows.map((x) => {
+      const metadata =
+        x.metadata && typeof x.metadata === 'object'
+          ? (x.metadata as Record<string, unknown>)
+          : {};
+      return {
+        id: x.id,
+        createdAt: x.createdAt,
+        actorUserId: x.userId,
+        projectId: x.projectId,
+        projectName:
+          (typeof metadata.originalProjectName === 'string' &&
+            metadata.originalProjectName) ||
+          x.project?.name ||
+          null,
+        reasonCode:
+          typeof metadata.reasonCode === 'string' ? metadata.reasonCode : null,
+        reasonLabel:
+          typeof metadata.reasonLabel === 'string' ? metadata.reasonLabel : null,
+        details: typeof metadata.details === 'string' ? metadata.details : null,
+      };
+    });
   }
 
   async findDeleted(teamId: string, userId: string) {

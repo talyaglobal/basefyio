@@ -431,7 +431,12 @@ export class StorageService {
     return new Promise<{ totalSize: number; objectCount: number }>((resolve, reject) => {
       const stream = this.client.listObjectsV2(minioBucket, '', true);
       stream.on('data', (obj) => {
-        totalSize += obj.size || 0;
+        const name = obj.name || '';
+        const size = obj.size || 0;
+        // Ignore pseudo-folder marker objects (e.g. "folder/") so UI count matches real files.
+        const isFolderMarker = name.endsWith('/') && size === 0;
+        if (isFolderMarker) return;
+        totalSize += size;
         objectCount++;
       });
       stream.on('error', reject);

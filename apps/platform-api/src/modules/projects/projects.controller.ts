@@ -224,6 +224,15 @@ export class ProjectsController {
     return this.projectsService.findDeleted(teamId, user.sub);
   }
 
+  @Get('deletion-reasons')
+  async listDeletionReasons(
+    @CurrentUser() user: JwtPayload,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
+    return this.projectsService.listDeletionReasons(user.sub, limit);
+  }
+
   @Get(':id/activity')
   async listProjectActivity(
     @Param('id') id: string,
@@ -289,8 +298,14 @@ export class ProjectsController {
   async remove(
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
+    @Body()
+    body?: {
+      reasonCode?: string;
+      reasonLabel?: string;
+      details?: string;
+    },
   ) {
-    return this.projectsService.remove(id, user.sub);
+    return this.projectsService.remove(id, user.sub, body);
   }
 
   @Post(':id/export')

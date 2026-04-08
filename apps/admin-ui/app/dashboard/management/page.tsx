@@ -12,6 +12,7 @@ import type {
   ManagementTeam,
   ManagementUser,
   ManagementUserPackage,
+  ProjectDeletionReasonEntry,
   RolePermissionMatrix,
 } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,7 @@ export default function ManagementPage() {
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [projectDeletionReasons, setProjectDeletionReasons] = useState<ProjectDeletionReasonEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
   const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
@@ -190,6 +192,12 @@ export default function ManagementPage() {
       setUserPackages(packagesData);
       setRolePermissions(rolePermissionData);
       setAuditLogs(auditData);
+      if (myPermissions.role === 'ROOT') {
+        const deletionReasons = await api.projects.listDeletionReasons(200);
+        setProjectDeletionReasons(deletionReasons);
+      } else {
+        setProjectDeletionReasons([]);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to load management data');
     } finally {
@@ -418,6 +426,59 @@ export default function ManagementPage() {
             Root user can configure what USER and ADMIN can do. ROOT permissions stay fixed.
           </p>
         </div>
+        {isRoot && (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Project Deletion Reasons</h3>
+              <p className="text-xs text-muted-foreground">
+                Last {projectDeletionReasons.length} records
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="px-2 py-2">Time</th>
+                    <th className="px-2 py-2">Project</th>
+                    <th className="px-2 py-2">Reason</th>
+                    <th className="px-2 py-2">Details</th>
+                    <th className="px-2 py-2">Actor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectDeletionReasons.length === 0 ? (
+                    <tr>
+                      <td className="px-2 py-5 text-center text-muted-foreground" colSpan={5}>
+                        No project deletion reason records yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    projectDeletionReasons.map((row) => (
+                      <tr key={row.id} className="border-b last:border-0">
+                        <td className="px-2 py-2 text-muted-foreground">
+                          {new Date(row.createdAt).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2 font-medium">
+                          {row.projectName || row.projectId}
+                        </td>
+                        <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
+                        <td
+                          className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
+                          title={row.details || ''}
+                        >
+                          {row.details || '-'}
+                        </td>
+                        <td className="px-2 py-2 text-muted-foreground">
+                          {row.actorUserId || '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1160px] text-left text-sm">
             <thead>

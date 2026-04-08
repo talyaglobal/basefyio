@@ -152,8 +152,21 @@ export function startProactiveRefresh() {
           const tokens: AuthTokens = await res.json();
           setTokens(tokens);
           schedule();
+          return;
         }
-      } catch {}
+
+        // Hard auth failures: refresh token invalid/expired.
+        if (res.status === 400 || res.status === 401) {
+          clearTokens();
+          return;
+        }
+
+        // Transient failure: retry later without forcing logout.
+        refreshTimer = setTimeout(schedule, 30_000);
+      } catch {
+        // Network issue: retry later without forcing logout.
+        refreshTimer = setTimeout(schedule, 30_000);
+      }
     }, delay);
   }
 

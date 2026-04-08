@@ -20,6 +20,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -57,6 +58,20 @@ interface ProjectDetailProps {
   project: Project;
 }
 
+const DELETE_REASONS = [
+  { code: 'performance', label: 'Performance or reliability insufficient.' },
+  { code: 'trust', label: 'I lost trust in the company or its future direction.' },
+  { code: 'exploring', label: 'I was just exploring, or it was a hobby/student project.' },
+  { code: 'cancelled', label: 'My project was cancelled or put on hold.' },
+  { code: 'support', label: 'I was not satisfied with the customer support I received.' },
+  { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
+  { code: 'too_expensive', label: 'Too expensive' },
+  { code: 'missing_feature', label: 'Kolaybase is missing a specific feature I need.' },
+  { code: 'company_closed', label: 'My company went out of business or was acquired.' },
+  { code: 'difficult', label: 'I found it difficult to use or build with.' },
+  { code: 'none', label: 'None of the above' },
+] as const;
+
 export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -69,6 +84,10 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [movingTeam, setMovingTeam] = useState(false);
   const [reimportOpen, setReimportOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteReasonCode, setDeleteReasonCode] = useState<string>('none');
+  const [deleteDetails, setDeleteDetails] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
@@ -94,12 +113,21 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   }, [project.id, project.github?.connected, project.vercel?.connected]);
 
   async function handleDelete() {
-    if (!confirm(`Move "${project.name}" to trash?\n\nThe project will stay in trash for 24 hours. The team owner can restore it during this period. After 24 hours it will be permanently deleted.`)) return;
+    if (deleteConfirmText.trim() !== project.name) {
+      toast.error(`Type "${project.name}" to confirm`);
+      return;
+    }
 
     setDeleting(true);
     try {
-      await api.projects.delete(project.id);
+      const selectedReason = DELETE_REASONS.find((x) => x.code === deleteReasonCode);
+      await api.projects.delete(project.id, {
+        reasonCode: deleteReasonCode,
+        reasonLabel: selectedReason?.label || 'None of the above',
+        details: deleteDetails.trim() || undefined,
+      });
       toast.success('Project moved to trash');
+      setDeleteDialogOpen(false);
       router.push('/dashboard/projects');
     } catch (err: any) {
       toast.error(err.message);
@@ -171,7 +199,12 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               {reimportLabel}
             </Button>
           )}
-          <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setDeleteDialogOpen(true)}
+            disabled={deleting}
+          >
             <Trash2 className="mr-2 h-4 w-4" />
             {deleting ? 'Deleting...' : 'Delete'}
           </Button>
@@ -407,6 +440,88 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             >
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               {movingTeam ? 'Moving…' : 'Move Project'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setDeleteDetails('');
+            setDeleteConfirmText('');
+            setDeleteReasonCode('none');
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Confirm deletion of {project.name}</DialogTitle>
+            <DialogDescription>
+              This will permanently delete project resources after trash retention.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+              <p className="font-semibold">This will permanently delete the {project.name}</p>
+              <p className="text-red-800">All project data will be lost, and cannot be undone.</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">What made you decide to delete your project?</p>
+              <div className="flex flex-wrap gap-2">
+                {DELETE_REASONS.map((r) => (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => setDeleteReasonCode(r.code)}
+                    className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+                      deleteReasonCode === r.code
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                We appreciate your perspective. What aspects felt too high or problematic?
+              </label>
+              <textarea
+                value={deleteDetails}
+                onChange={(e) => setDeleteDetails(e.target.value)}
+                className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="Optional details..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Type {project.name} to confirm.
+              </label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={project.name}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting || deleteConfirmText.trim() !== project.name}
+            >
+              {deleting ? 'Deleting...' : 'I understand, delete this project'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -162,7 +162,10 @@ export default function ProjectExportPage() {
       }
     };
     setOnReopenModal(reopen);
-    return () => setOnReopenModal(null);
+    return () => {
+      setOnReopenModal(null);
+      setModalShowingExport(false);
+    };
   }, [activeExports, id, setModalShowingExport, setOnReopenModal]);
 
   return (

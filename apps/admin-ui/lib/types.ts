@@ -305,6 +305,17 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+export interface ProjectDeletionReasonEntry {
+  id: string;
+  createdAt: string;
+  actorUserId: string | null;
+  projectId: string;
+  projectName: string | null;
+  reasonCode: string | null;
+  reasonLabel: string | null;
+  details: string | null;
+}
+
 export interface SqlResult {
   rows: Record<string, unknown>[];
   fields: { name: string; dataTypeId: number }[];

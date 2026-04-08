@@ -44,6 +44,7 @@ import type {
   UserProfile,
   RootAlert,
   AuditLogEntry,
+  ProjectDeletionReasonEntry,
   VercelDeployment,
   VercelIntegration,
   VercelProject,
@@ -97,7 +98,24 @@ async function request<T>(
           });
           if (retry.ok) return retry.json();
         }
-      } catch {}
+        // If refresh endpoint is reachable but rejects credentials, session is truly invalid.
+        if (refreshRes.status === 400 || refreshRes.status === 401) {
+          clearTokens();
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+          }
+          throw new Error('Session expired. Please sign in again.');
+        }
+        // Transient server-side refresh failures should not force logout.
+        throw new Error('Session refresh temporarily unavailable. Please retry.');
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (msg.includes('Session expired')) {
+          throw err;
+        }
+      }
+      // Network/proxy intermittent issues should not immediately log user out.
+      throw new Error('Connection issue while refreshing session. Please retry.');
     }
     clearTokens();
     if (typeof window !== 'undefined') {
@@ -395,13 +413,26 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    delete(id: string) {
+    delete(
+      id: string,
+      data?: {
+        reasonCode?: string;
+        reasonLabel?: string;
+        details?: string;
+      },
+    ) {
       return request<{ message: string }>(`/projects/${id}`, {
         method: 'DELETE',
+        body: JSON.stringify(data ?? {}),
       });
     },
     listDeleted(teamId: string) {
       return request<ProjectListItem[]>(`/projects/deleted?teamId=${teamId}`);
+    },
+    listDeletionReasons(limit = 200) {
+      return request<ProjectDeletionReasonEntry[]>(
+        `/projects/deletion-reasons?limit=${limit}`,
+      );
     },
     restore(id: string) {
       return request<{ message: string }>(`/projects/${id}/restore`, {

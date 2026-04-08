@@ -7,7 +7,6 @@ import { useExportProgress } from '@/lib/export-progress-context';
 export function ExportProgressToast() {
   const {
     activeExports,
-    modalShowingExport,
     setModalShowingExport,
     onReopenModal,
   } = useExportProgress();
@@ -17,7 +16,9 @@ export function ExportProgressToast() {
     [activeExports],
   );
 
-  if (modalShowingExport || running.length === 0) return null;
+  // Keep toast visible whenever there are running exports.
+  // Some route transitions can leave modal visibility flag stale.
+  if (running.length === 0) return null;
 
   const head = running[0];
 

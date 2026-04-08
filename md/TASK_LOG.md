@@ -1,5 +1,35 @@
 # Task Log
 
+## 2026-04-08 (session stability hardening - avoid random logout)
+- Updated API 401 handling to avoid immediate logout on transient refresh failures (network/proxy/server hiccups).
+- Session is now cleared only on definitive refresh auth failures (`400/401` from refresh endpoint).
+- Added clearer temporary refresh error messages instead of forced redirect when issue is transient.
+- Improved proactive refresh retry behavior in auth layer: transient failures now retry after 30s without dropping session.
+
+## 2026-04-08 (storage object count correction)
+- Fixed bucket `Objects` count to ignore pseudo-folder marker keys (e.g. `folder/` with size `0`) returned by MinIO recursive listing.
+- Updated storage stats calculation so object count reflects real files more accurately in project storage UI.
+
+## 2026-04-08 (global duplicate project-name guard)
+- Added backend guard in project creation flow to block duplicate active project names case-insensitively across all teams.
+- Error message standardized as `A project with this name already exists` so admin UI toast shows clear feedback.
+- Applied centrally in `ProjectsService.create`, covering manual creation and import flows that create new projects.
+
+## 2026-04-08 (project delete reason capture + ROOT visibility in management)
+- Replaced simple project delete confirm with a structured deletion dialog in project detail:
+  - selectable reason chips,
+  - optional free-text details,
+  - explicit project-name confirmation input.
+- Extended project delete API payload to include `reasonCode`, `reasonLabel`, and `details`.
+- Persisted deletion reason metadata on `PROJECT_DELETED` activity records (`project_activity_logs.metadata`).
+- Added ROOT-only endpoint `GET /projects/deletion-reasons` to list recent project deletion reason records.
+- Added `Project Deletion Reasons` section in `/dashboard/management` Audit tab for ROOT users to view reason, details, actor, and timestamp.
+
+## 2026-04-08 (export minimize toast visibility fix)
+- Fixed hidden right-bottom export status toast after minimizing export modal.
+- Removed strict dependency on `modalShowingExport` for toast rendering; toast now appears whenever there are running exports.
+- Added export page cleanup to force-reset global modal visibility flag on unmount to prevent stale hidden state after route changes.
+
 ## 2026-04-08 (ai scope restricted to kolaybase + active team projects)
 - Restricted AI chat backend to active-team scope by resolving projects from server-side `activeTeamId` and overriding client-provided project list/context.
 - Added scope guard that refuses out-of-domain prompts early (without calling OpenAI) to reduce unnecessary token usage.
