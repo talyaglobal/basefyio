@@ -216,7 +216,6 @@ export interface ManagementUser {
   isActive?: boolean;
   authProvider?: 'local' | 'google' | 'github';
   signOnMethod?: 'local' | 'google' | 'github';
-  requiredSignInMethod?: 'local' | 'google' | 'github' | null;
   linkedProviders?: Array<'google' | 'github'>;
   hasPasswordAuth?: boolean;
   createdAt: string;

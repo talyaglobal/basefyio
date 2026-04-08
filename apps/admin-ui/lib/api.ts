@@ -224,17 +224,15 @@ export const api = {
     },
     updateManagementUserSignInMethod(
       userId: string,
-      requiredSignInMethod: 'local' | 'google' | 'github' | null,
+      method: 'local' | 'google' | 'github',
     ) {
-      return request<{
-        id: string;
-        username: string;
-        email: string;
-        requiredSignInMethod: 'local' | 'google' | 'github' | null;
-      }>(`/auth/management/users/${userId}/sign-in-method`, {
-        method: 'PATCH',
-        body: JSON.stringify({ requiredSignInMethod }),
-      });
+      return request<{ id: string; username: string; email: string; authProvider: 'local' | 'google' | 'github' }>(
+        `/auth/management/users/${userId}/sign-in-method`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ method }),
+        },
+      );
     },
     resetManagementUserPassword(
       userId: string,

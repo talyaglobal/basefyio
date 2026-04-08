@@ -100,20 +100,6 @@ export class AuthService {
     }
   }
 
-  private decodeJwtPayload(token: string): Record<string, any> | null {
-    try {
-      const parts = token.split('.');
-      if (parts.length < 2) return null;
-      const payload = parts[1]
-        .replace(/-/g, '+')
-        .replace(/_/g, '/')
-        .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
-      return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
-    } catch {
-      return null;
-    }
-  }
-
   private ensureStrongPassword(password: string): void {
     if (password.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters long');
@@ -388,10 +374,9 @@ export class AuthService {
           throw new UnauthorizedException('ACCOUNT_INACTIVE');
         }
         const methods = await this.keycloak.getPlatformUserSignInMethodsById(existingUser.id);
-        const requiredMethod = methods.requiredSignInMethod;
-        if (requiredMethod && requiredMethod !== 'local') {
+        if (methods.authProvider !== 'local') {
           throw new UnauthorizedException(
-            `SOCIAL_LOGIN_ONLY:${requiredMethod.toUpperCase()}`,
+            `SOCIAL_LOGIN_ONLY:${methods.signOnMethod.toUpperCase()}`,
           );
         }
       } catch (err) {
@@ -624,47 +609,6 @@ export class AuthService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
-
-      const payload = this.decodeJwtPayload(data.access_token);
-      const tokenSub = typeof payload?.sub === 'string' ? payload.sub : null;
-      const tokenEmail = typeof payload?.email === 'string' ? payload.email.toLowerCase() : null;
-      const usedProviderRaw =
-        typeof payload?.identity_provider === 'string'
-          ? payload.identity_provider
-          : typeof payload?.idp === 'string'
-            ? payload.idp
-            : '';
-      const usedProvider = usedProviderRaw.toLowerCase().includes('github')
-        ? 'github'
-        : usedProviderRaw.toLowerCase().includes('google')
-          ? 'google'
-          : null;
-      if (tokenSub || tokenEmail) {
-        const bySub = tokenSub
-          ? await this.prisma.user.findUnique({
-              where: { id: tokenSub },
-              select: { id: true },
-            })
-          : null;
-        const byEmail =
-          !bySub && tokenEmail
-            ? await this.prisma.user.findUnique({
-                where: { email: tokenEmail },
-                select: { id: true },
-              })
-            : null;
-        const appUserId = bySub?.id || byEmail?.id || null;
-        if (appUserId) {
-          const methods = await this.keycloak.getPlatformUserSignInMethodsById(appUserId);
-          const required = methods.requiredSignInMethod;
-          if (required === 'local') {
-            throw new UnauthorizedException('LOCAL_LOGIN_ONLY');
-          }
-          if (required && usedProvider && required !== usedProvider) {
-            throw new UnauthorizedException(`SOCIAL_LOGIN_ONLY:${required.toUpperCase()}`);
-          }
-        }
-      }
 
       return {
         accessToken: data.access_token,
@@ -1012,7 +956,6 @@ export class AuthService {
       {
         authProvider: 'local' | 'google' | 'github';
         signOnMethod: 'local' | 'google' | 'github';
-        requiredSignInMethod: 'local' | 'google' | 'github' | null;
         linkedProviders: Array<'google' | 'github'>;
         hasPasswordAuth: boolean;
       }
@@ -1026,13 +969,12 @@ export class AuthService {
           enabledMap.set(u.id, true);
         }
         try {
-          const methods = await this.keycloak.getPlatformUserSignInMethodsById(u.id);
+          const methods = await this.keycloak.getPlatformUserSignInMethodsById(u.id, u.email);
           signInMap.set(u.id, methods);
         } catch {
           signInMap.set(u.id, {
             authProvider: 'local',
             signOnMethod: 'local',
-            requiredSignInMethod: null,
             linkedProviders: [],
             hasPasswordAuth: true,
           });
@@ -1044,34 +986,9 @@ export class AuthService {
       isActive: enabledMap.get(u.id) ?? true,
       authProvider: signInMap.get(u.id)?.authProvider ?? 'local',
       signOnMethod: signInMap.get(u.id)?.signOnMethod ?? 'local',
-      requiredSignInMethod: signInMap.get(u.id)?.requiredSignInMethod ?? null,
       linkedProviders: signInMap.get(u.id)?.linkedProviders ?? [],
       hasPasswordAuth: signInMap.get(u.id)?.hasPasswordAuth ?? true,
     }));
-  }
-
-  async setManagementUserRequiredSignInMethodByRoot(
-    currentUserId: string,
-    targetUserId: string,
-    method: 'local' | 'google' | 'github' | null,
-  ) {
-    if (currentUserId === targetUserId && method !== 'local' && method !== null) {
-      throw new BadRequestException('Root user can only lock own sign-in method to local');
-    }
-    const target = await this.prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true, username: true, email: true },
-    });
-    if (!target) {
-      throw new BadRequestException('User not found');
-    }
-    await this.keycloak.setPlatformUserRequiredSignInMethodById(targetUserId, method);
-    return {
-      id: target.id,
-      username: target.username,
-      email: target.email,
-      requiredSignInMethod: method,
-    };
   }
 
   async updateUserRoleByRoot(currentUserId: string, targetUserId: string, role: string) {
@@ -1094,6 +1011,30 @@ export class AuthService {
     });
   }
 
+  async setManagementUserSignInMethodByRoot(
+    targetUserId: string,
+    method: 'local' | 'google' | 'github',
+  ) {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, username: true, email: true },
+    });
+    if (!target) {
+      throw new BadRequestException('User not found');
+    }
+    await this.keycloak.setPlatformUserAuthProviderOverrideById(
+      targetUserId,
+      target.email,
+      method,
+    );
+    return {
+      id: target.id,
+      username: target.username,
+      email: target.email,
+      authProvider: method,
+    };
+  }
+
   async resetManagementUserPasswordByRoot(
     currentUserId: string,
     targetUserId: string,
@@ -1110,6 +1051,12 @@ export class AuthService {
     });
     if (!target) {
       throw new BadRequestException('User not found');
+    }
+    const methods = await this.keycloak.getPlatformUserSignInMethodsById(targetUserId);
+    if (methods.signOnMethod !== 'local') {
+      throw new BadRequestException(
+        `Password reset is disabled for ${methods.signOnMethod} sign-up users.`,
+      );
     }
 
     await this.keycloak.resetPlatformUserPasswordWithPolicy(

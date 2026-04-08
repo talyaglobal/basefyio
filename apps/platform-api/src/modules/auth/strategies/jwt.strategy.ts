@@ -28,8 +28,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: Record<string, any>): Promise<JwtPayload> {
     const tokenSub = String(payload.sub || '');
+    const preferredUsername =
+      typeof payload.preferred_username === 'string'
+        ? payload.preferred_username.trim().toLowerCase()
+        : '';
     const tokenEmail =
-      typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+      (typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '') ||
+      (preferredUsername.includes('@') ? preferredUsername : '');
 
     let resolvedSub = tokenSub;
     if (tokenSub && tokenEmail) {
@@ -51,8 +56,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     return {
       sub: resolvedSub,
-      email: payload.email,
-      preferred_username: payload.preferred_username,
+      email:
+        (typeof payload.email === 'string' && payload.email.trim()) ||
+        (preferredUsername.includes('@') ? preferredUsername : ''),
+      preferred_username:
+        (typeof payload.preferred_username === 'string' && payload.preferred_username) ||
+        (typeof payload.email === 'string' ? payload.email : ''),
       roles: payload.realm_access?.roles ?? [],
       given_name: payload.given_name,
       family_name: payload.family_name,

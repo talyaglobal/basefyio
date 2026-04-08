@@ -571,7 +571,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               Team: {activeTeam?.name || 'Not selected'}
             </div>
             <div className="px-3 py-1 text-xs text-muted-foreground truncate">
-              User: {user.email}
+              User:{' '}
+              {user.email?.trim() || user.preferred_username?.trim() || user.sub || '—'}
             </div>
             <button
               onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
@@ -652,12 +653,18 @@ function UserMenu({
 }) {
   const router = useRouter();
 
+  const loginLabel =
+    user.email?.trim() ||
+    user.preferred_username?.trim() ||
+    user.sub?.trim() ||
+    'User';
   const firstName = profile?.firstName ?? '';
   const lastName = profile?.lastName ?? '';
-  const displayName = [firstName, lastName].filter(Boolean).join(' ') || user.email;
+  const displayName = [firstName, lastName].filter(Boolean).join(' ') || loginLabel;
+  const initialsSource = firstName || loginLabel || user.sub || 'U';
   const initials = firstName && lastName
     ? `${firstName[0]}${lastName[0]}`.toUpperCase()
-    : (firstName || user.email).slice(0, 2).toUpperCase();
+    : initialsSource.slice(0, 2).toUpperCase();
   const avatarUrl = profile?.avatarUrl;
 
   return (

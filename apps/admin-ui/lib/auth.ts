@@ -62,15 +62,47 @@ export function getRefreshToken(): string | undefined {
   return storage?.getItem(REFRESH_KEY) || Cookies.get(REFRESH_KEY);
 }
 
+/** Decode JWT payload segment (handles base64url used by Keycloak). */
+function decodeJwtPayloadSegment(segment: string): Record<string, unknown> | null {
+  try {
+    const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const json = atob(padded);
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function pickLoginLabel(payload: Record<string, unknown>): string {
+  const email = payload.email;
+  const preferred = payload.preferred_username;
+  if (typeof email === 'string' && email.trim()) return email.trim();
+  if (typeof preferred === 'string' && preferred.trim()) return preferred.trim();
+  const sub = payload.sub;
+  if (typeof sub === 'string' && sub.trim()) return sub.trim();
+  return '';
+}
+
 export function parseJwt(token: string): UserInfo | null {
   try {
-    const base64 = token.split('.')[1];
-    const payload = JSON.parse(atob(base64));
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const payload = decodeJwtPayloadSegment(segment);
+    if (!payload) return null;
+    const sub = typeof payload.sub === 'string' ? payload.sub : '';
+    if (!sub) return null;
+    const email = pickLoginLabel(payload);
+    const preferred_username =
+      typeof payload.preferred_username === 'string'
+        ? payload.preferred_username
+        : email || sub;
+    const roles = (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
     return {
-      sub: payload.sub,
-      email: payload.email,
-      preferred_username: payload.preferred_username,
-      roles: payload.realm_access?.roles ?? [],
+      sub,
+      email,
+      preferred_username,
+      roles,
     };
   } catch {
     return null;
@@ -85,8 +117,11 @@ export function getTokenExpiry(): number | null {
   const token = getAccessToken();
   if (!token) return null;
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return (payload.exp as number) * 1000;
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const payload = decodeJwtPayloadSegment(segment);
+    const exp = payload?.exp;
+    return typeof exp === 'number' ? exp * 1000 : null;
   } catch {
     return null;
   }

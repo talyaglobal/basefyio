@@ -150,11 +150,6 @@ function LoginForm() {
         return;
       }
 
-      if (normalizedMessage.includes('LOCAL_LOGIN_ONLY')) {
-        toast.error('This account must sign in with email and password.');
-        return;
-      }
-
       toast.error(rawMessage || 'Login failed');
     } finally {
       setLoading(false);

@@ -277,6 +277,19 @@ export class KeycloakAdminService implements OnModuleInit {
     }
   }
 
+  private async resolvePlatformUserId(
+    userId: string,
+    email?: string,
+  ): Promise<string> {
+    const byId = await this.client.users.findOne({ realm: 'master', id: userId });
+    if (byId?.id) return byId.id;
+    if (email) {
+      const byEmail = await this.findPlatformUserByEmail(email);
+      if (byEmail?.id) return byEmail.id;
+    }
+    throw new InternalServerErrorException('Platform user not found in Keycloak');
+  }
+
   // ── Realm operations ──
 
   async createRealm(realmName: string): Promise<void> {
@@ -672,20 +685,21 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async getPlatformUserSignInMethodsById(
     userId: string,
+    email?: string,
   ): Promise<{
     authProvider: 'local' | 'google' | 'github';
     signOnMethod: 'local' | 'google' | 'github';
-    requiredSignInMethod: 'local' | 'google' | 'github' | null;
     linkedProviders: Array<'google' | 'github'>;
     hasPasswordAuth: boolean;
   }> {
     await this.ensureAuth();
-    const user = await this.client.users.findOne({ realm: 'master', id: userId });
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
     const adminToken = await this.getAdminAccessToken();
     const baseUrl = this.config.get<string>('keycloak.url');
     const headers = { Authorization: `Bearer ${adminToken}` };
     const { data: federatedData } = await axios.get(
-      `${baseUrl}/admin/realms/master/users/${userId}/federated-identity`,
+      `${baseUrl}/admin/realms/master/users/${resolvedId}/federated-identity`,
       { headers },
     );
     const providers = Array.isArray(federatedData)
@@ -698,7 +712,7 @@ export class KeycloakAdminService implements OnModuleInit {
     let hasPasswordAuth = true;
     try {
       const { data: credentials } = await axios.get(
-        `${baseUrl}/admin/realms/master/users/${userId}/credentials`,
+        `${baseUrl}/admin/realms/master/users/${resolvedId}/credentials`,
         { headers },
       );
       hasPasswordAuth = Array.isArray(credentials)
@@ -708,19 +722,26 @@ export class KeycloakAdminService implements OnModuleInit {
       hasPasswordAuth = true;
     }
 
-    const requiredRaw = String(
-      user?.attributes?.kb_required_sign_in_method?.[0] || '',
+    const override = String(
+      user?.attributes?.kb_auth_provider_override?.[0] || '',
     ).toLowerCase();
-    const requiredSignInMethod: 'local' | 'google' | 'github' | null =
-      requiredRaw === 'local' || requiredRaw === 'google' || requiredRaw === 'github'
-        ? requiredRaw
-        : null;
+    if (override === 'google' || override === 'github' || override === 'local') {
+      return {
+        authProvider: override,
+        signOnMethod: linkedProviders.includes('google')
+          ? 'google'
+          : linkedProviders.includes('github')
+            ? 'github'
+            : 'local',
+        linkedProviders,
+        hasPasswordAuth,
+      };
+    }
 
     if (linkedProviders.includes('google')) {
       return {
         authProvider: 'google',
         signOnMethod: 'google',
-        requiredSignInMethod,
         linkedProviders,
         hasPasswordAuth,
       };
@@ -729,7 +750,6 @@ export class KeycloakAdminService implements OnModuleInit {
       return {
         authProvider: 'github',
         signOnMethod: 'github',
-        requiredSignInMethod,
         linkedProviders,
         hasPasswordAuth,
       };
@@ -737,25 +757,24 @@ export class KeycloakAdminService implements OnModuleInit {
     return {
       authProvider: 'local',
       signOnMethod: 'local',
-      requiredSignInMethod,
       linkedProviders,
       hasPasswordAuth,
     };
   }
 
-  async setPlatformUserRequiredSignInMethodById(
+  async setPlatformUserAuthProviderOverrideById(
     userId: string,
-    method: 'local' | 'google' | 'github' | null,
+    email: string | undefined,
+    provider: 'local' | 'google' | 'github',
   ): Promise<void> {
     await this.ensureAuth();
-    const existing = await this.client.users.findOne({ realm: 'master', id: userId });
-    const attributes = { ...(existing?.attributes || {}) } as Record<string, string[]>;
-    if (method) {
-      attributes.kb_required_sign_in_method = [method];
-    } else {
-      delete attributes.kb_required_sign_in_method;
-    }
-    await this.client.users.update({ realm: 'master', id: userId }, { attributes });
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const existing = await this.client.users.findOne({ realm: 'master', id: resolvedId });
+    const attributes = {
+      ...(existing?.attributes || {}),
+      kb_auth_provider_override: [provider],
+    };
+    await this.client.users.update({ realm: 'master', id: resolvedId }, { attributes });
   }
 
   async getPlatformUserEnabledById(userId: string): Promise<boolean> {

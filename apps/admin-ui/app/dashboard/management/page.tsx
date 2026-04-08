@@ -17,7 +17,6 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
-const SIGN_IN_METHOD_OPTIONS = ['any', 'local', 'google', 'github'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
 type ByteUnit = (typeof BYTE_UNITS)[number];
 
@@ -98,7 +97,7 @@ export default function ManagementPage() {
   const [loading, setLoading] = useState(true);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
   const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
-  const [savingSignInMethodUserId, setSavingSignInMethodUserId] = useState<string | null>(null);
+  const [savingSignInUserId, setSavingSignInUserId] = useState<string | null>(null);
   const [savingPackageUserId, setSavingPackageUserId] = useState<string | null>(null);
   const [savingPlanName, setSavingPlanName] = useState<string | null>(null);
   const [planDrafts, setPlanDrafts] = useState<Record<string, PlanDraft>>({});
@@ -327,7 +326,6 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">Email</th>
                 <th className="px-2 py-2">Sign In</th>
                 <th className="px-2 py-2">Sign Up</th>
-                <th className="px-2 py-2">Sign In Policy</th>
                 <th className="px-2 py-2">Teams</th>
                 <th className="px-2 py-2">Package</th>
                 <th className="px-2 py-2">Created</th>
@@ -346,17 +344,32 @@ export default function ManagementPage() {
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">{u.email}</td>
                   <td className="px-2 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(u.linkedProviders || []).includes('google') && (
-                        <GoogleIcon className="h-4 w-4" />
-                      )}
-                      {(u.linkedProviders || []).includes('github') && (
-                        <Github className="h-4 w-4" />
-                      )}
-                      {u.hasPasswordAuth && (
-                        <KeyRound className="h-4 w-4 text-emerald-700" />
-                      )}
-                    </div>
+                    <select
+                      value={u.authProvider || 'local'}
+                      disabled={savingSignInUserId === u.id}
+                      onChange={async (e) => {
+                        const method = e.target.value as 'local' | 'google' | 'github';
+                        setSavingSignInUserId(u.id);
+                        try {
+                          const updated = await api.auth.updateManagementUserSignInMethod(u.id, method);
+                          setUsers((prev) =>
+                            prev.map((x) =>
+                              x.id === u.id ? { ...x, authProvider: updated.authProvider } : x,
+                            ),
+                          );
+                          toast.success(`Sign in method updated to ${method}`);
+                        } catch (err: any) {
+                          toast.error(err.message || 'Failed to update sign in method');
+                        } finally {
+                          setSavingSignInUserId(null);
+                        }
+                      }}
+                      className="rounded-md border bg-background px-2 py-1 text-xs font-medium"
+                    >
+                      <option value="local">Local</option>
+                      <option value="google">Google</option>
+                      <option value="github">GitHub</option>
+                    </select>
                   </td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-2">
@@ -368,51 +381,6 @@ export default function ManagementPage() {
                         <KeyRound className="h-4 w-4 text-emerald-700" />
                       )}
                     </div>
-                  </td>
-                  <td className="px-2 py-2">
-                    <select
-                      value={u.requiredSignInMethod ?? 'any'}
-                      disabled={savingSignInMethodUserId === u.id}
-                      onChange={async (e) => {
-                        const next = e.target.value as (typeof SIGN_IN_METHOD_OPTIONS)[number];
-                        const nextValue =
-                          next === 'local' || next === 'google' || next === 'github'
-                            ? next
-                            : null;
-                        setSavingSignInMethodUserId(u.id);
-                        try {
-                          const updated = await api.auth.updateManagementUserSignInMethod(
-                            u.id,
-                            nextValue,
-                          );
-                          setUsers((prev) =>
-                            prev.map((x) =>
-                              x.id === u.id
-                                ? {
-                                    ...x,
-                                    requiredSignInMethod: updated.requiredSignInMethod,
-                                  }
-                                : x,
-                            ),
-                          );
-                          toast.success(
-                            updated.requiredSignInMethod
-                              ? `Sign-in policy set to ${updated.requiredSignInMethod}`
-                              : 'Sign-in policy cleared',
-                          );
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to update sign-in policy');
-                        } finally {
-                          setSavingSignInMethodUserId(null);
-                        }
-                      }}
-                      className="rounded-md border bg-background px-2 py-1 text-xs font-medium"
-                    >
-                      <option value="any">Any</option>
-                      <option value="local">Local</option>
-                      <option value="google">Google</option>
-                      <option value="github">GitHub</option>
-                    </select>
                   </td>
                   <td className="px-2 py-2">{u._count.teamMembers}</td>
                   <td className="px-2 py-2">
@@ -466,6 +434,34 @@ export default function ManagementPage() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-2 py-2">
+                    <select
+                      value={u.role}
+                      disabled={savingRoleUserId === u.id}
+                      onChange={async (e) => {
+                        const nextRole = e.target.value as (typeof ROLE_OPTIONS)[number];
+                        setSavingRoleUserId(u.id);
+                        try {
+                          const updated = await api.auth.updateManagementUserRole(u.id, nextRole);
+                          setUsers((prev) =>
+                            prev.map((x) => (x.id === u.id ? { ...x, role: updated.role } : x)),
+                          );
+                          toast.success(`Role updated to ${updated.role}`);
+                        } catch (err: any) {
+                          toast.error(err.message || 'Failed to update role');
+                        } finally {
+                          setSavingRoleUserId(null);
+                        }
+                      }}
+                      className="rounded-md border bg-background px-2 py-1 text-xs font-medium"
+                    >
+                      {ROLE_OPTIONS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2">
                     <div className="flex items-center gap-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs ${
@@ -507,34 +503,14 @@ export default function ManagementPage() {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <select
-                      value={u.role}
-                      disabled={savingRoleUserId === u.id}
-                      onChange={async (e) => {
-                        const nextRole = e.target.value as (typeof ROLE_OPTIONS)[number];
-                        setSavingRoleUserId(u.id);
-                        try {
-                          const updated = await api.auth.updateManagementUserRole(u.id, nextRole);
-                          setUsers((prev) =>
-                            prev.map((x) => (x.id === u.id ? { ...x, role: updated.role } : x)),
-                          );
-                          toast.success(`Role updated to ${updated.role}`);
-                        } catch (err: any) {
-                          toast.error(err.message || 'Failed to update role');
-                        } finally {
-                          setSavingRoleUserId(null);
-                        }
-                      }}
-                      className="rounded-md border bg-background px-2 py-1 text-xs font-medium"
-                    >
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-2 py-2">
+                    {u.signOnMethod !== 'local' ? (
+                      <span
+                        className="inline-block cursor-not-allowed rounded-md border border-muted px-3 py-1.5 text-xs text-muted-foreground"
+                        title={`Password reset is disabled because this user signed up with ${u.signOnMethod}.`}
+                      >
+                        Reset Password
+                      </span>
+                    ) : (
                     <Button
                       size="sm"
                       variant="outline"
@@ -546,6 +522,7 @@ export default function ManagementPage() {
                     >
                       Reset Password
                     </Button>
+                    )}
                   </td>
                 </tr>
               ))}

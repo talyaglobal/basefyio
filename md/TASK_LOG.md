@@ -61,6 +61,25 @@
 - **Management UI update:** Added `Sign In Policy` selector in `/dashboard/management` Users tab so ROOT can enforce user login method.
 - **Enforcement:** Local login and OAuth callback now enforce required sign-in method and return explicit login errors when method does not match policy.
 
+## 2026-04-07 (dashboard crash after login — missing JWT email)
+- **Root cause:** Keycloak access tokens sometimes omit `email` in the JWT payload; `UserMenu` called `.slice()` on `undefined` and crashed the dashboard (Next.js generic error screen).
+- **JWT parsing:** `parseJwt` now decodes base64url segments correctly and fills `email` from `email`, then `preferred_username`, then `sub`.
+- **Header hardening:** User menu and mobile header use a safe `loginLabel` fallback chain so initials and labels never call string methods on `undefined`.
+
+## 2026-04-07 (management users sign-in select + password reset rules)
+- **Sign In editable:** `Users` tab `Sign In` cell is now a select (`Local` / `Google` / `GitHub`) and updates user auth provider via root-only endpoint.
+- **Role/Status column fix:** Corrected column mapping so `Role` shows role select and `Status` shows active/inactive badge + action button.
+- **Social sign-up password reset lock:** Reset password is disabled for users who signed up with Google/GitHub (UI disabled state + hover explanation, backend guard enforced).
+- **Persistence fix:** Sign-in method updates now resolve Keycloak user by `id` with email fallback before reading/writing override attribute, so refresh keeps selected method.
+
+## 2026-04-08 (google login reliability hardening)
+- **JWT claim fallback:** JWT strategy now uses `preferred_username` as email fallback when `email` claim is missing in OAuth tokens.
+- **User mapping stability:** OAuth-authenticated users are matched to existing app user by resolved email fallback before authorization checks.
+
+## 2026-04-07 (sign-in policy reverted)
+- **Policy removed:** Rolled back `Sign In Policy` management selector/endpoint and related enforcement logic.
+- **Users table behavior:** `Sign In` column now shows only one effective method icon (single method), not multiple linked-provider icons.
+
 ## 2026-04-07 (management users activate/deactivate)
 - **Root user status control:** Added user activation control in `/dashboard/management` Users tab.
 - **Backend endpoint:** Added `PATCH /auth/management/users/:id/active` (root-only) to enable/disable platform users.

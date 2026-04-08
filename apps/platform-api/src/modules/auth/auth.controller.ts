@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -167,21 +167,13 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Patch('management/users/:id/sign-in-method')
   async updateManagementUserSignInMethod(
-    @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
-    @Body('requiredSignInMethod') requiredSignInMethod?: 'local' | 'google' | 'github' | null,
+    @Body('method') method: 'local' | 'google' | 'github',
   ) {
-    const normalized =
-      requiredSignInMethod === 'local' ||
-      requiredSignInMethod === 'google' ||
-      requiredSignInMethod === 'github'
-        ? requiredSignInMethod
-        : null;
-    return this.authService.setManagementUserRequiredSignInMethodByRoot(
-      user.sub,
-      id,
-      normalized,
-    );
+    if (method !== 'local' && method !== 'google' && method !== 'github') {
+      throw new BadRequestException('Invalid sign-in method');
+    }
+    return this.authService.setManagementUserSignInMethodByRoot(id, method);
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)
@@ -227,8 +219,7 @@ export class AuthController {
 
       res.redirect(`${appUrl}#${params.toString()}`);
     } catch (err: any) {
-      const msg = err?.message || 'OAuth authentication failed';
-      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent(msg)}`;
+      const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent('OAuth authentication failed')}`;
       res.redirect(loginUrl);
     }
   }
