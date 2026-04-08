@@ -15,7 +15,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const keycloakUrl = config.get<string>('keycloak.url');
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req: any) => {
+          const v = req?.query?.access_token;
+          return typeof v === 'string' ? v : null;
+        },
+      ]),
       secretOrKeyProvider: passportJwtSecret({
         cache: true,
         rateLimit: true,

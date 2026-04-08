@@ -104,7 +104,7 @@ const navItems = [
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
   { label: 'Connection', href: '/connect', icon: Link2 },
-  { label: 'Export', href: '/export', icon: Download },
+  { label: 'Backup & Export', href: '/backup', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
 ];
 

@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { RealtimeEventEnvelope } from './realtime-events.types';
+import { RealtimeStreamService } from './realtime-stream.service';
 
 @Injectable()
 export class RealtimeEventsService {
-  private readonly logger = new Logger(RealtimeEventsService.name);
+  constructor(private readonly stream: RealtimeStreamService) {}
 
   private isEnabled() {
     return process.env.KB_REALTIME_PHASE1 === '1';
@@ -12,13 +13,6 @@ export class RealtimeEventsService {
 
   async publish(input: Omit<RealtimeEventEnvelope, 'eventId' | 'traceId' | 'emittedAt' | 'feature'>) {
     if (!this.isEnabled()) return;
-
-    const edgeUrl = process.env.SUPABASE_REALTIME_EDGE_URL;
-    const edgeSecret = process.env.SUPABASE_REALTIME_EDGE_SECRET || '';
-    if (!edgeUrl) {
-      this.logger.warn('SUPABASE_REALTIME_EDGE_URL is missing; realtime event skipped');
-      return;
-    }
 
     const event: RealtimeEventEnvelope = {
       eventId: randomUUID(),
@@ -28,18 +22,7 @@ export class RealtimeEventsService {
       ...input,
     };
 
-    try {
-      await fetch(edgeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(edgeSecret ? { 'x-kb-edge-secret': edgeSecret } : {}),
-        },
-        body: JSON.stringify(event),
-      });
-    } catch (err: any) {
-      this.logger.warn(`Failed to publish realtime event: ${err?.message || 'unknown error'}`);
-    }
+    this.stream.publish(event);
   }
 }
 

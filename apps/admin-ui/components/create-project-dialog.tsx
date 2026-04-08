@@ -42,7 +42,7 @@ interface CreateProjectDialogProps {
   reimportTarget?: ReimportTarget | null;
 }
 
-type DialogView = 'create' | 'import' | 'importing' | 'result';
+type DialogView = 'create' | 'import' | 'import-zip' | 'importing' | 'result';
 
 interface ImportStep {
   key: string;
@@ -697,7 +697,7 @@ export function CreateProjectDialog({
   }
 
   useEffect(() => {
-    if (!open || view !== 'import') return;
+    if (!open || (view !== 'import' && view !== 'import-zip')) return;
     api.projects
       .list(teamId)
       .then((items) => {
@@ -801,6 +801,14 @@ export function CreateProjectDialog({
             >
               <SupabaseLogo className="h-5 w-5" />
               Import from Supabase
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('import-zip')}
+              className="mt-2 w-full flex items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700 transition-all hover:border-blue-400 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
+            >
+              <HardDrive className="h-5 w-5" />
+              Import from ZIP
             </button>
           </>
         )}
@@ -995,12 +1003,30 @@ export function CreateProjectDialog({
               </DialogFooter>
             </form>
 
-            <div className="relative my-2">
-              <Separator />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
-                or
-              </span>
-            </div>
+          </>
+        )}
+
+        {view === 'import-zip' && (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView('create')}
+                  className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <HardDrive className="h-5 w-5 text-blue-600" />
+                  <DialogTitle>Import from ZIP</DialogTitle>
+                </div>
+              </div>
+              <DialogDescription>
+                Upload an exported ZIP and choose whether to create a duplicate project or overwrite an existing one.
+              </DialogDescription>
+            </DialogHeader>
 
             <form onSubmit={handleImportExportZip} className="space-y-3 rounded-lg border p-3">
               <div className="space-y-1">

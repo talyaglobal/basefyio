@@ -1,5 +1,27 @@
 # Task Log
 
+## 2026-04-08 (backup menu/link + zip import flow update)
+- Updated project detail sidebar item label from `Export` to `Backup & Export`.
+- Changed project detail sidebar link target from `/export` to `/backup` and added `/backup` page route delegating to backup/export UI.
+- Removed `Restore name option` controls from project backup page cloud-restore section; restore now runs with default imported naming flow.
+- Updated `Create Project` dialog:
+  - added separate `Import from ZIP` button under `Import from Supabase` on initial view
+  - added dedicated ZIP import screen with overwrite (`override existing`) vs duplicate (`new project`) options
+  - ZIP upload now completes according to selected mode.
+
+## 2026-04-08 (custom realtime pipeline, no direct supabase client)
+- Replaced admin-ui realtime transport from Supabase JS channels to internal SSE stream client in `lib/supabase-realtime.ts` (kept API surface intact).
+- Added backend realtime stream endpoint `GET /realtime/stream` with JWT auth support and channel subscription (`team:*`, `project:*`, `user:*`).
+- Added in-app realtime stream hub service to broadcast published events directly to connected clients.
+- Updated JWT extractor to accept `access_token` query for SSE handshake in addition to Authorization header.
+- Kept existing event publishers in feedback/team/project modules and wired them to internal stream broadcast path.
+- Removed Supabase realtime edge-function artifacts (`supabase/functions/realtime-events` and shared realtime type file) and removed `@supabase/supabase-js` from `apps/admin-ui`.
+- Removed external realtime webhook fallback from backend realtime publisher; realtime now uses only internal platform stream path.
+
+## 2026-04-08 (backup-export label + zip restore fix)
+- Renamed project detail export header from `Export Project` to `Backup & Export`.
+- Fixed ZIP restore runtime error `adm_zip_1.default is not a constructor` by switching `adm-zip` import style to CommonJS-compatible form in project archive import service.
+
 ## 2026-04-08 (root alerts visibility + management audit tab)
 - Updated `RootAlertsPanel` to render only when there is at least one alert; when alert list is empty, panel is hidden instead of showing `No alerts`.
 - Extended `/dashboard/management` tabs with a new `Audit Logs` tab for ROOT users.

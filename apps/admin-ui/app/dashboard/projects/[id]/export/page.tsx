@@ -7,7 +7,6 @@ import { ArrowLeft, Download, Loader2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
 export default function ProjectExportPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,8 +20,6 @@ export default function ProjectExportPage() {
   const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
-  const [nameMode, setNameMode] = useState<'existing' | 'new'>('existing');
-  const [newProjectName, setNewProjectName] = useState('');
   const [options, setOptions] = useState({
     includeDatabase: true,
     includeAuth: true,
@@ -110,18 +107,13 @@ export default function ProjectExportPage() {
   }
 
   async function handleRestoreFromCloud(objectKey: string) {
-    if (nameMode === 'new' && !newProjectName.trim()) {
-      toast.error('Please enter a new project name');
-      return;
-    }
     setRestoringKey(objectKey);
     try {
       const { teamId } = await api.teams.getActive();
       const result = await api.projects.restoreCloudBackup(id, {
         objectKey,
         teamId,
-        nameMode,
-        newProjectName: nameMode === 'new' ? newProjectName.trim() : undefined,
+        nameMode: 'existing',
       });
       toast.success(`Backup restored: ${result.project.name}`);
       router.push(`/dashboard/projects/${result.project.id}`);
@@ -141,7 +133,7 @@ export default function ProjectExportPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Export Project</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Backup & Export</h1>
           <p className="text-sm text-muted-foreground">
             Download a full backup package including database, auth, storage, and config.
           </p>
@@ -233,25 +225,6 @@ export default function ProjectExportPage() {
           <Button variant="outline" size="sm" onClick={loadCloudBackups} disabled={loadingBackups}>
             {loadingBackups ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
           </Button>
-        </div>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Restore name option</p>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" className="h-4 w-4 accent-primary" checked={nameMode === 'existing'} onChange={() => setNameMode('existing')} />
-            Use exported project name
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" className="h-4 w-4 accent-primary" checked={nameMode === 'new'} onChange={() => setNameMode('new')} />
-            Use new project name
-          </label>
-          {nameMode === 'new' && (
-            <Input
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              placeholder="new-project-name"
-              maxLength={64}
-            />
-          )}
         </div>
         <div className="space-y-2">
           {cloudBackups.length === 0 && (

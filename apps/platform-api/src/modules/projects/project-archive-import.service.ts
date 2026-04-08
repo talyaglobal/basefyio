@@ -10,7 +10,7 @@ import { tmpdir } from 'os';
 import { join, relative, resolve } from 'path';
 import { promisify } from 'util';
 import { execFile } from 'child_process';
-import AdmZip from 'adm-zip';
+import AdmZip = require('adm-zip');
 import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';

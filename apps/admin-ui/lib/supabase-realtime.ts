@@ -1,21 +1,5 @@
-import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import type { RealtimeEventEnvelope } from './realtime-types';
-
-let client: ReturnType<typeof createClient> | null = null;
-
-function getRealtimeClient() {
-  if (client) return client;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) return null;
-  client = createClient(url, anon, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-  return client;
-}
+import { getAccessToken } from './auth';
 
 export function isRealtimePhase1Enabled() {
   return process.env.NEXT_PUBLIC_KB_REALTIME_PHASE1 === '1';
@@ -26,35 +10,57 @@ export function subscribeKbRealtime(
   onEvent: (event: RealtimeEventEnvelope) => void,
 ): (() => void) | null {
   if (!isRealtimePhase1Enabled()) return null;
-  const c = getRealtimeClient();
-  if (!c) return null;
+  const token = getAccessToken();
+  if (!token) return null;
 
   let disposed = false;
-  let channel: RealtimeChannel | null = null;
+  let source: EventSource | null = null;
   let retryMs = 1000;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const seenEventIds = new Set<string>();
 
   const attach = () => {
     if (disposed) return;
-    channel = c.channel(channelName);
-    channel.on('broadcast', { event: 'kb_event' }, ({ payload }) => {
-      onEvent(payload as RealtimeEventEnvelope);
+    const params = new URLSearchParams({
+      channels: channelName,
+      access_token: token,
     });
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        retryMs = 1000;
-        return;
-      }
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        if (disposed) return;
-        if (retryTimer) clearTimeout(retryTimer);
-        retryTimer = setTimeout(() => {
-          if (channel) c.removeChannel(channel);
-          attach();
-        }, retryMs);
-        retryMs = Math.min(retryMs * 2, 15000);
+    source = new EventSource(`/api/proxy/realtime/stream?${params.toString()}`);
+
+    source.addEventListener('kb_event', (raw) => {
+      try {
+        const evt = raw as MessageEvent<string>;
+        const event = JSON.parse(evt.data) as RealtimeEventEnvelope;
+        if (event.eventId && seenEventIds.has(event.eventId)) return;
+        if (event.eventId) {
+          seenEventIds.add(event.eventId);
+          if (seenEventIds.size > 300) {
+            const first = seenEventIds.values().next().value;
+            if (first) seenEventIds.delete(first);
+          }
+        }
+        onEvent(event);
+      } catch {
+        // Ignore malformed event payloads.
       }
     });
+
+    source.onopen = () => {
+      retryMs = 1000;
+    };
+
+    source.onerror = () => {
+      if (disposed) return;
+      if (source) {
+        source.close();
+        source = null;
+      }
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        attach();
+      }, retryMs);
+      retryMs = Math.min(retryMs * 2, 15000);
+    };
   };
 
   attach();
@@ -62,7 +68,7 @@ export function subscribeKbRealtime(
   return () => {
     disposed = true;
     if (retryTimer) clearTimeout(retryTimer);
-    if (channel) c.removeChannel(channel);
+    if (source) source.close();
   };
 }
 
