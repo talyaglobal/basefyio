@@ -141,12 +141,12 @@ function LoginForm() {
       }
 
       if (normalizedMessage.includes('SOCIAL_LOGIN_ONLY:GOOGLE')) {
-        toast.error('This account must sign in with Google.');
+        toast.error('Unauthorized. This account was created with Google. Please sign in with Google.');
         return;
       }
 
       if (normalizedMessage.includes('SOCIAL_LOGIN_ONLY:GITHUB')) {
-        toast.error('This account must sign in with GitHub.');
+        toast.error('Unauthorized. This account was created with GitHub. Please sign in with GitHub.');
         return;
       }
 

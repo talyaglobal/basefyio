@@ -65,6 +65,23 @@ model User {
   @@map("users")
 }
 
+model RolePermission {
+  id                     String   @id @default(uuid())
+  role                   UserRole @unique
+  canAccessManagement    Boolean  @default(false) @map("can_access_management")
+  canManageUsers         Boolean  @default(false) @map("can_manage_users")
+  canManageTeams         Boolean  @default(false) @map("can_manage_teams")
+  canManagePlans         Boolean  @default(false) @map("can_manage_plans")
+  canManageUserPackages  Boolean  @default(false) @map("can_manage_user_packages")
+  canModerateFeedback    Boolean  @default(false) @map("can_moderate_feedback")
+  canViewAuditLogs       Boolean  @default(false) @map("can_view_audit_logs")
+  canViewRootAlerts      Boolean  @default(false) @map("can_view_root_alerts")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("role_permissions")
+}
+
 model Team {
   id                String   @id @default(uuid())
   name              String
@@ -563,4 +580,40 @@ model TeamInfrastructure {
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@map("team_infrastructure")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  traceId      String   @map("trace_id")
+  actorUserId  String   @map("actor_user_id")
+  actorRole    String   @map("actor_role")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  severity     String
+  success      Boolean  @default(true)
+  beforeJson   Json?    @map("before_json")
+  afterJson    Json?    @map("after_json")
+  metadataJson Json?    @map("metadata_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([traceId])
+  @@map("audit_logs")
+}
+
+model RootAlert {
+  id                String   @id @default(uuid())
+  kind              String
+  severity          String
+  title             String
+  message           String
+  relatedAuditLogId String?  @map("related_audit_log_id")
+  isRead            Boolean  @default(false) @map("is_read")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([isRead, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
+  @@map("root_alerts")
 }

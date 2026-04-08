@@ -10,6 +10,7 @@ import { EmailService } from '../email/email.service';
 import { QuotaService } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
 import { BillingService } from '../billing/billing.service';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 @Injectable()
 export class TeamsService {
@@ -21,7 +22,16 @@ export class TeamsService {
     private readonly quota: QuotaService,
     private readonly usageService: UsageService,
     private readonly billing: BillingService,
+    private readonly realtime: RealtimeEventsService,
   ) {}
+
+  private async teamUserIds(teamId: string): Promise<string[]> {
+    const members = await this.prisma.teamMember.findMany({
+      where: { teamId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
 
   async createPersonalTeam(userId: string, username: string) {
     const team = await this.prisma.team.create({
@@ -117,6 +127,16 @@ export class TeamsService {
       data: { activeTeamId: teamId },
     });
 
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'updated',
+      entityId: `${teamId}:${userId}`,
+      actorUserId: userId,
+      teamId,
+      userIds: [userId],
+      payload: { kind: 'active_team_changed' },
+    });
+
     return { teamId };
   }
 
@@ -155,6 +175,15 @@ export class TeamsService {
     });
 
     this.logger.log(`Team "${teamId}" renamed to "${trimmed}" by ${userId}`);
+    await this.realtime.publish({
+      entityType: 'team',
+      action: 'updated',
+      entityId: teamId,
+      actorUserId: userId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { name: trimmed },
+    });
     return updated;
   }
 
@@ -243,6 +272,15 @@ export class TeamsService {
       }
 
       this.logger.log(`Invite sent to "${targetUser.username}" for team ${teamId}`);
+      await this.realtime.publish({
+        entityType: 'team_invite',
+        action: 'invite_sent',
+        entityId: `${teamId}:${targetUser.id}`,
+        actorUserId: ownerUserId,
+        teamId,
+        userIds: [targetUser.id, ...(await this.teamUserIds(teamId))],
+        payload: { usernameOrEmail: targetUser.username },
+      });
       return { message: `Invite sent to ${targetUser.username}` };
     }
 
@@ -286,6 +324,15 @@ export class TeamsService {
     }
 
     this.logger.log(`Invite sent to email "${email}" (not registered) for team ${teamId}`);
+    await this.realtime.publish({
+      entityType: 'team_invite',
+      action: 'invite_sent',
+      entityId: `${teamId}:${email}`,
+      actorUserId: ownerUserId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { usernameOrEmail: email },
+    });
     return { message: `Invite sent to ${email}. They will see the invite after signing up.` };
   }
 
@@ -347,6 +394,15 @@ export class TeamsService {
     ]);
 
     this.usageService.incrementMemberCount(invite.teamId).catch(() => {});
+    await this.realtime.publish({
+      entityType: 'team_invite',
+      action: 'invite_accepted',
+      entityId: inviteId,
+      actorUserId: userId,
+      teamId: invite.teamId,
+      userIds: await this.teamUserIds(invite.teamId),
+      payload: { inviteId },
+    });
 
     this.logger.log(`User ${userId} accepted invite to team ${invite.teamId}`);
     return { message: 'Invite accepted' };
@@ -362,6 +418,14 @@ export class TeamsService {
       where: { id: inviteId },
       data: { status: 'DECLINED' },
     });
+    await this.realtime.publish({
+      entityType: 'team_invite',
+      action: 'invite_declined',
+      entityId: inviteId,
+      actorUserId: userId,
+      userIds: [userId],
+      payload: { inviteId },
+    });
 
     return { message: 'Invite declined' };
   }
@@ -371,6 +435,15 @@ export class TeamsService {
 
     await this.prisma.teamInvite.deleteMany({
       where: { id: inviteId, teamId, status: 'PENDING' },
+    });
+    await this.realtime.publish({
+      entityType: 'team_invite',
+      action: 'deleted',
+      entityId: inviteId,
+      actorUserId: ownerUserId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { inviteId },
     });
 
     return { message: 'Invite cancelled' };
@@ -428,6 +501,16 @@ export class TeamsService {
     });
 
     this.usageService.decrementMemberCount(teamId).catch(() => {});
+    const recipients = await this.teamUserIds(teamId);
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'member_removed',
+      entityId: `${teamId}:${targetUserId}`,
+      actorUserId: ownerUserId,
+      teamId,
+      userIds: [...recipients, targetUserId],
+      payload: { targetUserId },
+    });
 
     return { message: 'Member removed' };
   }
@@ -458,6 +541,15 @@ export class TeamsService {
     ]);
 
     this.logger.log(`Team ${teamId}: ownership transferred from ${currentOwnerId} to ${newOwnerId}`);
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'updated',
+      entityId: `${teamId}:${newOwnerId}`,
+      actorUserId: currentOwnerId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { kind: 'ownership_transferred', fromUserId: currentOwnerId, toUserId: newOwnerId },
+    });
     return { message: 'Ownership transferred' };
   }
 

@@ -11,6 +11,8 @@ import type { UserInfo, UserProfile } from '@/lib/types';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 interface DashboardContextValue {
   activeTeamId: string;
@@ -154,6 +156,18 @@ export default function DashboardLayout({
   const refreshTeams = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
+
+  useEffect(() => {
+    if (!activeTeamId) return;
+    if (!isRealtimePhase1Enabled()) return;
+    const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+      if (event.teamId !== activeTeamId) return;
+      setRefreshKey((k) => k + 1);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [activeTeamId]);
 
   if (!user || !activeTeamId) {
     return (

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -11,16 +11,21 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
+import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
+import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
 import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
+import { ObservabilityService } from '../observability/observability.service';
+import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly keycloak: KeycloakAdminService,
+    private readonly observability: ObservabilityService,
   ) {}
 
   @Post('signup')
@@ -122,64 +127,271 @@ export class AuthController {
     return this.authService.uploadAvatar(user.sub, file);
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Get('management/users')
   async managementUsers() {
     return this.authService.listManagementUsers();
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Patch('management/users/:id/role')
   async updateManagementUserRole(
     @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
     @Param('id') id: string,
     @Body('role') role: string,
   ) {
-    return this.authService.updateUserRoleByRoot(user.sub, id, role);
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.updateUserRoleByRoot(user.sub, id, role);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: role === 'ROOT' ? 'AUTH_ROLE_UPDATED_TO_ROOT' : 'AUTH_ROLE_UPDATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: role === 'ROOT' ? 'CRITICAL' : 'MEDIUM',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        afterJson: { role: result.role },
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_ROLE_UPDATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { targetRole: role },
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Post('management/users/:id/reset-password')
   async resetManagementUserPassword(
     @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
     @Param('id') id: string,
     @Body('newPassword') newPassword: string,
     @Body('forceChangeOnFirstLogin') forceChangeOnFirstLogin?: boolean,
   ) {
-    return this.authService.resetManagementUserPasswordByRoot(
-      user.sub,
-      id,
-      newPassword,
-      !!forceChangeOnFirstLogin,
-    );
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.resetManagementUserPasswordByRoot(
+        user.sub,
+        id,
+        newPassword,
+        !!forceChangeOnFirstLogin,
+      );
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_PASSWORD_RESET_BY_ROOT',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { forceChangeOnFirstLogin: !!forceChangeOnFirstLogin },
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_PASSWORD_RESET_BY_ROOT',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Patch('management/users/:id/active')
   async updateManagementUserActive(
     @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
     @Param('id') id: string,
     @Body('isActive') isActive: boolean,
   ) {
-    return this.authService.setManagementUserActiveByRoot(user.sub, id, !!isActive);
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.setManagementUserActiveByRoot(
+        user.sub,
+        id,
+        !!isActive,
+      );
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: !!isActive ? 'AUTH_USER_ACTIVATED' : 'AUTH_USER_DEACTIVATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: !!isActive ? 'MEDIUM' : 'CRITICAL',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { isActive: !!isActive },
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_USER_ACTIVE_UPDATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { isActive: !!isActive },
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Patch('management/users/:id/sign-in-method')
   async updateManagementUserSignInMethod(
+    @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
     @Param('id') id: string,
     @Body('method') method: 'local' | 'google' | 'github',
   ) {
     if (method !== 'local' && method !== 'google' && method !== 'github') {
       throw new BadRequestException('Invalid sign-in method');
     }
-    return this.authService.setManagementUserSignInMethodByRoot(id, method);
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.setManagementUserSignInMethodByRoot(id, method);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_SIGNIN_METHOD_UPDATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'MEDIUM',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { method },
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_SIGNIN_METHOD_UPDATED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { method },
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageTeams')
   @Get('management/teams')
   async managementTeams() {
     return this.authService.listManagementTeams();
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageTeams')
+  @Delete('management/teams/:id')
+  async deleteManagementTeam(
+    @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
+    @Param('id') id: string,
+  ) {
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.deleteManagementTeamByRoot(id);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_DELETED',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'CRITICAL',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        metadataJson: { teamName: result.name },
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'TEAM_DELETED',
+        resourceType: 'team',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canAccessManagement')
+  @Get('management/my-permissions')
+  async managementMyPermissions(@CurrentUser() user: JwtPayload) {
+    return this.authService.getManagementPermissionsForUser(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('management/role-permissions')
+  async managementRolePermissions() {
+    return this.authService.getRolePermissionsByRoot();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Patch('management/role-permissions/:role')
+  async updateManagementRolePermissions(
+    @Param('role') role: string,
+    @Body()
+    patch: {
+      canAccessManagement?: boolean;
+      canManageUsers?: boolean;
+      canManageTeams?: boolean;
+      canManagePlans?: boolean;
+      canManageUserPackages?: boolean;
+      canModerateFeedback?: boolean;
+      canViewAuditLogs?: boolean;
+      canViewRootAlerts?: boolean;
+    },
+  ) {
+    const normalizedRole = (role || '').toUpperCase();
+    if (
+      normalizedRole !== 'USER' &&
+      normalizedRole !== 'ADMIN' &&
+      normalizedRole !== 'ROOT'
+    ) {
+      throw new BadRequestException('Invalid role');
+    }
+    return this.authService.updateRolePermissionsByRoot(
+      normalizedRole as 'USER' | 'ADMIN' | 'ROOT',
+      patch,
+    );
   }
 
   @Get('oauth/providers')

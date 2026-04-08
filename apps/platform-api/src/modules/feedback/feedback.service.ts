@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { StorageService } from '../storage/storage.service';
 import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 export interface FeedbackAttachmentRef {
   url: string;
@@ -45,7 +46,16 @@ export class FeedbackService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly storageService: StorageService,
+    private readonly realtime: RealtimeEventsService,
   ) {}
+
+  private async recipientUserIdsForFeedback(feedbackOwnerId: string) {
+    const roots = await this.prisma.user.findMany({
+      where: { role: UserRole.ROOT, id: { not: feedbackOwnerId } },
+      select: { id: true },
+    });
+    return [feedbackOwnerId, ...roots.map((r) => r.id)];
+  }
 
   async uploadAttachment(userId: string, buffer: Buffer, mimetype: string) {
     return this.storageService.uploadFeedbackAttachment(
@@ -194,6 +204,19 @@ export class FeedbackService {
       detail: `${feedback.status} -> ${status}`,
       metadata: { from: feedback.status, to: status } as unknown as Prisma.InputJsonValue,
     });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    await this.realtime.publish({
+      entityType: 'feedback',
+      action: 'status_changed',
+      entityId: id,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        title: updated.title,
+        from: feedback.status,
+        to: status,
+      },
+    });
     return updated;
   }
 
@@ -217,6 +240,17 @@ export class FeedbackService {
         descriptionChanged: dto.description !== undefined && dto.description !== (feedback.description || ''),
       } as unknown as Prisma.InputJsonValue,
     });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    await this.realtime.publish({
+      entityType: 'feedback',
+      action: 'updated',
+      entityId: id,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        title: updated.title,
+      },
+    });
     return updated;
   }
 
@@ -232,6 +266,17 @@ export class FeedbackService {
       username,
       action: 'FEEDBACK_DELETED',
       detail: 'Feedback deleted',
+    });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    await this.realtime.publish({
+      entityType: 'feedback',
+      action: 'deleted',
+      entityId: id,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        title: feedback.title,
+      },
     });
     return { success: true };
   }
@@ -250,7 +295,7 @@ export class FeedbackService {
     feedbackId: string,
     dto: { comment: string; attachments?: FeedbackAttachmentRef[]; parentCommentId?: string },
   ) {
-    const { isRoot, isOwner } = await this.assertCanAccessFeedback(userId, feedbackId);
+    const { isRoot, isOwner, feedback } = await this.assertCanAccessFeedback(userId, feedbackId);
     if (!isRoot && !isOwner) {
       throw new ForbiddenException('You are not allowed to comment on this feedback');
     }
@@ -289,6 +334,19 @@ export class FeedbackService {
       metadata: dto.parentCommentId
         ? ({ parentCommentId: dto.parentCommentId } as unknown as Prisma.InputJsonValue)
         : undefined,
+    });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    await this.realtime.publish({
+      entityType: 'feedback_comment',
+      action: 'comment_added',
+      entityId: created.id,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        feedbackId,
+        feedbackTitle: feedback.title,
+        parentCommentId: dto.parentCommentId ?? null,
+      },
     });
     return created;
   }

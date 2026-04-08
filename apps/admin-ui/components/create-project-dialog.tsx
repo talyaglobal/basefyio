@@ -24,6 +24,7 @@ import {
   normalizeImportProgressData,
   type ImportProgressData,
   type ImportJobProgressEvent,
+  type ProjectListItem,
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 
@@ -135,8 +136,11 @@ export function CreateProjectDialog({
   const [importProjectName, setImportProjectName] = useState('');
   const [importProjectId, setImportProjectId] = useState<string | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipImportMode, setZipImportMode] = useState<'duplicate' | 'override'>('duplicate');
   const [zipNameMode, setZipNameMode] = useState<'existing' | 'new'>('existing');
   const [zipNewName, setZipNewName] = useState('');
+  const [zipExistingProjectId, setZipExistingProjectId] = useState('');
+  const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
   const [zipImporting, setZipImporting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -369,8 +373,11 @@ export function CreateProjectDialog({
     setImportProjectName('');
     setImportProjectId(null);
     setZipFile(null);
+    setZipImportMode('duplicate');
     setZipNameMode('existing');
     setZipNewName('');
+    setZipExistingProjectId('');
+    setTeamProjects([]);
     setZipImporting(false);
     setLoading(false);
     setCancelling(false);
@@ -650,7 +657,12 @@ export function CreateProjectDialog({
       toast.error('Please select an export ZIP file.');
       return;
     }
-    if (zipNameMode === 'new' && !zipNewName.trim()) {
+    if (zipImportMode === 'override' && !zipExistingProjectId.trim()) {
+      toast.error('Please select a project to override.');
+      return;
+    }
+
+    if (zipImportMode === 'duplicate' && zipNameMode === 'new' && !zipNewName.trim()) {
       toast.error('Please enter a new project name.');
       return;
     }
@@ -662,6 +674,8 @@ export function CreateProjectDialog({
         teamId,
         nameMode: zipNameMode,
         newProjectName: zipNameMode === 'new' ? zipNewName.trim() : undefined,
+        existingProjectId:
+          zipImportMode === 'override' ? zipExistingProjectId : undefined,
       });
 
       if (result.warnings.length > 0) {
@@ -681,6 +695,21 @@ export function CreateProjectDialog({
       setZipImporting(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || view !== 'import') return;
+    api.projects
+      .list(teamId)
+      .then((items) => {
+        setTeamProjects(items);
+        if (!zipExistingProjectId && items.length > 0) {
+          setZipExistingProjectId(items[0].id);
+        }
+      })
+      .catch(() => {
+        setTeamProjects([]);
+      });
+  }, [open, view, teamId, zipExistingProjectId]);
 
   function handleResultDone() {
     const targetId = importProjectId || activeImport?.projectId || null;
@@ -988,6 +1017,47 @@ export function CreateProjectDialog({
               </div>
 
               <div className="space-y-2">
+                <p className="text-xs font-medium">Import target</p>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="h-4 w-4 accent-primary"
+                    checked={zipImportMode === 'duplicate'}
+                    onChange={() => setZipImportMode('duplicate')}
+                  />
+                  Create duplicate as a new project
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="h-4 w-4 accent-primary"
+                    checked={zipImportMode === 'override'}
+                    onChange={() => setZipImportMode('override')}
+                  />
+                  Override an existing project
+                </label>
+                {zipImportMode === 'override' && (
+                  <select
+                    value={zipExistingProjectId}
+                    onChange={(e) => setZipExistingProjectId(e.target.value)}
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    required
+                  >
+                    {teamProjects.length === 0 ? (
+                      <option value="">No projects found in active team</option>
+                    ) : (
+                      teamProjects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
+              </div>
+
+              {zipImportMode === 'duplicate' && (
+              <div className="space-y-2">
                 <p className="text-xs font-medium">Project name confirmation</p>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -1018,6 +1088,7 @@ export function CreateProjectDialog({
                   />
                 )}
               </div>
+              )}
 
               <Button type="submit" disabled={!zipFile || zipImporting} className="w-full">
                 {zipImporting ? (

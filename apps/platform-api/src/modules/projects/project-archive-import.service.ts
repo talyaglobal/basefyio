@@ -30,7 +30,12 @@ export class ProjectArchiveImportService {
   async importArchive(
     file: Express.Multer.File,
     userId: string,
-    body: { teamId?: string; nameMode?: ZipImportMode; newProjectName?: string },
+    body: {
+      teamId?: string;
+      nameMode?: ZipImportMode;
+      newProjectName?: string;
+      existingProjectId?: string;
+    },
   ) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('ZIP file is required');
@@ -41,12 +46,17 @@ export class ProjectArchiveImportService {
   async importArchiveBuffer(
     zipBuffer: Buffer,
     userId: string,
-    body: { teamId?: string; nameMode?: ZipImportMode; newProjectName?: string },
+    body: {
+      teamId?: string;
+      nameMode?: ZipImportMode;
+      newProjectName?: string;
+      existingProjectId?: string;
+    },
   ) {
     if (!zipBuffer?.length) {
       throw new BadRequestException('ZIP file is required');
     }
-    if (!body.teamId?.trim()) {
+      if (!body.teamId?.trim() && !body.existingProjectId?.trim()) {
       throw new BadRequestException('teamId is required');
     }
 
@@ -69,18 +79,24 @@ export class ProjectArchiveImportService {
         }
       }
 
+      const useExistingProject = !!body.existingProjectId?.trim();
       const finalName =
         body.nameMode === 'new'
           ? body.newProjectName?.trim()
           : exportedName;
-      if (!finalName) {
+      if (!useExistingProject && !finalName) {
         throw new BadRequestException('newProjectName is required when nameMode is "new"');
       }
 
-      const project = await this.projectsService.create(
-        { name: finalName, teamId: body.teamId.trim() },
-        userId,
-      );
+      const project = useExistingProject
+        ? await this.projectsService.getProjectForSupabaseImport(
+            body.existingProjectId!.trim(),
+            userId,
+          )
+        : await this.projectsService.create(
+            { name: finalName!, teamId: body.teamId!.trim() },
+            userId,
+          );
 
       const warnings: string[] = [];
 
@@ -105,7 +121,7 @@ export class ProjectArchiveImportService {
       return {
         project: { id: project.id, name: project.name, slug: project.slug },
         importedName: exportedName,
-        appliedName: finalName,
+        appliedName: useExistingProject ? project.name : finalName!,
         warnings,
       };
     } catch (error: any) {

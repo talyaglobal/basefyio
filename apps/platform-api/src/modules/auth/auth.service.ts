@@ -17,6 +17,18 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 
+type RolePermissionKey =
+  | 'canAccessManagement'
+  | 'canManageUsers'
+  | 'canManageTeams'
+  | 'canManagePlans'
+  | 'canManageUserPackages'
+  | 'canModerateFeedback'
+  | 'canViewAuditLogs'
+  | 'canViewRootAlerts';
+
+type RolePermissionMatrix = Record<RolePermissionKey, boolean>;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -30,6 +42,41 @@ export class AuthService {
   private static readonly CAPTCHA_TTL_MS = 5 * 60 * 1000;
   private static readonly ACCOUNT_LOCK_MS = 30 * 60 * 1000;
   private static readonly PASSWORD_PUNCTUATION_REGEX = /[!-/:-@[-`{-~]/;
+  private static readonly DEFAULT_ROLE_PERMISSIONS: Record<
+    'USER' | 'ADMIN' | 'ROOT',
+    RolePermissionMatrix
+  > = {
+    USER: {
+      canAccessManagement: false,
+      canManageUsers: false,
+      canManageTeams: false,
+      canManagePlans: false,
+      canManageUserPackages: false,
+      canModerateFeedback: false,
+      canViewAuditLogs: false,
+      canViewRootAlerts: false,
+    },
+    ADMIN: {
+      canAccessManagement: true,
+      canManageUsers: true,
+      canManageTeams: true,
+      canManagePlans: true,
+      canManageUserPackages: true,
+      canModerateFeedback: true,
+      canViewAuditLogs: false,
+      canViewRootAlerts: false,
+    },
+    ROOT: {
+      canAccessManagement: true,
+      canManageUsers: true,
+      canManageTeams: true,
+      canManagePlans: true,
+      canManageUserPackages: true,
+      canModerateFeedback: true,
+      canViewAuditLogs: true,
+      canViewRootAlerts: true,
+    },
+  };
 
   constructor(
     private readonly config: ConfigService,
@@ -1176,6 +1223,45 @@ export class AuthService {
     }));
   }
 
+  async deleteManagementTeamByRoot(teamId: string) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        id: true,
+        name: true,
+        personalForUserId: true,
+        _count: {
+          select: {
+            projects: true,
+          },
+        },
+      },
+    });
+    if (!team) {
+      throw new BadRequestException('Team not found');
+    }
+    if (team.personalForUserId) {
+      throw new BadRequestException('Personal teams cannot be deleted');
+    }
+    if (team._count.projects > 0) {
+      throw new BadRequestException(
+        'Team cannot be deleted while it still has projects',
+      );
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.updateMany({
+        where: { activeTeamId: teamId },
+        data: { activeTeamId: null },
+      }),
+      this.prisma.team.delete({
+        where: { id: teamId },
+      }),
+    ]);
+
+    return { id: team.id, name: team.name, deleted: true as const };
+  }
+
   async setManagementUserActiveByRoot(currentUserId: string, targetUserId: string, isActive: boolean) {
     if (currentUserId === targetUserId && !isActive) {
       throw new BadRequestException('Root user cannot deactivate own account');
@@ -1189,6 +1275,126 @@ export class AuthService {
     }
     await this.keycloak.setPlatformUserEnabledById(targetUserId, isActive);
     return { id: target.id, email: target.email, username: target.username, isActive };
+  }
+
+  async getRolePermissionsByRoot() {
+    const existing = await this.prisma.rolePermission.findMany();
+    const existingByRole = new Map(existing.map((row) => [row.role, row]));
+
+    for (const role of ['USER', 'ADMIN', 'ROOT'] as const) {
+      if (!existingByRole.has(role)) {
+        const created = await this.prisma.rolePermission.create({
+          data: {
+            role,
+            ...AuthService.DEFAULT_ROLE_PERMISSIONS[role],
+          },
+        });
+        existingByRole.set(role, created);
+      }
+    }
+
+    return (['USER', 'ADMIN', 'ROOT'] as const).map((role) => {
+      const row = existingByRole.get(role)!;
+      return {
+        role,
+        canAccessManagement: row.canAccessManagement,
+        canManageUsers: row.canManageUsers,
+        canManageTeams: row.canManageTeams,
+        canManagePlans: row.canManagePlans,
+        canManageUserPackages: row.canManageUserPackages,
+        canModerateFeedback: row.canModerateFeedback,
+        canViewAuditLogs: row.canViewAuditLogs,
+        canViewRootAlerts: row.canViewRootAlerts,
+      };
+    });
+  }
+
+  async updateRolePermissionsByRoot(role: 'USER' | 'ADMIN' | 'ROOT', patch: Partial<RolePermissionMatrix>) {
+    if (role === 'ROOT') {
+      throw new BadRequestException('ROOT permissions are fixed and cannot be edited');
+    }
+
+    const allowedKeys: RolePermissionKey[] = [
+      'canAccessManagement',
+      'canManageUsers',
+      'canManageTeams',
+      'canManagePlans',
+      'canManageUserPackages',
+      'canModerateFeedback',
+      'canViewAuditLogs',
+      'canViewRootAlerts',
+    ];
+    const data: Partial<RolePermissionMatrix> = {};
+    for (const key of allowedKeys) {
+      if (typeof patch[key] === 'boolean') {
+        data[key] = patch[key];
+      }
+    }
+
+    const updated = await this.prisma.rolePermission.upsert({
+      where: { role },
+      create: {
+        role,
+        ...AuthService.DEFAULT_ROLE_PERMISSIONS[role],
+        ...data,
+      },
+      update: data,
+    });
+
+    return {
+      role: updated.role,
+      canAccessManagement: updated.canAccessManagement,
+      canManageUsers: updated.canManageUsers,
+      canManageTeams: updated.canManageTeams,
+      canManagePlans: updated.canManagePlans,
+      canManageUserPackages: updated.canManageUserPackages,
+      canModerateFeedback: updated.canModerateFeedback,
+      canViewAuditLogs: updated.canViewAuditLogs,
+      canViewRootAlerts: updated.canViewRootAlerts,
+    };
+  }
+
+  async getManagementPermissionsForUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    if (user.role === 'ROOT') {
+      return {
+        role: 'ROOT' as const,
+        canAccessManagement: true,
+        canManageUsers: true,
+        canManageTeams: true,
+        canManagePlans: true,
+        canManageUserPackages: true,
+        canModerateFeedback: true,
+        canViewAuditLogs: true,
+        canViewRootAlerts: true,
+      };
+    }
+
+    const fallback = AuthService.DEFAULT_ROLE_PERMISSIONS[user.role as 'USER' | 'ADMIN'];
+    const row = await this.prisma.rolePermission.upsert({
+      where: { role: user.role },
+      create: { role: user.role, ...fallback },
+      update: {},
+    });
+
+    return {
+      role: row.role,
+      canAccessManagement: row.canAccessManagement,
+      canManageUsers: row.canManageUsers,
+      canManageTeams: row.canManageTeams,
+      canManagePlans: row.canManagePlans,
+      canManageUserPackages: row.canManageUserPackages,
+      canModerateFeedback: row.canModerateFeedback,
+      canViewAuditLogs: row.canViewAuditLogs,
+      canViewRootAlerts: row.canViewRootAlerts,
+    };
   }
 
 }

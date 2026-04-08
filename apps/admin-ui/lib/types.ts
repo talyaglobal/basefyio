@@ -224,6 +224,18 @@ export interface ManagementUser {
   _count: { teamMembers: number };
 }
 
+export interface RolePermissionMatrix {
+  role: 'USER' | 'ADMIN' | 'ROOT';
+  canAccessManagement: boolean;
+  canManageUsers: boolean;
+  canManageTeams: boolean;
+  canManagePlans: boolean;
+  canManageUserPackages: boolean;
+  canModerateFeedback: boolean;
+  canViewAuditLogs: boolean;
+  canViewRootAlerts: boolean;
+}
+
 export interface ManagementTeam {
   id: string;
   name: string;
@@ -263,6 +275,33 @@ export interface ManagementUserPackage {
   planDisplayName: string | null;
   planPriceMonthly: number | null;
   subscriptionStatus: string | null;
+}
+
+export interface RootAlert {
+  id: string;
+  kind: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  title: string;
+  message: string;
+  relatedAuditLogId: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  traceId: string;
+  actorUserId: string;
+  actorRole: string;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  severity: string;
+  success: boolean;
+  beforeJson: Record<string, unknown> | null;
+  afterJson: Record<string, unknown> | null;
+  metadataJson: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface SqlResult {

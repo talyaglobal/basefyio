@@ -40,7 +40,10 @@ import type {
   ManagementUser,
   ManagementPlan,
   ManagementUserPackage,
+  RolePermissionMatrix,
   UserProfile,
+  RootAlert,
+  AuditLogEntry,
   VercelDeployment,
   VercelIntegration,
   VercelProject,
@@ -62,6 +65,17 @@ async function request<T>(
   });
 
   if (res.status === 401) {
+    if (path === '/auth/login') {
+      const body = await res.json().catch(() => ({} as { message?: string; code?: string }));
+      const err = new Error(body.message || body.code || 'Unauthorized') as Error & {
+        code?: string;
+        status?: number;
+      };
+      err.code = body.code || body.message || 'Unauthorized';
+      err.status = 401;
+      throw err;
+    }
+
     const refreshToken = getRefreshToken();
     if (refreshToken) {
       try {
@@ -251,6 +265,32 @@ export const api = {
     managementTeams() {
       return request<ManagementTeam[]>('/auth/management/teams');
     },
+    deleteManagementTeam(teamId: string) {
+      return request<{ id: string; name: string; deleted: true }>(
+        `/auth/management/teams/${teamId}`,
+        {
+          method: 'DELETE',
+        },
+      );
+    },
+    managementRolePermissions() {
+      return request<RolePermissionMatrix[]>('/auth/management/role-permissions');
+    },
+    managementMyPermissions() {
+      return request<RolePermissionMatrix>('/auth/management/my-permissions');
+    },
+    updateManagementRolePermissions(
+      role: 'USER' | 'ADMIN' | 'ROOT',
+      patch: Partial<Omit<RolePermissionMatrix, 'role'>>,
+    ) {
+      return request<RolePermissionMatrix>(
+        `/auth/management/role-permissions/${role}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+        },
+      );
+    },
   },
 
   teams: {
@@ -385,6 +425,7 @@ export const api = {
       teamId: string;
       nameMode: 'existing' | 'new';
       newProjectName?: string;
+      existingProjectId?: string;
     }) {
       const token = getAccessToken();
       const form = new FormData();
@@ -393,6 +434,9 @@ export const api = {
       form.append('nameMode', data.nameMode);
       if (data.nameMode === 'new' && data.newProjectName?.trim()) {
         form.append('newProjectName', data.newProjectName.trim());
+      }
+      if (data.existingProjectId?.trim()) {
+        form.append('existingProjectId', data.existingProjectId.trim());
       }
 
       const res = await fetch('/api/proxy/projects/import-export-zip', {
@@ -1221,6 +1265,19 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ planName }),
       });
+    },
+  },
+  observability: {
+    listRootAlerts(limit = 100) {
+      return request<RootAlert[]>(`/observability/root-alerts?limit=${limit}`);
+    },
+    markRootAlertRead(id: string) {
+      return request<RootAlert>(`/observability/root-alerts/${id}/read`, {
+        method: 'PATCH',
+      });
+    },
+    listAuditLogs(limit = 200) {
+      return request<AuditLogEntry[]>(`/observability/audit-logs?limit=${limit}`);
     },
   },
 

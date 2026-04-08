@@ -17,10 +17,13 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RootRoleGuard } from '../../common/guards/root-role.guard';
+import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
+import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
 import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { StripeService } from '../stripe/stripe.service';
+import { ObservabilityService } from '../observability/observability.service';
+import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
 
 @Controller('billing')
 export class BillingController {
@@ -30,6 +33,7 @@ export class BillingController {
     private readonly billing: BillingService,
     private readonly usage: UsageService,
     private readonly stripe: StripeService,
+    private readonly observability: ObservabilityService,
   ) {}
 
   @Get('plans')
@@ -182,15 +186,18 @@ export class BillingController {
     return this.billing.changePlan(body.teamId, req.user.sub, body.planName);
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
   @Get('management/plans')
   async managementPlans() {
     return this.billing.listManagementPlans();
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
   @Patch('management/plans/:planName')
   async updateManagementPlan(
+    @Req() req: RequestWithTraceId,
     @Param('planName') planName: string,
     @Body()
     body: {
@@ -206,38 +213,66 @@ export class BillingController {
       isPublic?: boolean;
     },
   ) {
-    return this.billing.updateManagementPlan(planName, {
-      displayName: body.displayName,
-      priceMonthly: body.priceMonthly,
-      maxProjects: body.maxProjects,
-      maxStorageBytes:
-        body.maxStorageBytes === undefined
-          ? undefined
-          : body.maxStorageBytes === null
-            ? null
-            : BigInt(body.maxStorageBytes),
-      maxTeamMembers: body.maxTeamMembers,
-      maxDbSizeBytes:
-        body.maxDbSizeBytes === undefined
-          ? undefined
-          : body.maxDbSizeBytes === null
-            ? null
-            : BigInt(body.maxDbSizeBytes),
-      maxApiRequests: body.maxApiRequests,
-      maxBandwidthBytes:
-        body.maxBandwidthBytes === undefined
-          ? undefined
-          : body.maxBandwidthBytes === null
-            ? null
-            : BigInt(body.maxBandwidthBytes),
-      maxMau: body.maxMau,
-      isPublic: body.isPublic,
-    });
+    const startedAt = Date.now();
+    try {
+      const result = await this.billing.updateManagementPlan(planName, {
+        displayName: body.displayName,
+        priceMonthly: body.priceMonthly,
+        maxProjects: body.maxProjects,
+        maxStorageBytes:
+          body.maxStorageBytes === undefined
+            ? undefined
+            : body.maxStorageBytes === null
+              ? null
+              : BigInt(body.maxStorageBytes),
+        maxTeamMembers: body.maxTeamMembers,
+        maxDbSizeBytes:
+          body.maxDbSizeBytes === undefined
+            ? undefined
+            : body.maxDbSizeBytes === null
+              ? null
+              : BigInt(body.maxDbSizeBytes),
+        maxApiRequests: body.maxApiRequests,
+        maxBandwidthBytes:
+          body.maxBandwidthBytes === undefined
+            ? undefined
+            : body.maxBandwidthBytes === null
+              ? null
+              : BigInt(body.maxBandwidthBytes),
+        maxMau: body.maxMau,
+        isPublic: body.isPublic,
+      });
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_UPDATED',
+        resourceType: 'plan',
+        resourceId: planName,
+        severity: 'HIGH',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_UPDATED',
+        resourceType: 'plan',
+        resourceId: planName,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
   @Post('management/plans')
   async createManagementPlan(
+    @Req() req: RequestWithTraceId,
     @Body()
     body: {
       name: string;
@@ -253,52 +288,111 @@ export class BillingController {
       isPublic?: boolean;
     },
   ) {
-    return this.billing.createManagementPlan({
-      name: body.name,
-      displayName: body.displayName,
-      priceMonthly: body.priceMonthly,
-      maxProjects: body.maxProjects,
-      maxStorageBytes:
-        body.maxStorageBytes === undefined
-          ? undefined
-          : body.maxStorageBytes === null
-            ? null
-            : BigInt(body.maxStorageBytes),
-      maxTeamMembers: body.maxTeamMembers,
-      maxDbSizeBytes:
-        body.maxDbSizeBytes === undefined
-          ? undefined
-          : body.maxDbSizeBytes === null
-            ? null
-            : BigInt(body.maxDbSizeBytes),
-      maxApiRequests: body.maxApiRequests,
-      maxBandwidthBytes:
-        body.maxBandwidthBytes === undefined
-          ? undefined
-          : body.maxBandwidthBytes === null
-            ? null
-            : BigInt(body.maxBandwidthBytes),
-      maxMau: body.maxMau,
-      isPublic: body.isPublic,
-    });
+    const startedAt = Date.now();
+    try {
+      const result = await this.billing.createManagementPlan({
+        name: body.name,
+        displayName: body.displayName,
+        priceMonthly: body.priceMonthly,
+        maxProjects: body.maxProjects,
+        maxStorageBytes:
+          body.maxStorageBytes === undefined
+            ? undefined
+            : body.maxStorageBytes === null
+              ? null
+              : BigInt(body.maxStorageBytes),
+        maxTeamMembers: body.maxTeamMembers,
+        maxDbSizeBytes:
+          body.maxDbSizeBytes === undefined
+            ? undefined
+            : body.maxDbSizeBytes === null
+              ? null
+              : BigInt(body.maxDbSizeBytes),
+        maxApiRequests: body.maxApiRequests,
+        maxBandwidthBytes:
+          body.maxBandwidthBytes === undefined
+            ? undefined
+            : body.maxBandwidthBytes === null
+              ? null
+              : BigInt(body.maxBandwidthBytes),
+        maxMau: body.maxMau,
+        isPublic: body.isPublic,
+      });
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_CREATED',
+        resourceType: 'plan',
+        resourceId: body.name,
+        severity: 'HIGH',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_CREATED',
+        resourceType: 'plan',
+        resourceId: body.name,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
   @Delete('management/plans/:planName')
   async deleteManagementPlan(
+    @Req() req: RequestWithTraceId,
     @Param('planName') planName: string,
     @Query('replacementPlanName') replacementPlanName?: string,
   ) {
-    return this.billing.deleteManagementPlan(planName, replacementPlanName || 'free');
+    const startedAt = Date.now();
+    try {
+      const result = await this.billing.deleteManagementPlan(
+        planName,
+        replacementPlanName || 'free',
+      );
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_DELETED',
+        resourceType: 'plan',
+        resourceId: planName,
+        severity: 'CRITICAL',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_PLAN_DELETED',
+        resourceType: 'plan',
+        resourceId: planName,
+        severity: 'CRITICAL',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUserPackages')
   @Get('management/user-packages')
   async managementUserPackages() {
     return this.billing.listManagementUserPackages();
   }
 
-  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUserPackages')
   @Patch('management/user-packages/:userId')
   async updateManagementUserPackage(
     @Param('userId') userId: string,

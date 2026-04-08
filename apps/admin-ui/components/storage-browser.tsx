@@ -130,7 +130,7 @@ function BucketList({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="w-full min-w-0 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Storage</h2>
@@ -281,7 +281,7 @@ function BucketDetail({
   useEffect(() => { loadBucketInfo(); }, [loadBucketInfo]);
 
   return (
-    <div className="space-y-4">
+    <div className="w-full min-w-0 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -602,7 +602,7 @@ function ObjectBrowser({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="w-full min-w-0 space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>

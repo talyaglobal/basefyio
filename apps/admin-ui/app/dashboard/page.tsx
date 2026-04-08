@@ -17,7 +17,7 @@ import {
 } from 'recharts';
 import { api } from '@/lib/api';
 import type { ProjectListItem, TeamMember } from '@/lib/types';
-import { useActiveTeam } from './layout';
+import { useActiveTeam, useDashboard } from './layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
@@ -34,6 +34,7 @@ import {
   PauseCircle,
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
+import { RootAlertsPanel } from '@/components/root-alerts-panel';
 
 // ── Helpers ──────────────────────────────────────────────────
 function buildMonthlyData(projects: ProjectListItem[], months = 6) {
@@ -104,6 +105,7 @@ function StatCard({
 export default function DashboardPage() {
   const router = useRouter();
   const { activeTeamId } = useActiveTeam();
+  const { profile } = useDashboard();
 
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -160,6 +162,8 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {profile?.role === 'ROOT' && <RootAlertsPanel />}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

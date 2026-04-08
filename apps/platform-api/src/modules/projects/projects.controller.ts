@@ -68,7 +68,13 @@ export class ProjectsController {
   @UseInterceptors(FileInterceptor('file', { storage: undefined }))
   async importExportZip(
     @CurrentUser() user: JwtPayload,
-    @Body() body: { teamId?: string; nameMode?: 'existing' | 'new'; newProjectName?: string },
+    @Body()
+    body: {
+      teamId?: string;
+      nameMode?: 'existing' | 'new';
+      newProjectName?: string;
+      existingProjectId?: string;
+    },
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.projectArchiveImport.importArchive(file, user.sub, body);

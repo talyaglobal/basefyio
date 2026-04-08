@@ -9,7 +9,6 @@ import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
-  ArrowLeft,
   Book,
   Copy,
   Database,
@@ -214,7 +213,7 @@ export default function ProjectLayout({
   return (
     <div
       className={cn(
-        'flex h-full min-h-full min-w-0 gap-0 -m-6',
+        'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6',
         isResizing && 'select-none',
       )}
     >
@@ -230,15 +229,6 @@ export default function ProjectLayout({
         {sidebarExpanded ? (
           <>
             <div className="border-b p-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mb-2 -ml-2 text-muted-foreground"
-                onClick={() => router.back()}
-              >
-                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                Projects
-              </Button>
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
                   <Database className="h-4 w-4 text-primary" />
@@ -353,15 +343,6 @@ export default function ProjectLayout({
         ) : (
           <>
             <div className="flex flex-col items-center gap-2 border-b py-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground"
-                onClick={() => router.back()}
-                title="Back to projects"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
               <div
                 className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10"
                 title={project.name}

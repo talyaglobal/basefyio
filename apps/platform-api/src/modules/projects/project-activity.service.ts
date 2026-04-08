@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 /** Stored in DB `kind` — keep lowercase dot notation for API stability */
 export const ProjectActivityKind = {
@@ -48,7 +49,10 @@ export type ProjectActivityKindValue =
 export class ProjectActivityService {
   private readonly logger = new Logger(ProjectActivityService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeEventsService,
+  ) {}
 
   async append(
     projectId: string,
@@ -61,7 +65,7 @@ export class ProjectActivityService {
     },
   ): Promise<void> {
     try {
-      await this.prisma.projectActivityLog.create({
+      const created = await this.prisma.projectActivityLog.create({
         data: {
           projectId,
           userId: params.userId ?? null,
@@ -73,6 +77,27 @@ export class ProjectActivityService {
             : {}),
         },
       });
+      try {
+        const project = await this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { teamId: true },
+        });
+        await this.realtime.publish({
+          entityType: 'project_activity',
+          action: 'activity_appended',
+          entityId: created.id,
+          actorUserId: params.userId ?? undefined,
+          projectId,
+          teamId: project?.teamId,
+          payload: {
+            kind: params.kind,
+            title: params.title,
+            detail: params.detail ?? null,
+          },
+        });
+      } catch {
+        // Realtime publish failures should not break activity logging.
+      }
     } catch (err: any) {
       this.logger.warn(
         `project activity log failed (${params.kind}): ${err.message}`,

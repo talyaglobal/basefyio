@@ -65,6 +65,8 @@ import {
   List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
@@ -270,6 +272,20 @@ export default function ProjectsPage() {
   }, [activeTeamId]);
 
   useEffect(() => { loadAll(); setShowTrash(false); setDeletedProjects([]); setIsOwner(false); }, [loadAll]);
+
+  useEffect(() => {
+    if (!activeTeamId) return;
+    if (!isRealtimePhase1Enabled()) return;
+    const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+      if (event.teamId !== activeTeamId) return;
+      if (event.entityType === 'project' || event.entityType === 'project_activity' || event.entityType === 'team') {
+        void loadAll();
+      }
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [activeTeamId, loadAll]);
 
   // Close context menus + sort dropdown on outside click
   useEffect(() => {

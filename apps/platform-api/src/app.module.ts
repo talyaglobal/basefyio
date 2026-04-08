@@ -20,7 +20,9 @@ import { AiModule } from './modules/ai/ai.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
+import { ObservabilityModule } from './modules/observability/observability.module';
 import configuration from './config/configuration';
+import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
 @Module({
   imports: [
@@ -47,10 +49,11 @@ import configuration from './config/configuration';
     StripeModule,
     BillingModule,
     InfrastructureModule,
+    ObservabilityModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(UsageTrackingMiddleware).forRoutes('rest/v1/*');
+    consumer.apply(TraceIdMiddleware, UsageTrackingMiddleware).forRoutes('*');
   }
 }

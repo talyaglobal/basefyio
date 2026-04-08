@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 export const KB_NOTIFY_EVENT = 'kb-notify-event';
 
@@ -213,6 +215,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (!getAccessToken()) {
       return;
     }
+    if (isRealtimePhase1Enabled()) {
+      return;
+    }
     if (!feedbackNotificationsEnabled) {
       return;
     }
@@ -317,6 +322,45 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       window.clearInterval(id);
+    };
+  }, [addNotification, currentUserId, feedbackNotificationsEnabled]);
+
+  useEffect(() => {
+    if (!currentUserId || !feedbackNotificationsEnabled) return;
+    if (!isRealtimePhase1Enabled()) return;
+
+    const unsubscribe = subscribeKbRealtime(`user:${currentUserId}`, (event: RealtimeEventEnvelope) => {
+      if (event.actorUserId && event.actorUserId === currentUserId) return;
+      if (event.entityType === 'feedback' && event.action === 'status_changed') {
+        addNotification({
+          type: 'feedback',
+          title: 'Feedback status updated',
+          message: `A feedback status was updated by another user.`,
+          href: event.payload?.feedbackId
+            ? `/dashboard/feedbacks#feedback-${String(event.payload.feedbackId)}`
+            : '/dashboard/feedbacks',
+        });
+      } else if (event.entityType === 'feedback_comment' && event.action === 'comment_added') {
+        const feedbackId = event.payload?.feedbackId;
+        const title = typeof event.payload?.feedbackTitle === 'string' ? event.payload.feedbackTitle : 'a feedback';
+        addNotification({
+          type: 'feedback',
+          title: 'New feedback comment',
+          message: `New comment on "${title}".`,
+          href: feedbackId ? `/dashboard/feedbacks#feedback-${String(feedbackId)}` : '/dashboard/feedbacks',
+        });
+      } else if (event.entityType === 'feedback') {
+        addNotification({
+          type: 'feedback',
+          title: 'Feedback updated by another user',
+          message: `A feedback item was changed.`,
+          href: '/dashboard/feedbacks',
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe?.();
     };
   }, [addNotification, currentUserId, feedbackNotificationsEnabled]);
 

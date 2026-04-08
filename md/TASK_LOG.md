@@ -1,5 +1,91 @@
 # Task Log
 
+## 2026-04-08 (root alerts visibility + management audit tab)
+- Updated `RootAlertsPanel` to render only when there is at least one alert; when alert list is empty, panel is hidden instead of showing `No alerts`.
+- Extended `/dashboard/management` tabs with a new `Audit Logs` tab for ROOT users.
+- Added management-side audit log list integration using `api.observability.listAuditLogs(200)`.
+- Implemented audit log table columns: time, severity, result, action, actor, resource, and trace id for system-wide monitoring.
+
+## 2026-04-08 (management teams delete)
+- Added management team delete API endpoint: `DELETE /auth/management/teams/:id` (permission-gated with `canManageTeams`).
+- Added secure backend checks before delete:
+  - block deleting personal teams
+  - block deleting teams that still have projects
+  - clear `activeTeamId` for users pointing to deleted team before delete
+- Added observability capture for delete attempts (`TEAM_DELETED`) with success/failure logging.
+- Added `Delete` action button in `/dashboard/management` -> `Teams` tab with confirmation and disabled state when team still has projects.
+
+## 2026-04-08 (role permission matrix managed by ROOT)
+- Added persistent role permission matrix support with new Prisma model/table `role_permissions` and migration `20260408125500_role_permissions_matrix`.
+- Added root-only auth management APIs:
+  - `GET /auth/management/role-permissions`
+  - `PATCH /auth/management/role-permissions/:role`
+- Seeded default matrix values for `USER`, `ADMIN`, `ROOT`; blocked direct edits for `ROOT` permissions to keep super-admin safety.
+- Extended `/dashboard/management` with a new **Role Permission Matrix** section so ROOT can toggle `USER/ADMIN` capabilities directly from UI.
+- Added admin-ui types and API client methods for role permission matrix fetch/update.
+
+## 2026-04-08 (management permission guard + permissions tab)
+- Added reusable backend permission system for management endpoints:
+  - `RequireManagementPermission(...)` decorator
+  - `ManagementPermissionGuard` (ROOT bypass + role_permissions lookup for ADMIN/USER)
+- Applied endpoint-level permission enforcement:
+  - Auth management users/teams routes
+  - Billing management plans/user-packages routes
+  - Observability audit/root-alert routes
+- Added `GET /auth/management/my-permissions` for current user’s effective management permissions.
+- Updated `/dashboard/management` to be role-permission aware (not root-only hard gate) and moved role matrix into dedicated `Permissions` tab under management.
+
+## 2026-04-07 (root observability phase 1)
+- Added phase-1 observability backend module with ROOT-only endpoints for audit logs and root alerts:
+  - `GET /observability/audit-logs`
+  - `GET /observability/root-alerts`
+  - `PATCH /observability/root-alerts/:id/read`
+- Added trace correlation middleware to attach/pass `x-trace-id` per request and include trace ids in audit rows.
+- Added immutable Prisma models + migration for:
+  - `audit_logs`
+  - `root_alerts`
+- Instrumented ROOT management critical actions with audit capture:
+  - User role/status/password reset/sign-in-method updates
+  - Pricing plan create/update/delete
+  - Team management mutations (invite/member/ownership flows), filtered to persist only ROOT actor actions
+- Added baseline metrics counters and latency buckets in observability service.
+- Added phase-1 alert rules:
+  - repeated failed privileged actions
+  - high-risk actions (role elevation to ROOT, user deactivation, plan delete)
+- Added ROOT email delivery for generated alerts and ROOT dashboard alerts panel in management UI.
+
+## 2026-04-07 (create project zip import override/duplicate options)
+- Extended `Create Project` ZIP import flow under the Supabase import screen with two explicit modes:
+  - **Override existing project** (select a project from active team)
+  - **Create duplicate new project** (existing exported name or custom new name)
+- Added backend support for ZIP import override via optional `existingProjectId` in `POST /projects/import-export-zip`.
+- Kept existing duplicate/new-name behavior for ZIP imports and wired UI/API payload accordingly.
+
+## 2026-04-07 (root alerts dashboard visibility)
+- Added ROOT alerts panel visibility on `/dashboard` overview page (not only management), gated by `profile.role === 'ROOT'`.
+- Verified observability tables (`audit_logs`, `root_alerts`) exist in running Postgres container.
+
+## 2026-04-07 (project detail layout full-width + remove back button)
+- Updated project detail shared layout to use full available width/height so child pages (including Storage) no longer render in a narrow area.
+- Removed the "`<- Projects`" back button above project name in the left sidebar (both expanded and collapsed sidebar variants).
+- Added explicit full-width wrappers in Storage browser screens to keep list/detail UI stretched to available content width.
+
+## 2026-04-07 (login social sign-in unauthorized toast)
+- Updated login error handling to preserve backend `401` message for `/auth/login` instead of collapsing to generic `Unauthorized`.
+- Added provider-specific toast messages for social sign-up users attempting email/password login:
+  - Google sign-up -> "Unauthorized... Google ile kaydolmuş..."
+  - GitHub sign-up -> "Unauthorized... GitHub ile kaydolmuş..."
+
+## 2026-04-07 (management users label update)
+- Updated `/dashboard/management` Users table column label from **Sign Up** to **Sign In** as requested.
+
+## 2026-04-07 (realtime + edge functions phase 1)
+- **Realtime event contract:** Added shared phase-1 event envelope/types for backend publisher, admin-ui consumer, and Supabase edge function.
+- **Backend publishers:** Added realtime event publishing from feedback, team mutation flows, and project activity append pipeline.
+- **Edge function broadcast router:** Added `supabase/functions/realtime-events` webhook receiver with secret validation and scoped channel broadcast (`team:*`, `project:*`, `user:*`).
+- **Frontend realtime subscriptions:** Added Supabase realtime client helper and subscriptions for notifications, feedback page refresh, dashboard team-level refresh, and projects list refresh.
+- **Reliability guardrails:** Added reconnect with exponential backoff for realtime channel failures while preserving existing fallback behavior when phase-1 flag is disabled.
+
 ## 2026-04-07 (feedback incoming intervention notifications + browser notification tab)
 - **Feedback intervention alerts:** Improved feedback polling to notify when another user changes status, adds comments, or updates/deletes feedback items.
 - **Incoming-only scope preserved:** Notifications continue to suppress self-originated events and only alert on other users’ actions.
