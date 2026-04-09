@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL =
   process.env.API_INTERNAL_URL || 'http://localhost:4000';
+export const dynamic = 'force-dynamic';
 
 async function proxy(
   request: NextRequest,
@@ -53,6 +54,18 @@ async function proxy(
           ...(upstream.headers.get('content-disposition')
             ? { 'content-disposition': upstream.headers.get('content-disposition')! }
             : {}),
+        },
+      });
+    }
+
+    if (upstreamCt.includes('text/event-stream')) {
+      return new NextResponse(upstream.body, {
+        status: upstream.status,
+        headers: {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache, no-transform',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no',
         },
       });
     }

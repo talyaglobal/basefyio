@@ -52,12 +52,13 @@ export class ProjectsService {
           equals: normalizedName,
           mode: 'insensitive',
         },
+        teamId: dto.teamId,
         status: { not: 'DELETED' },
       },
       select: { id: true, name: true },
     });
     if (existingByName) {
-      throw new BadRequestException('A project with this name already exists');
+      throw new BadRequestException('A project with this name already exists in this team');
     }
 
     await this.assertTeamMember(dto.teamId, userId);
@@ -569,16 +570,41 @@ export class ProjectsService {
       where: { kind: ProjectActivityKind.PROJECT_DELETED },
       orderBy: { createdAt: 'desc' },
       take: Math.max(1, Math.min(limit || 200, 500)),
-      include: {
-        project: {
-          select: {
-            id: true,
-            name: true,
-            teamId: true,
-          },
-        },
-      },
     });
+
+    const actorIds = Array.from(
+      new Set(rows.map((x) => x.userId).filter((value): value is string => Boolean(value))),
+    );
+    const projectIds = Array.from(new Set(rows.map((x) => x.projectId)));
+
+    const [actors, projects] = await Promise.all([
+      actorIds.length > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: actorIds } },
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          })
+        : Promise.resolve([]),
+      projectIds.length > 0
+        ? this.prisma.project.findMany({
+            where: { id: { in: projectIds } },
+            select: {
+              id: true,
+              name: true,
+              teamId: true,
+              team: { select: { id: true, name: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const actorById = new Map(actors.map((a) => [a.id, a] as const));
+    const projectById = new Map(projects.map((p) => [p.id, p] as const));
 
     return rows.map((x) => {
       const metadata =
@@ -589,12 +615,29 @@ export class ProjectsService {
         id: x.id,
         createdAt: x.createdAt,
         actorUserId: x.userId,
+        actorName: (() => {
+          if (!x.userId) return null;
+          const actorUser = actorById.get(x.userId);
+          if (!actorUser) return null;
+          return (
+            [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ').trim() ||
+            actorUser.username ||
+            actorUser.email ||
+            null
+          );
+        })(),
         projectId: x.projectId,
-        projectName:
-          (typeof metadata.originalProjectName === 'string' &&
-            metadata.originalProjectName) ||
-          x.project?.name ||
-          null,
+        projectName: (() => {
+          const project = projectById.get(x.projectId);
+          return (
+            (typeof metadata.originalProjectName === 'string' &&
+              metadata.originalProjectName) ||
+            project?.name ||
+            null
+          );
+        })(),
+        teamId: projectById.get(x.projectId)?.team?.id || projectById.get(x.projectId)?.teamId || null,
+        teamName: projectById.get(x.projectId)?.team?.name || null,
         reasonCode:
           typeof metadata.reasonCode === 'string' ? metadata.reasonCode : null,
         reasonLabel:

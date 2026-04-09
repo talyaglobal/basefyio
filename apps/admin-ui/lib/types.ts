@@ -168,8 +168,13 @@ export interface TeamInvite {
   teamId: string;
   teamName: string;
   teamSlug: string;
+  organization?: string;
   invitedBy: string;
+  invitedByFullName?: string | null;
+  invitedByEmail?: string | null;
+  invitedEmail?: string | null;
   createdAt: string;
+  expiresAt?: string;
 }
 
 export interface PendingInvite {
@@ -312,8 +317,11 @@ export interface ProjectDeletionReasonEntry {
   id: string;
   createdAt: string;
   actorUserId: string | null;
+  actorName?: string | null;
   projectId: string;
   projectName: string | null;
+  teamId?: string | null;
+  teamName?: string | null;
   reasonCode: string | null;
   reasonLabel: string | null;
   details: string | null;

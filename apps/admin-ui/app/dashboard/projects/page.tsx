@@ -433,6 +433,36 @@ export default function ProjectsPage() {
     }
   }
 
+  async function quickCreateFolder(): Promise<ProjectFolder | null> {
+    if (!activeTeamId) return null;
+    const name = window.prompt('New folder name');
+    if (!name || !name.trim()) return null;
+    try {
+      const created = await api.folders.create(activeTeamId, name.trim(), COLORS[0]);
+      setFolders((prev) => [...prev, created]);
+      toast.success('Folder created');
+      return created;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create folder');
+      return null;
+    }
+  }
+
+  async function quickCreateTag(): Promise<ProjectTag | null> {
+    if (!activeTeamId) return null;
+    const name = window.prompt('New tag name');
+    if (!name || !name.trim()) return null;
+    try {
+      const created = await api.tags.create(activeTeamId, name.trim(), COLORS[1]);
+      setTags((prev) => [...prev, created]);
+      toast.success('Tag created');
+      return created;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create tag');
+      return null;
+    }
+  }
+
   // ── Project updates ───────────────────────────────────────────────────────────
   async function moveToFolder(projectId: string, folderId: string | null) {
     try {
@@ -860,10 +890,20 @@ export default function ProjectsPage() {
             </span>
 
             {/* Move to folder */}
-            <BulkFolderMenu folders={folders} onMove={bulkMoveToFolder} />
+            <BulkFolderMenu
+              folders={folders}
+              onMove={bulkMoveToFolder}
+              onQuickCreate={quickCreateFolder}
+            />
 
             {/* Add tag */}
-            <BulkTagMenu tags={tags} selectedProjects={selectedProjects} projects={projects} onToggle={bulkToggleTag} />
+            <BulkTagMenu
+              tags={tags}
+              selectedProjects={selectedProjects}
+              projects={projects}
+              onToggle={bulkToggleTag}
+              onQuickCreate={quickCreateTag}
+            />
 
             <div className="ml-auto flex items-center gap-2">
               <Button
@@ -1494,7 +1534,9 @@ function ProjectListRow({
       </span>
       <Database className="h-4 w-4 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{project.name}</p>
+        <p className="truncate text-sm font-medium" title={project.name}>
+          {project.name}
+        </p>
         <p className="truncate text-xs text-muted-foreground">
           Created by {project.createdByName ?? 'Unknown'} - {formatDateTime(project.createdAt)} - Size: {formatSize(project.projectSizeBytes)}
         </p>
@@ -1507,7 +1549,15 @@ function ProjectListRow({
 }
 
 // ── BulkFolderMenu ────────────────────────────────────────────────────────────
-function BulkFolderMenu({ folders, onMove }: { folders: ProjectFolder[]; onMove: (fid: string | null) => void }) {
+function BulkFolderMenu({
+  folders,
+  onMove,
+  onQuickCreate,
+}: {
+  folders: ProjectFolder[];
+  onMove: (fid: string | null) => void;
+  onQuickCreate: () => Promise<ProjectFolder | null>;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1532,6 +1582,20 @@ function BulkFolderMenu({ folders, onMove }: { folders: ProjectFolder[]; onMove:
             >
               <FolderOpen className="h-3.5 w-3.5" /> No folder (remove)
             </button>
+            {folders.length === 0 && (
+              <button
+                onClick={async () => {
+                  const created = await onQuickCreate();
+                  if (created) {
+                    onMove(created.id);
+                    setOpen(false);
+                  }
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" /> Create new folder
+              </button>
+            )}
             {folders.map((f) => (
               <button
                 key={f.id}
@@ -1551,12 +1615,13 @@ function BulkFolderMenu({ folders, onMove }: { folders: ProjectFolder[]; onMove:
 
 // ── BulkTagMenu ───────────────────────────────────────────────────────────────
 function BulkTagMenu({
-  tags, selectedProjects, projects, onToggle,
+  tags, selectedProjects, projects, onToggle, onQuickCreate,
 }: {
   tags: ProjectTag[];
   selectedProjects: Set<string>;
   projects: ProjectListItem[];
   onToggle: (tagId: string) => void;
+  onQuickCreate: () => Promise<ProjectTag | null>;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -1576,7 +1641,23 @@ function BulkTagMenu({
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg">
           <div className="p-1">
-            {tags.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">No tags yet</p>}
+            {tags.length === 0 && (
+              <>
+                <p className="px-3 py-2 text-xs text-muted-foreground">No tags yet</p>
+                <button
+                  onClick={async () => {
+                    const created = await onQuickCreate();
+                    if (created) {
+                      onToggle(created.id);
+                      setOpen(false);
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-primary"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Create new tag
+                </button>
+              </>
+            )}
             {tags.map((tag) => (
               <button
                 key={tag.id}
@@ -1901,7 +1982,9 @@ function DroppableProjectCard({
           <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0 bg-brand-gradient">
             <Database className="h-4 w-4 text-white" />
           </div>
-          <h3 className="font-semibold truncate">{project.name}</h3>
+          <h3 className="font-semibold truncate" title={project.name}>
+            {project.name}
+          </h3>
         </div>
         {project.description && (
           <p className="text-xs text-muted-foreground line-clamp-2 ml-10">{project.description}</p>

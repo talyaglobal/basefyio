@@ -237,13 +237,22 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
     // Best-effort: revoke the Keycloak session so OAuth SSO sessions
     // are also terminated and the user can't be auto-re-authenticated.
+    let keycloakLogoutUrl: string | undefined;
     if (refreshToken) {
-      await api.auth.logout(refreshToken).catch(() => {});
+      const redirectUri =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/login`
+          : undefined;
+      const res: { message: string; logoutUrl?: string } = await api.auth
+        .logout(refreshToken, redirectUri)
+        .catch(() => ({ message: 'Logged out', logoutUrl: undefined }));
+      keycloakLogoutUrl = res.logoutUrl;
     }
 
     // Hard redirect (full page reload) guarantees all React state,
     // timers, and in-flight requests are fully discarded.
-    window.location.href = '/login';
+    // Prefer Keycloak end-session redirect to clear SSO cookie too.
+    window.location.href = keycloakLogoutUrl || '/login';
   }
 
   return (
@@ -461,7 +470,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="max-w-[160px] truncate">{projectsMenuLabel}</span>
+            <span className="max-w-[160px] truncate" title={projectsMenuLabel}>
+              {projectsMenuLabel}
+            </span>
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           </button>
 
@@ -515,7 +526,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                           {project.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium">{project.name}</p>
+                          <p className="truncate font-medium" title={project.name}>
+                            {project.name}
+                          </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {project.slug}
                           </p>

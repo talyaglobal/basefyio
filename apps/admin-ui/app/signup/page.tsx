@@ -39,16 +39,44 @@ export default function SignupPage() {
   );
 }
 
-const PLANS = [
+type SignupPlan = {
+  name: string;
+  label: string;
+  price: string;
+  desc: string;
+};
+
+const FALLBACK_PLANS: SignupPlan[] = [
   { name: 'free', label: 'Free', price: '$0', desc: '2 projects, 1 GB storage' },
   { name: 'pro', label: 'Pro', price: '$25/mo', desc: '10 projects, dedicated DB' },
   { name: 'business', label: 'Business', price: '$99/mo', desc: '25 projects, dedicated DB & storage' },
 ];
 
+function formatPlanPrice(priceMonthly: number): string {
+  if (priceMonthly <= 0) return '$0';
+  return `$${(priceMonthly / 100).toFixed(0)}/mo`;
+}
+
+function formatPlanDescription(plan: {
+  maxProjects?: number | null;
+  maxStorageBytes?: string | number | null;
+}): string {
+  const projects =
+    plan.maxProjects === null || plan.maxProjects === undefined
+      ? 'Unlimited projects'
+      : `${plan.maxProjects} projects`;
+  const storage =
+    plan.maxStorageBytes === null || plan.maxStorageBytes === undefined
+      ? 'Unlimited storage'
+      : `${Math.max(1, Math.round(Number(plan.maxStorageBytes) / (1024 * 1024 * 1024)))} GB storage`;
+  return `${projects}, ${storage}`;
+}
+
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState('free');
+  const [plans, setPlans] = useState<SignupPlan[]>(FALLBACK_PLANS);
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -88,12 +116,33 @@ function SignupForm() {
     }
 
     const planParam = searchParams.get('plan');
-    if (planParam && PLANS.some((p) => p.name === planParam)) {
+    if (planParam) {
       setSelectedPlan(planParam);
     }
 
     api.auth.getOAuthProviders()
       .then((data) => { if (data.providers.length > 0) setProviders(data.providers); })
+      .catch(() => {});
+
+    api.billing
+      .plans()
+      .then((dbPlans) => {
+        const mappedPlans: SignupPlan[] = dbPlans.map((plan: any) => ({
+          name: plan.name,
+          label: plan.displayName || plan.name,
+          price: formatPlanPrice(plan.priceMonthly ?? 0),
+          desc: formatPlanDescription(plan),
+        }));
+        if (mappedPlans.length > 0) {
+          setPlans(mappedPlans);
+          if (!mappedPlans.some((p) => p.name === selectedPlan)) {
+            const fallbackSelected =
+              mappedPlans.find((p) => p.name === planParam)?.name ||
+              mappedPlans[0].name;
+            setSelectedPlan(fallbackSelected);
+          }
+        }
+      })
       .catch(() => {});
   }, [searchParams, router]);
 
@@ -154,7 +203,7 @@ function SignupForm() {
         <div className="space-y-2">
           <label className="text-sm font-medium">Choose a plan</label>
           <div className="grid grid-cols-3 gap-2">
-            {PLANS.map((plan) => (
+            {plans.map((plan) => (
               <button
                 key={plan.name}
                 type="button"

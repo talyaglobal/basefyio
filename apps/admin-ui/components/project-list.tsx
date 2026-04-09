@@ -54,7 +54,9 @@ export function ProjectList({ projects, loading }: ProjectListProps) {
             </Badge>
           </div>
 
-          <h3 className="mt-4 text-lg font-semibold">{project.name}</h3>
+          <h3 className="mt-4 truncate text-lg font-semibold" title={project.name}>
+            {project.name}
+          </h3>
 
           {project.description && (
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">

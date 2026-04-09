@@ -221,11 +221,11 @@ export const api = {
       }
       return res.json();
     },
-    logout(refreshToken: string) {
-      return request<{ message: string }>('/auth/logout', {
+    logout(refreshToken: string, postLogoutRedirectUri?: string) {
+      return request<{ message: string; logoutUrl?: string }>('/auth/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify({ refreshToken, postLogoutRedirectUri }),
       });
     },
     getOAuthProviders() {

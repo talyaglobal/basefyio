@@ -1,5 +1,103 @@
 # Task Log
 
+## 2026-04-09 (ai user message clamp + edit & resend)
+- Improved AI chat UX for long user prompts:
+  - user message bubbles are clamped to 2 lines when long (`...` style),
+  - `Show full / Show less` toggle added,
+  - `Edit & resend` action added directly on user message bubble.
+- Added inline editing area with `Send again` action so users can revise and immediately re-ask from the same bubble (Cursor-like flow).
+
+## 2026-04-09 (practical long project name UX)
+- Applied a consistent frontend handling for long project names:
+  - show truncated single-line names with ellipsis,
+  - expose full name on hover via native `title`.
+- Updated key surfaces:
+  - header project switcher label and list items,
+  - projects page grid/list cards,
+  - reusable `project-list` cards.
+
+## 2026-04-09 (management performance + tab order + users pagination)
+- Reordered Management tabs so `Permissions` appears after `Users`.
+- Added client-side pagination to `Users` table (page controls with Prev/Next).
+- Improved `/dashboard/management` load performance by switching from eager all-data fetch to tab-based lazy loading:
+  - initial load fetches only permission profile,
+  - each tab fetches its own data on first open,
+  - refresh now reloads permissions + active tab data only.
+
+## 2026-04-09 (audit action modal enriched details)
+- Enhanced Management `Audit Action` dialog to show richer context:
+  - who performed action (name, username/email when available),
+  - exact timestamp,
+  - inferred team and project (name + id when resolvable),
+  - resource type/id, trace id, HTTP method/url/status, latency.
+- Added extra metadata panel (`metadataJson.metadata`) rendered as formatted JSON for deeper troubleshooting.
+
+## 2026-04-09 (management: separate project deletion reasons tab)
+- Moved `Project Deletion Reasons` into its own tab in Management.
+- Added richer deletion reason data from backend:
+  - `actorName` (in addition to actor user id),
+  - `teamName` and `teamId`.
+- Updated table column order to prioritize:
+  1) who deleted (`Deleted By`),
+  2) which team (`Team`),
+  3) project, reason, details, time.
+
+## 2026-04-09 (keycloak logout invalid redirect URI fix)
+- Fixed logout redirect URI generation to prevent Keycloak `Invalid redirect uri` error in production.
+- Browser logout now uses platform OAuth client id instead of admin client id.
+- Redirect URI validation now accepts valid absolute `http/https` URLs from frontend and no longer hard-fails on origin mismatch with `appUrl`.
+
+## 2026-04-09 (project duplicate name check scoped to team)
+- Fixed create-project false duplicate errors by scoping name uniqueness check to the current team.
+- Duplicate validation now checks case-insensitive name collisions only within `dto.teamId` and non-deleted projects.
+- Updated error text to: `A project with this name already exists in this team`.
+
+## 2026-04-09 (notifications realtime proxy stream fix)
+- Fixed broken realtime notifications by preserving SSE streaming in generic API proxy.
+- `app/api/proxy/[...path]/route.ts` now detects `text/event-stream` and returns upstream stream body directly instead of converting it to text.
+- Added `dynamic = 'force-dynamic'` and no-buffer headers for reliable live event delivery.
+
+## 2026-04-09 (bulk dropdown quick create for empty folder/tag lists)
+- Added quick-create actions in top bulk toolbar dropdowns:
+  - `Move to folder` now shows `Create new folder` when no folders exist.
+  - `Add tag` now shows `Create new tag` when no tags exist.
+- Quick create immediately applies to selected projects:
+  - New folder is created and selected projects are moved into it.
+  - New tag is created and assigned to selected projects.
+
+## 2026-04-09 (project title truncation + hover full name)
+- Updated project detail header title to truncate overflowing project names with ellipsis.
+- Added hover full-name visibility via native `title` tooltip on the project title.
+- Added `min-w-0`/flex layout guard so long names no longer push or break header actions.
+
+## 2026-04-09 (email logo readability improved)
+- Updated base email header logo block with gray-toned background and border so "Kolay" text stays readable.
+- Added inline styles for header/logo/badge to improve consistency across email clients that partially ignore `<style>` classes.
+
+## 2026-04-09 (signup pricing made dynamic)
+- Replaced static signup plan cards with dynamic plan data from `GET /billing/plans`.
+- Added mapping/formatting for display name, monthly price, and plan limits summary.
+- Kept fallback static plan list for resilience if pricing API is temporarily unavailable.
+
+## 2026-04-09 (feedback delete closes status)
+- Updated feedback delete flow so deleting a feedback now also forces `status = CLOSED`.
+- This prevents soft-deleted feedbacks from remaining in `OPEN` state.
+
+## 2026-04-09 (team invite incoming details expanded)
+- Expanded pending invite payload for invitees (`listPendingInvites`) to include:
+  - organization/team name,
+  - inviter full name and email,
+  - invite target email,
+  - invite created date,
+  - computed invite validity date (`createdAt + 7 days`).
+- Updated Team Settings incoming invite UI to display these details clearly under each invite card.
+
+## 2026-04-08 (google account switch fix via full keycloak logout)
+- Fixed sign-out flow to terminate browser-side Keycloak SSO session, not only API token refresh revocation.
+- Backend `POST /auth/logout` now returns a Keycloak end-session URL (`logoutUrl`) with `post_logout_redirect_uri`.
+- Added safe redirect validation: only same-origin redirects as `APP_URL` are accepted; fallback is `/login`.
+- Frontend logout (`header`) now redirects to returned Keycloak `logoutUrl`, ensuring account switch works for Google/GitHub without "already authenticated as different user" broker errors.
+
 ## 2026-04-08 (team delete check fixed for moved/deleted projects)
 - Fixed team deletion guard in `TeamsService.deleteTeam` to count only active projects (`status != DELETED`) instead of all historical projects.
 - This resolves false "Delete projects first..." errors after projects are moved away or soft-deleted.

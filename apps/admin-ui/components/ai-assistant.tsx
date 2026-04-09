@@ -21,6 +21,7 @@ import {
   ChevronUp,
   Copy,
   Loader2,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -666,6 +667,7 @@ export function AiAssistant() {
                 canRunSQL={hasProject && msg.mode !== 'agent'}
                 runningSQL={runningSQL}
                 onRunSQL={runSQL}
+                onResend={sendMessage}
               />
             ))
           )}
@@ -833,6 +835,7 @@ function MessageBubble({
   canRunSQL,
   runningSQL,
   onRunSQL,
+  onResend,
 }: {
   message: Message;
   /** Only true for the most recent user message — avoids stacked stickies overlapping. */
@@ -840,9 +843,14 @@ function MessageBubble({
   canRunSQL: boolean;
   runningSQL: string | null;
   onRunSQL: (sql: string) => void;
+  onResend: (text: string) => Promise<void>;
 }) {
   const isUser = message.role === 'user';
   const parts = parseContent(message.content);
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const isLikelyLong = message.content.length > 120 || message.content.includes('\n');
 
   // ── User message: optional sticky for latest prompt only (scroll long replies) ──
   if (isUser) {
@@ -853,9 +861,76 @@ function MessageBubble({
           stickUserBubble && 'sticky top-0 z-10',
         )}
       >
-        <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words">
-          {message.content}
-        </p>
+        {!editing ? (
+          <>
+            <p
+              className={cn(
+                'text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words',
+                isLikelyLong && !expanded && 'line-clamp-2',
+              )}
+              title={message.content}
+            >
+              {message.content}
+            </p>
+            {isLikelyLong && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  className="text-[10px] font-medium text-primary hover:underline"
+                >
+                  {expanded ? 'Show less' : 'Show full'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(message.content);
+                    setEditing(true);
+                    setExpanded(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit & resend
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={4}
+              className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(message.content);
+                }}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = draft.trim();
+                  if (!next) return;
+                  void onResend(next);
+                  setEditing(false);
+                }}
+                className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-white hover:opacity-90"
+              >
+                <Send className="h-3 w-3" />
+                Send again
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

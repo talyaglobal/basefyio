@@ -258,7 +258,10 @@ export class FeedbackService {
     const { feedback } = await this.assertCanAccessFeedback(userId, id);
     await this.prisma.feedback.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        status: FeedbackStatus.CLOSED,
+      },
     });
     await this.appendEvent({
       feedbackId: id,

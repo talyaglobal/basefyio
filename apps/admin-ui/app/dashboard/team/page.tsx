@@ -472,9 +472,22 @@ export default function TeamSettingsPage() {
                 className="flex items-center justify-between rounded-md border bg-card p-3"
               >
                 <div>
-                  <p className="text-sm font-medium">{inv.teamName}</p>
+                  <p className="text-sm font-medium">{inv.organization || inv.teamName}</p>
                   <p className="text-xs text-muted-foreground">
-                    Invited by {inv.invitedBy}
+                    Invited by {inv.invitedByFullName || inv.invitedBy}
+                    {inv.invitedByEmail ? ` (${inv.invitedByEmail})` : ''}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Invite email: {inv.invitedEmail || 'N/A'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Invite date: {new Date(inv.createdAt).toLocaleString('tr-TR')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Valid until:{' '}
+                    {inv.expiresAt
+                      ? new Date(inv.expiresAt).toLocaleString('tr-TR')
+                      : 'N/A'}
                   </p>
                 </div>
                 <div className="flex gap-1.5">

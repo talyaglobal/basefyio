@@ -173,9 +173,14 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h1
+            className="truncate text-2xl font-bold tracking-tight"
+            title={project.name}
+          >
+            {project.name}
+          </h1>
           {project.description && (
             <p className="mt-1 text-muted-foreground">{project.description}</p>
           )}

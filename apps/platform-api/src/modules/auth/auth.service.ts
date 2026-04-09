@@ -713,14 +713,28 @@ export class AuthService {
     }
   }
 
-  async logout(refreshToken: string) {
+  async logout(refreshToken: string, postLogoutRedirectUri?: string) {
     const keycloakUrl = this.config.get<string>('keycloak.url');
-    const clientId = this.config.get<string>('keycloak.adminClientId');
+    const keycloakPublicUrl = this.config.get<string>('keycloak.publicUrl') || keycloakUrl;
+    const adminClientId = this.config.get<string>('keycloak.adminClientId');
+    const browserClientId = this.keycloak.getPlatformOAuthClientId();
+    const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
+    const safeRedirect = (() => {
+      const fallback = `${appUrl}/login`;
+      if (!postLogoutRedirectUri) return fallback;
+      try {
+        const requested = new URL(postLogoutRedirectUri);
+        if (!['http:', 'https:'].includes(requested.protocol)) return fallback;
+        return requested.toString();
+      } catch {
+        return fallback;
+      }
+    })();
 
     try {
       const logoutUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/logout`;
       const params = new URLSearchParams({
-        client_id: clientId!,
+        client_id: adminClientId!,
         refresh_token: refreshToken,
       });
 
@@ -733,7 +747,15 @@ export class AuthService {
       // Best-effort: don't fail sign-out if Keycloak revocation errors
     }
 
-    return { message: 'Logged out' };
+    const browserLogoutParams = new URLSearchParams({
+      client_id: browserClientId,
+      post_logout_redirect_uri: safeRedirect,
+    });
+    const browserLogoutUrl =
+      `${keycloakPublicUrl}/realms/master/protocol/openid-connect/logout?` +
+      browserLogoutParams.toString();
+
+    return { message: 'Logged out', logoutUrl: browserLogoutUrl };
   }
 
   async forgotPassword(email: string) {

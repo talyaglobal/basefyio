@@ -48,8 +48,17 @@ export function baseLayout(content: string): string {
     .logo {
       font-size: 28px;
       font-weight: 700;
-      color: #ffffff;
+      color: #0f172a;
       letter-spacing: -0.5px;
+    }
+    .logo-wrap {
+      display: inline-block;
+      padding: 10px 22px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+      border: 1px solid #cbd5e1;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      margin-bottom: 12px;
     }
     .logo-accent {
       color: #60a5fa;
@@ -162,9 +171,11 @@ export function baseLayout(content: string): string {
 <body>
   <div class="wrapper">
     <div class="container">
-      <div class="header">
-        <div class="logo">Kolay<span class="logo-accent">base</span></div>
-        <div class="badge">Open-Source Backend Platform</div>
+      <div class="header" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 32px 40px; text-align: center;">
+        <div class="logo-wrap" style="display: inline-block; padding: 10px 22px; border-radius: 999px; background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7); margin-bottom: 12px;">
+          <div class="logo" style="font-size: 28px; font-weight: 700; color: #0f172a; letter-spacing: -0.5px;">Kolay<span class="logo-accent" style="color: #3b82f6;">base</span></div>
+        </div>
+        <div class="badge" style="display: inline-block; background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%); color: #1e40af; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 100px; letter-spacing: 0.3px; margin-top: 12px;">Open-Source Backend Platform</div>
       </div>
       ${content}
       <div class="footer">

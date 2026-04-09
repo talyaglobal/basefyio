@@ -101,6 +101,7 @@ export default function ManagementPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [projectDeletionReasons, setProjectDeletionReasons] = useState<ProjectDeletionReasonEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
   const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
   const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
@@ -125,19 +126,21 @@ export default function ManagementPage() {
   const [auditSearch, setAuditSearch] = useState('');
   const [auditPage, setAuditPage] = useState(1);
   const [auditActionPreview, setAuditActionPreview] = useState<{
-    id: string;
-    action: string;
+    log: AuditLogEntry;
   } | null>(null);
   const [managementPermissions, setManagementPermissions] = useState<RolePermissionMatrix | null>(
     null,
   );
   const [activeTab, setActiveTab] = useState<
-    'users' | 'plans' | 'teams' | 'audit' | 'permissions'
+    'users' | 'plans' | 'teams' | 'audit' | 'permissions' | 'deletionReasons'
   >('users');
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
+  const [usersPage, setUsersPage] = useState(1);
 
   const isRoot = profile?.role === 'ROOT';
   const canAccessManagement = isRoot || !!managementPermissions?.canAccessManagement;
   const AUDIT_PAGE_SIZE = 20;
+  const USERS_PAGE_SIZE = 20;
 
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -159,49 +162,106 @@ export default function ManagementPage() {
     return filteredAuditLogs.slice(start, start + AUDIT_PAGE_SIZE);
   }, [filteredAuditLogs, auditPage]);
 
-  async function load() {
+  const usersTotalPages = Math.max(1, Math.ceil(users.length / USERS_PAGE_SIZE));
+  const pagedUsers = useMemo(() => {
+    const start = (usersPage - 1) * USERS_PAGE_SIZE;
+    return users.slice(start, start + USERS_PAGE_SIZE);
+  }, [users, usersPage]);
+
+  const userById = useMemo(() => {
+    return new Map(users.map((u) => [u.id, u] as const));
+  }, [users]);
+
+  const teamById = useMemo(() => {
+    return new Map(teams.map((t) => [t.id, t] as const));
+  }, [teams]);
+
+  const deletionReasonByProjectId = useMemo(() => {
+    const map = new Map<string, ProjectDeletionReasonEntry>();
+    for (const row of projectDeletionReasons) {
+      if (!map.has(row.projectId)) map.set(row.projectId, row);
+    }
+    return map;
+  }, [projectDeletionReasons]);
+
+  function extractUrlEntity(url?: string) {
+    if (!url) return { teamId: null as string | null, projectId: null as string | null };
+    const cleaned = url.split('?')[0];
+    const parts = cleaned.split('/').filter(Boolean);
+    const teamsIdx = parts.indexOf('teams');
+    const projectsIdx = parts.indexOf('projects');
+    return {
+      teamId: teamsIdx >= 0 && parts[teamsIdx + 1] ? parts[teamsIdx + 1] : null,
+      projectId: projectsIdx >= 0 && parts[projectsIdx + 1] ? parts[projectsIdx + 1] : null,
+    };
+  }
+
+  async function loadPermissions() {
     setLoading(true);
     try {
       const myPermissions = await api.auth.managementMyPermissions();
       setManagementPermissions(myPermissions);
-
-      const [usersData, teamsData, plansData, packagesData, rolePermissionData, auditData] =
-        await Promise.all([
-          myPermissions.canManageUsers ? api.auth.managementUsers() : Promise.resolve([]),
-          myPermissions.canManageTeams ? api.auth.managementTeams() : Promise.resolve([]),
-          myPermissions.canManagePlans ? api.billing.managementPlans() : Promise.resolve([]),
-          myPermissions.canManageUserPackages
-            ? api.billing.managementUserPackages()
-            : Promise.resolve([]),
-          myPermissions.role === 'ROOT'
-            ? api.auth.managementRolePermissions()
-            : Promise.resolve([]),
-          myPermissions.canViewAuditLogs
-            ? api.observability.listAuditLogs(200)
-            : Promise.resolve([]),
-        ]);
-      setUsers(usersData);
-      setTeams(teamsData);
-      setPlans(plansData);
-      setPlanDrafts(
-        plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
-          acc[p.id] = planToDraft(p);
-          return acc;
-        }, {}),
-      );
-      setUserPackages(packagesData);
-      setRolePermissions(rolePermissionData);
-      setAuditLogs(auditData);
-      if (myPermissions.role === 'ROOT') {
-        const deletionReasons = await api.projects.listDeletionReasons(200);
-        setProjectDeletionReasons(deletionReasons);
-      } else {
-        setProjectDeletionReasons([]);
-      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to load management data');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadTabData(
+    tab: 'users' | 'plans' | 'teams' | 'audit' | 'permissions' | 'deletionReasons',
+    force = false,
+  ) {
+    if (!managementPermissions && !isRoot) return;
+    if (!force && loadedTabs.has(tab)) return;
+    setTabLoading(true);
+    try {
+      if (tab === 'users' && (managementPermissions?.canManageUsers || isRoot)) {
+        const [usersData, plansData, packagesData] = await Promise.all([
+          api.auth.managementUsers(),
+          managementPermissions?.canManagePlans || isRoot
+            ? api.billing.managementPlans()
+            : Promise.resolve([]),
+          managementPermissions?.canManageUserPackages || isRoot
+            ? api.billing.managementUserPackages()
+            : Promise.resolve([]),
+        ]);
+        setUsers(usersData);
+        setPlans(plansData);
+        setPlanDrafts(
+          plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
+            acc[p.id] = planToDraft(p);
+            return acc;
+          }, {}),
+        );
+        setUserPackages(packagesData);
+      } else if (tab === 'plans' && (managementPermissions?.canManagePlans || isRoot)) {
+        const plansData = await api.billing.managementPlans();
+        setPlans(plansData);
+        setPlanDrafts(
+          plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
+            acc[p.id] = planToDraft(p);
+            return acc;
+          }, {}),
+        );
+      } else if (tab === 'teams' && (managementPermissions?.canManageTeams || isRoot)) {
+        const teamsData = await api.auth.managementTeams();
+        setTeams(teamsData);
+      } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
+        const auditData = await api.observability.listAuditLogs(200);
+        setAuditLogs(auditData);
+      } else if (tab === 'permissions' && isRoot) {
+        const rolePermissionData = await api.auth.managementRolePermissions();
+        setRolePermissions(rolePermissionData);
+      } else if (tab === 'deletionReasons' && (managementPermissions?.canViewAuditLogs || isRoot)) {
+        const deletionReasons = await api.projects.listDeletionReasons(200);
+        setProjectDeletionReasons(deletionReasons);
+      }
+      setLoadedTabs((prev) => new Set(prev).add(tab));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load management data');
+    } finally {
+      setTabLoading(false);
     }
   }
 
@@ -240,8 +300,14 @@ export default function ManagementPage() {
 
   useEffect(() => {
     if (profile === null) return;
-    load();
+    setLoadedTabs(new Set());
+    loadPermissions();
   }, [profile, router]);
+
+  useEffect(() => {
+    if (!managementPermissions && !isRoot) return;
+    void loadTabData(activeTab);
+  }, [activeTab, managementPermissions, isRoot]);
 
   useEffect(() => {
     setAuditPage(1);
@@ -252,6 +318,10 @@ export default function ManagementPage() {
       setAuditPage(auditTotalPages);
     }
   }, [auditPage, auditTotalPages]);
+
+  useEffect(() => {
+    if (usersPage > usersTotalPages) setUsersPage(usersTotalPages);
+  }, [usersPage, usersTotalPages]);
 
   async function handleSavePlanChanges() {
     setSavingAllPlans(true);
@@ -288,7 +358,7 @@ export default function ManagementPage() {
         await api.billing.updateManagementPlan(original.name, payload);
       }
       toast.success('Plan changes saved');
-      await load();
+      await loadTabData('plans', true);
     } catch (err: any) {
       toast.error(err.message || 'Failed to save plan changes');
     } finally {
@@ -311,7 +381,7 @@ export default function ManagementPage() {
       });
       toast.success('New plan created');
       setNewPlan({ name: '', displayName: '', priceMonthlyDollars: '0' });
-      await load();
+      await loadTabData('plans', true);
     } catch (err: any) {
       toast.error(err.message || 'Failed to create plan');
     } finally {
@@ -343,25 +413,19 @@ export default function ManagementPage() {
             Role-based management area. Permissions are controlled by ROOT.
           </p>
         </div>
-        <Button variant="outline" onClick={load}>
+        <Button
+          variant="outline"
+          onClick={async () => {
+            await loadPermissions();
+            setLoadedTabs(new Set());
+            await loadTabData(activeTab, true);
+          }}
+        >
           Refresh
         </Button>
       </div>
 
       <div className="inline-flex rounded-lg border bg-muted p-1">
-        {isRoot && (
-        <button
-          type="button"
-          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-            activeTab === 'permissions'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('permissions')}
-        >
-          Permissions
-        </button>
-        )}
         {(managementPermissions?.canManageUsers || isRoot) && (
         <button
           type="button"
@@ -373,6 +437,19 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('users')}
         >
           Users
+        </button>
+        )}
+        {isRoot && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'permissions'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('permissions')}
+        >
+          Permissions
         </button>
         )}
         {(managementPermissions?.canManagePlans || isRoot) && (
@@ -405,6 +482,19 @@ export default function ManagementPage() {
         <button
           type="button"
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'deletionReasons'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('deletionReasons')}
+        >
+          Project Deletion Reasons
+        </button>
+        )}
+        {(managementPermissions?.canViewAuditLogs || isRoot) && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'audit'
               ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground'
@@ -418,6 +508,13 @@ export default function ManagementPage() {
 
       <RootAlertsPanel />
 
+      {tabLoading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading tab data...
+        </div>
+      )}
+
       {activeTab === 'permissions' && isRoot && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <div>
@@ -426,59 +523,6 @@ export default function ManagementPage() {
             Root user can configure what USER and ADMIN can do. ROOT permissions stay fixed.
           </p>
         </div>
-        {isRoot && (
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Project Deletion Reasons</h3>
-              <p className="text-xs text-muted-foreground">
-                Last {projectDeletionReasons.length} records
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="px-2 py-2">Time</th>
-                    <th className="px-2 py-2">Project</th>
-                    <th className="px-2 py-2">Reason</th>
-                    <th className="px-2 py-2">Details</th>
-                    <th className="px-2 py-2">Actor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projectDeletionReasons.length === 0 ? (
-                    <tr>
-                      <td className="px-2 py-5 text-center text-muted-foreground" colSpan={5}>
-                        No project deletion reason records yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    projectDeletionReasons.map((row) => (
-                      <tr key={row.id} className="border-b last:border-0">
-                        <td className="px-2 py-2 text-muted-foreground">
-                          {new Date(row.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-2 py-2 font-medium">
-                          {row.projectName || row.projectId}
-                        </td>
-                        <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
-                        <td
-                          className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
-                          title={row.details || ''}
-                        >
-                          {row.details || '-'}
-                        </td>
-                        <td className="px-2 py-2 text-muted-foreground">
-                          {row.actorUserId || '-'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1160px] text-left text-sm">
             <thead>
@@ -554,9 +598,88 @@ export default function ManagementPage() {
       </section>
       )}
 
+      {activeTab === 'deletionReasons' && (managementPermissions?.canViewAuditLogs || isRoot) && (
+      <section className="space-y-3 rounded-xl border bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Project Deletion Reasons</h2>
+          <p className="text-xs text-muted-foreground">
+            Last {projectDeletionReasons.length} records
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-left text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="px-2 py-2">Deleted By</th>
+                <th className="px-2 py-2">Team</th>
+                <th className="px-2 py-2">Project</th>
+                <th className="px-2 py-2">Reason</th>
+                <th className="px-2 py-2">Details</th>
+                <th className="px-2 py-2">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projectDeletionReasons.length === 0 ? (
+                <tr>
+                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={6}>
+                    No project deletion reason records yet.
+                  </td>
+                </tr>
+              ) : (
+                projectDeletionReasons.map((row) => (
+                  <tr key={row.id} className="border-b last:border-0">
+                    <td className="px-2 py-2">
+                      <div className="font-medium">{row.actorName || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{row.actorUserId || '-'}</div>
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="font-medium">{row.teamName || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{row.teamId || '-'}</div>
+                    </td>
+                    <td className="px-2 py-2 font-medium">{row.projectName || row.projectId}</td>
+                    <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
+                    <td
+                      className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
+                      title={row.details || ''}
+                    >
+                      {row.details || '-'}
+                    </td>
+                    <td className="px-2 py-2 text-muted-foreground">
+                      {new Date(row.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      )}
+
       {activeTab === 'users' && (managementPermissions?.canManageUsers || isRoot) && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">Users</h2>
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={usersPage <= 1}
+            onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
+          >
+            Prev
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Page {usersPage} / {usersTotalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={usersPage >= usersTotalPages}
+            onClick={() => setUsersPage((p) => Math.min(usersTotalPages, p + 1))}
+          >
+            Next
+          </Button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead>
@@ -573,7 +696,7 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {pagedUsers.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-2 py-2 font-medium">
                     {u.firstName || u.lastName
@@ -947,7 +1070,7 @@ export default function ManagementPage() {
                           toast.success(
                             `${res.deletedPlan} deleted, ${res.migratedSubscriptions} subscription(s) moved to ${res.replacementPlan}.`,
                           );
-                          await load();
+                          await loadTabData('plans', true);
                         } catch (err: any) {
                           toast.error(err.message || 'Failed to delete plan');
                         }
@@ -1127,7 +1250,7 @@ export default function ManagementPage() {
                         type="button"
                         className="w-full truncate text-left font-medium hover:underline"
                         title="Click to view full action"
-                        onClick={() => setAuditActionPreview({ id: log.id, action: log.action })}
+                        onClick={() => setAuditActionPreview({ log })}
                       >
                         {log.action}
                       </button>
@@ -1157,10 +1280,70 @@ export default function ManagementPage() {
       >
         <DialogContent className="max-w-lg">
           <DialogTitle>Audit Action</DialogTitle>
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Log ID: {auditActionPreview?.id}</p>
-            <div className="rounded-md border bg-muted/30 p-3">
-              <p className="break-all text-sm font-medium">{auditActionPreview?.action}</p>
+          <div className="space-y-3">
+            {(() => {
+              const log = auditActionPreview?.log;
+              if (!log) return null;
+              const actor = userById.get(log.actorUserId);
+              const metadata = (log.metadataJson || {}) as Record<string, unknown>;
+              const nested = metadata.metadata as Record<string, unknown> | undefined;
+              const method = typeof metadata.method === 'string' ? metadata.method : null;
+              const url = typeof metadata.url === 'string' ? metadata.url : null;
+              const statusCode =
+                typeof metadata.statusCode === 'number'
+                  ? metadata.statusCode
+                  : typeof metadata.statusCode === 'string'
+                    ? Number(metadata.statusCode)
+                    : null;
+              const latencyMs =
+                typeof metadata.latencyMs === 'number'
+                  ? metadata.latencyMs
+                  : typeof metadata.latencyMs === 'string'
+                    ? Number(metadata.latencyMs)
+                    : null;
+
+              const fromUrl = extractUrlEntity(url || undefined);
+              const teamId =
+                (typeof nested?.teamId === 'string' ? nested.teamId : null) || fromUrl.teamId;
+              const projectId =
+                (typeof nested?.projectId === 'string' ? nested.projectId : null) || fromUrl.projectId;
+              const teamName = teamId ? teamById.get(teamId)?.name : null;
+              const projectName = projectId
+                ? deletionReasonByProjectId.get(projectId)?.projectName || null
+                : null;
+
+              return (
+                <>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="break-all text-sm font-semibold">{log.action}</p>
+                  </div>
+
+                  <div className="grid gap-2 text-sm">
+                    <p><span className="font-medium">Who:</span> {actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.username : log.actorUserId} {actor?.email ? `(${actor.email})` : ''}</p>
+                    <p><span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}</p>
+                    <p><span className="font-medium">Team:</span> {teamName || '-'} {teamId ? `(${teamId})` : ''}</p>
+                    <p><span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}</p>
+                    <p><span className="font-medium">Resource:</span> {log.resourceType}{log.resourceId ? `:${log.resourceId}` : ''}</p>
+                    <p><span className="font-medium">Trace:</span> <span className="font-mono text-xs">{log.traceId}</span></p>
+                    <p><span className="font-medium">HTTP:</span> {method || '-'} {url || '-'} {statusCode ? `(${statusCode})` : ''}</p>
+                    <p><span className="font-medium">Latency:</span> {Number.isFinite(latencyMs as number) ? `${latencyMs} ms` : '-'}</p>
+                  </div>
+
+                  {nested && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Extra Metadata</p>
+                      <pre className="max-h-48 overflow-auto rounded-md border bg-muted/20 p-2 text-xs">
+                        {JSON.stringify(nested, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+            <div className="rounded-md border bg-muted/10 p-2">
+              <p className="text-xs text-muted-foreground">
+                Log ID: {auditActionPreview?.log.id}
+              </p>
             </div>
           </div>
         </DialogContent>

@@ -341,19 +341,40 @@ export class TeamsService {
       where: { invitedUserId: userId, status: 'PENDING' },
       include: {
         team: { select: { id: true, name: true, slug: true } },
-        invitedBy: { select: { username: true } },
+        invitedBy: {
+          select: {
+            username: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return invites.map((i) => ({
-      id: i.id,
-      teamId: i.team.id,
-      teamName: i.team.name,
-      teamSlug: i.team.slug,
-      invitedBy: i.invitedBy.username,
-      createdAt: i.createdAt,
-    }));
+    return invites.map((i) => {
+      const inviterFullName = [i.invitedBy.firstName, i.invitedBy.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const inviterDisplayName = inviterFullName || i.invitedBy.username;
+      const invitedEmail = i.invitedEmail ?? i.invitedBy.email;
+      const expiresAt = new Date(i.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+      return {
+        id: i.id,
+        teamId: i.team.id,
+        teamName: i.team.name,
+        teamSlug: i.team.slug,
+        organization: i.team.name,
+        invitedBy: inviterDisplayName,
+        invitedByFullName: inviterFullName || null,
+        invitedByEmail: i.invitedBy.email,
+        invitedEmail,
+        createdAt: i.createdAt,
+        expiresAt,
+      };
+    });
   }
 
   async listTeamInvites(teamId: string, userId: string) {
