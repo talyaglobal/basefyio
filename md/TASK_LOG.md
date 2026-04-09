@@ -1,5 +1,21 @@
 # Task Log
 
+## 2026-04-09 (force-change root cause fix: keycloak id resolution)
+- Fixed a backend mismatch where force-password-change flag could be read with a non-Keycloak ID, causing false negatives.
+- Updated Keycloak helper methods to resolve platform user id by `id` or fallback `email`:
+  - `getPlatformUserForcePasswordChangeById(...)`
+  - `clearPlatformUserForcePasswordChange(...)`
+  - `resetPlatformUserPassword(...)`
+- Updated auth flows to pass email context when available (login, profile, forced password completion, password change).
+- Result: users reset with `Force user to change password on next login` are now reliably detected and redirected before dashboard access.
+
+## 2026-04-09 (forced password change enforced at middleware level)
+- Hardened forced password change flow with server-side route blocking in middleware.
+- New middleware behavior:
+  - if `kb_force_password_change=1` and user tries any `/dashboard/*` route, redirect to `/set-new-password`,
+  - if user no longer has force flag and visits `/set-new-password`, redirect to `/dashboard`.
+- This prevents dashboard access before password update, even if client-side redirects are delayed.
+
 ## 2026-04-09 (forced password reset flow with dedicated pre-dashboard page)
 - Added a dedicated `set-new-password` flow for users marked with `Force user to change password on next login`.
 - New behavior:

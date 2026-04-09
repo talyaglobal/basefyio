@@ -643,14 +643,19 @@ export class KeycloakAdminService implements OnModuleInit {
     return users[0] || null;
   }
 
-  async resetPlatformUserPassword(keycloakUserId: string, newPassword: string): Promise<void> {
+  async resetPlatformUserPassword(
+    userId: string,
+    newPassword: string,
+    email?: string,
+  ): Promise<void> {
     await this.ensureAuth();
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
     await this.client.users.resetPassword({
       realm: 'master',
-      id: keycloakUserId,
+      id: resolvedId,
       credential: { type: 'password', value: newPassword, temporary: false },
     });
-    this.logger.log(`Password reset for platform user ${keycloakUserId}`);
+    this.logger.log(`Password reset for platform user ${resolvedId}`);
   }
 
   async resetPlatformUserPasswordWithPolicy(
@@ -693,19 +698,21 @@ export class KeycloakAdminService implements OnModuleInit {
     return fullUser?.attributes?.kb_force_password_change?.[0] === 'true';
   }
 
-  async clearPlatformUserForcePasswordChange(userId: string): Promise<void> {
+  async clearPlatformUserForcePasswordChange(userId: string, email?: string): Promise<void> {
     await this.ensureAuth();
-    const existing = await this.client.users.findOne({ realm: 'master', id: userId });
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const existing = await this.client.users.findOne({ realm: 'master', id: resolvedId });
     const attributes = {
       ...(existing?.attributes || {}),
       kb_force_password_change: ['false'],
     };
-    await this.client.users.update({ realm: 'master', id: userId }, { attributes });
+    await this.client.users.update({ realm: 'master', id: resolvedId }, { attributes });
   }
 
-  async getPlatformUserForcePasswordChangeById(userId: string): Promise<boolean> {
+  async getPlatformUserForcePasswordChangeById(userId: string, email?: string): Promise<boolean> {
     await this.ensureAuth();
-    const user = await this.client.users.findOne({ realm: 'master', id: userId });
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
     return user?.attributes?.kb_force_password_change?.[0] === 'true';
   }
 

@@ -575,7 +575,10 @@ export class AuthService {
         const userId = this.decodeJwtSubject(data.access_token);
         if (userId) {
           forcePasswordChange =
-            await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+            await this.keycloak.getPlatformUserForcePasswordChangeById(
+              userId,
+              normalizedEmail,
+            );
         } else {
           forcePasswordChange =
             await this.keycloak.getPlatformUserForcePasswordChangeByEmail(normalizedEmail);
@@ -647,8 +650,8 @@ export class AuthService {
     }
 
     try {
-      await this.keycloak.resetPlatformUserPassword(userId, newPassword);
-      await this.keycloak.clearPlatformUserForcePasswordChange(userId);
+      await this.keycloak.resetPlatformUserPassword(userId, newPassword, email);
+      await this.keycloak.clearPlatformUserForcePasswordChange(userId, email);
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to change password: ${err.message}`);
     }
@@ -658,14 +661,21 @@ export class AuthService {
 
   async completeForcedPasswordChange(userId: string, newPassword: string) {
     this.ensureStrongPassword(newPassword);
-    const mustChangePassword = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    const mustChangePassword = await this.keycloak.getPlatformUserForcePasswordChangeById(
+      userId,
+      user?.email,
+    );
     if (!mustChangePassword) {
       throw new BadRequestException('Forced password change is not required for this account');
     }
 
     try {
-      await this.keycloak.resetPlatformUserPassword(userId, newPassword);
-      await this.keycloak.clearPlatformUserForcePasswordChange(userId);
+      await this.keycloak.resetPlatformUserPassword(userId, newPassword, user?.email);
+      await this.keycloak.clearPlatformUserForcePasswordChange(userId, user?.email);
     } catch (err: any) {
       throw new InternalServerErrorException(
         `Failed to complete forced password change: ${err.message}`,
@@ -964,7 +974,10 @@ export class AuthService {
       const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId, user.email);
       authProvider = methods.authProvider;
       signOnMethod = methods.signOnMethod;
-      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(
+        userId,
+        user.email,
+      );
     } catch {
       authProvider = 'local';
       signOnMethod = 'local';
@@ -1017,7 +1030,10 @@ export class AuthService {
       const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId);
       authProvider = methods.authProvider;
       signOnMethod = methods.signOnMethod;
-      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(
+        userId,
+        data.email,
+      );
     } catch {
       authProvider = 'local';
       signOnMethod = 'local';
