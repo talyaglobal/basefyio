@@ -64,7 +64,9 @@ export class ProjectsService {
     await this.assertTeamMember(dto.teamId, userId);
     await this.quota.assertCanCreateProject(dto.teamId);
 
-    const needsDedicatedDb = await this.quota.shouldUseDedicatedDb(dto.teamId);
+    // Keep provisioning architecture consistent across plans to avoid migration issues
+    // during plan upgrades/downgrades (free -> pro/business and vice versa).
+    const needsDedicatedDb = this.infra.isEnabled() || (await this.quota.shouldUseDedicatedDb(dto.teamId));
 
     const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));

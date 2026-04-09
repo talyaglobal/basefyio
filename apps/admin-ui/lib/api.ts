@@ -1247,6 +1247,32 @@ export const api = {
         body: JSON.stringify({ teamId, planName }),
       });
     },
+    previewPlanChange(teamId: string, planName: string) {
+      return request<{
+        currentPlan: { name: string; displayName: string; priceMonthly: number };
+        targetPlan: { name: string; displayName: string; priceMonthly: number };
+        currency: string;
+        dueNow: number;
+        subtotal: number;
+        total: number;
+        prorationTotal: number;
+        nextPaymentAttemptAt: string | null;
+        currentPeriodEnd: string | null;
+        firstChargeAt: string | null;
+        firstChargeAmount: number;
+        lines: Array<{
+          description: string;
+          amount: number;
+          currency: string;
+          proration: boolean;
+          periodStart: string | null;
+          periodEnd: string | null;
+        }>;
+      }>('/billing/preview-plan-change', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, planName }),
+      });
+    },
     managementPlans() {
       return request<ManagementPlan[]>('/billing/management/plans');
     },

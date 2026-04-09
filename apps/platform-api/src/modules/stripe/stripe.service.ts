@@ -229,8 +229,26 @@ export class StripeService implements OnModuleInit {
 
     return this.stripe.subscriptions.update(subscriptionId, {
       items: [{ id: itemId, price: newPriceId }],
-      proration_behavior: 'create_prorations',
+      proration_behavior: 'none',
     });
+  }
+
+  async previewPlanChangeProration(
+    subscriptionId: string,
+    newPriceId: string,
+  ): Promise<Stripe.UpcomingInvoice> {
+    this.assertEnabled();
+
+    const subscription = await this.stripe.subscriptions.retrieve(subscriptionId);
+    const itemId = subscription.items.data[0]?.id;
+    if (!itemId) throw new Error('No subscription item found');
+
+    return this.stripe.invoices.retrieveUpcoming({
+      customer: subscription.customer as string,
+      subscription: subscriptionId,
+      subscription_items: [{ id: itemId, price: newPriceId }],
+      subscription_proration_behavior: 'create_prorations',
+    } as Stripe.InvoiceRetrieveUpcomingParams);
   }
 
   async listInvoices(customerId: string, limit = 20): Promise<Stripe.Invoice[]> {

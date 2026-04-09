@@ -186,6 +186,15 @@ export class BillingController {
     return this.billing.changePlan(body.teamId, req.user.sub, body.planName);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('preview-plan-change')
+  async previewPlanChange(
+    @Req() req: any,
+    @Body() body: { teamId: string; planName: string },
+  ) {
+    return this.billing.previewPlanChange(body.teamId, req.user.sub, body.planName);
+  }
+
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManagePlans')
   @Get('management/plans')

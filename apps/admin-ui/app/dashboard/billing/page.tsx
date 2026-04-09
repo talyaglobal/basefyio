@@ -71,6 +71,28 @@ interface Invoice {
   createdAt: string;
 }
 
+interface UpgradePreview {
+  currentPlan: { name: string; displayName: string; priceMonthly: number };
+  targetPlan: { name: string; displayName: string; priceMonthly: number };
+  currency: string;
+  dueNow: number;
+  subtotal: number;
+  total: number;
+  prorationTotal: number;
+  nextPaymentAttemptAt: string | null;
+  currentPeriodEnd: string | null;
+  firstChargeAt: string | null;
+  firstChargeAmount: number;
+  lines: Array<{
+    description: string;
+    amount: number;
+    currency: string;
+    proration: boolean;
+    periodStart: string | null;
+    periodEnd: string | null;
+  }>;
+}
+
 function formatBytes(bytesStr: string | number | null): string {
   if (!bytesStr) return '0 B';
   const bytes = typeof bytesStr === 'string' ? parseInt(bytesStr, 10) : bytesStr;
@@ -83,6 +105,13 @@ function formatBytes(bytesStr: string | number | null): string {
 function formatNumber(n: number | null): string {
   if (n === null) return 'Unlimited';
   return n.toLocaleString();
+}
+
+function formatMoney(cents: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: (currency || 'usd').toUpperCase(),
+  }).format((cents || 0) / 100);
 }
 
 function UsageMeter({
@@ -223,6 +252,10 @@ export default function BillingPage() {
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [upgradeTargetPlan, setUpgradeTargetPlan] = useState<Plan | null>(null);
+  const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
+  const [loadingUpgradePreview, setLoadingUpgradePreview] = useState(false);
   const [accountForm, setAccountForm] = useState({
     companyName: '',
     billingEmail: '',
@@ -293,11 +326,32 @@ export default function BillingPage() {
     try {
       await api.billing.changePlan(activeTeamId, planName);
       toast.success(`Plan changed to ${planName}`);
+      setShowUpgradeDialog(false);
+      setUpgradeTargetPlan(null);
+      setUpgradePreview(null);
       loadData();
     } catch (err: any) {
       toast.error(err.message || 'Failed to change plan');
     } finally {
       setChangingPlan(null);
+    }
+  };
+
+  const handleOpenUpgradeDialog = async (plan: Plan) => {
+    if (!activeTeamId) return;
+    setUpgradeTargetPlan(plan);
+    setShowUpgradeDialog(true);
+    setLoadingUpgradePreview(true);
+    setUpgradePreview(null);
+    try {
+      const preview = await api.billing.previewPlanChange(activeTeamId, plan.name);
+      setUpgradePreview(preview);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load upgrade preview');
+      setShowUpgradeDialog(false);
+      setUpgradeTargetPlan(null);
+    } finally {
+      setLoadingUpgradePreview(false);
     }
   };
 
@@ -652,7 +706,8 @@ export default function BillingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {plans.map((plan) => {
               const isCurrent = currentPlan?.name === plan.name;
-              const isDowngrade = (currentPlan?.priceMonthly || 0) > plan.priceMonthly;
+              const currentPrice = currentPlan?.priceMonthly || 0;
+              const canUpgrade = !isCurrent && plan.priceMonthly > currentPrice;
 
               return (
                 <div
@@ -679,24 +734,14 @@ export default function BillingPage() {
                     {plan.dedicatedDb && <li className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><Check className="h-3.5 w-3.5" />Dedicated Database</li>}
                     {plan.dedicatedStorage && <li className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><Check className="h-3.5 w-3.5" />Dedicated Storage</li>}
                   </ul>
-                  {!isCurrent && plan.priceMonthly > 0 && (
+                  {canUpgrade && (
                     <Button
                       className="mt-6 w-full"
-                      variant={isDowngrade ? 'outline' : 'default'}
-                      onClick={() => handleChangePlan(plan.name)}
+                      variant="default"
+                      onClick={() => handleOpenUpgradeDialog(plan)}
                       disabled={changingPlan === plan.name}
                     >
-                      {changingPlan === plan.name ? 'Changing...' : isDowngrade ? 'Downgrade' : 'Upgrade'}
-                    </Button>
-                  )}
-                  {!isCurrent && plan.priceMonthly === 0 && isPaid && (
-                    <Button
-                      className="mt-6 w-full"
-                      variant="outline"
-                      onClick={() => handleChangePlan(plan.name)}
-                      disabled={changingPlan === plan.name}
-                    >
-                      {changingPlan === plan.name ? 'Changing...' : 'Downgrade to Free'}
+                      {changingPlan === plan.name ? 'Changing...' : 'Upgrade'}
                     </Button>
                   )}
                   {isCurrent && (
@@ -756,6 +801,97 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+
+      {/* Upgrade Confirmation Dialog */}
+      <Dialog
+        open={showUpgradeDialog}
+        onOpenChange={(open) => {
+          setShowUpgradeDialog(open);
+          if (!open) {
+            setUpgradeTargetPlan(null);
+            setUpgradePreview(null);
+            setLoadingUpgradePreview(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Confirm Upgrade</DialogTitle>
+            <DialogDescription>
+              Review prorated billing details before moving to a higher plan.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingUpgradePreview && (
+            <div className="space-y-2 py-2 text-sm text-muted-foreground">
+              <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-64 animate-pulse rounded bg-muted" />
+              <div className="h-20 w-full animate-pulse rounded bg-muted" />
+            </div>
+          )}
+
+          {!loadingUpgradePreview && upgradePreview && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Current plan</span>
+                  <span className="font-medium text-foreground">
+                    {upgradePreview.currentPlan.displayName} ({formatMoney(upgradePreview.currentPlan.priceMonthly, upgradePreview.currency)}/mo)
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-muted-foreground">New plan</span>
+                  <span className="font-medium text-foreground">
+                    {upgradePreview.targetPlan.displayName} ({formatMoney(upgradePreview.targetPlan.priceMonthly, upgradePreview.currency)}/mo)
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-4 text-sm">
+                <p className="text-muted-foreground">Bugun odeyecegin tutar</p>
+                <p className="mt-1 text-3xl font-bold text-foreground">
+                  {formatMoney(upgradePreview.dueNow, upgradePreview.currency)}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Bu gecis icin bugun tahsilat yok. Once kullan, donem sonunda ode.
+                </p>
+                {upgradePreview.firstChargeAt && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Ilk tahsilat: {new Date(upgradePreview.firstChargeAt).toLocaleDateString()} tarihinde{' '}
+                    {formatMoney(upgradePreview.firstChargeAmount, upgradePreview.currency)}.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <p>
+                  Onay verdiginde plan hemen yukseltilir. Tahsilat ilk fatura tarihinde yapilir.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowUpgradeDialog(false);
+                    setUpgradeTargetPlan(null);
+                    setUpgradePreview(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => upgradeTargetPlan && handleChangePlan(upgradeTargetPlan.name)}
+                  disabled={!upgradeTargetPlan || changingPlan === upgradeTargetPlan.name}
+                >
+                  {changingPlan === upgradeTargetPlan?.name ? 'Changing...' : 'Onayliyorum'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,5 +1,63 @@
 # Task Log
 
+## 2026-04-09 (postpaid billing model for upgrades)
+- Switched upgrade flow to `use first, pay later` behavior.
+- Backend billing changes:
+  - existing paid plan upgrades now use Stripe plan change with `proration_behavior: none` (no immediate charge),
+  - free -> paid activation now starts with 30-day trial (`trial_period_days: 30`), then first charge,
+  - preview endpoint now returns `dueNow: 0` and first invoice timing/amount (`firstChargeAt`, `firstChargeAmount`).
+- Billing UI dialog updated accordingly:
+  - explicitly shows `Bugun odeyecegin tutar: $0`,
+  - shows first charge date + amount only,
+  - copy changed to emphasize postpaid model.
+
+## 2026-04-09 (upgrade dialog reduced to result-focused summary)
+- Simplified confirm-upgrade dialog to be outcome-first:
+  - removed detailed proration line-item breakdown from customer view,
+  - shows a single primary value: `Bugun odeyecegin tutar`,
+  - keeps only short confirmation note and period-end info.
+- Purpose: avoid billing confusion and present a clear payable amount before confirmation.
+
+## 2026-04-09 (upgrade dialog made customer-friendly)
+- Simplified upgrade confirmation copy and financial breakdown for non-technical users.
+- Replaced noisy Stripe line dump with clear summary:
+  - remaining Pro credit,
+  - remaining-period Business charge,
+  - net proration difference,
+  - estimated immediate charge.
+- Detail list now focuses only on proration lines and excludes confusing duplicate/non-proration rows.
+
+## 2026-04-09 (upgrade confirm dialog with proration preview)
+- Added Stripe-backed upgrade preview flow before plan change confirmation.
+- Backend:
+  - new endpoint `POST /billing/preview-plan-change` returns prorated estimate (`dueNow`, proration lines, period end, currency).
+  - implemented via Stripe upcoming invoice preview using target plan price with `create_prorations`.
+- Frontend Billing page:
+  - upgrade button now opens a confirmation dialog,
+  - dialog shows current plan, target plan, prorated amounts, and line-item breakdown,
+  - upgrade executes only after clicking `Onayliyorum`.
+
+## 2026-04-09 (billing ui remove downgrade actions)
+- Removed downgrade actions from Billing plans UI entirely.
+- Plan cards now show action button only for true upgrades (`target.priceMonthly > current.priceMonthly`).
+- Downgrade and `Downgrade to Free` buttons were removed from the screen.
+
+## 2026-04-09 (no mid-cycle downgrade rule)
+- Added billing guard to block plan downgrades during active subscription cycle:
+  - `changePlan` now reads current subscription plan and compares monthly price.
+  - if target plan price is lower than current plan price, request is rejected with a clear message.
+  - response includes current cycle end date when available (`currentPeriodEnd`) to clarify timing.
+- Added idempotent handling for same-plan requests (`already on plan` message).
+
+## 2026-04-09 (free plan dynamic provisioning + stripe upgrade fix)
+- Aligned Free plan project provisioning path with paid plans so infrastructure flow is consistent across plan transitions:
+  - project creation now uses infra-enabled provisioning path for all plans when infra integration is enabled.
+  - this avoids architecture drift between Free and Pro/Business that can cause upgrade edge cases later.
+- Fixed Stripe upgrade failure `Plan "pro" has no Stripe price`:
+  - added on-demand Stripe product/price auto-provisioning for paid plans when missing.
+  - both checkout session creation and direct plan change now self-heal missing Stripe artifacts instead of failing immediately.
+  - retained existing validation for non-paid plans / Stripe-disabled environments.
+
 ## 2026-04-09 (ai user message clamp + edit & resend)
 - Improved AI chat UX for long user prompts:
   - user message bubbles are clamped to 2 lines when long (`...` style),

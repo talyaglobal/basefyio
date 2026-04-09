@@ -39,37 +39,62 @@ export class BillingService implements OnModuleInit {
 
     for (const plan of paidPlans) {
       try {
-        let productId = plan.stripeProductId;
-        if (!productId) {
-          const product = await this.stripe.createProduct(
-            `Kolaybase ${plan.displayName}`,
-            `${plan.displayName} plan — ${plan.maxProjects || 'unlimited'} projects, ${plan.dedicatedDb ? 'dedicated' : 'shared'} database`,
-          );
-          productId = product.id;
-          await this.prisma.plan.update({
-            where: { id: plan.id },
-            data: { stripeProductId: productId },
-          });
-          this.logger.log(`Stripe product created for ${plan.name}: ${productId}`);
-        }
-
-        if (!plan.stripePriceId) {
-          const price = await this.stripe.createPrice({
-            productId: productId!,
-            unitAmount: plan.priceMonthly,
-            currency: 'usd',
-            interval: 'month',
-          });
-          await this.prisma.plan.update({
-            where: { id: plan.id },
-            data: { stripePriceId: price.id },
-          });
-          this.logger.log(`Stripe price created for ${plan.name}: ${price.id} ($${(plan.priceMonthly / 100).toFixed(2)}/mo)`);
-        }
+        await this.ensureStripePlanArtifacts(plan);
       } catch (err: any) {
         this.logger.error(`Failed to sync plan ${plan.name} with Stripe: ${err.message}`);
       }
     }
+  }
+
+  private async ensureStripePlanArtifacts<T extends {
+    id: string;
+    name: string;
+    displayName: string;
+    maxProjects: number | null;
+    dedicatedDb: boolean;
+    priceMonthly: number;
+    stripeProductId: string | null;
+    stripePriceId: string | null;
+  }>(plan: T): Promise<T & { stripeProductId: string; stripePriceId: string }> {
+    let next = { ...plan };
+
+    if (!next.stripeProductId) {
+      const product = await this.stripe.createProduct(
+        `Kolaybase ${next.displayName}`,
+        `${next.displayName} plan — ${next.maxProjects || 'unlimited'} projects, ${next.dedicatedDb ? 'dedicated' : 'shared'} database`,
+      );
+      next = {
+        ...next,
+        stripeProductId: product.id,
+      };
+      await this.prisma.plan.update({
+        where: { id: next.id },
+        data: { stripeProductId: product.id },
+      });
+      this.logger.log(`Stripe product created for ${next.name}: ${product.id}`);
+    }
+
+    if (!next.stripePriceId) {
+      const price = await this.stripe.createPrice({
+        productId: next.stripeProductId!,
+        unitAmount: next.priceMonthly,
+        currency: 'usd',
+        interval: 'month',
+      });
+      next = {
+        ...next,
+        stripePriceId: price.id,
+      };
+      await this.prisma.plan.update({
+        where: { id: next.id },
+        data: { stripePriceId: price.id },
+      });
+      this.logger.log(
+        `Stripe price created for ${next.name}: ${price.id} ($${(next.priceMonthly / 100).toFixed(2)}/mo)`,
+      );
+    }
+
+    return next as T & { stripeProductId: string; stripePriceId: string };
   }
 
   /** List all publicly available plans */
@@ -227,9 +252,16 @@ export class BillingService implements OnModuleInit {
   ) {
     await this.assertTeamOwner(teamId, userId);
 
-    const plan = await this.getPlanByName(planName);
+    let plan = await this.getPlanByName(planName);
     if (!plan.stripePriceId) {
-      throw new BadRequestException(`Plan "${planName}" is not a paid plan`);
+      if (!this.stripe.isEnabled() || plan.priceMonthly <= 0) {
+        throw new BadRequestException(`Plan "${planName}" is not a paid plan`);
+      }
+      plan = await this.ensureStripePlanArtifacts(plan);
+    }
+    const checkoutPriceId = plan.stripePriceId;
+    if (!checkoutPriceId) {
+      throw new BadRequestException(`Plan "${planName}" has no Stripe price`);
     }
 
     const sub = await this.getTeamSubscription(teamId);
@@ -253,7 +285,7 @@ export class BillingService implements OnModuleInit {
 
     const session = await this.stripe.createCheckoutSession({
       customerId: customer.id,
-      priceId: plan.stripePriceId,
+      priceId: checkoutPriceId,
       teamId,
       successUrl,
       cancelUrl,
@@ -616,12 +648,42 @@ export class BillingService implements OnModuleInit {
   async changePlan(teamId: string, userId: string, newPlanName: string) {
     await this.assertTeamOwner(teamId, userId);
 
-    const newPlan = await this.getPlanByName(newPlanName);
+    let newPlan = await this.getPlanByName(newPlanName);
     if (!newPlan.stripePriceId) {
+      if (!this.stripe.isEnabled() || newPlan.priceMonthly <= 0) {
+        throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);
+      }
+      newPlan = await this.ensureStripePlanArtifacts(newPlan);
+    }
+    const nextPriceId = newPlan.stripePriceId;
+    if (!nextPriceId) {
       throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);
     }
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
+    if (!sub) {
+      throw new BadRequestException('No active subscription found');
+    }
+
+    const currentPlan = await this.prisma.plan.findUnique({ where: { id: sub.planId } });
+    if (!currentPlan) {
+      throw new NotFoundException('Current plan not found');
+    }
+
+    if (currentPlan.id === newPlan.id) {
+      return { message: `You are already on ${newPlan.displayName}` };
+    }
+
+    // Business rule: within the active cycle, downgrades are not allowed.
+    // Users can only move to higher-priced plans to avoid mid-cycle regressions.
+    if (newPlan.priceMonthly < currentPlan.priceMonthly) {
+      const periodText = sub.currentPeriodEnd
+        ? ` Current billing cycle ends on ${sub.currentPeriodEnd.toISOString()}.`
+        : '';
+      throw new BadRequestException(
+        `Downgrade is not allowed after an upgrade in the active billing period. Current plan is ${currentPlan.displayName}.${periodText}`,
+      );
+    }
 
     if (!sub?.stripeSubscriptionId) {
       if (!sub?.stripeCustomerId) {
@@ -636,9 +698,11 @@ export class BillingService implements OnModuleInit {
       const client = this.stripe.getClient();
       const stripeSub = await client.subscriptions.create({
         customer: sub.stripeCustomerId,
-        items: [{ price: newPlan.stripePriceId }],
+        items: [{ price: nextPriceId }],
         metadata: { teamId },
         default_payment_method: pm.id,
+        trial_period_days: 30,
+        proration_behavior: 'none',
       });
 
       await this.prisma.subscription.update({
@@ -652,17 +716,92 @@ export class BillingService implements OnModuleInit {
         },
       });
 
-      return { message: `Subscribed to ${newPlan.displayName}` };
+      const firstChargeAt = (stripeSub as any).trial_end
+        ? new Date((stripeSub as any).trial_end * 1000).toISOString()
+        : new Date((stripeSub as any).current_period_end * 1000).toISOString();
+      return {
+        message: `Subscribed to ${newPlan.displayName}`,
+        billing: {
+          dueNow: 0,
+          firstChargeAt,
+          firstChargeAmount: newPlan.priceMonthly,
+          currency: 'usd',
+        },
+      };
     }
 
-    await this.stripe.changeSubscriptionPlan(sub.stripeSubscriptionId, newPlan.stripePriceId);
+    await this.stripe.changeSubscriptionPlan(sub.stripeSubscriptionId, nextPriceId);
     await this.prisma.subscription.update({
       where: { id: sub.id },
       data: { planId: newPlan.id },
     });
 
     this.logger.log(`Team ${teamId} changed plan to ${newPlanName}`);
-    return { message: `Plan changed to ${newPlan.displayName}` };
+    return {
+      message: `Plan changed to ${newPlan.displayName}`,
+      billing: {
+        dueNow: 0,
+        firstChargeAt: sub.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null,
+        firstChargeAmount: newPlan.priceMonthly,
+        currency: 'usd',
+      },
+    };
+  }
+
+  async previewPlanChange(teamId: string, userId: string, newPlanName: string) {
+    await this.assertTeamOwner(teamId, userId);
+
+    let newPlan = await this.getPlanByName(newPlanName);
+    if (!newPlan.stripePriceId) {
+      if (!this.stripe.isEnabled() || newPlan.priceMonthly <= 0) {
+        throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);
+      }
+      newPlan = await this.ensureStripePlanArtifacts(newPlan);
+    }
+    const nextPriceId = newPlan.stripePriceId;
+    if (!nextPriceId) {
+      throw new BadRequestException(`Plan "${newPlanName}" has no Stripe price`);
+    }
+
+    const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
+    if (!sub) {
+      throw new BadRequestException('No active subscription found');
+    }
+    const currentPlan = await this.prisma.plan.findUnique({ where: { id: sub.planId } });
+    if (!currentPlan) {
+      throw new NotFoundException('Current plan not found');
+    }
+    if (newPlan.priceMonthly < currentPlan.priceMonthly) {
+      throw new BadRequestException('Downgrade preview is not supported');
+    }
+
+    const trialPreviewEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const firstChargeAt = sub.stripeSubscriptionId
+      ? (sub.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null)
+      : trialPreviewEnd;
+
+    return {
+      currentPlan: {
+        name: currentPlan.name,
+        displayName: currentPlan.displayName,
+        priceMonthly: currentPlan.priceMonthly,
+      },
+      targetPlan: {
+        name: newPlan.name,
+        displayName: newPlan.displayName,
+        priceMonthly: newPlan.priceMonthly,
+      },
+      currency: 'usd',
+      dueNow: 0,
+      subtotal: 0,
+      total: 0,
+      prorationTotal: 0,
+      nextPaymentAttemptAt: firstChargeAt,
+      currentPeriodEnd: sub.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null,
+      lines: [],
+      firstChargeAt,
+      firstChargeAmount: newPlan.priceMonthly,
+    };
   }
 
   // ── Billing Account ──────────────────────────────────
