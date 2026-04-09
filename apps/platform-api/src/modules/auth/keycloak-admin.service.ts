@@ -672,9 +672,11 @@ export class KeycloakAdminService implements OnModuleInit {
       ...(existing?.attributes || {}),
       kb_force_password_change: [forceChangeOnFirstLogin ? 'true' : 'false'],
     };
+    // If forceChangeOnFirstLogin is true, add UPDATE_PASSWORD to requiredActions
+    const requiredActions = forceChangeOnFirstLogin ? ['UPDATE_PASSWORD'] : [];
     await this.client.users.update(
       { realm: 'master', id: keycloakUserId },
-      { attributes, requiredActions: [] },
+      { attributes, requiredActions },
     );
     await this.client.users.resetPassword({
       realm: 'master',
@@ -706,7 +708,11 @@ export class KeycloakAdminService implements OnModuleInit {
       ...(existing?.attributes || {}),
       kb_force_password_change: ['false'],
     };
-    await this.client.users.update({ realm: 'master', id: resolvedId }, { attributes });
+    // Clear both the custom attribute and Keycloak's requiredActions
+    await this.client.users.update(
+      { realm: 'master', id: resolvedId },
+      { attributes, requiredActions: [] },
+    );
   }
 
   async getPlatformUserForcePasswordChangeById(userId: string, email?: string): Promise<boolean> {
