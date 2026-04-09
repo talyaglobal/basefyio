@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if [ -d \"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui\\\\app\\\\set-new-password\" ])",
+      "Bash(then echo \"Directory exists\")",
+      "Bash(else echo \"Directory does not exist\")",
+      "Bash(fi)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix force password change flow\n\n- Add UPDATE_PASSWORD to Keycloak requiredActions when forceChangeOnFirstLogin is true\n- Clear requiredActions when user completes forced password change\n- Ensures proper Keycloak integration for force password change feature\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)"
+    ]
+  }
+}

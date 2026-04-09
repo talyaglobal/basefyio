@@ -2,14 +2,16 @@
 
 import type { ElementType } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import Cookies from 'js-cookie';
 import {
   ShieldCheck,
   Box,
+  Check,
+  ChevronDown,
   ChevronRight,
   CreditCard,
-  Home,
   LayoutDashboard,
   MessageSquareText,
   UserCircle,
@@ -92,10 +94,13 @@ export function DashboardSidebar({
   refreshKey: number;
   isRoot?: boolean;
 }) {
+  const router = useRouter();
   const pathname = usePathname() ?? '';
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('open');
   const [autoExpanded, setAutoExpanded] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [team, setTeam] = useState<Team | null>(null);
+  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -116,13 +121,31 @@ export function DashboardSidebar({
   useEffect(() => {
     if (!activeTeamId) {
       setTeam(null);
+      setTeams([]);
       return;
     }
     api.teams
       .list()
-      .then((teams) => setTeam(teams.find((t) => t.id === activeTeamId) ?? null))
-      .catch(() => setTeam(null));
+      .then((allTeams) => {
+        setTeams(allTeams);
+        setTeam(allTeams.find((t) => t.id === activeTeamId) ?? null);
+      })
+      .catch(() => {
+        setTeams([]);
+        setTeam(null);
+      });
   }, [activeTeamId, refreshKey]);
+
+  useEffect(() => {
+    const onGlobalPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-sidebar-team-dropdown="true"]')) return;
+      setTeamDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onGlobalPointerDown);
+    return () => document.removeEventListener('mousedown', onGlobalPointerDown);
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -141,6 +164,21 @@ export function DashboardSidebar({
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
   const items = isRoot ? [...ALL_NAV_ITEMS, ROOT_NAV_ITEM] : ALL_NAV_ITEMS;
+  const sortedTeams = useMemo(() => {
+    return [...teams].sort((a, b) => a.name.localeCompare(b.name));
+  }, [teams]);
+
+  async function switchTeam(teamId: string) {
+    try {
+      await api.teams.setActive(teamId);
+      Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+      setTeamDropdownOpen(false);
+      router.push('/dashboard/projects');
+      router.refresh();
+    } catch {
+      // keep silent here; header/toast handles broader team switching UX
+    }
+  }
 
   return (
     <aside
@@ -157,36 +195,43 @@ export function DashboardSidebar({
         if (sidebarMode === 'auto') setAutoExpanded(false);
       }}
     >
-      {/* Breadcrumb / org row — Supabase-style */}
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-2">
-        <Link
-          href="/dashboard"
-          title="Dashboard home"
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            pathname === '/dashboard' && 'bg-muted text-foreground',
-          )}
-        >
-          <Home className="h-4 w-4" />
-        </Link>
+      {/* Team switcher row */}
+      <div
+        className="relative flex h-14 shrink-0 items-center border-b border-border px-2"
+        data-sidebar-team-dropdown="true"
+      >
         {!collapsed && (
-          <>
-            <span className="text-muted-foreground/50 text-xs">/</span>
-            <div className="min-w-0 flex-1 flex items-center gap-1.5">
-              <Link
-                href="/dashboard/team"
-                className="truncate text-sm font-medium text-foreground hover:underline underline-offset-2"
-                title={team?.name ?? 'Team'}
-              >
-                {team?.name ?? '…'}
-              </Link>
-              {team?.role === 'OWNER' && (
-                <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25">
-                  Owner
-                </span>
-              )}
-            </div>
-          </>
+          <button
+            type="button"
+            onClick={() => setTeamDropdownOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            title={team?.name ?? 'Select team'}
+          >
+            <span className="truncate">{team?.name ?? 'Select team'}</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        )}
+        {!collapsed && teamDropdownOpen && (
+          <div className="absolute left-2 right-2 top-[calc(100%-2px)] z-30 mt-1 max-h-72 overflow-auto rounded-md border bg-card p-1 shadow-lg">
+            {sortedTeams.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-muted-foreground">No teams found.</div>
+            ) : (
+              sortedTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => void switchTeam(t.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent',
+                    t.id === activeTeamId && 'bg-primary/10 text-primary',
+                  )}
+                >
+                  <span className="truncate">{t.name}</span>
+                  {t.id === activeTeamId && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+                </button>
+              ))
+            )}
+          </div>
         )}
       </div>
 

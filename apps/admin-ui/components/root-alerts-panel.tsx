@@ -22,7 +22,13 @@ function severityClass(severity: string) {
   return 'bg-slate-100 text-slate-700';
 }
 
-export function RootAlertsPanel() {
+export function RootAlertsPanel({
+  showRead = true,
+  title = 'ROOT Alerts',
+}: {
+  showRead?: boolean;
+  title?: string;
+}) {
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<RootAlert[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -74,7 +80,9 @@ export function RootAlertsPanel() {
     }
   }
 
-  if (!loading && alerts.length === 0) {
+  const visibleAlerts = showRead ? alerts : alerts.filter((a) => !a.isRead);
+
+  if (!loading && visibleAlerts.length === 0) {
     return null;
   }
 
@@ -83,7 +91,7 @@ export function RootAlertsPanel() {
       <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           <AlertTriangle className="h-4 w-4 text-orange-500" />
-          ROOT Alerts
+          {title}
         </h2>
         <Button variant="outline" size="sm" onClick={() => void load()}>
           Refresh
@@ -96,7 +104,7 @@ export function RootAlertsPanel() {
         </div>
       ) : (
         <div className="space-y-2">
-          {alerts.map((a) => (
+          {visibleAlerts.map((a) => (
             <div
               key={a.id}
               className={`rounded-lg border p-3 ${a.isRead ? 'opacity-70' : ''}`}

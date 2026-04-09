@@ -1,5 +1,26 @@
 # Task Log
 
+## 2026-04-09 (dashboard sidebar team switcher redesign)
+- Updated left dashboard sidebar top row:
+  - removed home icon block,
+  - now shows active team name (without owner badge),
+  - added dropdown chevron and team dropdown list (navbar-like behavior).
+- Team dropdown now lists all teams for the current user and marks the active one.
+- Selecting a team switches active team and navigates to that team’s `/dashboard/projects`.
+- Updated file:
+  - `apps/admin-ui/components/dashboard-sidebar.tsx`
+
+## 2026-04-09 (root alerts tab + read visibility behavior)
+- Changed ROOT alert visibility behavior:
+  - Dashboard overview now shows only unread ROOT alerts.
+  - Read alerts are no longer repeatedly shown in the dashboard panel.
+- Added `Root Alerts` as a dedicated tab in `Management`, positioned before `Audit Logs`.
+- Management `Root Alerts` tab shows full history (read + unread), including previously marked-read items.
+- Updated files:
+  - `apps/admin-ui/components/root-alerts-panel.tsx`
+  - `apps/admin-ui/app/dashboard/page.tsx`
+  - `apps/admin-ui/app/dashboard/management/page.tsx`
+
 ## 2026-04-09 (force-change root cause fix: keycloak id resolution)
 - Fixed a backend mismatch where force-password-change flag could be read with a non-Keycloak ID, causing false negatives.
 - Updated Keycloak helper methods to resolve platform user id by `id` or fallback `email`:

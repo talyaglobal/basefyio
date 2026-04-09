@@ -136,7 +136,7 @@ export default function ManagementPage() {
     null,
   );
   const [activeTab, setActiveTab] = useState<
-    'users' | 'plans' | 'teams' | 'audit' | 'permissions' | 'deletionReasons'
+    'users' | 'plans' | 'teams' | 'rootAlerts' | 'audit' | 'permissions' | 'deletionReasons'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -234,7 +234,7 @@ export default function ManagementPage() {
   }
 
   async function loadTabData(
-    tab: 'users' | 'plans' | 'teams' | 'audit' | 'permissions' | 'deletionReasons',
+    tab: 'users' | 'plans' | 'teams' | 'rootAlerts' | 'audit' | 'permissions' | 'deletionReasons',
     force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
@@ -275,6 +275,8 @@ export default function ManagementPage() {
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
         const auditData = await api.observability.listAuditLogs(200);
         setAuditLogs(auditData);
+      } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
+        // Root alerts tab uses its own component-level fetch.
       } else if (tab === 'permissions' && isRoot) {
         const rolePermissionData = await api.auth.managementRolePermissions();
         setRolePermissions(rolePermissionData);
@@ -516,6 +518,19 @@ export default function ManagementPage() {
           Project Deletion Reasons
         </button>
         )}
+        {(managementPermissions?.canViewRootAlerts || isRoot) && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'rootAlerts'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('rootAlerts')}
+        >
+          Root Alerts
+        </button>
+        )}
         {(managementPermissions?.canViewAuditLogs || isRoot) && (
         <button
           type="button"
@@ -531,13 +546,15 @@ export default function ManagementPage() {
         )}
       </div>
 
-      <RootAlertsPanel />
-
       {tabLoading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading tab data...
         </div>
+      )}
+
+      {activeTab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot) && (
+      <RootAlertsPanel title="Root Alerts (All)" />
       )}
 
       {activeTab === 'permissions' && isRoot && (
