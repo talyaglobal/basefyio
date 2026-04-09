@@ -59,9 +59,10 @@ export class AuthController {
   async logout(
     @Body('refreshToken') refreshToken: string,
     @Body('postLogoutRedirectUri') postLogoutRedirectUri?: string,
+    @Body('idToken') idToken?: string,
   ) {
     if (!refreshToken) return { message: 'Logged out' };
-    return this.authService.logout(refreshToken, postLogoutRedirectUri);
+    return this.authService.logout(refreshToken, postLogoutRedirectUri, idToken);
   }
 
   @Post('forgot-password')

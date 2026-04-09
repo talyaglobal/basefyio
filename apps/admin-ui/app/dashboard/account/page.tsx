@@ -15,12 +15,14 @@ import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft,
   Bell,
+  BellRing,
   Camera,
   Check,
   Eye,
   EyeOff,
   Github,
   KeyRound,
+  Laptop,
   Link2,
   Loader2,
   Save,
@@ -52,7 +54,12 @@ export default function AccountPage() {
   const [githubUnlinking, setGithubUnlinking] = useState(false);
 
   const [notifySignIn, setNotifySignIn] = useState(true);
+  const [notifySignInNewDevice, setNotifySignInNewDevice] = useState(false);
   const [notifyTeamInvite, setNotifyTeamInvite] = useState(true);
+  const [notifyBrowserPush, setNotifyBrowserPush] = useState(false);
+  const [browserPermission, setBrowserPermission] = useState<
+    'default' | 'granted' | 'denied' | 'unsupported'
+  >('unsupported');
   const [savingNotifs, setSavingNotifs] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -65,6 +72,13 @@ export default function AccountPage() {
   const forcePasswordChange = searchParams.get('forcePasswordChange') === '1';
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if ('Notification' in window) {
+        setBrowserPermission(Notification.permission);
+      } else {
+        setBrowserPermission('unsupported');
+      }
+    }
     api.auth
       .getProfile()
       .then((p) => {
@@ -76,7 +90,9 @@ export default function AccountPage() {
         setAvatarPreview(p.avatarUrl || null);
         setPendingAvatarDataUrl(null);
         setNotifySignIn(p.notifySignIn);
+        setNotifySignInNewDevice(p.notifySignInNewDevice ?? false);
         setNotifyTeamInvite(p.notifyTeamInvite);
+        setNotifyBrowserPush(p.notifyBrowserPush ?? false);
       })
       .catch(() => toast.error('Failed to load account'))
       .finally(() => setLoading(false));
@@ -193,15 +209,28 @@ export default function AccountPage() {
   const hasNotifChanges =
     profile &&
     (notifySignIn !== profile.notifySignIn ||
-      notifyTeamInvite !== profile.notifyTeamInvite);
+      notifySignInNewDevice !== (profile.notifySignInNewDevice ?? false) ||
+      notifyTeamInvite !== profile.notifyTeamInvite ||
+      notifyBrowserPush !== (profile.notifyBrowserPush ?? false));
 
   const handleSaveNotifications = async () => {
     if (!hasNotifChanges) return;
     setSavingNotifs(true);
     try {
-      const updates: { notifySignIn?: boolean; notifyTeamInvite?: boolean } = {};
+      const updates: {
+        notifySignIn?: boolean;
+        notifySignInNewDevice?: boolean;
+        notifyTeamInvite?: boolean;
+        notifyBrowserPush?: boolean;
+      } = {};
       if (notifySignIn !== profile!.notifySignIn) updates.notifySignIn = notifySignIn;
+      if (notifySignInNewDevice !== (profile!.notifySignInNewDevice ?? false)) {
+        updates.notifySignInNewDevice = notifySignInNewDevice;
+      }
       if (notifyTeamInvite !== profile!.notifyTeamInvite) updates.notifyTeamInvite = notifyTeamInvite;
+      if (notifyBrowserPush !== (profile!.notifyBrowserPush ?? false)) {
+        updates.notifyBrowserPush = notifyBrowserPush;
+      }
       const updated = await api.auth.updateProfile(updates);
       setProfile(updated);
       toast.success('Notification preferences saved');
@@ -211,6 +240,53 @@ export default function AccountPage() {
     } finally {
       setSavingNotifs(false);
     }
+  };
+
+  const requestBrowserPermission = async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setBrowserPermission('unsupported');
+      toast.error('Browser notifications are not supported on this device.');
+      return false;
+    }
+    const next = await Notification.requestPermission();
+    setBrowserPermission(next);
+    if (next !== 'granted') {
+      toast.error('Browser notification permission was not granted.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleToggleBrowserPush = async () => {
+    if (notifyBrowserPush) {
+      setNotifyBrowserPush(false);
+      return;
+    }
+    if (browserPermission === 'granted') {
+      setNotifyBrowserPush(true);
+      return;
+    }
+    const granted = await requestBrowserPermission();
+    if (granted) {
+      setNotifyBrowserPush(true);
+      toast.success('Browser notifications enabled');
+    }
+  };
+
+  const handleSendBrowserTest = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      toast.error('Browser notifications are not supported on this device.');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      const granted = await requestBrowserPermission();
+      if (!granted) return;
+    }
+    new Notification('Kolaybase', {
+      body: 'Browser notifications are active for this account.',
+      tag: 'kb-browser-notification-test',
+    });
+    toast.success('Test browser notification sent');
   };
 
   const handleChangePassword = async () => {
@@ -491,9 +567,9 @@ export default function AccountPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between rounded-md border px-4 py-3">
             <div>
-              <p className="text-sm font-medium">Sign-in alerts</p>
+              <p className="text-sm font-medium">Email on every sign-in</p>
               <p className="text-xs text-muted-foreground">
-                Get notified when someone signs in to your account
+                Send an email every time your account signs in.
               </p>
             </div>
             <button
@@ -506,6 +582,28 @@ export default function AccountPage() {
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                   notifySignIn ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                } mt-[2px]`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border px-4 py-3">
+            <div className="pr-4">
+              <p className="text-sm font-medium">Email only for new device/browser</p>
+              <p className="text-xs text-muted-foreground">
+                Send email only when sign-in fingerprint changes (new device or browser).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotifySignInNewDevice(!notifySignInNewDevice)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                notifySignInNewDevice ? 'bg-primary' : 'bg-muted'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  notifySignInNewDevice ? 'translate-x-[22px]' : 'translate-x-[2px]'
                 } mt-[2px]`}
               />
             </button>
@@ -531,6 +629,50 @@ export default function AccountPage() {
                 } mt-[2px]`}
               />
             </button>
+          </div>
+
+          <div className="space-y-3 rounded-md border px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="pr-4">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <BellRing className="h-3.5 w-3.5" />
+                  Browser notifications
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Show in-browser notifications for account security events.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleToggleBrowserPush()}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                  notifyBrowserPush ? 'bg-primary' : 'bg-muted'
+                }`}
+                disabled={browserPermission === 'unsupported'}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    notifyBrowserPush ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                  } mt-[2px]`}
+                />
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Laptop className="h-3.5 w-3.5" />
+                Permission: {browserPermission}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => void handleSendBrowserTest()}
+                disabled={browserPermission === 'unsupported'}
+              >
+                Send test
+              </Button>
+            </div>
           </div>
         </div>
 

@@ -60,6 +60,7 @@ interface Usage {
 
 interface Invoice {
   id: string;
+  stripeInvoiceId?: string | null;
   amountDue: number;
   amountPaid: number;
   currency: string;
@@ -112,6 +113,25 @@ function formatMoney(cents: number, currency: string): string {
     style: 'currency',
     currency: (currency || 'usd').toUpperCase(),
   }).format((cents || 0) / 100);
+}
+
+function invoiceStatusBadge(status: string) {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'paid') return 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400';
+  if (normalized === 'payment_failed' || normalized === 'uncollectible') return 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400';
+  if (normalized === 'open' || normalized === 'draft') return 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400';
+  return 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
+}
+
+function invoiceStatusLabel(status: string) {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'paid') return 'Paid';
+  if (normalized === 'payment_failed') return 'Payment Failed';
+  if (normalized === 'uncollectible') return 'Uncollectible';
+  if (normalized === 'open') return 'Unpaid';
+  if (normalized === 'draft') return 'Draft';
+  if (normalized === 'void') return 'Void';
+  return status || 'Unknown';
 }
 
 function UsageMeter({
@@ -755,52 +775,76 @@ export default function BillingPage() {
       )}
 
       {/* Invoices */}
-      {invoices.length > 0 && (
-        <div className="rounded-xl border bg-card p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Invoices</h2>
+      <div className="rounded-xl border bg-card p-6">
+        <h2 className="text-lg font-semibold text-foreground mb-4">Invoices</h2>
+        {invoices.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No invoices yet. Once billing events occur, paid/unpaid invoice records will appear here.
+          </p>
+        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-muted-foreground border-b">
                   <th className="pb-3 pr-4 font-medium">Date</th>
+                  <th className="pb-3 pr-4 font-medium">Invoice</th>
+                  <th className="pb-3 pr-4 font-medium">Period</th>
                   <th className="pb-3 pr-4 font-medium">Amount</th>
+                  <th className="pb-3 pr-4 font-medium">Outstanding</th>
                   <th className="pb-3 pr-4 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Invoice</th>
+                  <th className="pb-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-b last:border-0">
-                    <td className="py-3 pr-4 text-foreground">{new Date(inv.createdAt).toLocaleDateString()}</td>
-                    <td className="py-3 pr-4 text-foreground">${(inv.amountPaid / 100).toFixed(2)} {inv.currency.toUpperCase()}</td>
-                    <td className="py-3 pr-4">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        inv.status === 'paid'
-                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
-                          : inv.status === 'payment_failed'
-                            ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400'
-                            : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
-                      }`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      <div className="flex gap-3">
-                        {inv.invoiceUrl && (
-                          <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>
-                        )}
-                        {inv.invoicePdf && (
-                          <a href={inv.invoicePdf} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PDF</a>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {invoices.map((inv) => {
+                  const outstanding = Math.max(inv.amountDue - inv.amountPaid, 0);
+                  return (
+                    <tr key={inv.id} className="border-b last:border-0 align-top">
+                      <td className="py-3 pr-4 text-foreground">
+                        {new Date(inv.createdAt).toLocaleString()}
+                      </td>
+                      <td className="py-3 pr-4 text-foreground">
+                        {inv.stripeInvoiceId || inv.id.slice(0, 8)}
+                      </td>
+                      <td className="py-3 pr-4 text-muted-foreground">
+                        {inv.periodStart && inv.periodEnd
+                          ? `${new Date(inv.periodStart).toLocaleDateString()} - ${new Date(inv.periodEnd).toLocaleDateString()}`
+                          : 'N/A'}
+                      </td>
+                      <td className="py-3 pr-4 text-foreground">
+                        <div className="font-medium">{formatMoney(inv.amountDue, inv.currency)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Paid: {formatMoney(inv.amountPaid, inv.currency)}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className={outstanding > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                          {formatMoney(outstanding, inv.currency)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${invoiceStatusBadge(inv.status)}`}>
+                          {invoiceStatusLabel(inv.status)}
+                        </span>
+                      </td>
+                      <td className="py-3">
+                        <div className="flex gap-3">
+                          {inv.invoiceUrl && (
+                            <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>
+                          )}
+                          {inv.invoicePdf && (
+                            <a href={inv.invoicePdf} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PDF</a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Upgrade Confirmation Dialog */}
       <Dialog

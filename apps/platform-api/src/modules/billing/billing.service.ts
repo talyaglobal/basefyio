@@ -315,13 +315,48 @@ export class BillingService implements OnModuleInit {
   async getInvoices(teamId: string, userId: string) {
     await this.assertTeamMember(teamId, userId);
 
-    const localInvoices = await this.prisma.invoice.findMany({
+    const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
+
+    if (this.stripe.isEnabled() && sub?.stripeCustomerId) {
+      try {
+        const stripeInvoices = await this.stripe.listInvoices(sub.stripeCustomerId, 50);
+        for (const inv of stripeInvoices) {
+          await this.prisma.invoice.upsert({
+            where: { stripeInvoiceId: inv.id },
+            update: {
+              amountDue: inv.amount_due || 0,
+              amountPaid: inv.amount_paid || 0,
+              currency: inv.currency || 'usd',
+              status: inv.status || 'open',
+              invoiceUrl: inv.hosted_invoice_url || null,
+              invoicePdf: inv.invoice_pdf || null,
+              periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
+              periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
+            },
+            create: {
+              teamId,
+              stripeInvoiceId: inv.id,
+              amountDue: inv.amount_due || 0,
+              amountPaid: inv.amount_paid || 0,
+              currency: inv.currency || 'usd',
+              status: inv.status || 'open',
+              invoiceUrl: inv.hosted_invoice_url || null,
+              invoicePdf: inv.invoice_pdf || null,
+              periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
+              periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
+            },
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`Stripe invoice sync failed for team ${teamId}: ${err.message}`);
+      }
+    }
+
+    return this.prisma.invoice.findMany({
       where: { teamId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-
-    return localInvoices;
   }
 
   /** Handle Stripe webhook: checkout.session.completed */

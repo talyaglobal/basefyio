@@ -53,7 +53,11 @@ model User {
   avatarUrl       String?  @map("avatar_url")
   githubUsername  String?  @map("github_username")
   notifySignIn    Boolean  @default(true) @map("notify_sign_in")
+  notifySignInNewDevice Boolean @default(false) @map("notify_sign_in_new_device")
   notifyTeamInvite Boolean @default(true) @map("notify_team_invite")
+  notifyBrowserPush Boolean @default(false) @map("notify_browser_push")
+  lastLoginFingerprint String? @map("last_login_fingerprint")
+  lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime @default(now()) @map("created_at")
 
   activeTeam      Team?        @relation("ActiveTeam", fields: [activeTeamId], references: [id])

@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import * as Minio from 'minio';
 import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
@@ -145,6 +145,12 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  private buildLoginFingerprint(meta?: { ipAddress?: string; userAgent?: string }): string {
+    const ip = (meta?.ipAddress || '').trim();
+    const ua = (meta?.userAgent || '').trim().toLowerCase();
+    return createHash('sha256').update(`${ip}|${ua}`).digest('hex');
   }
 
   private ensureStrongPassword(password: string): void {
@@ -489,6 +495,7 @@ export class AuthService {
       return data as {
         access_token: string;
         refresh_token: string;
+        id_token?: string;
         expires_in: number;
         token_type: string;
       };
@@ -498,6 +505,7 @@ export class AuthService {
       let data: {
         access_token: string;
         refresh_token: string;
+        id_token?: string;
         expires_in: number;
         token_type: string;
       };
@@ -517,12 +525,37 @@ export class AuthService {
 
       const user = await this.prisma.user.findFirst({
         where: { OR: [{ username: email }, { email }] },
-        select: { email: true, username: true, notifySignIn: true },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          notifySignIn: true,
+          notifySignInNewDevice: true,
+          lastLoginFingerprint: true,
+        },
       });
-      if (user?.email && user.notifySignIn) {
+      const loginFingerprint = this.buildLoginFingerprint(meta);
+      const isNewDevice =
+        !!user?.lastLoginFingerprint && user.lastLoginFingerprint !== loginFingerprint;
+      const shouldSendSignInEmail =
+        !!user?.email &&
+        (user.notifySignIn || (user.notifySignInNewDevice && isNewDevice));
+      if (shouldSendSignInEmail) {
         this.email
-          .sendSignInNotification(user.email, user.username, meta)
+          .sendSignInNotification(user.email, user.username, {
+            ...meta,
+            isNewDevice,
+          } as { ipAddress?: string; userAgent?: string })
           .catch(() => {});
+      }
+      if (user?.id) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            lastLoginFingerprint: loginFingerprint,
+            lastLoginAt: new Date(),
+          },
+        });
       }
 
       await this.prisma.loginSecurityState.update({
@@ -554,6 +587,7 @@ export class AuthService {
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
+        idToken: data.id_token,
         expiresIn: data.expires_in,
         tokenType: data.token_type,
         forcePasswordChange,
@@ -675,6 +709,7 @@ export class AuthService {
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
+        idToken: data.id_token,
         expiresIn: data.expires_in,
         tokenType: data.token_type,
         redirectTo,
@@ -706,6 +741,7 @@ export class AuthService {
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
+        idToken: data.id_token,
         expiresIn: data.expires_in,
       };
     } catch {
@@ -713,7 +749,11 @@ export class AuthService {
     }
   }
 
-  async logout(refreshToken: string, postLogoutRedirectUri?: string) {
+  async logout(
+    refreshToken: string,
+    postLogoutRedirectUri?: string,
+    idToken?: string,
+  ) {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const keycloakPublicUrl = this.config.get<string>('keycloak.publicUrl') || keycloakUrl;
     const adminClientId = this.config.get<string>('keycloak.adminClientId');
@@ -759,6 +799,9 @@ export class AuthService {
       client_id: browserClientId,
       post_logout_redirect_uri: safeRedirect,
     });
+    if (idToken) {
+      browserLogoutParams.set('id_token_hint', idToken);
+    }
     const browserLogoutUrl =
       `${keycloakPublicUrl}/realms/master/protocol/openid-connect/logout?` +
       browserLogoutParams.toString();
@@ -918,7 +961,9 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       githubUsername: user.githubUsername,
       notifySignIn: user.notifySignIn,
+      notifySignInNewDevice: user.notifySignInNewDevice,
       notifyTeamInvite: user.notifyTeamInvite,
+      notifyBrowserPush: user.notifyBrowserPush,
       role: user.role,
       createdAt: user.createdAt,
       authProvider,
@@ -939,7 +984,9 @@ export class AuthService {
       githubUsername?: string;
       avatarUrl?: string;
       notifySignIn?: boolean;
+      notifySignInNewDevice?: boolean;
       notifyTeamInvite?: boolean;
+      notifyBrowserPush?: boolean;
       allowIdentityEdit?: boolean;
     },
   ) {
@@ -1011,8 +1058,16 @@ export class AuthService {
       updateData.notifySignIn = data.notifySignIn;
     }
 
+    if (data.notifySignInNewDevice !== undefined) {
+      updateData.notifySignInNewDevice = data.notifySignInNewDevice;
+    }
+
     if (data.notifyTeamInvite !== undefined) {
       updateData.notifyTeamInvite = data.notifyTeamInvite;
+    }
+
+    if (data.notifyBrowserPush !== undefined) {
+      updateData.notifyBrowserPush = data.notifyBrowserPush;
     }
 
     const user = await this.prisma.user.update({
@@ -1029,7 +1084,9 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       githubUsername: user.githubUsername,
       notifySignIn: user.notifySignIn,
+      notifySignInNewDevice: user.notifySignInNewDevice,
       notifyTeamInvite: user.notifyTeamInvite,
+      notifyBrowserPush: user.notifyBrowserPush,
       role: user.role,
       createdAt: user.createdAt,
       authProvider,

@@ -36,7 +36,15 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsBoolean()
+  notifySignInNewDevice?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   notifyTeamInvite?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyBrowserPush?: boolean;
 
   @IsOptional()
   @IsBoolean()

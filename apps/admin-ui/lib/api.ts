@@ -204,7 +204,9 @@ export const api = {
       githubUsername?: string;
       avatarUrl?: string;
       notifySignIn?: boolean;
+      notifySignInNewDevice?: boolean;
       notifyTeamInvite?: boolean;
+      notifyBrowserPush?: boolean;
       allowIdentityEdit?: boolean;
     }) {
       return request<UserProfile>('/auth/profile', {
@@ -237,11 +239,15 @@ export const api = {
       }
       return res.json();
     },
-    logout(refreshToken: string, postLogoutRedirectUri?: string) {
+    logout(
+      refreshToken: string,
+      postLogoutRedirectUri?: string,
+      idToken?: string,
+    ) {
       return request<{ message: string; logoutUrl?: string }>('/auth/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken, postLogoutRedirectUri }),
+        body: JSON.stringify({ refreshToken, postLogoutRedirectUri, idToken }),
       });
     },
     getOAuthProviders() {

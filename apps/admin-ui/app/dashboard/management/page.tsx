@@ -124,6 +124,10 @@ export default function ManagementPage() {
   const [forceChangeOnFirstLogin, setForceChangeOnFirstLogin] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
   const [auditSearch, setAuditSearch] = useState('');
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('ALL');
+  const [auditResultFilter, setAuditResultFilter] = useState<'ALL' | 'SUCCESS' | 'FAILED'>('ALL');
   const [auditPage, setAuditPage] = useState(1);
   const [auditActionPreview, setAuditActionPreview] = useState<{
     log: AuditLogEntry;
@@ -144,17 +148,38 @@ export default function ManagementPage() {
 
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
-    if (!q) return auditLogs;
+    const fromTs = auditDateFrom ? new Date(`${auditDateFrom}T00:00:00`).getTime() : null;
+    const toTs = auditDateTo ? new Date(`${auditDateTo}T23:59:59.999`).getTime() : null;
+
     return auditLogs.filter((log) => {
-      return (
-        log.action.toLowerCase().includes(q) ||
-        log.actorUserId.toLowerCase().includes(q) ||
-        log.resourceType.toLowerCase().includes(q) ||
-        (log.resourceId || '').toLowerCase().includes(q) ||
-        log.traceId.toLowerCase().includes(q)
-      );
+      if (q) {
+        const matchesSearch =
+          log.action.toLowerCase().includes(q) ||
+          log.actorUserId.toLowerCase().includes(q) ||
+          log.resourceType.toLowerCase().includes(q) ||
+          (log.resourceId || '').toLowerCase().includes(q) ||
+          log.traceId.toLowerCase().includes(q);
+        if (!matchesSearch) return false;
+      }
+
+      if (auditSeverityFilter !== 'ALL' && log.severity !== auditSeverityFilter) {
+        return false;
+      }
+
+      if (auditResultFilter !== 'ALL') {
+        if (auditResultFilter === 'SUCCESS' && !log.success) return false;
+        if (auditResultFilter === 'FAILED' && log.success) return false;
+      }
+
+      if (fromTs !== null || toTs !== null) {
+        const created = new Date(log.createdAt).getTime();
+        if (Number.isFinite(fromTs) && created < (fromTs as number)) return false;
+        if (Number.isFinite(toTs) && created > (toTs as number)) return false;
+      }
+
+      return true;
     });
-  }, [auditLogs, auditSearch]);
+  }, [auditLogs, auditSearch, auditDateFrom, auditDateTo, auditSeverityFilter, auditResultFilter]);
 
   const auditTotalPages = Math.max(1, Math.ceil(filteredAuditLogs.length / AUDIT_PAGE_SIZE));
   const pagedAuditLogs = useMemo(() => {
@@ -311,7 +336,7 @@ export default function ManagementPage() {
 
   useEffect(() => {
     setAuditPage(1);
-  }, [auditSearch]);
+  }, [auditSearch, auditDateFrom, auditDateTo, auditSeverityFilter, auditResultFilter]);
 
   useEffect(() => {
     if (auditPage > auditTotalPages) {
@@ -636,7 +661,14 @@ export default function ManagementPage() {
                       <div className="font-medium">{row.teamName || '-'}</div>
                       <div className="text-xs text-muted-foreground">{row.teamId || '-'}</div>
                     </td>
-                    <td className="px-2 py-2 font-medium">{row.projectName || row.projectId}</td>
+                    <td className="max-w-[320px] px-2 py-2">
+                      <p
+                        className="truncate font-medium"
+                        title={row.projectName || row.projectId}
+                      >
+                        {row.projectName || row.projectId}
+                      </p>
+                    </td>
                     <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
                     <td
                       className="max-w-[360px] truncate px-2 py-2 text-muted-foreground"
@@ -1173,6 +1205,61 @@ export default function ManagementPage() {
             placeholder="Search action, actor, resource, trace id..."
             className="h-9 w-full max-w-sm"
           />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={auditDateFrom}
+              onChange={(e) => setAuditDateFrom(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              title="From date"
+            />
+            <input
+              type="date"
+              value={auditDateTo}
+              onChange={(e) => setAuditDateTo(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              title="To date"
+            />
+            <select
+              value={auditSeverityFilter}
+              onChange={(e) =>
+                setAuditSeverityFilter(
+                  e.target.value as 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+                )
+              }
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="ALL">Severity: All</option>
+              <option value="LOW">Severity: Low</option>
+              <option value="MEDIUM">Severity: Medium</option>
+              <option value="HIGH">Severity: High</option>
+              <option value="CRITICAL">Severity: Critical</option>
+            </select>
+            <select
+              value={auditResultFilter}
+              onChange={(e) =>
+                setAuditResultFilter(e.target.value as 'ALL' | 'SUCCESS' | 'FAILED')
+              }
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="ALL">Result: All</option>
+              <option value="SUCCESS">Result: Success</option>
+              <option value="FAILED">Result: Failed</option>
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAuditSearch('');
+                setAuditDateFrom('');
+                setAuditDateTo('');
+                setAuditSeverityFilter('ALL');
+                setAuditResultFilter('ALL');
+              }}
+            >
+              Clear Filters
+            </Button>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

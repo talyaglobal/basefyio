@@ -186,6 +186,7 @@ export interface PendingInvite {
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+  idToken?: string;
   expiresIn: number;
   tokenType?: string;
   hasPendingInvites?: boolean;
@@ -208,7 +209,9 @@ export interface UserProfile {
   avatarUrl: string | null;
   githubUsername: string | null;
   notifySignIn: boolean;
+  notifySignInNewDevice: boolean;
   notifyTeamInvite: boolean;
+  notifyBrowserPush: boolean;
   role: string;
   createdAt: string;
   authProvider?: 'local' | 'google' | 'github';

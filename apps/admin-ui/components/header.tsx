@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
-import { clearTokens, stopProactiveRefresh, getRefreshToken } from '@/lib/auth';
+import { clearTokens, stopProactiveRefresh, getRefreshToken, getIdToken } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Project, ProjectListItem, Team, UserInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -229,6 +229,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     stopProactiveRefresh();
 
     const refreshToken = getRefreshToken();
+    const idToken = getIdToken();
 
     // Clear local tokens and cookies before any async work so the UI
     // reflects the signed-out state immediately.
@@ -244,7 +245,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           ? `${window.location.origin}/login`
           : undefined;
       const res: { message: string; logoutUrl?: string } = await api.auth
-        .logout(refreshToken, redirectUri)
+        .logout(refreshToken, redirectUri, idToken)
         .catch(() => ({ message: 'Logged out', logoutUrl: undefined }));
       keycloakLogoutUrl = res.logoutUrl;
     }

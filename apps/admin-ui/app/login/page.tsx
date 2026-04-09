@@ -63,12 +63,14 @@ function LoginForm() {
       const params = new URLSearchParams(hash);
       const accessToken = params.get('access_token');
       const refreshToken = params.get('refresh_token');
+      const idToken = params.get('id_token');
       const expiresIn = params.get('expires_in');
 
       if (accessToken && refreshToken) {
         setTokens({
           accessToken,
           refreshToken,
+          idToken: idToken || undefined,
           expiresIn: parseInt(expiresIn || '300', 10),
           tokenType: params.get('token_type') || 'Bearer',
         });

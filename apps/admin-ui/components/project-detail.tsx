@@ -136,6 +136,15 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     }
   }
 
+  async function handleCopyConfirmName() {
+    try {
+      await navigator.clipboard.writeText(project.name);
+      toast.success('Project name copied');
+    } catch {
+      toast.error('Failed to copy project name');
+    }
+  }
+
   async function handleMoveToTeam() {
     if (!selectedTeam) return;
     setMovingTeam(true);
@@ -508,7 +517,16 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                Type {project.name} to confirm.
+                Type{' '}
+                <button
+                  type="button"
+                  onClick={() => void handleCopyConfirmName()}
+                  className="inline font-semibold underline decoration-dotted underline-offset-2 hover:text-primary"
+                  title="Click to copy"
+                >
+                  {project.name}
+                </button>{' '}
+                to confirm.
               </label>
               <Input
                 value={deleteConfirmText}

@@ -3,6 +3,7 @@ import type { AuthTokens, UserInfo } from './types';
 
 const TOKEN_KEY = 'kb_access_token';
 const REFRESH_KEY = 'kb_refresh_token';
+const ID_TOKEN_KEY = 'kb_id_token';
 const AUTH_MARKER_KEY = 'kb_logged_in';
 const FORCE_PASSWORD_CHANGE_KEY = 'kb_force_password_change';
 
@@ -20,6 +21,11 @@ export function setTokens(tokens: AuthTokens) {
   const storage = getStorage();
   storage?.setItem(TOKEN_KEY, tokens.accessToken);
   storage?.setItem(REFRESH_KEY, tokens.refreshToken);
+  if (tokens.idToken) {
+    storage?.setItem(ID_TOKEN_KEY, tokens.idToken);
+  } else {
+    storage?.removeItem(ID_TOKEN_KEY);
+  }
   Cookies.set(TOKEN_KEY, tokens.accessToken, {
     expires: 7,
     sameSite: 'lax',
@@ -51,6 +57,7 @@ export function clearTokens() {
   const storage = getStorage();
   storage?.removeItem(TOKEN_KEY);
   storage?.removeItem(REFRESH_KEY);
+  storage?.removeItem(ID_TOKEN_KEY);
   Cookies.remove(TOKEN_KEY, { path: '/' });
   Cookies.remove(REFRESH_KEY, { path: '/' });
   Cookies.remove(AUTH_MARKER_KEY, { path: '/' });
@@ -60,6 +67,11 @@ export function clearTokens() {
 export function getRefreshToken(): string | undefined {
   const storage = getStorage();
   return storage?.getItem(REFRESH_KEY) || Cookies.get(REFRESH_KEY);
+}
+
+export function getIdToken(): string | undefined {
+  const storage = getStorage();
+  return storage?.getItem(ID_TOKEN_KEY) || undefined;
 }
 
 /** Decode JWT payload segment (handles base64url used by Keycloak). */

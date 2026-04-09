@@ -1,5 +1,78 @@
 # Task Log
 
+## 2026-04-09 (automatic migration handling baseline + deploy)
+- Ran automatic migration apply flow in container.
+- Initial `prisma migrate deploy` failed with `P3005` because DB schema existed without Prisma migration history table baseline.
+- Resolved by marking all existing migrations as `applied` via `prisma migrate resolve --applied <migration>`.
+- Re-ran deploy successfully: `No pending migrations to apply.`
+
+## 2026-04-09 (account notifications expanded + new-device login alerts)
+- Expanded `dashboard/account` notification settings:
+  - email on every sign-in,
+  - email only for new device/browser sign-in,
+  - browser notifications toggle (+ permission handling and test notification button).
+- Added backend support for advanced notification preferences and login fingerprint tracking.
+- Login flow now detects device/browser fingerprint changes and sends email accordingly when enabled.
+- Added Prisma schema + migration:
+  - `notify_sign_in_new_device`
+  - `notify_browser_push`
+  - `last_login_fingerprint`
+  - `last_login_at`
+
+## 2026-04-09 (auto keycloak logout without confirmation page)
+- Improved sign-out flow to avoid Keycloak "Logging out" confirmation screen and redirect directly to login.
+- Added `id_token_hint` support in backend logout URL generation:
+  - `apps/platform-api/src/modules/auth/auth.service.ts`
+  - `apps/platform-api/src/modules/auth/auth.controller.ts`
+- Added `idToken` propagation/storage on frontend and sent it during logout:
+  - `apps/admin-ui/lib/types.ts`
+  - `apps/admin-ui/lib/auth.ts`
+  - `apps/admin-ui/lib/api.ts`
+  - `apps/admin-ui/components/header.tsx`
+  - `apps/admin-ui/app/login/page.tsx`
+  - `apps/admin-ui/app/signup/page.tsx`
+
+## 2026-04-09 (sdk install command docs fix)
+- Fixed SDK installation command in website docs from `@kolaybase/sdk` to `kolaybase-js`.
+- Fixed SDK import examples accordingly:
+  - `import { createClient } from 'kolaybase-js'`
+- Updated files:
+  - `apps/website/src/app/docs/page.tsx`
+  - `apps/website/src/app/docs/sdk/page.tsx`
+
+## 2026-04-09 (storage uploaded document link InternalError fix)
+- Fixed signed URL generation in storage service for object links opened from URL.
+- Root cause: URL was signed with internal MinIO host and then rewritten to public host, which can break signature validation in production.
+- Solution: generate presigned URL directly with `publicClient` (public endpoint) instead of host rewriting.
+
+## 2026-04-09 (project deletion reasons long project-name UX)
+- Updated `Project Deletion Reasons` table project-name column to truncate long names with ellipsis.
+- Added hover tooltip (`title`) to show the full project name on mouse over.
+
+## 2026-04-09 (audit logs filters: date range, severity, result)
+- Added client-side filters to Management `Audit Logs` tab:
+  - date range (`from` / `to`),
+  - severity (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`),
+  - result (`SUCCESS`, `FAILED`).
+- Integrated filters with existing search + pagination and auto-reset page index on filter change.
+- Added `Clear Filters` action for quick reset.
+
+## 2026-04-09 (billing invoices enriched with paid/unpaid details)
+- Improved billing invoice visibility in `/dashboard/billing`.
+- Backend invoice listing now syncs latest Stripe invoices (when Stripe customer exists) before returning records, so status/detail data stays current.
+- Billing UI invoices table now shows:
+  - paid/unpaid status label,
+  - invoice identifier,
+  - billing period,
+  - total due, paid amount, outstanding amount,
+  - invoice action links (View/PDF).
+- Added empty-state message when there are no invoices yet.
+
+## 2026-04-09 (delete confirm project-name click-to-copy)
+- Improved project deletion confirmation UX:
+  - project name in `Type <project-name> to confirm.` is now clickable,
+  - clicking the name copies it to clipboard and shows toast feedback.
+
 ## 2026-04-09 (cloud backup restore modes + overwrite confirmation + plan limit-aware behavior)
 - Updated cloud restore UX to support two explicit modes:
   - overwrite current project (with required user confirmation),
