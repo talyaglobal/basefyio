@@ -15,7 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Paperclip, X } from 'lucide-react';
+import { Loader2, Paperclip, X, Camera } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 type FeedbackType = 'BUG' | 'FEATURE' | 'GENERAL';
 
@@ -38,6 +39,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [description, setDescription] = useState('');
   const [type, setType] = useState<FeedbackType>('GENERAL');
   const [loading, setLoading] = useState(false);
+  const [takingScreenshot, setTakingScreenshot] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -103,6 +105,49 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function takeScreenshot() {
+    if (files.length >= MAX_FILES) {
+      toast.error(`Maximum ${MAX_FILES} files allowed`);
+      return;
+    }
+
+    setTakingScreenshot(true);
+    
+    // Temporarily close dialog to capture the page underneath
+    onOpenChange(false);
+    
+    // Wait for dialog to close completely
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    try {
+      const canvas = await html2canvas(document.body, {
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        windowWidth: document.documentElement.scrollWidth,
+        windowHeight: document.documentElement.scrollHeight,
+      });
+
+      // Convert canvas to blob then to File
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), 'image/png', 0.95);
+      });
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const file = new File([blob], `screenshot-${timestamp}.png`, { type: 'image/png' });
+
+      setFiles((prev) => [...prev, file]);
+      toast.success('Screenshot captured successfully!');
+    } catch (err: any) {
+      console.error('Screenshot error:', err);
+      toast.error('Failed to capture screenshot');
+    } finally {
+      // Reopen dialog
+      onOpenChange(true);
+      setTakingScreenshot(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -220,15 +265,35 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
                 size="sm"
                 className="h-8"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={loading || files.length >= MAX_FILES}
+                disabled={loading || files.length >= MAX_FILES || takingScreenshot}
               >
                 <Paperclip className="mr-1.5 h-3.5 w-3.5" />
                 Add image or video
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={takeScreenshot}
+                disabled={loading || files.length >= MAX_FILES || takingScreenshot}
+              >
+                {takingScreenshot ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Capturing...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="mr-1.5 h-3.5 w-3.5" />
+                    Take Screenshot
+                  </>
+                )}
+              </Button>
               <span className="text-xs text-muted-foreground">
                 {files.length}/{MAX_FILES}
               </span>
-              <span className="text-xs text-muted-foreground">Tip: paste screenshot with Ctrl+V</span>
+              <span className="text-xs text-muted-foreground">Tip: paste with Ctrl+V</span>
             </div>
             {files.length > 0 && (
               <ul className="flex flex-col gap-2 max-h-[140px] overflow-y-auto rounded-md border p-2">

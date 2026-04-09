@@ -136,10 +136,15 @@ export default function DashboardLayout({
       const accountStatus = sub.accountStatus || 'ACTIVE';
       const subscriptionStatus = sub.status || 'ACTIVE';
 
-      // FROZEN accounts can ONLY access /dashboard/billing
-      if (accountStatus === 'FROZEN' && !pathname.includes('/billing')) {
+      // FROZEN accounts: restrict access to certain pages only
+      // Allow: billing, projects (read-only), overview
+      // Block: team settings, management, feedback
+      const allowedPaths = ['/dashboard/billing', '/dashboard/projects', '/dashboard'];
+      const isAllowedPath = allowedPaths.some(path => pathname === path || pathname.startsWith(path));
+      
+      if (accountStatus === 'FROZEN' && !isAllowedPath) {
         router.replace('/dashboard/billing');
-        toast.error('Your account is suspended. Please update your payment method.');
+        toast.error('Your account is suspended. Please update your payment method to access this page.');
         return;
       }
 
