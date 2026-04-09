@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { Project } from '@/lib/types';
@@ -123,6 +124,24 @@ export default function ProjectLayout({
   const [isResizing, setIsResizing] = useState(false);
   const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const recoverProjectWithTeamSwitch = useCallback(
+    async (projectId: string) => {
+      const teams = await api.teams.list();
+      for (const team of teams) {
+        try {
+          await api.teams.setActive(team.id);
+          Cookies.set('kb_active_team', team.id, { expires: 365, path: '/' });
+          const loaded = await api.projects.get(projectId);
+          return loaded;
+        } catch {
+          // Try next team.
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
   useEffect(() => {
     localStorage.setItem(SIDEBAR_MODE_KEY, sidebarMode);
   }, [sidebarMode]);
@@ -190,14 +209,20 @@ export default function ProjectLayout({
   );
 
   useEffect(() => {
+    if (!id) return;
     api.projects
       .get(id)
       .then(setProject)
-      .catch((err) => {
-        toast.error(err.message);
+      .catch(async (err) => {
+        const recovered = await recoverProjectWithTeamSwitch(id);
+        if (recovered) {
+          setProject(recovered);
+          return;
+        }
+        toast.error(err.message || 'Failed to load project');
         router.push('/dashboard/projects');
       });
-  }, [id, router]);
+  }, [id, router, recoverProjectWithTeamSwitch]);
 
   if (!project) {
     return (

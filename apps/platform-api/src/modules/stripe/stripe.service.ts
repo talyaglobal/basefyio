@@ -126,6 +126,19 @@ export class StripeService implements OnModuleInit {
     return (pm as Stripe.PaymentMethod) || null;
   }
 
+  async attachPaymentMethod(paymentMethodId: string, customerId: string): Promise<Stripe.PaymentMethod> {
+    this.assertEnabled();
+    return this.stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+  }
+
+  async setDefaultPaymentMethod(customerId: string, paymentMethodId: string): Promise<void> {
+    this.assertEnabled();
+    await this.stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+    this.logger.log(`Default payment method set for customer ${customerId}`);
+  }
+
   /** Create a SetupIntent for collecting card details */
   async createSetupIntent(customerId: string): Promise<Stripe.SetupIntent> {
     this.assertEnabled();
@@ -135,14 +148,6 @@ export class StripeService implements OnModuleInit {
     });
   }
 
-  /** Attach a payment method to customer and set as default */
-  async attachPaymentMethod(customerId: string, paymentMethodId: string): Promise<void> {
-    this.assertEnabled();
-    await this.stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
-    await this.stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
-  }
 
   /** Detach a payment method */
   async detachPaymentMethod(paymentMethodId: string): Promise<void> {
@@ -272,5 +277,54 @@ export class StripeService implements OnModuleInit {
   getClient(): Stripe {
     this.assertEnabled();
     return this.stripe;
+  }
+
+  /**
+   * Create and confirm a payment intent immediately (prepaid model)
+   */
+  async createPaymentIntent(opts: {
+    amount: number;
+    currency: string;
+    customerId: string;
+    paymentMethodId: string;
+    metadata?: Record<string, string>;
+  }): Promise<Stripe.PaymentIntent> {
+    this.assertEnabled();
+
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: opts.amount,
+      currency: opts.currency,
+      customer: opts.customerId,
+      payment_method: opts.paymentMethodId,
+      off_session: true,
+      confirm: true,
+      metadata: opts.metadata || {},
+    });
+
+    this.logger.log(
+      `Payment intent created: ${paymentIntent.id} for customer ${opts.customerId} ($${(opts.amount / 100).toFixed(2)})`,
+    );
+
+    return paymentIntent;
+  }
+
+  /**
+   * Retry a failed payment intent with the same or updated payment method
+   */
+  async retryPaymentIntent(
+    paymentIntentId: string,
+    paymentMethodId?: string,
+  ): Promise<Stripe.PaymentIntent> {
+    this.assertEnabled();
+
+    const updateData: Stripe.PaymentIntentUpdateParams = {};
+    if (paymentMethodId) {
+      updateData.payment_method = paymentMethodId;
+    }
+
+    await this.stripe.paymentIntents.update(paymentIntentId, updateData);
+    return this.stripe.paymentIntents.confirm(paymentIntentId, {
+      off_session: true,
+    });
   }
 }

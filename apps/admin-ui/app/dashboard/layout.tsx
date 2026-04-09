@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Cookies from 'js-cookie';
+import { toast } from 'sonner';
 import { CreditCard } from 'lucide-react';
 import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
@@ -52,7 +53,12 @@ export default function DashboardLayout({
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [billingBanner, setBillingBanner] = useState<{ planName: string } | null>(null);
+  const [billingBanner, setBillingBanner] = useState<{
+    planName: string;
+    type: 'warning' | 'error';
+    message: string;
+    action: string;
+  } | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const pathname = usePathname();
   const isProjectDetailRoute =
@@ -119,16 +125,59 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!activeTeamId) return;
+    
+    let isMounted = true;
+    
     api.billing.subscription(activeTeamId).then((sub: any) => {
-      if (!sub?.plan) return;
-      const isPaid = sub.plan.priceMonthly > 0 && sub.plan.name !== 'legacy';
-      const hasStripeSubscription = !!sub.stripeSubscriptionId;
-      if (isPaid && !hasStripeSubscription) {
-        setBillingBanner({ planName: sub.plan.displayName });
+      if (!isMounted || !sub?.plan) return;
+
+      const isPaidPlan = sub.plan.priceMonthly > 0 && sub.plan.name !== 'legacy';
+      const hasPaymentMethod = sub.hasPaymentMethod === true;
+      const accountStatus = sub.accountStatus || 'ACTIVE';
+      const subscriptionStatus = sub.status || 'ACTIVE';
+
+      // FROZEN accounts can ONLY access /dashboard/billing
+      if (accountStatus === 'FROZEN' && !pathname.includes('/billing')) {
+        router.replace('/dashboard/billing');
+        toast.error('Your account is suspended. Please update your payment method.');
+        return;
+      }
+
+      // Determine banner type and message
+      if (accountStatus === 'FROZEN') {
+        setBillingBanner({
+          planName: sub.plan.displayName,
+          type: 'error',
+          message: 'Account suspended due to payment failure. Please update your payment method.',
+          action: 'Retry Payment',
+        });
+      } else if (subscriptionStatus === 'PAST_DUE' && isPaidPlan) {
+        setBillingBanner({
+          planName: sub.plan.displayName,
+          type: 'warning',
+          message: 'Payment failed. Please update your payment method to avoid service interruption.',
+          action: 'Update Card',
+        });
+      } else if (isPaidPlan && !hasPaymentMethod) {
+        setBillingBanner({
+          planName: sub.plan.displayName,
+          type: 'warning',
+          message: 'Add a payment method to keep your subscription active.',
+          action: 'Add Payment Method',
+        });
       } else {
+        // Everything is OK, no banner
         setBillingBanner(null);
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      // Don't break the page if billing API fails
+      console.error('Failed to load billing subscription:', err);
+      setBillingBanner(null);
+    });
+    
+    return () => {
+      isMounted = false;
+    };
   }, [activeTeamId]);
 
   const handleTeamChange = useCallback((id: string) => {
@@ -201,26 +250,41 @@ export default function DashboardLayout({
             activeTeamId={activeTeamId}
             refreshKey={refreshKey}
             isRoot={profile?.role === 'ROOT'}
+            onTeamChange={handleHeaderTeamChange}
           />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (
-              <div className="flex items-center justify-between gap-4 bg-amber-950/40 border-b border-amber-800/50 px-6 py-3">
-                <div className="flex items-center gap-3 text-sm text-amber-200">
+              <div className={`flex items-center justify-between gap-4 border-b px-6 py-3 ${
+                billingBanner.type === 'error'
+                  ? 'bg-red-950/40 border-red-800/50'
+                  : 'bg-amber-950/40 border-amber-800/50'
+              }`}>
+                <div className={`flex items-center gap-3 text-sm ${
+                  billingBanner.type === 'error' ? 'text-red-200' : 'text-amber-200'
+                }`}>
                   <CreditCard className="h-4 w-4 shrink-0" />
                   <span>
-                    You&apos;re on the <strong>{billingBanner.planName}</strong> plan. Add a payment method to keep your subscription active.
+                    <strong>{billingBanner.planName}</strong> plan: {billingBanner.message}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <Link
                     href="/dashboard/billing"
-                    className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors ${
+                      billingBanner.type === 'error'
+                        ? 'bg-red-600 hover:bg-red-500'
+                        : 'bg-amber-600 hover:bg-amber-500'
+                    }`}
                   >
-                    Add Payment Method
+                    {billingBanner.action}
                   </Link>
                   <button
                     onClick={() => setBannerDismissed(true)}
-                    className="text-amber-400 hover:text-amber-200 text-xs"
+                    className={`text-xs ${
+                      billingBanner.type === 'error'
+                        ? 'text-red-400 hover:text-red-200'
+                        : 'text-amber-400 hover:text-amber-200'
+                    }`}
                   >
                     Dismiss
                   </button>

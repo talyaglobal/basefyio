@@ -607,6 +607,34 @@ export class AuthService {
     }
   }
 
+  /**
+   * Validate user password by attempting Keycloak authentication
+   * Returns true if password is correct, false otherwise
+   */
+  private async validatePassword(email: string, password: string): Promise<boolean> {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const clientId = this.config.get<string>('keycloak.adminClientId');
+    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+
+    const params = new URLSearchParams({
+      grant_type: 'password',
+      client_id: clientId!,
+      username: email,
+      password,
+    });
+
+    try {
+      await firstValueFrom(
+        this.http.post(tokenUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async changePassword(
     userId: string,
     email: string,
@@ -642,9 +670,9 @@ export class AuthService {
       );
     }
     if (methods.signOnMethod === 'local') {
-      try {
-        await this.login(email, currentPassword);
-      } catch {
+      // Validate current password by attempting to get a token from Keycloak
+      const isValid = await this.validatePassword(email, currentPassword);
+      if (!isValid) {
         throw new UnauthorizedException('Current password is incorrect');
       }
     }
@@ -871,9 +899,20 @@ export class AuthService {
     });
 
     const username = kcUser.username || email;
-    await this.email.sendPasswordResetLink(email, username, token);
+    
+    try {
+      const emailResult = await this.email.sendPasswordResetLink(email, username, token);
+      
+      if (!emailResult) {
+        this.logger.error(`[FORGOT_PASSWORD] Email sending failed for ${email} - Resend returned null`);
+      } else {
+        this.logger.log(`[FORGOT_PASSWORD] Password reset link sent successfully to ${email}`);
+      }
+    } catch (err) {
+      this.logger.error(`[FORGOT_PASSWORD] Exception while sending email to ${email}: ${err.message}`, err.stack);
+    }
 
-    this.logger.log(`Password reset link sent to ${email}`);
+    // Always return generic success message to prevent email enumeration
     return { message: 'If that email exists, a reset link has been sent.' };
   }
 

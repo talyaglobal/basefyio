@@ -713,6 +713,7 @@ export default function AccountPage() {
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Enter current password"
                 className="pr-10"
+                autoComplete="current-password"
               />
               <button
                 type="button"
@@ -738,6 +739,7 @@ export default function AccountPage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Min 8 chars + uppercase/lowercase/number/special"
                   className="pr-10"
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
@@ -758,6 +760,7 @@ export default function AccountPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repeat new password"
                   className="pr-10"
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"

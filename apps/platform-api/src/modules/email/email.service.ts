@@ -235,11 +235,13 @@ export class EmailService {
 
   private async send(params: { to: string; subject: string; html: string }) {
     if (!this.resend) {
-      this.logger.warn(`Email skipped (no API key): "${params.subject}" → ${params.to}`);
+      this.logger.warn(`[EMAIL] Skipped (no API key): "${params.subject}" → ${params.to}`);
       return null;
     }
 
     try {
+      this.logger.debug(`[EMAIL] Attempting to send: "${params.subject}" → ${params.to} from ${this.fromEmail}`);
+      
       const result = await this.resend.emails.send({
         from: this.fromEmail,
         to: params.to,
@@ -248,10 +250,16 @@ export class EmailService {
         html: params.html,
       });
 
-      this.logger.log(`Email sent: "${params.subject}" → ${params.to}`);
+      this.logger.log(`[EMAIL] ✓ Sent successfully: "${params.subject}" → ${params.to} (ID: ${result.data?.id || 'unknown'})`);
       return result;
     } catch (error: any) {
-      this.logger.error(`Failed to send email: ${error.message}`, error.stack);
+      this.logger.error(
+        `[EMAIL] ✗ Failed to send: "${params.subject}" → ${params.to}\n` +
+        `Error: ${error.message}\n` +
+        `From: ${this.fromEmail}\n` +
+        `Status: ${error.statusCode || 'unknown'}`,
+        error.stack
+      );
       return null;
     }
   }

@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 export const IMPORT_QUEUE = 'import';
 export const EMAIL_QUEUE = 'email';
 export const EXPORT_QUEUE = 'export';
+export const BILLING_QUEUE = 'billing';
 
 @Global()
 @Module({
@@ -41,6 +42,7 @@ export const EXPORT_QUEUE = 'export';
       { name: IMPORT_QUEUE },
       { name: EMAIL_QUEUE },
       { name: EXPORT_QUEUE },
+      { name: BILLING_QUEUE },
     ),
   ],
   exports: [BullModule],

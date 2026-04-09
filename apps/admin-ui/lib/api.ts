@@ -1302,6 +1302,12 @@ export const api = {
         body: JSON.stringify({ teamId, planName }),
       });
     },
+    retryPayment(teamId: string, paymentMethodId?: string) {
+      return request<{ message: string; success: boolean }>('/billing/retry-payment', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, paymentMethodId }),
+      });
+    },
     managementPlans() {
       return request<ManagementPlan[]>('/billing/management/plans');
     },

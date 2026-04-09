@@ -38,7 +38,7 @@ kb --version
 kb <command>
 
 # Unlink when done
-npm unlink -g @kolaybase/cli
+npm unlink -g kolaybase-cli
 ```
 
 ## Project Structure

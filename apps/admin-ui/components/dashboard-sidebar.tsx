@@ -89,10 +89,12 @@ export function DashboardSidebar({
   activeTeamId,
   refreshKey,
   isRoot = false,
+  onTeamChange,
 }: {
   activeTeamId: string;
   refreshKey: number;
   isRoot?: boolean;
+  onTeamChange: (teamId: string, opts?: { source?: 'user-switch' | 'route-sync' }) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
@@ -172,9 +174,9 @@ export function DashboardSidebar({
     try {
       await api.teams.setActive(teamId);
       Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+      onTeamChange(teamId, { source: 'user-switch' });
       setTeamDropdownOpen(false);
       router.push('/dashboard/projects');
-      router.refresh();
     } catch {
       // keep silent here; header/toast handles broader team switching UX
     }

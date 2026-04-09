@@ -33,6 +33,12 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CANCELLED
+}
+
 enum InfraStatus {
   PROVISIONING
   ACTIVE
@@ -87,11 +93,12 @@ model RolePermission {
 }
 
 model Team {
-  id                String   @id @default(uuid())
+  id                String        @id @default(uuid())
   name              String
-  slug              String   @unique
-  personalForUserId String?  @unique @map("personal_for_user_id")
-  createdAt         DateTime @default(now()) @map("created_at")
+  slug              String        @unique
+  personalForUserId String?       @unique @map("personal_for_user_id")
+  accountStatus     AccountStatus @default(ACTIVE) @map("account_status")
+  createdAt         DateTime      @default(now()) @map("created_at")
 
   // GitHub OAuth (team-level)
   githubOAuthToken  String?  @map("github_oauth_token")
@@ -477,6 +484,10 @@ model Subscription {
   stripeSubscriptionId String?            @map("stripe_subscription_id")
   currentPeriodStart   DateTime?          @map("current_period_start")
   currentPeriodEnd     DateTime?          @map("current_period_end")
+  nextBillingDate      DateTime?          @map("next_billing_date")
+  billingDayOfMonth    Int?               @map("billing_day_of_month")
+  retryCount           Int                @default(0) @map("retry_count")
+  lastRetryDate        DateTime?          @map("last_retry_date")
   cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
@@ -499,6 +510,8 @@ model Invoice {
   invoicePdf      String?   @map("invoice_pdf")
   periodStart     DateTime? @map("period_start")
   periodEnd       DateTime? @map("period_end")
+  retryCount      Int       @default(0) @map("retry_count")
+  lastRetryDate   DateTime? @map("last_retry_date")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)

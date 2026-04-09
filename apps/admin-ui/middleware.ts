@@ -34,6 +34,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(dashboardUrl);
   }
 
+  // Note: FROZEN account restriction is handled in dashboard/layout.tsx (client-side)
+  // This provides better UX with real-time subscription data and toast notifications.
+  // Frozen accounts are automatically redirected to /dashboard/billing when detected.
+
   return NextResponse.next();
 }
 

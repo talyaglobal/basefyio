@@ -46,6 +46,10 @@ interface Subscription {
   stripeSubscriptionId: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  hasPaymentMethod?: boolean;
+  accountStatus?: 'ACTIVE' | 'FROZEN' | 'CANCELLED';
+  nextBillingDate?: string | null;
+  retryCount?: number;
 }
 
 interface Usage {
@@ -175,7 +179,17 @@ function UsageMeter({
 
 // ── Card Form (inside Stripe Elements) ──────────────────
 
-function CardForm({ teamId, onSuccess, onCancel }: { teamId: string; onSuccess: () => void; onCancel: () => void }) {
+function CardForm({
+  teamId,
+  onSuccess,
+  onCancel,
+  autoRetryOnSuccess,
+}: {
+  teamId: string;
+  onSuccess: () => void;
+  onCancel: () => void;
+  autoRetryOnSuccess?: boolean;
+}) {
   const stripe = useStripe();
   const elements = useElements();
   const [saving, setSaving] = useState(false);
@@ -205,7 +219,24 @@ function CardForm({ teamId, onSuccess, onCancel }: { teamId: string; onSuccess: 
 
       if (setupIntent?.payment_method) {
         await api.billing.attachPaymentMethod(teamId, setupIntent.payment_method as string);
-        toast.success('Payment method added');
+        
+        // If account is frozen, automatically retry payment with new card
+        if (autoRetryOnSuccess) {
+          toast.info('Payment method updated. Retrying payment...');
+          try {
+            const result = await api.billing.retryPayment(teamId, setupIntent.payment_method as string);
+            if (result.success) {
+              toast.success('Payment successful! Your account is now active.');
+            } else {
+              toast.error('Payment retry failed. Please contact support.');
+            }
+          } catch (retryErr: any) {
+            toast.error(retryErr.message || 'Payment retry failed');
+          }
+        } else {
+          toast.success('Payment method added');
+        }
+        
         onSuccess();
       }
     } catch (err: any) {
@@ -455,6 +486,58 @@ export default function BillingPage() {
         </div>
       )}
 
+      {/* Account Status Alerts */}
+      {subscription?.accountStatus === 'FROZEN' && (
+        <div className="p-6 bg-red-950/40 border border-red-800/50 rounded-xl space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-200">Account Suspended</h3>
+              <p className="text-sm text-red-300 mt-1">
+                Your account has been suspended due to failed payment attempts. Update your payment method and retry to restore access.
+              </p>
+              {subscription.retryCount && subscription.retryCount > 0 && (
+                <p className="text-xs text-red-400 mt-2">
+                  Failed payment attempts: {subscription.retryCount}/3
+                </p>
+              )}
+            </div>
+          </div>
+          <Button
+            onClick={() => setShowCardDialog(true)}
+            className="bg-red-600 hover:bg-red-500"
+          >
+            Update Payment Method & Retry
+          </Button>
+        </div>
+      )}
+
+      {subscription?.status === 'PAST_DUE' && subscription?.accountStatus !== 'FROZEN' && (
+        <div className="p-6 bg-amber-950/40 border border-amber-800/50 rounded-xl space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-amber-200">Payment Failed</h3>
+              <p className="text-sm text-amber-300 mt-1">
+                Your last payment attempt failed. Please update your payment method to avoid service interruption.
+              </p>
+              {subscription.retryCount && subscription.retryCount > 0 && (
+                <p className="text-xs text-amber-400 mt-2">
+                  Retry attempt {subscription.retryCount}/3. Account will be suspended after 3 failed attempts.
+                </p>
+              )}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowCardDialog(true)}
+            className="border-amber-600 text-amber-400 hover:bg-amber-950/50"
+          >
+            Update Payment Method
+          </Button>
+        </div>
+      )}
+
       {/* Current Plan */}
       <div className="rounded-xl border bg-card p-6">
         <div className="flex items-center justify-between">
@@ -574,6 +657,7 @@ export default function BillingPage() {
                   loadData();
                 }}
                 onCancel={() => setShowCardDialog(false)}
+                autoRetryOnSuccess={subscription?.accountStatus === 'FROZEN'}
               />
             </Elements>
           ) : (
@@ -891,17 +975,49 @@ export default function BillingPage() {
                 </div>
               </div>
 
+              {/* Proration Details */}
+              {upgradePreview.prorationTotal !== 0 && (
+                <div className="rounded-lg border bg-card p-4 space-y-2 text-sm">
+                  <h4 className="font-medium text-foreground">Billing Breakdown</h4>
+                  {upgradePreview.lines.map((line, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-1">
+                      <div className="flex items-center gap-2">
+                        <span className={line.proration ? 'text-muted-foreground' : 'text-foreground'}>
+                          {line.description}
+                        </span>
+                        {line.proration && (
+                          <span className="text-xs px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded">
+                            Credit
+                          </span>
+                        )}
+                      </div>
+                      <span className={line.proration ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}>
+                        {line.proration && '-'}{formatMoney(Math.abs(line.amount), line.currency)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="border-t pt-2 mt-2">
+                    <div className="flex items-center justify-between font-medium">
+                      <span className="text-foreground">Total Credit Applied</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        -{formatMoney(Math.abs(upgradePreview.prorationTotal), upgradePreview.currency)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-lg border p-4 text-sm">
-                <p className="text-muted-foreground">Bugun odeyecegin tutar</p>
+                <p className="text-muted-foreground">Amount Due Today</p>
                 <p className="mt-1 text-3xl font-bold text-foreground">
                   {formatMoney(upgradePreview.dueNow, upgradePreview.currency)}
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Bu gecis icin bugun tahsilat yok. Once kullan, donem sonunda ode.
+                  No charge today for this upgrade. Use first, pay at end of period.
                 </p>
                 {upgradePreview.firstChargeAt && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Ilk tahsilat: {new Date(upgradePreview.firstChargeAt).toLocaleDateString()} tarihinde{' '}
+                    First charge: {new Date(upgradePreview.firstChargeAt).toLocaleDateString()} for{' '}
                     {formatMoney(upgradePreview.firstChargeAmount, upgradePreview.currency)}.
                   </p>
                 )}
@@ -910,7 +1026,7 @@ export default function BillingPage() {
               <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <p>
-                  Onay verdiginde plan hemen yukseltilir. Tahsilat ilk fatura tarihinde yapilir.
+                  Your plan will be upgraded immediately upon confirmation. Billing will occur on your first invoice date.
                 </p>
               </div>
 
@@ -929,7 +1045,7 @@ export default function BillingPage() {
                   onClick={() => upgradeTargetPlan && handleChangePlan(upgradeTargetPlan.name)}
                   disabled={!upgradeTargetPlan || changingPlan === upgradeTargetPlan.name}
                 >
-                  {changingPlan === upgradeTargetPlan?.name ? 'Changing...' : 'Onayliyorum'}
+                  {changingPlan === upgradeTargetPlan?.name ? 'Upgrading...' : 'Confirm Upgrade'}
                 </Button>
               </div>
             </div>

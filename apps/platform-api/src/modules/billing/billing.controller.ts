@@ -195,6 +195,15 @@ export class BillingController {
     return this.billing.previewPlanChange(body.teamId, req.user.sub, body.planName);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('retry-payment')
+  async retryPayment(
+    @Req() req: any,
+    @Body() body: { teamId: string; paymentMethodId?: string },
+  ) {
+    return this.billing.retryPayment(body.teamId, req.user.sub, body.paymentMethodId);
+  }
+
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManagePlans')
   @Get('management/plans')

@@ -310,9 +310,11 @@ export default function ManagementPage() {
     }
     setSavingPassword(true);
     try {
+      // ROOT users should never be forced to change password
+      const shouldForceChange = passwordDialogUser.role === 'ROOT' ? false : forceChangeOnFirstLogin;
       await api.auth.resetManagementUserPassword(passwordDialogUser.id, {
         newPassword: newPassword.trim(),
-        forceChangeOnFirstLogin,
+        forceChangeOnFirstLogin: shouldForceChange,
       });
       toast.success(`Password reset for ${passwordDialogUser.email}`);
       setPasswordDialogUser(null);
@@ -1502,14 +1504,16 @@ export default function ManagementPage() {
                 Generate Password
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={forceChangeOnFirstLogin}
-                onChange={(e) => setForceChangeOnFirstLogin(e.target.checked)}
-              />
-              Force user to change password on next login
-            </label>
+            {passwordDialogUser?.role !== 'ROOT' && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={forceChangeOnFirstLogin}
+                  onChange={(e) => setForceChangeOnFirstLogin(e.target.checked)}
+                />
+                Force user to change password on next login
+              </label>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 variant="outline"
