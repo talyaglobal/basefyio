@@ -236,24 +236,22 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     clearTokens();
     Cookies.remove('kb_active_team');
 
-    // Best-effort: revoke the Keycloak session so OAuth SSO sessions
-    // are also terminated and the user can't be auto-re-authenticated.
-    let keycloakLogoutUrl: string | undefined;
+    // Best-effort: revoke the server-side session/token.
+    // Do NOT redirect user to Keycloak logout page.
     if (refreshToken) {
       const redirectUri =
         typeof window !== 'undefined'
           ? `${window.location.origin}/login`
           : undefined;
-      const res: { message: string; logoutUrl?: string } = await api.auth
+      await api.auth
         .logout(refreshToken, redirectUri, idToken)
-        .catch(() => ({ message: 'Logged out', logoutUrl: undefined }));
-      keycloakLogoutUrl = res.logoutUrl;
+        .catch(() => ({ message: 'Logged out' }));
     }
 
     // Hard redirect (full page reload) guarantees all React state,
     // timers, and in-flight requests are fully discarded.
-    // Prefer Keycloak end-session redirect to clear SSO cookie too.
-    window.location.href = keycloakLogoutUrl || '/login';
+    // Always return directly to login screen.
+    window.location.href = '/login';
   }
 
   return (

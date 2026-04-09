@@ -656,6 +656,25 @@ export class AuthService {
     return { message: 'Password changed successfully' };
   }
 
+  async completeForcedPasswordChange(userId: string, newPassword: string) {
+    this.ensureStrongPassword(newPassword);
+    const mustChangePassword = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
+    if (!mustChangePassword) {
+      throw new BadRequestException('Forced password change is not required for this account');
+    }
+
+    try {
+      await this.keycloak.resetPlatformUserPassword(userId, newPassword);
+      await this.keycloak.clearPlatformUserForcePasswordChange(userId);
+    } catch (err: any) {
+      throw new InternalServerErrorException(
+        `Failed to complete forced password change: ${err.message}`,
+      );
+    }
+
+    return { message: 'Password changed successfully' };
+  }
+
   getOAuthRedirectUrl(provider: string, redirectTo?: string) {
     const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
     const publicApiUrl = this.config.get<string>('publicApiUrl');

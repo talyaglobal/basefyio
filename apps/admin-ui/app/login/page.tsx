@@ -96,7 +96,7 @@ function LoginForm() {
       startProactiveRefresh();
       if (tokens.forcePasswordChange) {
         toast.warning('You must change your password before continuing.');
-        window.location.assign('/dashboard/account?forcePasswordChange=1');
+        window.location.assign('/set-new-password');
         return;
       }
       toast.success('Welcome back');

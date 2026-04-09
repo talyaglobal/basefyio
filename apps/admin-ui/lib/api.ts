@@ -224,6 +224,12 @@ export const api = {
         body: JSON.stringify({ currentPassword, newPassword, allowIdentityEdit }),
       });
     },
+    completeForcedPasswordChange(newPassword: string) {
+      return request<{ message: string }>('/auth/complete-forced-password-change', {
+        method: 'POST',
+        body: JSON.stringify({ newPassword }),
+      });
+    },
     async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
       const token = getAccessToken();
       const formData = new FormData();

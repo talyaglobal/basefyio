@@ -122,6 +122,15 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('complete-forced-password-change')
+  async completeForcedPasswordChange(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: ChangePasswordDto,
+  ) {
+    return this.authService.completeForcedPasswordChange(user.sub, body.newPassword);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('avatar')
   @UseInterceptors(FileInterceptor('file', { storage: undefined }))
   async uploadAvatar(

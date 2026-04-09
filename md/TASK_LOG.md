@@ -1,5 +1,39 @@
 # Task Log
 
+## 2026-04-09 (forced password reset flow with dedicated pre-dashboard page)
+- Added a dedicated `set-new-password` flow for users marked with `Force user to change password on next login`.
+- New behavior:
+  - user logs in with reset password,
+  - before dashboard access, user is redirected to `/set-new-password`,
+  - user must set a new password using existing password policy rules,
+  - after successful update, session remains active and user is redirected to `/dashboard`.
+- Backend:
+  - added `POST /auth/complete-forced-password-change` (JWT protected),
+  - validates strong password, verifies force-change flag from Keycloak, updates password, then clears force flag.
+- Frontend:
+  - login force-change redirect now points to `/set-new-password`,
+  - dashboard layout force-change guard now redirects to `/set-new-password`,
+  - added new page: `apps/admin-ui/app/set-new-password/page.tsx`,
+  - middleware matcher expanded to protect `/set-new-password`.
+
+## 2026-04-09 (logout without showing keycloak screen)
+- Updated logout UX to never navigate user to Keycloak logout UI.
+- Flow now:
+  - clear local tokens/cookies,
+  - call backend logout as best-effort for session/token revoke,
+  - always redirect directly to `/login`.
+- Updated file:
+  - `apps/admin-ui/components/header.tsx`
+
+## 2026-04-09 (projects page bulk delete modal upgraded)
+- Updated `/dashboard/projects` selected-project delete flow to use an advanced modal like project detail delete UX.
+- Added to bulk delete modal:
+  - deletion reason chips,
+  - optional details textarea,
+  - confirmation input (`DELETE`) before submit,
+  - selected project list preview with truncate + hover title.
+- Bulk delete API calls now send deletion reason metadata for each selected project.
+
 ## 2026-04-09 (automatic migration handling baseline + deploy)
 - Ran automatic migration apply flow in container.
 - Initial `prisma migrate deploy` failed with `P3005` because DB schema existed without Prisma migration history table baseline.

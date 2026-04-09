@@ -61,8 +61,8 @@ export default function DashboardLayout({
 
   useEffect(() => {
     const forcePasswordChange = Cookies.get('kb_force_password_change') === '1';
-    if (forcePasswordChange && pathname !== '/dashboard/account') {
-      router.replace('/dashboard/account?forcePasswordChange=1');
+    if (forcePasswordChange) {
+      router.replace('/set-new-password');
       return;
     }
     if (!isAuthenticated()) {
@@ -86,9 +86,7 @@ export default function DashboardLayout({
           setProfile(p);
           if (p.forcePasswordChange) {
             Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
-            if (pathname !== '/dashboard/account') {
-              router.replace('/dashboard/account?forcePasswordChange=1');
-            }
+            router.replace('/set-new-password');
           }
         })
         .catch(() => {});
@@ -156,6 +154,7 @@ export default function DashboardLayout({
       setProfile(p);
       if (p.forcePasswordChange) {
         Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
+        router.replace('/set-new-password');
       } else {
         Cookies.remove('kb_force_password_change', { path: '/' });
       }
@@ -163,7 +162,7 @@ export default function DashboardLayout({
         prev ? { ...prev, preferred_username: p.username, email: p.email } : prev,
       );
     }).catch(() => {});
-  }, []);
+  }, [router]);
 
   const refreshProfile = useCallback(() => {
     api.auth.getProfile().then(setProfile).catch(() => {});

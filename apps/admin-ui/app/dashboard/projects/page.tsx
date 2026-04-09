@@ -39,6 +39,7 @@ import { startOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { useActiveTeam } from '../layout';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   ArrowLeft,
   ArrowRightLeft,
@@ -106,6 +107,20 @@ const SORT_OPTIONS = [
   { value: 'name-desc', label: 'Name (Z-A)' },
 ] as const;
 type SortValue = typeof SORT_OPTIONS[number]['value'];
+
+const DELETE_REASONS = [
+  { code: 'performance', label: 'Performance or reliability insufficient.' },
+  { code: 'trust', label: 'I lost trust in the company or its future direction.' },
+  { code: 'exploring', label: 'I was just exploring, or it was a hobby/student project.' },
+  { code: 'cancelled', label: 'My project was cancelled or put on hold.' },
+  { code: 'support', label: 'I was not satisfied with the customer support I received.' },
+  { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
+  { code: 'too_expensive', label: 'Too expensive' },
+  { code: 'missing_feature', label: 'Kolaybase is missing a specific feature I need.' },
+  { code: 'company_closed', label: 'My company went out of business or was acquired.' },
+  { code: 'difficult', label: 'I found it difficult to use or build with.' },
+  { code: 'none', label: 'None of the above' },
+] as const;
 
 // ── Session state key ─────────────────────────────────────────────────────────
 const SESSION_KEY = 'kb_projects_state';
@@ -247,6 +262,9 @@ export default function ProjectsPage() {
   // Bulk delete confirm
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('none');
+  const [bulkDeleteDetails, setBulkDeleteDetails] = useState('');
+  const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState('');
 
   // Move to team
   const [teams, setTeams] = useState<Team[]>([]);
@@ -606,10 +624,17 @@ export default function ProjectsPage() {
     await Promise.all(ids.map((id) => toggleTag(id, tagId)));
   }
 
-  async function moveProjectsToTrash(projectIds: string[]) {
+  async function moveProjectsToTrash(
+    projectIds: string[],
+    reason?: {
+      reasonCode?: string;
+      reasonLabel?: string;
+      details?: string;
+    },
+  ) {
     if (projectIds.length === 0) return;
     const idSet = new Set(projectIds);
-    await Promise.all(projectIds.map((id) => api.projects.delete(id)));
+    await Promise.all(projectIds.map((id) => api.projects.delete(id, reason)));
     setProjects((prev) => prev.filter((p) => !idSet.has(p.id)));
     setSelectedProjects((prev) => {
       const next = new Set(prev);
@@ -623,11 +648,24 @@ export default function ProjectsPage() {
   }
 
   async function confirmBulkDelete() {
+    if (bulkDeleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      toast.error('Type "DELETE" to confirm');
+      return;
+    }
+
     setBulkDeleting(true);
     const ids = Array.from(selectedProjects);
     try {
-      await moveProjectsToTrash(ids);
+      const selectedReason = DELETE_REASONS.find((x) => x.code === bulkDeleteReasonCode);
+      await moveProjectsToTrash(ids, {
+        reasonCode: bulkDeleteReasonCode,
+        reasonLabel: selectedReason?.label || 'None of the above',
+        details: bulkDeleteDetails.trim() || undefined,
+      });
       setBulkDeleteConfirm(false);
+      setBulkDeleteReasonCode('none');
+      setBulkDeleteDetails('');
+      setBulkDeleteConfirmText('');
     } catch (err: any) {
       toast.error(err.message ?? 'Failed to move to trash');
     } finally {
@@ -909,7 +947,12 @@ export default function ProjectsPage() {
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => setBulkDeleteConfirm(true)}
+                onClick={() => {
+                  setBulkDeleteReasonCode('none');
+                  setBulkDeleteDetails('');
+                  setBulkDeleteConfirmText('');
+                  setBulkDeleteConfirm(true);
+                }}
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
                 Delete {selectedProjects.size} Project{selectedProjects.size > 1 ? 's' : ''}
@@ -1439,29 +1482,98 @@ export default function ProjectsPage() {
 
       {/* ── Bulk delete confirm modal ─────────────────────────────────────── */}
       {bulkDeleteConfirm && (
-        <Modal title="Move to Trash" onClose={() => setBulkDeleteConfirm(false)}>
-          <p className="text-sm text-muted-foreground mb-1">
-            Move to trash:
+        <Modal
+          title="Move to Trash"
+          onClose={() => {
+            setBulkDeleteConfirm(false);
+            setBulkDeleteReasonCode('none');
+            setBulkDeleteDetails('');
+            setBulkDeleteConfirmText('');
+          }}
+        >
+          <p className="text-sm text-muted-foreground mb-2">
+            Move to trash {selectedProjects.size} selected project{selectedProjects.size > 1 ? 's' : ''}.
           </p>
-          <p className="text-sm font-semibold mb-3">
-            {selectedProjects.size} project{selectedProjects.size > 1 ? 's' : ''}?
-          </p>
+          <div className="mb-3 max-h-28 overflow-auto rounded-lg border bg-muted/30 p-2">
+            {Array.from(selectedProjects).map((id) => {
+              const project = projects.find((p) => p.id === id);
+              if (!project) return null;
+              return (
+                <p key={id} className="truncate text-xs text-muted-foreground" title={project.name}>
+                  - {project.name}
+                </p>
+              );
+            })}
+          </div>
+          <div className="mb-3">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Reason for deletion</p>
+            <div className="max-h-28 overflow-auto rounded-lg border p-2">
+              <div className="flex flex-wrap gap-1.5">
+                {DELETE_REASONS.map((r) => (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => setBulkDeleteReasonCode(r.code)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                      bulkDeleteReasonCode === r.code
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Additional details (optional)
+            </label>
+            <textarea
+              value={bulkDeleteDetails}
+              onChange={(e) => setBulkDeleteDetails(e.target.value)}
+              rows={3}
+              placeholder="Tell us why these projects are being deleted..."
+              className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50"
+            />
+          </div>
           <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 mb-4">
             <p className="text-xs text-amber-700 dark:text-amber-400">
               These projects will remain in trash for <strong>24 hours</strong>. The team owner can restore them during this period. After 24 hours they will be permanently deleted.
             </p>
           </div>
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
+            </label>
+            <Input
+              value={bulkDeleteConfirmText}
+              onChange={(e) => setBulkDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+              autoFocus
+            />
+          </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setBulkDeleteConfirm(false)}>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setBulkDeleteConfirm(false);
+                setBulkDeleteReasonCode('none');
+                setBulkDeleteDetails('');
+                setBulkDeleteConfirmText('');
+              }}
+            >
               Cancel
             </Button>
             <Button
               variant="destructive"
               className="flex-1"
               onClick={confirmBulkDelete}
-              disabled={bulkDeleting}
+              disabled={bulkDeleting || bulkDeleteConfirmText.trim().toUpperCase() !== 'DELETE'}
             >
-              {bulkDeleting ? 'Deleting…' : `Delete ${selectedProjects.size} Project${selectedProjects.size > 1 ? 's' : ''}`}
+              {bulkDeleting ? 'Moving…' : `Move ${selectedProjects.size} to Trash`}
             </Button>
           </div>
         </Modal>
