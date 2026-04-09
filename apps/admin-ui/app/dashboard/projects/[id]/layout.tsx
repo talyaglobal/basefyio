@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ProjectProvider } from '@/contexts/project-context';
 import {
   Book,
   Copy,
@@ -118,6 +119,7 @@ export default function ProjectLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
+  const [projectLoading, setProjectLoading] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(readStoredMode);
   const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
   const [autoExpanded, setAutoExpanded] = useState(false);
@@ -210,6 +212,7 @@ export default function ProjectLayout({
 
   useEffect(() => {
     if (!id) return;
+    setProjectLoading(true);
     api.projects
       .get(id)
       .then(setProject)
@@ -221,14 +224,27 @@ export default function ProjectLayout({
         }
         toast.error(err.message || 'Failed to load project');
         router.push('/dashboard/projects');
-      });
+      })
+      .finally(() => setProjectLoading(false));
   }, [id, router, recoverProjectWithTeamSwitch]);
+
+  if (projectLoading) {
+    return (
+      <ProjectProvider project={null} loading={true}>
+        <div className="flex h-64 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      </ProjectProvider>
+    );
+  }
 
   if (!project) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <ProjectProvider project={null} loading={false}>
+        <div className="flex h-64 items-center justify-center">
+          <p className="text-muted-foreground">Project not found.</p>
+        </div>
+      </ProjectProvider>
     );
   }
 
@@ -236,7 +252,8 @@ export default function ProjectLayout({
   const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
 
   return (
-    <div
+    <ProjectProvider project={project} loading={false}>
+      <div
       className={cn(
         'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6',
         isResizing && 'select-none',
@@ -455,5 +472,6 @@ export default function ProjectLayout({
         {children}
       </main>
     </div>
+    </ProjectProvider>
   );
 }

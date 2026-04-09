@@ -183,7 +183,7 @@ export default function DashboardLayout({
     return () => {
       isMounted = false;
     };
-  }, [activeTeamId]);
+  }, [activeTeamId, pathname, router]);
 
   const handleTeamChange = useCallback((id: string) => {
     setActiveTeamId(id);

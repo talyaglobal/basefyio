@@ -1428,8 +1428,110 @@ System now shows **context-aware warnings** based on actual account status:
 - Storage UI “duplicate” bucket names like `docs` + `2-docs`: MinIO bucket `kb-{slug}-2-docs` starts with prefix `kb-{slug}-`, so it was incorrectly listed under the shorter slug (shown as `2-docs`). `listBuckets` now assigns each physical bucket to the **longest** matching project slug among all `ACTIVE` projects. Supabase import uses one logical bucket name (`name` or `id`) consistently for create/upload.
 - Same-project ghost `2-docs`: listing alone cannot drop `kb-{slug}-2-docs` when only one project matches both `…-docs` and `…-2-docs`. After each Supabase storage import, `pruneProjectStorageBuckets` deletes project buckets whose logical names are **not** in the Supabase bucket API list (so only `docs` remains when source has only `docs`). Logical names normalized to lowercase for Kolaybase.
 
-## 2026-04-09 (project detail page loading fix)
-**Fixed "This page couldn't load" error when navigating to project details**
+## 2026-04-09 (feedback screenshot feature)
+**Added automatic screenshot capture to feedback modal**
+
+### Changes:
+**`apps/admin-ui/components/feedback-modal.tsx`:**
+- Added "Take Screenshot" button next to "Add image or video" button
+- When clicked, modal temporarily closes, captures entire page screenshot using `html2canvas`, and reopens
+- Screenshot automatically added to attachments list as PNG file with timestamp
+- Added `takingScreenshot` state to show loading state ("Capturing...")
+- Added Camera icon from `lucide-react`
+
+**`apps/admin-ui/package.json`:**
+- Added `html2canvas: ^1.4.1` dependency for screenshot capture
+
+### Features:
+1. One-click screenshot of current page without leaving feedback modal
+2. Screenshot automatically named with timestamp (`screenshot-YYYY-MM-DDTHH-mm-ss.png`)
+3. Respects maximum file limit (5 files)
+4. Smooth UX: modal closes → capture → modal reopens with screenshot attached
+5. Toast notification on success or failure
+
+### Files Modified:
+- `apps/admin-ui/components/feedback-modal.tsx`
+- `apps/admin-ui/package.json`
+
+## 2026-04-09 (project detail page loading fix - comprehensive)
+**Fixed persistent "This page couldn't load" error with multiple improvements**
+
+### Problem:
+- Project detail pages showed "This page couldn't load / Reload to try again" error
+- Both `layout.tsx` and `page.tsx` were fetching the same project (duplicate API calls)
+- Billing useEffect wasn't reacting to pathname changes
+- Race conditions between layout and page project fetching
+- Frozen account checks not properly evaluating on route changes
+
+### Root Causes Identified:
+1. **Missing dependencies**: Billing useEffect lacked `pathname` and `router` in dependency array
+2. **Duplicate fetching**: Layout and page both independently fetched project data
+3. **No shared state**: Project state isolated between layout and page components
+4. **Timing issues**: Billing checks running without pathname context
+
+### Solution:
+**1. Created ProjectContext for shared state:**
+**`apps/admin-ui/contexts/project-context.tsx`:** (NEW FILE)
+- Created `ProjectContext` and `ProjectProvider` to share project and loading state
+- Added `useProject()` hook for consuming components
+- Eliminates duplicate fetching and race conditions
+
+**2. Updated project detail layout:**
+**`apps/admin-ui/app/dashboard/projects/[id]/layout.tsx`:**
+- Added `projectLoading` state to track fetch progress
+- Wrapped entire layout return in `<ProjectProvider>`
+- Provides project and loading state to all child components
+- Enhanced loading states: shows spinner while loading, error message if not found
+- Fixed `.finally(() => setProjectLoading(false))` to properly manage loading state
+
+**3. Simplified project detail page:**
+**`apps/admin-ui/app/dashboard/projects/[id]/page.tsx`:**
+- **REMOVED** all project fetching logic (50+ lines removed)
+- **REMOVED** duplicate `recoverProjectWithTeamSwitch` implementation
+- Now uses `useProject()` hook to get project from context
+- Dramatically simplified: from 65 lines to 22 lines
+- No duplicate API calls - uses data already fetched by layout
+
+**4. Fixed dashboard layout billing check:**
+**`apps/admin-ui/app/dashboard/layout.tsx`:**
+- **ADDED** `pathname` and `router` to billing useEffect dependencies: `[activeTeamId, pathname, router]`
+- Now properly reacts to route changes for frozen account checks
+- Enhanced frozen account logic: allows access to `/dashboard/billing`, `/dashboard/projects`, and `/dashboard/projects/[id]`
+- Blocks access only to restricted routes (team, management, feedback)
+
+### Benefits:
+1. **No duplicate API calls**: Project fetched once by layout, shared via context
+2. **Better performance**: Reduced network requests from 4+ to 1 per project view
+3. **Cleaner code**: Page component 43 lines shorter, easier to maintain
+4. **Proper state management**: Single source of truth for project data
+5. **Reliable routing**: Billing checks properly evaluate on pathname changes
+6. **Better UX**: Faster page loads, no race conditions
+
+### API Call Reduction:
+**Before:** 
+- Layout: `GET /api/projects/{id}` (with recovery attempts)
+- Page: `GET /api/projects/{id}` (with recovery attempts)
+- = 2-4 duplicate calls per page load
+
+**After:**
+- Layout: `GET /api/projects/{id}` (once, shared via context)
+- Page: Uses context data (zero API calls)
+- = 1 call per page load
+
+### Files Modified:
+- `apps/admin-ui/contexts/project-context.tsx` (NEW)
+- `apps/admin-ui/app/dashboard/projects/[id]/layout.tsx`
+- `apps/admin-ui/app/dashboard/projects/[id]/page.tsx`
+- `apps/admin-ui/app/dashboard/layout.tsx`
+
+### Technical Details:
+- Context pattern chosen over prop drilling for cleaner component hierarchy
+- Loading state properly managed in layout before provider wraps children
+- Error boundaries maintained: layout shows spinner/error, page delegates to layout's state
+- Recovery mechanism (`recoverProjectWithTeamSwitch`) kept only in layout, not duplicated
+
+## 2026-04-09 (project detail page loading fix - initial attempt)
+**First attempt to fix "This page couldn't load" error**
 
 ### Problem:
 - When clicking on a project to view details, page showed "This page couldn't load / Reload to try again" error
@@ -1450,8 +1552,8 @@ System now shows **context-aware warnings** based on actual account status:
 3. **Error recovery**: `.catch()` now sets `billingBanner(null)` instead of leaving page broken
 4. **Frozen account redirect**: Still works but only checks `pathname` inside effect body (not dependency)
 
-### Files Modified:
-- `apps/admin-ui/app/dashboard/layout.tsx`
+### Note:
+This was later superseded by comprehensive fix with ProjectContext (see above)
 
 ## 2026-03-27
 - Added table name `Search tables...` input to `TableEditor` sidebar, and filter table list by name (no effect on row filter).
