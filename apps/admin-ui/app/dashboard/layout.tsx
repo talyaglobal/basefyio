@@ -80,7 +80,18 @@ export default function DashboardLayout({
       await api.auth.me().catch(() => {});
 
       // Load profile for navbar
-      api.auth.getProfile().then(setProfile).catch(() => {});
+      api.auth
+        .getProfile()
+        .then((p) => {
+          setProfile(p);
+          if (p.forcePasswordChange) {
+            Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
+            if (pathname !== '/dashboard/account') {
+              router.replace('/dashboard/account?forcePasswordChange=1');
+            }
+          }
+        })
+        .catch(() => {});
 
       const cachedTeam = Cookies.get('kb_active_team');
 
@@ -143,6 +154,11 @@ export default function DashboardLayout({
   const refreshUser = useCallback(() => {
     api.auth.getProfile().then((p) => {
       setProfile(p);
+      if (p.forcePasswordChange) {
+        Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
+      } else {
+        Cookies.remove('kb_force_password_change', { path: '/' });
+      }
       setUser((prev) =>
         prev ? { ...prev, preferred_username: p.username, email: p.email } : prev,
       );

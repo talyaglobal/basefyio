@@ -28,6 +28,11 @@ export default function ProjectExportPage() {
   const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<CloudBackupItem | null>(null);
+  const [restoreMode, setRestoreMode] = useState<'existing' | 'new'>('existing');
+  const [newRestoreName, setNewRestoreName] = useState('');
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [options, setOptions] = useState({
     includeDatabase: true,
     includeAuth: true,
@@ -121,14 +126,20 @@ export default function ProjectExportPage() {
     }
   }
 
-  async function handleRestoreFromCloud(objectKey: string) {
+  async function handleRestoreFromCloud(
+    objectKey: string,
+    mode: 'existing' | 'new',
+    newProjectName?: string,
+  ) {
     setRestoringKey(objectKey);
     try {
       const { teamId } = await api.teams.getActive();
       const result = await api.projects.restoreCloudBackup(id, {
         objectKey,
         teamId,
-        nameMode: 'existing',
+        nameMode: mode,
+        newProjectName,
+        existingProjectId: mode === 'existing' ? id : undefined,
       });
       toast.success(`Backup restored: ${result.project.name}`);
       router.push(`/dashboard/projects/${result.project.id}`);
@@ -143,6 +154,32 @@ export default function ProjectExportPage() {
     loadCloudBackups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  function openRestoreDialog(backup: CloudBackupItem) {
+    setRestoreTarget(backup);
+    setRestoreMode('existing');
+    setNewRestoreName('');
+    setConfirmOverwrite(false);
+    setRestoreDialogOpen(true);
+  }
+
+  async function submitRestore() {
+    if (!restoreTarget) return;
+    if (restoreMode === 'existing' && !confirmOverwrite) {
+      toast.error('Please confirm overwrite to continue');
+      return;
+    }
+    if (restoreMode === 'new' && !newRestoreName.trim()) {
+      toast.error('Please enter a new project name');
+      return;
+    }
+    setRestoreDialogOpen(false);
+    await handleRestoreFromCloud(
+      restoreTarget.objectKey,
+      restoreMode,
+      restoreMode === 'new' ? newRestoreName.trim() : undefined,
+    );
+  }
 
   useEffect(() => {
     if (!selectedExport) return;
@@ -281,7 +318,7 @@ export default function ProjectExportPage() {
               </div>
               <Button
                 size="sm"
-                onClick={() => handleRestoreFromCloud(b.objectKey)}
+                onClick={() => openRestoreDialog(b)}
                 disabled={restoringKey === b.objectKey}
               >
                 {restoringKey === b.objectKey ? (
@@ -412,6 +449,93 @@ export default function ProjectExportPage() {
                 )}
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Restore Backup</DialogTitle>
+            <DialogDescription>
+              Choose how this backup should be restored.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="restore-mode"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={restoreMode === 'existing'}
+                onChange={() => setRestoreMode('existing')}
+              />
+              <div>
+                <p className="text-sm font-medium">Overwrite current project</p>
+                <p className="text-xs text-muted-foreground">
+                  Restores into this project and replaces existing data.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="restore-mode"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={restoreMode === 'new'}
+                onChange={() => setRestoreMode('new')}
+              />
+              <div className="w-full">
+                <p className="text-sm font-medium">Restore as new project</p>
+                <p className="text-xs text-muted-foreground">
+                  Creates a new project with a custom name (counts against your plan project limit).
+                </p>
+                {restoreMode === 'new' && (
+                  <input
+                    className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="New project name"
+                    value={newRestoreName}
+                    onChange={(e) => setNewRestoreName(e.target.value)}
+                  />
+                )}
+              </div>
+            </label>
+
+            {restoreMode === 'existing' && (
+              <label className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={confirmOverwrite}
+                  onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                />
+                I confirm that existing project data will be overwritten.
+              </label>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRestoreDialogOpen(false);
+                  setRestoreTarget(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitRestore()}
+                disabled={
+                  !!restoringKey ||
+                  (restoreMode === 'existing' && !confirmOverwrite) ||
+                  (restoreMode === 'new' && !newRestoreName.trim())
+                }
+              >
+                {restoringKey ? 'Restoring...' : 'Restore'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -163,6 +163,7 @@ export class ProjectExportService {
       teamId: string;
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
+      existingProjectId?: string;
     },
   ) {
     await this.projectsService.findOne(projectId, userId);
@@ -180,6 +181,7 @@ export class ProjectExportService {
       teamId: body.teamId,
       nameMode: body.nameMode || 'existing',
       newProjectName: body.newProjectName,
+      existingProjectId: body.existingProjectId,
     });
   }
 

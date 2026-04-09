@@ -66,13 +66,29 @@ async function request<T>(
   });
 
   if (res.status === 401) {
+    const authBody = await res
+      .clone()
+      .json()
+      .catch(() => ({} as { message?: string; code?: string }));
+
     if (path === '/auth/login') {
-      const body = await res.json().catch(() => ({} as { message?: string; code?: string }));
-      const err = new Error(body.message || body.code || 'Unauthorized') as Error & {
+      const err = new Error(authBody.message || authBody.code || 'Unauthorized') as Error & {
         code?: string;
         status?: number;
       };
-      err.code = body.code || body.message || 'Unauthorized';
+      err.code = authBody.code || authBody.message || 'Unauthorized';
+      err.status = 401;
+      throw err;
+    }
+
+    // Some auth-protected endpoints can return business 401 errors (e.g. wrong current password).
+    // In those cases, do not try refresh flow; surface the actual backend message.
+    if (path === '/auth/change-password') {
+      const err = new Error(authBody.message || 'Unauthorized') as Error & {
+        code?: string;
+        status?: number;
+      };
+      err.code = authBody.code || authBody.message || 'Unauthorized';
       err.status = 401;
       throw err;
     }
@@ -621,6 +637,7 @@ export const api = {
         teamId: string;
         nameMode: 'existing' | 'new';
         newProjectName?: string;
+        existingProjectId?: string;
       },
     ) {
       return request<ProjectArchiveImportResponse>(`/projects/${projectId}/backups/restore`, {

@@ -721,10 +721,18 @@ export class AuthService {
     const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
     const safeRedirect = (() => {
       const fallback = `${appUrl}/login`;
+      const allowedOrigins = new Set<string>();
+      try {
+        allowedOrigins.add(new URL(appUrl).origin);
+      } catch {
+        allowedOrigins.add('http://localhost:3000');
+      }
+      allowedOrigins.add('http://localhost:3000');
       if (!postLogoutRedirectUri) return fallback;
       try {
         const requested = new URL(postLogoutRedirectUri);
         if (!['http:', 'https:'].includes(requested.protocol)) return fallback;
+        if (!allowedOrigins.has(requested.origin)) return fallback;
         return requested.toString();
       } catch {
         return fallback;
@@ -889,13 +897,16 @@ export class AuthService {
     if (!user) throw new BadRequestException('User not found');
     let authProvider: 'local' | 'google' | 'github' = 'local';
     let signOnMethod: 'local' | 'google' | 'github' = 'local';
+    let forcePasswordChange = false;
     try {
       const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId, user.email);
       authProvider = methods.authProvider;
       signOnMethod = methods.signOnMethod;
+      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
     } catch {
       authProvider = 'local';
       signOnMethod = 'local';
+      forcePasswordChange = false;
     }
 
     return {
@@ -914,6 +925,7 @@ export class AuthService {
       signOnMethod,
       canEditIdentityFields: authProvider === 'local',
       canChangePassword: signOnMethod === 'local',
+      forcePasswordChange,
     };
   }
 
@@ -934,13 +946,16 @@ export class AuthService {
     const updateData: Record<string, any> = {};
     let authProvider: 'local' | 'google' | 'github' = 'local';
     let signOnMethod: 'local' | 'google' | 'github' = 'local';
+    let forcePasswordChange = false;
     try {
       const methods = await this.keycloak.getPlatformUserSignInMethodsById(userId);
       authProvider = methods.authProvider;
       signOnMethod = methods.signOnMethod;
+      forcePasswordChange = await this.keycloak.getPlatformUserForcePasswordChangeById(userId);
     } catch {
       authProvider = 'local';
       signOnMethod = 'local';
+      forcePasswordChange = false;
     }
     const changingIdentityFields =
       data.username !== undefined || data.email !== undefined;
@@ -1021,6 +1036,7 @@ export class AuthService {
       signOnMethod,
       canEditIdentityFields: authProvider === 'local',
       canChangePassword: signOnMethod === 'local',
+      forcePasswordChange,
     };
   }
 

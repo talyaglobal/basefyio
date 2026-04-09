@@ -215,6 +215,7 @@ export interface UserProfile {
   signOnMethod?: 'local' | 'google' | 'github';
   canEditIdentityFields?: boolean;
   canChangePassword?: boolean;
+  forcePasswordChange?: boolean;
 }
 
 export interface ManagementUser {

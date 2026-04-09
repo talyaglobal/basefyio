@@ -169,6 +169,29 @@ export class KeycloakAdminService implements OnModuleInit {
       const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
       const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
       const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+      const appOrigin = (() => {
+        try {
+          return new URL(appUrl).origin;
+        } catch {
+          return 'http://localhost:3000';
+        }
+      })();
+
+      const redirectUris = Array.from(
+        new Set([
+          callbackUrl,
+          `${appOrigin}/*`,
+          'http://localhost:3000/*',
+        ]),
+      );
+      const webOrigins = Array.from(
+        new Set([
+          appOrigin,
+          'http://localhost:3000',
+          publicApiUrl,
+          '+',
+        ]),
+      );
 
       const existing = await this.client.clients.find({ realm: 'master', clientId });
       if (existing.length > 0) {
@@ -179,8 +202,8 @@ export class KeycloakAdminService implements OnModuleInit {
             publicClient: true,
             standardFlowEnabled: true,
             directAccessGrantsEnabled: false,
-            redirectUris: [callbackUrl],
-            webOrigins: [appUrl, publicApiUrl, '+'],
+            redirectUris,
+            webOrigins,
           },
         );
         this.logger.log('Platform OAuth client updated');
@@ -191,8 +214,8 @@ export class KeycloakAdminService implements OnModuleInit {
           publicClient: true,
           standardFlowEnabled: true,
           directAccessGrantsEnabled: false,
-          redirectUris: [callbackUrl],
-          webOrigins: [appUrl, publicApiUrl, '+'],
+          redirectUris,
+          webOrigins,
         });
         this.logger.log('Platform OAuth client created');
       }

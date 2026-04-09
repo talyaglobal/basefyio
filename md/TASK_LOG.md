@@ -1,5 +1,42 @@
 # Task Log
 
+## 2026-04-09 (cloud backup restore modes + overwrite confirmation + plan limit-aware behavior)
+- Updated cloud restore UX to support two explicit modes:
+  - overwrite current project (with required user confirmation),
+  - restore as a new project (requires custom project name).
+- Added restore confirmation dialog before execution and blocked accidental overwrite unless confirmation checkbox is checked.
+- Extended restore API payload to pass `existingProjectId` when overwrite mode is selected.
+- New-project restore path now explicitly communicates project-limit impact in UI; backend continues enforcing plan project limits via standard project creation quota checks.
+
+## 2026-04-09 (force password change enforcement hardening)
+- Hardened force-password-change enforcement after ROOT password reset.
+- Backend profile responses now include `forcePasswordChange` derived from Keycloak user attribute (`kb_force_password_change`).
+- Dashboard bootstrap now re-checks this flag via profile load and forces redirect to `/dashboard/account?forcePasswordChange=1` when needed (not only cookie-based).
+- Refresh profile flow now keeps `kb_force_password_change` cookie in sync with backend flag.
+
+## 2026-04-09 (account change-password 401 refresh confusion fix)
+- Fixed misleading frontend error on `/dashboard/account` password change.
+- Root cause: `401 Current password is incorrect` was treated as token-expired and forced refresh flow, resulting in generic `Connection issue while refreshing session`.
+- Update in API client:
+  - for `/auth/change-password` 401 responses, skip refresh attempt,
+  - surface backend message directly to the user.
+
+## 2026-04-09 (root alerts full detail viewer)
+- Enhanced `ROOT Alerts` panel with per-alert `Details` action.
+- Added detailed modal for each alert including:
+  - alert core fields (id, kind, severity, read state, timestamp, title, message),
+  - related audit context (trace id, action, user id, role, resource, success/fail, severity, timestamp),
+  - full JSON blocks for `before`, `after`, and `metadata`.
+- Added graceful fallback messages when related audit log is missing or still loading.
+
+## 2026-04-09 (keycloak logout invalid redirect uri fixed for local + production)
+- Fixed Keycloak logout redirect compatibility across local and production environments.
+- Updated platform OAuth client bootstrap (`ensurePlatformOAuthClient`) to include:
+  - app origin wildcard redirect (`<app-origin>/*`),
+  - localhost redirect wildcard (`http://localhost:3000/*`),
+  - callback URL used by OAuth flow.
+- Tightened backend logout redirect validation to allow only known app origins (app URL origin + localhost), preventing invalid/unsafe redirects while avoiding Keycloak `Invalid redirect uri`.
+
 ## 2026-04-09 (postpaid billing model for upgrades)
 - Switched upgrade flow to `use first, pay later` behavior.
 - Backend billing changes:
