@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
@@ -40,13 +40,29 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [loading, setLoading] = useState(false);
   const [takingScreenshot, setTakingScreenshot] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   useEffect(() => {
-    if (!open) setFiles([]);
+    if (!open) {
+      setFiles([]);
+      setPreviewIndex(null);
+    }
   }, [open]);
+
+  const previewFile = previewIndex !== null ? files[previewIndex] : null;
+  const previewUrl = useMemo(() => {
+    if (!previewFile) return null;
+    return URL.createObjectURL(previewFile);
+  }, [previewFile]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   function addFilesFromList(list: FileList | null) {
     if (!list?.length) return;
@@ -122,12 +138,19 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
     try {
       const { default: html2canvas } = await import('html2canvas');
-      const canvas = await html2canvas(document.body, {
+      const canvas = await html2canvas(document.documentElement, {
         useCORS: true,
         allowTaint: true,
         backgroundColor: null,
-        windowWidth: document.documentElement.scrollWidth,
-        windowHeight: document.documentElement.scrollHeight,
+        scale: window.devicePixelRatio || 1,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        x: window.scrollX,
+        y: window.scrollY,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
       });
 
       // Convert canvas to blob then to File
@@ -183,7 +206,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px] max-h-[min(90dvh,720px)] flex flex-col">
+      <DialogContent className="sm:max-w-[520px] max-h-[min(90dvh,720px)] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Send Feedback</DialogTitle>
           <DialogDescription>
@@ -192,7 +215,12 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} onPaste={handlePaste} className="flex flex-col flex-1 min-h-0 space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          onPaste={handlePaste}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
           <div className="space-y-2 shrink-0">
             <Label className="text-xs text-muted-foreground">Page</Label>
             <Input value={currentUrl} disabled className="text-xs opacity-70" />
@@ -302,7 +330,14 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
                     key={`${f.name}-${i}`}
                     className="flex items-center gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs"
                   >
-                    <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewIndex(i)}
+                      className="min-w-0 flex-1 truncate text-left font-medium underline-offset-2 hover:underline"
+                      title="Preview attachment"
+                    >
+                      {f.name}
+                    </button>
                     <span className="shrink-0 text-muted-foreground">
                       {(f.size / 1024 / 1024).toFixed(1)} MB
                     </span>
@@ -319,8 +354,9 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
               </ul>
             )}
           </div>
+          </div>
 
-          <DialogFooter className="shrink-0 pt-2 gap-2 sm:gap-0">
+          <DialogFooter className="shrink-0 border-t pt-3 mt-3 gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
@@ -342,6 +378,36 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <Dialog
+        open={previewIndex !== null}
+        onOpenChange={(next) => {
+          if (!next) setPreviewIndex(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="truncate">{previewFile?.name || 'Attachment preview'}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-auto rounded-md border bg-black/5 p-2">
+            {previewFile && previewUrl && previewFile.type.startsWith('image/') ? (
+              <img
+                src={previewUrl}
+                alt={previewFile.name}
+                className="mx-auto h-auto max-h-[66vh] w-auto rounded"
+              />
+            ) : previewFile && previewUrl && previewFile.type.startsWith('video/') ? (
+              <video
+                src={previewUrl}
+                controls
+                className="mx-auto h-auto max-h-[66vh] w-full rounded bg-black"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Preview is not available for this file type.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

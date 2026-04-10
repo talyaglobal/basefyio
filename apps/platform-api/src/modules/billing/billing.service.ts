@@ -649,6 +649,7 @@ export class BillingService implements OnModuleInit {
     if (!sub?.stripeCustomerId) throw new BadRequestException('No Stripe customer found');
 
     await this.stripe.attachPaymentMethod(sub.stripeCustomerId, paymentMethodId);
+    await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, paymentMethodId);
     this.logger.log(`Payment method ${paymentMethodId} attached for team ${teamId}`);
 
     return { success: true };
