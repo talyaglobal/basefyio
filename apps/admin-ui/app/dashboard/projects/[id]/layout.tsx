@@ -127,17 +127,21 @@ export default function ProjectLayout({
   const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const recoverProjectWithTeamSwitch = useCallback(
-    async (projectId: string) => {
-      const teams = await api.teams.list();
-      for (const team of teams) {
-        try {
-          await api.teams.setActive(team.id);
-          Cookies.set('kb_active_team', team.id, { expires: 365, path: '/' });
-          const loaded = await api.projects.get(projectId);
-          return loaded;
-        } catch {
-          // Try next team.
+    async (projectId: string): Promise<Project | null> => {
+      try {
+        const teams = await api.teams.list();
+        for (const team of teams) {
+          try {
+            await api.teams.setActive(team.id);
+            Cookies.set('kb_active_team', team.id, { expires: 365, path: '/' });
+            const loaded = await api.projects.get(projectId);
+            return loaded;
+          } catch {
+            // Try next team.
+          }
         }
+      } catch {
+        // teams.list() failed
       }
       return null;
     },
@@ -212,20 +216,34 @@ export default function ProjectLayout({
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
     setProjectLoading(true);
-    api.projects
-      .get(id)
-      .then(setProject)
-      .catch(async (err) => {
-        const recovered = await recoverProjectWithTeamSwitch(id);
-        if (recovered) {
-          setProject(recovered);
-          return;
+
+    (async () => {
+      try {
+        const proj = await api.projects.get(id);
+        if (!cancelled) setProject(proj);
+      } catch (err) {
+        console.error('[ProjectLayout] Failed to load project:', id, err);
+        try {
+          const recovered = await recoverProjectWithTeamSwitch(id);
+          if (!cancelled && recovered) {
+            setProject(recovered);
+            return;
+          }
+        } catch (recErr) {
+          console.error('[ProjectLayout] Recovery also failed:', recErr);
         }
-        toast.error(err.message || 'Failed to load project');
-        router.push('/dashboard/projects');
-      })
-      .finally(() => setProjectLoading(false));
+        if (!cancelled) {
+          toast.error('Failed to load project');
+          router.push('/dashboard/projects');
+        }
+      } finally {
+        if (!cancelled) setProjectLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [id, router, recoverProjectWithTeamSwitch]);
 
   if (projectLoading) {

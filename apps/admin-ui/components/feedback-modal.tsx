@@ -16,7 +16,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, Paperclip, X, Camera } from 'lucide-react';
-import html2canvas from 'html2canvas';
 
 type FeedbackType = 'BUG' | 'FEATURE' | 'GENERAL';
 
@@ -122,6 +121,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     try {
+      const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(document.body, {
         useCORS: true,
         allowTaint: true,

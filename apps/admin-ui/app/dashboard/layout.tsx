@@ -82,13 +82,17 @@ export default function DashboardLayout({
       startProactiveRefresh();
     }
 
+    let cancelled = false;
+
     async function init() {
       await api.auth.me().catch(() => {});
 
-      // Load profile for navbar
+      if (cancelled) return;
+
       api.auth
         .getProfile()
         .then((p) => {
+          if (cancelled) return;
           setProfile(p);
           if (p.forcePasswordChange) {
             Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
@@ -102,26 +106,34 @@ export default function DashboardLayout({
       if (cachedTeam) {
         try {
           const teams = await api.teams.list();
+          if (cancelled) return;
           const valid = teams.some((t) => t.id === cachedTeam);
           if (valid) {
             setActiveTeamId(cachedTeam);
             return;
           }
         } catch {}
+        if (cancelled) return;
         Cookies.remove('kb_active_team');
       }
 
       try {
         const { teamId } = await api.teams.getActive();
-        setActiveTeamId(teamId);
-        Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+        if (!cancelled) {
+          setActiveTeamId(teamId);
+          Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+        }
       } catch {}
     }
 
     init();
 
-    return () => stopProactiveRefresh();
-  }, [router, pathname]);
+    return () => {
+      cancelled = true;
+      stopProactiveRefresh();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   useEffect(() => {
     if (!activeTeamId) return;

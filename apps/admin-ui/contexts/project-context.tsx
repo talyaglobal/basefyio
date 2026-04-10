@@ -26,10 +26,10 @@ export function ProjectProvider({
   );
 }
 
-export function useProject() {
+export function useProject(): ProjectContextValue {
   const context = useContext(ProjectContext);
   if (context === undefined) {
-    throw new Error('useProject must be used within a ProjectProvider');
+    return { project: null, loading: true };
   }
   return context;
 }

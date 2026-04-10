@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_URL =
   process.env.API_INTERNAL_URL || 'http://localhost:4000';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 async function proxy(
   request: NextRequest,

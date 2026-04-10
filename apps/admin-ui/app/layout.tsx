@@ -6,6 +6,7 @@ import { ExportProgressProvider } from '@/lib/export-progress-context';
 import { ExportProgressToast } from '@/components/export-progress-toast';
 import { ThemeProvider } from '@/components/theme-provider';
 import { NotificationsProvider } from '@/lib/notifications-context';
+import { GlobalErrorCatcher } from '@/components/global-error-catcher';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -26,6 +27,7 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body style={{ fontFamily: "'Inter', sans-serif" }}>
+        <GlobalErrorCatcher />
         <ThemeProvider>
           <ImportProgressProvider>
             <ExportProgressProvider>

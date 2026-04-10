@@ -159,6 +159,10 @@ export function DashboardSidebar({
     }
   }, [sidebarMode, hydrated]);
 
+  const sortedTeams = useMemo(() => {
+    return [...teams].sort((a, b) => a.name.localeCompare(b.name));
+  }, [teams]);
+
   if (isProjectDetailPath(pathname)) {
     return null;
   }
@@ -166,9 +170,6 @@ export function DashboardSidebar({
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
   const items = isRoot ? [...ALL_NAV_ITEMS, ROOT_NAV_ITEM] : ALL_NAV_ITEMS;
-  const sortedTeams = useMemo(() => {
-    return [...teams].sort((a, b) => a.name.localeCompare(b.name));
-  }, [teams]);
 
   async function switchTeam(teamId: string) {
     try {

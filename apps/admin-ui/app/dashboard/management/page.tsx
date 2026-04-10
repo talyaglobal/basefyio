@@ -121,7 +121,6 @@ export default function ManagementPage() {
   });
   const [passwordDialogUser, setPasswordDialogUser] = useState<ManagementUser | null>(null);
   const [newPassword, setNewPassword] = useState('');
-  const [forceChangeOnFirstLogin, setForceChangeOnFirstLogin] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
   const [auditSearch, setAuditSearch] = useState('');
   const [auditDateFrom, setAuditDateFrom] = useState('');
@@ -310,16 +309,13 @@ export default function ManagementPage() {
     }
     setSavingPassword(true);
     try {
-      // ROOT users should never be forced to change password
-      const shouldForceChange = passwordDialogUser.role === 'ROOT' ? false : forceChangeOnFirstLogin;
       await api.auth.resetManagementUserPassword(passwordDialogUser.id, {
         newPassword: newPassword.trim(),
-        forceChangeOnFirstLogin: shouldForceChange,
+        forceChangeOnFirstLogin: false,
       });
       toast.success(`Password reset for ${passwordDialogUser.email}`);
       setPasswordDialogUser(null);
       setNewPassword('');
-      setForceChangeOnFirstLogin(true);
     } catch (err: any) {
       toast.error(err.message || 'Failed to reset password');
     } finally {
@@ -901,7 +897,6 @@ export default function ManagementPage() {
                       onClick={() => {
                         setPasswordDialogUser(u);
                         setNewPassword('');
-                        setForceChangeOnFirstLogin(true);
                       }}
                     >
                       Reset Password
@@ -1461,7 +1456,6 @@ export default function ManagementPage() {
           if (!open) {
             setPasswordDialogUser(null);
             setNewPassword('');
-            setForceChangeOnFirstLogin(true);
           }
         }}
       >
@@ -1504,23 +1498,12 @@ export default function ManagementPage() {
                 Generate Password
               </Button>
             </div>
-            {passwordDialogUser?.role !== 'ROOT' && (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={forceChangeOnFirstLogin}
-                  onChange={(e) => setForceChangeOnFirstLogin(e.target.checked)}
-                />
-                Force user to change password on next login
-              </label>
-            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   setPasswordDialogUser(null);
                   setNewPassword('');
-                  setForceChangeOnFirstLogin(true);
                 }}
               >
                 Cancel
