@@ -126,7 +126,7 @@ export class StripeService implements OnModuleInit {
     return (pm as Stripe.PaymentMethod) || null;
   }
 
-  async attachPaymentMethod(paymentMethodId: string, customerId: string): Promise<Stripe.PaymentMethod> {
+  async attachPaymentMethod(customerId: string, paymentMethodId: string): Promise<Stripe.PaymentMethod> {
     this.assertEnabled();
     return this.stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
   }

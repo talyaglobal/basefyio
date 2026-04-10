@@ -1096,7 +1096,7 @@ export class BillingService implements OnModuleInit {
 
     // Update payment method if provided
     if (newPaymentMethodId) {
-      await this.stripe.attachPaymentMethod(newPaymentMethodId, sub.stripeCustomerId);
+      await this.stripe.attachPaymentMethod(sub.stripeCustomerId, newPaymentMethodId);
       await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, newPaymentMethodId);
       this.logger.log(`Payment method updated for team ${teamId}`);
     }
