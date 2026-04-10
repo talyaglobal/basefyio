@@ -236,21 +236,23 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     clearTokens();
     Cookies.remove('kb_active_team');
 
-    // Best-effort: revoke the server-side session/token.
-    // Do NOT redirect user to Keycloak logout page.
+    // Revoke tokens and clear Keycloak browser SSO so another Google/GitHub account can sign in.
     if (refreshToken) {
       const redirectUri =
         typeof window !== 'undefined'
           ? `${window.location.origin}/login`
           : undefined;
-      await api.auth
-        .logout(refreshToken, redirectUri, idToken)
-        .catch(() => ({ message: 'Logged out' }));
+      try {
+        const res = await api.auth.logout(refreshToken, redirectUri, idToken);
+        if (res.logoutUrl) {
+          window.location.href = res.logoutUrl;
+          return;
+        }
+      } catch {
+        // fall through to /login
+      }
     }
 
-    // Hard redirect (full page reload) guarantees all React state,
-    // timers, and in-flight requests are fully discarded.
-    // Always return directly to login screen.
     window.location.href = '/login';
   }
 

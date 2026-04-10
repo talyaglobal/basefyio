@@ -238,9 +238,8 @@ export class KeycloakAdminService implements OnModuleInit {
         envId: 'oauth.googleClientId',
         envSecret: 'oauth.googleClientSecret',
         scope: 'openid email profile',
-        // Force Google re-auth + account chooser every login.
-        // Prevents silent auto-login with previous Google session.
-        extraConfig: { prompt: 'login', max_age: '0' },
+        // Account chooser + fresh auth (avoids wrong-account SSO with Keycloak broker).
+        extraConfig: { prompt: 'select_account login', max_age: '0' },
       },
       {
         alias: 'github',
@@ -248,7 +247,7 @@ export class KeycloakAdminService implements OnModuleInit {
         envId: 'oauth.githubClientId',
         envSecret: 'oauth.githubClientSecret',
         scope: 'user:email',
-        extraConfig: {},
+        extraConfig: { prompt: 'login', max_age: '0' },
       },
     ];
 
@@ -863,11 +862,15 @@ export class KeycloakAdminService implements OnModuleInit {
       google: {
         providerId: 'google',
         scope: 'openid email profile',
-        extraConfig: { prompt: 'login', max_age: '0' },
+        extraConfig: { prompt: 'select_account login', max_age: '0' },
       },
       microsoft: { providerId: 'microsoft', scope: 'openid email profile' },
       apple: { providerId: 'apple', scope: 'openid email name' },
-      github: { providerId: 'github', scope: 'user:email' },
+      github: {
+        providerId: 'github',
+        scope: 'user:email',
+        extraConfig: { prompt: 'login', max_age: '0' },
+      },
       gitlab: { providerId: 'gitlab', scope: 'read_user openid profile email' },
       linkedin: { providerId: 'linkedin-openid', scope: 'openid profile email' },
       facebook: { providerId: 'facebook', scope: 'email public_profile' },

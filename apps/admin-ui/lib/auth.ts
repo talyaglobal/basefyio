@@ -148,8 +148,8 @@ export function startProactiveRefresh() {
     const expiry = getTokenExpiry();
     if (!expiry) return;
 
-    // Refresh 60 seconds before expiry
-    const delay = Math.max(expiry - Date.now() - 60_000, 5_000);
+    // Refresh well before expiry to avoid 401 bursts and surprise logouts on slow networks
+    const delay = Math.max(expiry - Date.now() - 180_000, 5_000);
 
     refreshTimer = setTimeout(async () => {
       const rt = getRefreshToken();

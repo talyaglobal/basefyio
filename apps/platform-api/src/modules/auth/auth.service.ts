@@ -716,6 +716,17 @@ export class AuthService {
     ).toString('base64url');
 
     const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
+    /** Brokered IdPs: force account picker + fresh auth to avoid Keycloak "different user" SSO conflicts */
+    const socialIdps = new Set([
+      'google',
+      'github',
+      'microsoft',
+      'apple',
+      'gitlab',
+      'linkedin',
+      'facebook',
+      'twitter',
+    ]);
     const params = new URLSearchParams({
       client_id: platformClientId,
       response_type: 'code',
@@ -723,9 +734,9 @@ export class AuthService {
       redirect_uri: callbackUrl,
       state,
       kc_idp_hint: provider,
-      // For Google: always re-authenticate and show account chooser
-      // so sign-out does not auto-login with the previous account.
-      ...(provider === 'google' ? { prompt: 'login', max_age: '0' } : {}),
+      ...(socialIdps.has(provider)
+        ? { prompt: 'select_account login', max_age: '0' }
+        : {}),
     });
 
     return { url: `${authUrl}?${params.toString()}`, provider };
@@ -770,23 +781,31 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     const keycloakUrl = this.config.get<string>('keycloak.url');
-    const clientId = this.config.get<string>('keycloak.adminClientId');
-
     const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const adminClientId = this.config.get<string>('keycloak.adminClientId')!;
 
-    const params = new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: clientId!,
-      refresh_token: refreshToken,
-    });
-
-    try {
+    const tryRefresh = async (clientId: string) => {
+      const params = new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: refreshToken,
+      });
       const { data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
       );
+      return data as {
+        access_token: string;
+        refresh_token: string;
+        id_token?: string;
+        expires_in: number;
+      };
+    };
 
+    try {
+      const data = await tryRefresh(platformClientId);
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -794,7 +813,17 @@ export class AuthService {
         expiresIn: data.expires_in,
       };
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      try {
+        const data = await tryRefresh(adminClientId);
+        return {
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token,
+          idToken: data.id_token,
+          expiresIn: data.expires_in,
+        };
+      } catch {
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
     }
   }
 
@@ -829,17 +858,23 @@ export class AuthService {
     })();
 
     try {
-      const logoutUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/logout`;
-      const params = new URLSearchParams({
-        client_id: adminClientId!,
-        refresh_token: refreshToken,
-      });
-
-      await firstValueFrom(
-        this.http.post(logoutUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        }),
-      );
+      const logoutEndpoint = `${keycloakUrl}/realms/master/protocol/openid-connect/logout`;
+      const revoke = async (clientId: string) => {
+        const params = new URLSearchParams({
+          client_id: clientId,
+          refresh_token: refreshToken,
+        });
+        await firstValueFrom(
+          this.http.post(logoutEndpoint, params.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          }),
+        );
+      };
+      try {
+        await revoke(browserClientId);
+      } catch {
+        await revoke(adminClientId!);
+      }
     } catch {
       // Best-effort: don't fail sign-out if Keycloak revocation errors
     }
