@@ -8,7 +8,7 @@ const kb = createClient({
 
 async function run() {
   console.log('═══════════════════════════════════════');
-  console.log('  @kolaybase/sdk  —  Integration Test');
+  console.log('  kolaybase-js  —  Integration Test');
   console.log('═══════════════════════════════════════\n');
 
   // ── 1. Auth ─────────────────────────────────────
@@ -106,7 +106,7 @@ async function run() {
 
   console.log('\n▸ Storage: upload');
   const bucket = kb.storage.from('sdk-test');
-  const content = new TextEncoder().encode('Hello from @kolaybase/sdk! 🚀');
+  const content = new TextEncoder().encode('Hello from kolaybase-js! 🚀');
   const blob = new Blob([content], { type: 'text/plain' });
   const { data: uploaded, error: upErr } = await bucket.upload('hello.txt', blob, { contentType: 'text/plain' });
   if (upErr) console.log('  ✗ upload failed:', upErr.message);

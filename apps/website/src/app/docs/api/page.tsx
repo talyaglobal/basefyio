@@ -39,15 +39,15 @@ export default function ApiDocs() {
       </p>
 
       <h3>Select rows</h3>
-      <pre><code>{`GET /api/rest/v1/:table?select=*&column=eq.value
+      <pre><code>{`GET /api/rest/v1/:table?select=*&id=eq.1
 
 Headers:
   apikey: <anon-key>
 
 Query params:
   select    — columns to return (default: *)
-  column    — filter: eq, neq, gt, gte, lt, lte, like, ilike, is, in
-  order     — column.asc or column.desc
+  <column>  — filter value: eq.<v>, neq.<v>, gt.<v>, gte.<v>, lt.<v>, lte.<v>, like.<pattern>, ilike.<pattern>, is.null|true|false, in.(a,b,c)
+  order     — column.asc or column.desc (comma-separated)
   limit     — max rows
   offset    — skip rows`}</code></pre>
 
@@ -56,6 +56,7 @@ Query params:
 Headers:
   apikey: <service-key>
   Content-Type: application/json
+  Prefer: return=representation   # optional
 
 Body: { "column1": "value", "column2": 123 }
   — or array for bulk insert —
@@ -66,13 +67,15 @@ Body: [{ "column1": "a" }, { "column1": "b" }]`}</code></pre>
 Headers:
   apikey: <service-key>
   Content-Type: application/json
+  Prefer: return=representation   # optional
 
 Body: { "column1": "new-value" }`}</code></pre>
 
       <h3>Delete rows</h3>
       <pre><code>{`DELETE /api/rest/v1/:table?column=eq.value
 Headers:
-  apikey: <service-key>`}</code></pre>
+  apikey: <service-key>
+  Prefer: return=representation   # optional`}</code></pre>
 
       {/* ── SDK Auth ────────────────────────────────── */}
       <h2>SDK Auth Endpoints</h2>
@@ -185,7 +188,7 @@ Response: { id, email, username, emailVerified, ... }`}</code></pre>
           <tr><td>DELETE</td><td><code>/projects/:id/tables/:name/columns/:col</code></td><td>Delete column</td></tr>
           <tr><td>GET</td><td><code>/projects/:id/tables/:name/rows</code></td><td>Get rows</td></tr>
           <tr><td>POST</td><td><code>/projects/:id/tables/:name/rows</code></td><td>Insert row</td></tr>
-          <tr><td>PUT</td><td><code>/projects/:id/tables/:name/rows</code></td><td>Update row</td></tr>
+          <tr><td>PUT</td><td><code>/projects/:id/tables/:name/rows</code></td><td>Update row (body includes <code>pkWhere</code> + <code>data</code>)</td></tr>
           <tr><td>DELETE</td><td><code>/projects/:id/tables/:name/rows</code></td><td>Delete row</td></tr>
           <tr><td>GET</td><td><code>/projects/:id/tables/:name/foreign-keys</code></td><td>List FK</td></tr>
           <tr><td>POST</td><td><code>/projects/:id/tables/:name/foreign-keys</code></td><td>Add FK</td></tr>
@@ -207,6 +210,7 @@ Response: { id, email, username, emailVerified, ... }`}</code></pre>
           <tr><td>PATCH</td><td><code>/projects/:id/storage/buckets/:name</code></td><td>Toggle public</td></tr>
           <tr><td>GET</td><td><code>/projects/:id/storage/buckets/:name/objects?prefix=</code></td><td>List objects</td></tr>
           <tr><td>POST</td><td><code>/projects/:id/storage/buckets/:name/objects?path=</code></td><td>Upload (multipart)</td></tr>
+          <tr><td>GET</td><td><code>/projects/:id/storage/buckets/:name/objects/download?path=</code></td><td>Download object</td></tr>
           <tr><td>GET</td><td><code>/projects/:id/storage/buckets/:name/objects/url?path=</code></td><td>Signed URL</td></tr>
           <tr><td>DELETE</td><td><code>/projects/:id/storage/buckets/:name/objects</code></td><td>Delete objects</td></tr>
         </tbody>
