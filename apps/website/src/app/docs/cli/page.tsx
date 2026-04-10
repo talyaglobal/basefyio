@@ -10,7 +10,7 @@ export default function CliDocs() {
       </p>
 
       <h2>Installation</h2>
-      <pre><code>{`npm install -g @kolaybase/cli`}</code></pre>
+      <pre><code>{`npm install -g kolaybase-cli`}</code></pre>
 
       <h2>Authentication</h2>
       <h3>kb login</h3>

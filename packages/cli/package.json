@@ -1,5 +1,5 @@
 {
-  "name": "@kolaybase/cli",
+  "name": "kolaybase-cli",
   "publishConfig": {
     "access": "public"
   },

@@ -1,10 +1,10 @@
 # Kolaybase Usage Guide
-cli install: npm install -g @kolaybase/cli
-sdk install: npm install @kolaybase/sdk
+cli install: npm install -g kolaybase-cli
+sdk install: npm install kolaybase-js
 ## CLI
 
 ```bash
-npm install -g @kolaybase/cli
+npm install -g kolaybase-cli
 ```
 
 ```bash
@@ -26,7 +26,7 @@ kb login --api-url https://api.myserver.com
 ## SDK
 
 ```bash
-npm install @kolaybase/sdk
+npm install kolaybase-js
 ```
 
 ### Setup
@@ -43,7 +43,7 @@ KOLAYBASE_API_URL=https://api.kolaybase.com
 The SDK reads these automatically:
 
 ```js
-import { createClient } from '@kolaybase/sdk'
+import { createClient } from 'kolaybase-js'
 
 const kb = createClient()   // reads from .env
 
@@ -54,8 +54,8 @@ const kb2 = createClient({ projectId: '...', apiKey: '...' })
 ### Auth
 
 ```js
-await kb.auth.signUp({ username: 'alice', email: 'alice@example.com', password: 'secret' })
-await kb.auth.signIn({ username: 'alice', password: 'secret' })
+await kb.auth.signUp({ email: 'alice@example.com', password: 'secret' })
+await kb.auth.signIn({ email: 'alice@example.com', password: 'secret' })
 
 const { data: user } = await kb.auth.getUser()
 ```

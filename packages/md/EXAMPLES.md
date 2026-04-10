@@ -8,7 +8,7 @@ Quick examples for common CLI workflows.
 
 ```bash
 # Install CLI
-npm install -g @kolaybase/cli
+npm install -g kolaybase-cli
 
 # Login
 kb login
@@ -207,7 +207,7 @@ jobs:
       - uses: actions/checkout@v2
       
       - name: Install KB CLI
-        run: npm install -g @kolaybase/cli
+        run: npm install -g kolaybase-cli
       
       - name: Login
         run: |
@@ -229,7 +229,7 @@ jobs:
 FROM node:20-alpine
 
 # Install KB CLI
-RUN npm install -g @kolaybase/cli
+RUN npm install -g kolaybase-cli
 
 # Copy app
 WORKDIR /app
@@ -252,7 +252,7 @@ CMD ["npm", "start"]
 
 ```bash
 # 1. Install CLI
-npm install -g @kolaybase/cli
+npm install -g kolaybase-cli
 
 # 2. Login with team credentials
 kb login

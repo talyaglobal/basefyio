@@ -1,5 +1,5 @@
 {
-  "name": "@kolaybase/sdk",
+  "name": "kolaybase-js",
   "publishConfig": {
     "access": "public"
   },
