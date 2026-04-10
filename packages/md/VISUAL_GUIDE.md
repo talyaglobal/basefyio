@@ -3,7 +3,7 @@
 ## 📦 Package Structure
 
 ```
-kolaybase-cli v0.1.0
+@kolaybase/cli v0.1.0
 │
 ├── 📂 src/                     # Source code (3,500+ lines)
 │   ├── 📄 index.ts             # CLI entry point
@@ -111,7 +111,7 @@ kb (kolaybase)
 └─────────────────────────────────────────────────────────────┘
 
 1️⃣  Install CLI
-   $ npm install -g kolaybase-cli
+   $ npm install -g @kolaybase/cli
    ✓ CLI installed globally
 
 2️⃣  Login

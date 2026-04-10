@@ -638,7 +638,6 @@ export class AuthService {
   async changePassword(
     userId: string,
     email: string,
-    currentPassword: string,
     newPassword: string,
     allowIdentityEdit = false,
   ) {
@@ -668,13 +667,6 @@ export class AuthService {
       throw new BadRequestException(
         `SOCIAL_PASSWORD_DISABLED:${methods.signOnMethod.toUpperCase()}`,
       );
-    }
-    if (methods.signOnMethod === 'local') {
-      // Validate current password by attempting to get a token from Keycloak
-      const isValid = await this.validatePassword(email, currentPassword);
-      if (!isValid) {
-        throw new UnauthorizedException('Current password is incorrect');
-      }
     }
 
     try {
@@ -867,9 +859,29 @@ export class AuthService {
   }
 
   async forgotPassword(email: string) {
-    const kcUser = await this.keycloak.findPlatformUserByEmail(email);
+    let kcUser = await this.keycloak.findPlatformUserByEmail(email);
+
     if (!kcUser) {
-      // Return success even if user doesn't exist to prevent email enumeration
+      // Keycloak email field might be empty; fall back to Prisma username lookup
+      const dbUser = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { username: true },
+      });
+      if (dbUser?.username) {
+        kcUser = await this.keycloak.findPlatformUserByUsername(dbUser.username);
+        // Patch missing email in Keycloak so future lookups work
+        if (kcUser?.id && !kcUser.email) {
+          try {
+            await this.keycloak.updatePlatformUserEmail(kcUser.id, email);
+            this.logger.log(`[FORGOT_PASSWORD] Patched missing email in Keycloak for ${kcUser.username}`);
+          } catch {
+            // non-critical
+          }
+        }
+      }
+    }
+
+    if (!kcUser) {
       return { message: 'If that email exists, a reset link has been sent.' };
     }
     try {

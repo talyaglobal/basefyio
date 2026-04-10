@@ -41,7 +41,7 @@ kb status
 ### Unlink when done
 
 ```bash
-npm unlink -g kolaybase-cli
+npm unlink -g @kolaybase/cli
 ```
 
 ## Development Workflow
@@ -140,7 +140,7 @@ npm publish --access public
 ### Verify Publication
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 kb --version
 ```
 
@@ -149,7 +149,7 @@ kb --version
 ### Command not found after linking
 
 ```bash
-npm unlink -g kolaybase-cli
+npm unlink -g @kolaybase/cli
 npm link
 ```
 

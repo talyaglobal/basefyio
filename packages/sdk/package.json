@@ -1,5 +1,8 @@
 {
-  "name": "kolaybase-js",
+  "name": "@kolaybase/sdk",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "0.4.0",
   "description": "Kolaybase JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",

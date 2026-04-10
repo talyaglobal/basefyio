@@ -18,7 +18,7 @@ The official command-line interface for [Kolaybase](https://github.com/fsipka/ko
 ### NPM
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 ```
 
 ### Build from source

@@ -860,8 +860,8 @@ export class BillingService implements OnModuleInit {
       return 0;
     }
 
-    const usedRatio = 1 - remainingMs / totalMs;
-    const credit = Math.floor(currentPlanPrice * (1 - usedRatio));
+    const remainingRatio = remainingMs / totalMs;
+    const credit = Math.round(currentPlanPrice * remainingRatio);
 
     return Math.max(0, credit);
   }
@@ -1228,6 +1228,7 @@ export class BillingService implements OnModuleInit {
       dueNow: amountDue,
       subtotal: newPlan.priceMonthly,
       prorationCredit,
+      prorationTotal: prorationCredit,
       total: amountDue,
       nextPaymentAt: nextBillingDate.toISOString(),
       currentPeriodEnd: sub.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null,
@@ -1235,10 +1236,14 @@ export class BillingService implements OnModuleInit {
         {
           description: `Kolaybase ${newPlan.displayName} (full month)`,
           amount: newPlan.priceMonthly,
+          currency: 'usd',
+          proration: false,
         },
         {
           description: `Credit from ${currentPlan.displayName} (unused time)`,
-          amount: -prorationCredit,
+          amount: prorationCredit,
+          currency: 'usd',
+          proration: true,
         },
       ],
     };

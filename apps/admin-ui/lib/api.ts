@@ -215,13 +215,12 @@ export const api = {
       });
     },
     changePassword(
-      currentPassword: string,
       newPassword: string,
       allowIdentityEdit = false,
     ) {
       return request<{ message: string }>('/auth/change-password', {
         method: 'POST',
-        body: JSON.stringify({ currentPassword, newPassword, allowIdentityEdit }),
+        body: JSON.stringify({ newPassword, allowIdentityEdit }),
       });
     },
     completeForcedPasswordChange(newPassword: string) {

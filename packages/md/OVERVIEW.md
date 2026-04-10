@@ -301,7 +301,7 @@ MIT License - see [LICENSE](./LICENSE) file
 **Ready to get started?**
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 kb login
 kb init
 kb start

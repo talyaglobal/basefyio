@@ -631,16 +631,25 @@ export class KeycloakAdminService implements OnModuleInit {
     return id;
   }
 
+  async findPlatformUserByEmail(email: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({ realm: 'master', email, exact: true });
+    return users[0] || null;
+  }
+
   async findPlatformUserByUsername(username: string) {
     await this.ensureAuth();
     const users = await this.client.users.find({ realm: 'master', username, exact: true });
     return users[0] || null;
   }
 
-  async findPlatformUserByEmail(email: string) {
+  async updatePlatformUserEmail(keycloakUserId: string, email: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({ realm: 'master', email, exact: true });
-    return users[0] || null;
+    await this.client.users.update(
+      { realm: 'master', id: keycloakUserId },
+      { email, emailVerified: true },
+    );
+    this.logger.log(`Updated email for Keycloak user ${keycloakUserId} to ${email}`);
   }
 
   async resetPlatformUserPassword(

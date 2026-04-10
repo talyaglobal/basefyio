@@ -83,18 +83,15 @@ interface UpgradePreview {
   dueNow: number;
   subtotal: number;
   total: number;
-  prorationTotal: number;
-  nextPaymentAttemptAt: string | null;
-  currentPeriodEnd: string | null;
-  firstChargeAt: string | null;
-  firstChargeAmount: number;
+  prorationCredit?: number;
+  prorationTotal?: number;
+  nextPaymentAt?: string | null;
+  currentPeriodEnd?: string | null;
   lines: Array<{
     description: string;
     amount: number;
-    currency: string;
-    proration: boolean;
-    periodStart: string | null;
-    periodEnd: string | null;
+    currency?: string;
+    proration?: boolean;
   }>;
 }
 
@@ -307,6 +304,7 @@ export default function BillingPage() {
   const [upgradeTargetPlan, setUpgradeTargetPlan] = useState<Plan | null>(null);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
   const [loadingUpgradePreview, setLoadingUpgradePreview] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [accountForm, setAccountForm] = useState({
     companyName: '',
     billingEmail: '',
@@ -883,11 +881,15 @@ export default function BillingPage() {
                 {invoices.map((inv) => {
                   const outstanding = Math.max(inv.amountDue - inv.amountPaid, 0);
                   return (
-                    <tr key={inv.id} className="border-b last:border-0 align-top">
+                    <tr
+                      key={inv.id}
+                      className="border-b last:border-0 align-top cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => setSelectedInvoice(inv)}
+                    >
                       <td className="py-3 pr-4 text-foreground">
                         {new Date(inv.createdAt).toLocaleString()}
                       </td>
-                      <td className="py-3 pr-4 text-foreground">
+                      <td className="py-3 pr-4 text-primary hover:underline">
                         {inv.stripeInvoiceId || inv.id.slice(0, 8)}
                       </td>
                       <td className="py-3 pr-4 text-muted-foreground">
@@ -912,12 +914,21 @@ export default function BillingPage() {
                         </span>
                       </td>
                       <td className="py-3">
-                        <div className="flex gap-3">
+                        <div className="flex gap-3" onClick={(e) => e.stopPropagation()}>
                           {inv.invoiceUrl && (
                             <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>
                           )}
                           {inv.invoicePdf && (
                             <a href={inv.invoicePdf} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PDF</a>
+                          )}
+                          {!inv.invoiceUrl && !inv.invoicePdf && (
+                            <button
+                              type="button"
+                              className="text-primary hover:underline"
+                              onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); }}
+                            >
+                              Details
+                            </button>
                           )}
                         </div>
                       </td>
@@ -929,6 +940,84 @@ export default function BillingPage() {
           </div>
         )}
       </div>
+
+      {/* Invoice Detail Dialog */}
+      <Dialog open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Invoice Details</DialogTitle>
+            <DialogDescription>
+              {selectedInvoice?.stripeInvoiceId || selectedInvoice?.id.slice(0, 8)}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedInvoice && (() => {
+            const outstanding = Math.max(selectedInvoice.amountDue - selectedInvoice.amountPaid, 0);
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Status</p>
+                    <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full ${invoiceStatusBadge(selectedInvoice.status)}`}>
+                      {invoiceStatusLabel(selectedInvoice.status)}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Date</p>
+                    <p className="font-medium text-foreground">{new Date(selectedInvoice.createdAt).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Invoice ID</p>
+                    <p className="font-mono text-xs text-foreground break-all">{selectedInvoice.stripeInvoiceId || selectedInvoice.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Billing Period</p>
+                    <p className="text-foreground">
+                      {selectedInvoice.periodStart && selectedInvoice.periodEnd
+                        ? `${new Date(selectedInvoice.periodStart).toLocaleDateString()} - ${new Date(selectedInvoice.periodEnd).toLocaleDateString()}`
+                        : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Amount Due</span>
+                    <span className="font-medium text-foreground">{formatMoney(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Amount Paid</span>
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatMoney(selectedInvoice.amountPaid, selectedInvoice.currency)}</span>
+                  </div>
+                  <div className="border-t pt-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-medium text-foreground">Outstanding Balance</span>
+                      <span className={`font-bold ${outstanding > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {formatMoney(outstanding, selectedInvoice.currency)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  {selectedInvoice.invoiceUrl && (
+                    <a href={selectedInvoice.invoiceUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm">View on Stripe</Button>
+                    </a>
+                  )}
+                  {selectedInvoice.invoicePdf && (
+                    <a href={selectedInvoice.invoicePdf} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm">Download PDF</Button>
+                    </a>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => setSelectedInvoice(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Upgrade Confirmation Dialog */}
       <Dialog
@@ -975,50 +1064,34 @@ export default function BillingPage() {
                 </div>
               </div>
 
-              {/* Proration Details */}
-              {upgradePreview.prorationTotal !== 0 && (
-                <div className="rounded-lg border bg-card p-4 space-y-2 text-sm">
-                  <h4 className="font-medium text-foreground">Billing Breakdown</h4>
-                  {upgradePreview.lines.map((line, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-1">
-                      <div className="flex items-center gap-2">
-                        <span className={line.proration ? 'text-muted-foreground' : 'text-foreground'}>
-                          {line.description}
-                        </span>
-                        {line.proration && (
-                          <span className="text-xs px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded">
-                            Credit
-                          </span>
-                        )}
-                      </div>
-                      <span className={line.proration ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}>
-                        {line.proration && '-'}{formatMoney(Math.abs(line.amount), line.currency)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="border-t pt-2 mt-2">
-                    <div className="flex items-center justify-between font-medium">
-                      <span className="text-foreground">Total Credit Applied</span>
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        -{formatMoney(Math.abs(upgradePreview.prorationTotal), upgradePreview.currency)}
-                      </span>
-                    </div>
+              {/* Billing Breakdown */}
+              <div className="rounded-lg border bg-card p-4 space-y-2 text-sm">
+                <h4 className="font-medium text-foreground">Billing Breakdown</h4>
+                {upgradePreview.lines.map((line, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-1">
+                    <span className={line.proration ? 'text-muted-foreground' : 'text-foreground'}>
+                      {line.description}
+                    </span>
+                    <span className={line.proration ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}>
+                      {line.proration ? '-' : ''}{formatMoney(line.amount, upgradePreview.currency)}
+                    </span>
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
 
-              <div className="rounded-lg border p-4 text-sm">
+              <div className="rounded-lg border bg-emerald-50 dark:bg-emerald-950/20 p-4 text-sm">
                 <p className="text-muted-foreground">Amount Due Today</p>
                 <p className="mt-1 text-3xl font-bold text-foreground">
                   {formatMoney(upgradePreview.dueNow, upgradePreview.currency)}
                 </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  No charge today for this upgrade. Use first, pay at end of period.
-                </p>
-                {upgradePreview.firstChargeAt && (
+                {(upgradePreview.prorationCredit ?? 0) > 0 && (
+                  <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                    {formatMoney(upgradePreview.prorationCredit ?? 0, upgradePreview.currency)} credit applied from your current plan.
+                  </p>
+                )}
+                {upgradePreview.nextPaymentAt && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    First charge: {new Date(upgradePreview.firstChargeAt).toLocaleDateString()} for{' '}
-                    {formatMoney(upgradePreview.firstChargeAmount, upgradePreview.currency)}.
+                    Next billing date: {new Date(upgradePreview.nextPaymentAt).toLocaleDateString()}
                   </p>
                 )}
               </div>
@@ -1026,7 +1099,7 @@ export default function BillingPage() {
               <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <p>
-                  Your plan will be upgraded immediately upon confirmation. Billing will occur on your first invoice date.
+                  Your plan will be upgraded immediately and {formatMoney(upgradePreview.dueNow, upgradePreview.currency)} will be charged to your payment method now.
                 </p>
               </div>
 

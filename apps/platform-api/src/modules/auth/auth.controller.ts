@@ -115,7 +115,6 @@ export class AuthController {
     return this.authService.changePassword(
       user.sub,
       user.email,
-      body.currentPassword || '',
       body.newPassword,
       !!body.allowIdentityEdit,
     );

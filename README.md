@@ -45,7 +45,7 @@ Each project gets its own PostgreSQL database and Keycloak authentication realm.
 
 ```bash
 # Install CLI
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 
 # Clone repository
 git clone <repo-url> kolaybase && cd kolaybase
@@ -113,7 +113,7 @@ We provide a powerful CLI tool (similar to Supabase CLI) for managing your Kolay
 
 ```bash
 # Install CLI globally
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 
 # Quick start
 kb login

@@ -1197,7 +1197,7 @@ function ToggleSetting({
 function SdkCodeBlock() {
   const [copied, setCopied] = useState(false);
 
-  const code = `import { createClient } from 'kolaybase-js'
+  const code = `import { createClient } from '@kolaybase/sdk'
 
 const kb = createClient({
   projectId: 'YOUR_PROJECT_ID',

@@ -11,10 +11,10 @@ export default function SdkDocs() {
       </p>
 
       <h2>Installation</h2>
-      <pre><code>{`npm install kolaybase-js`}</code></pre>
+      <pre><code>{`npm install @kolaybase/sdk`}</code></pre>
 
       <h2>Initialization</h2>
-      <pre><code>{`import { createClient } from 'kolaybase-js'
+      <pre><code>{`import { createClient } from '@kolaybase/sdk'
 
 const kb = createClient({
   apiUrl: 'https://api.kolaybase.com',

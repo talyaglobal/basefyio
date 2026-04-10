@@ -294,10 +294,6 @@ export default function AccountPage() {
       toast.error(`This account must use ${signOnMethod} sign-in. Password change is disabled.`);
       return;
     }
-    if (!isExternalAuth && !currentPassword) {
-      toast.error('Enter your current password');
-      return;
-    }
     if (newPassword.length < 8) {
       toast.error('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
       return;
@@ -309,7 +305,6 @@ export default function AccountPage() {
     setChangingPassword(true);
     try {
       await api.auth.changePassword(
-        currentPassword,
         newPassword,
         isExternalAuth && canEditIdentity,
       );
@@ -697,37 +692,11 @@ export default function AccountPage() {
         <p className="text-xs text-muted-foreground">
           {isExternalAuth
             ? `Social sign-in account (${signOnMethod}). Password sign-in is disabled for this account.`
-            : 'Enter your current password first, then set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).'}
+            : 'Set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).'}
         </p>
 
         {!isExternalAuth ? (
         <div className="space-y-4">
-          {!isExternalAuth && (
-          <div className="space-y-2">
-            <Label htmlFor="account-current-pw">Current password</Label>
-            <div className="relative">
-              <Input
-                id="account-current-pw"
-                type={showCurrentPw ? 'text' : 'password'}
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
-                className="pr-10"
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowCurrentPw(!showCurrentPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showCurrentPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          )}
-
-          <Separator />
-
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="account-new-pw">New password</Label>
@@ -787,9 +756,8 @@ export default function AccountPage() {
             onClick={handleChangePassword}
             disabled={
               changingPassword ||
-              (!isExternalAuth && !currentPassword) ||
               isExternalAuth ||
-              newPassword.length < 6 ||
+              newPassword.length < 8 ||
               newPassword !== confirmPassword
             }
             size="sm"

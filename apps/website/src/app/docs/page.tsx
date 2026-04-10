@@ -19,8 +19,8 @@ export default function DocsOverview() {
         <a href="https://app.kolaybase.com/signup">app.kolaybase.com</a>, create
         a project, and start building immediately.
       </p>
-      <pre><code>{`npm install kolaybase-js`}</code></pre>
-      <pre><code>{`import { createClient } from 'kolaybase-js'
+      <pre><code>{`npm install @kolaybase/sdk`}</code></pre>
+      <pre><code>{`import { createClient } from '@kolaybase/sdk'
 
 const kb = createClient({
   apiUrl: 'https://api.kolaybase.com',

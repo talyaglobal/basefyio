@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g @kolaybase/cli
 ```
 
 ## Essential Commands

@@ -217,7 +217,7 @@ export default function ProfilePage() {
     }
     setChangingPassword(true);
     try {
-      await api.auth.changePassword(currentPassword, newPassword);
+      await api.auth.changePassword(newPassword);
       toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');

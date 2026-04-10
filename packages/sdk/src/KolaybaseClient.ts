@@ -89,7 +89,7 @@ export class KolaybaseClient {
  *
  * @example
  * ```ts
- * import { createClient } from 'kolaybase-js'
+ * import { createClient } from '@kolaybase/sdk'
  *
  * // Reads KOLAYBASE_PROJECT_ID and KOLAYBASE_ANON_KEY from .env automatically
  * const kb = createClient()
