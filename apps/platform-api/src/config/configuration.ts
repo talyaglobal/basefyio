@@ -16,6 +16,8 @@ export default () => ({
     adminUser: process.env.KEYCLOAK_ADMIN_USER || 'admin',
     adminPassword: process.env.KEYCLOAK_ADMIN_PASSWORD || 'admin',
     adminClientId: process.env.KEYCLOAK_ADMIN_CLIENT_ID || 'admin-cli',
+    /** Comma- or space-separated extra post-logout redirect URIs for kolaybase-platform (production domains, etc.) */
+    postLogoutRedirectUrisExtra: process.env.KEYCLOAK_POST_LOGOUT_REDIRECT_URIS || '',
   },
 
   minio: {

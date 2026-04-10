@@ -181,29 +181,53 @@ export class KeycloakAdminService implements OnModuleInit {
         new Set([
           callbackUrl,
           `${appOrigin}/*`,
+          `${appOrigin}/login`,
           'http://localhost:3000/*',
+          'http://localhost:3000/login',
+          'http://127.0.0.1:3000/*',
+          'http://127.0.0.1:3000/login',
         ]),
       );
       const webOrigins = Array.from(
         new Set([
           appOrigin,
           'http://localhost:3000',
+          'http://127.0.0.1:3000',
           publicApiUrl,
           '+',
         ]),
       );
 
+      /** Keycloak requires explicit post-logout URIs (wildcards on redirectUris are not enough). */
+      const postLogoutUris = new Set<string>([
+        `${appOrigin}/login`,
+        'http://localhost:3000/login',
+        'http://127.0.0.1:3000/login',
+      ]);
+      const extraRaw = this.config.get<string>('keycloak.postLogoutRedirectUrisExtra') || '';
+      for (const part of extraRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)) {
+        postLogoutUris.add(part);
+      }
+      const postLogoutRedirectUris = Array.from(postLogoutUris).join('##');
+
       const existing = await this.client.clients.find({ realm: 'master', clientId });
       if (existing.length > 0) {
+        const prev = existing[0];
+        const attributes = {
+          ...(prev.attributes || {}),
+          'post.logout.redirect.uris': postLogoutRedirectUris,
+        };
         await this.client.clients.update(
-          { realm: 'master', id: existing[0].id! },
+          { realm: 'master', id: prev.id! },
           {
+            ...prev,
             clientId,
             publicClient: true,
             standardFlowEnabled: true,
             directAccessGrantsEnabled: false,
             redirectUris,
             webOrigins,
+            attributes,
           },
         );
         this.logger.log('Platform OAuth client updated');
@@ -216,6 +240,9 @@ export class KeycloakAdminService implements OnModuleInit {
           directAccessGrantsEnabled: false,
           redirectUris,
           webOrigins,
+          attributes: {
+            'post.logout.redirect.uris': postLogoutRedirectUris,
+          },
         });
         this.logger.log('Platform OAuth client created');
       }

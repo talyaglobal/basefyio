@@ -837,8 +837,18 @@ export class AuthService {
     const adminClientId = this.config.get<string>('keycloak.adminClientId');
     const browserClientId = this.keycloak.getPlatformOAuthClientId();
     const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
+    const normalizePostLogoutRedirect = (raw: string): string => {
+      try {
+        const u = new URL(raw);
+        u.hash = '';
+        u.pathname = u.pathname.replace(/\/+$/, '') || '/';
+        return u.toString();
+      } catch {
+        return raw;
+      }
+    };
     const safeRedirect = (() => {
-      const fallback = `${appUrl}/login`;
+      const fallback = normalizePostLogoutRedirect(`${appUrl.replace(/\/+$/, '')}/login`);
       const allowedOrigins = new Set<string>();
       try {
         allowedOrigins.add(new URL(appUrl).origin);
@@ -846,12 +856,13 @@ export class AuthService {
         allowedOrigins.add('http://localhost:3000');
       }
       allowedOrigins.add('http://localhost:3000');
+      allowedOrigins.add('http://127.0.0.1:3000');
       if (!postLogoutRedirectUri) return fallback;
       try {
         const requested = new URL(postLogoutRedirectUri);
         if (!['http:', 'https:'].includes(requested.protocol)) return fallback;
         if (!allowedOrigins.has(requested.origin)) return fallback;
-        return requested.toString();
+        return normalizePostLogoutRedirect(requested.toString());
       } catch {
         return fallback;
       }
