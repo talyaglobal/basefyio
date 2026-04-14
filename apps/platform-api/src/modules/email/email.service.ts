@@ -14,6 +14,7 @@ import { projectInviteUserTemplate } from './templates/project-invite-user.templ
 import { projectMagicLinkTemplate } from './templates/project-magic-link.template';
 import { projectChangeEmailTemplate } from './templates/project-change-email.template';
 import { projectReauthTemplate } from './templates/project-reauth.template';
+import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
 
 @Injectable()
 export class EmailService {
@@ -33,6 +34,11 @@ export class EmailService {
     this.fromEmail = this.config.get<string>('resend.fromEmail')!;
     this.replyTo = this.config.get<string>('resend.replyTo')!;
     this.appUrl = this.config.get<string>('appUrl')!;
+  }
+
+  async sendSignupVerifyEmail(to: string, otp: string, firstName?: string) {
+    const html = signupVerifyEmailTemplate({ email: to, otp, firstName });
+    return this.send({ to, subject: 'Verify your email to join Kolaybase', html });
   }
 
   async sendWelcome(to: string, username: string) {

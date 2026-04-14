@@ -9,6 +9,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifySignupOtpDto } from './dto/verify-signup-otp.dto';
+import { ResendSignupOtpDto } from './dto/resend-signup-otp.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
@@ -30,7 +32,17 @@ export class AuthController {
 
   @Post('signup')
   async signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+    return this.authService.initiateSignup(dto);
+  }
+
+  @Post('signup/verify-otp')
+  async verifySignupOtp(@Body() dto: VerifySignupOtpDto) {
+    return this.authService.verifySignupOtp(dto.email, dto.otp);
+  }
+
+  @Post('signup/resend-otp')
+  async resendSignupOtp(@Body() dto: ResendSignupOtpDto) {
+    return this.authService.resendSignupOtp(dto.email);
   }
 
   @Post('login')

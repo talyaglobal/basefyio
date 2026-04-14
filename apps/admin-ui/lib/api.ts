@@ -162,9 +162,21 @@ async function request<T>(
 export const api = {
   auth: {
     signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
-      return request<AuthTokens & { selectedPlan?: string }>('/auth/signup', {
+      return request<{ message: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
+      });
+    },
+    verifySignupOtp(email: string, otp: string) {
+      return request<AuthTokens>('/auth/signup/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp }),
+      });
+    },
+    resendSignupOtp(email: string) {
+      return request<{ message: string }>('/auth/signup/resend-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
       });
     },
     login(email: string, password: string, captchaAnswer?: string) {

@@ -9,13 +9,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import * as Minio from 'minio';
 import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
+import { RedisService } from '../redis/redis.service';
 
 type RolePermissionKey =
   | 'canAccessManagement'
@@ -78,6 +79,13 @@ export class AuthService {
     },
   };
 
+  // Redis key prefixes for pending signup state
+  private readonly SIGNUP_OTP_PREFIX = 'platform_signup_otp';
+  private readonly SIGNUP_DATA_PREFIX = 'platform_signup_data';
+  private readonly SIGNUP_RATE_PREFIX = 'platform_signup_rate';
+  private readonly SIGNUP_OTP_TTL = 600;   // 10 minutes
+  private readonly SIGNUP_RATE_TTL = 60;   // 1 resend per 60 seconds
+
   constructor(
     private readonly config: ConfigService,
     private readonly http: HttpService,
@@ -85,6 +93,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly billing: BillingService,
+    private readonly redis: RedisService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -118,6 +127,10 @@ export class AuthService {
       await this.minioClient.setBucketPolicy(AuthService.AVATAR_BUCKET, policy);
       this.logger.log(`Created public avatar bucket: ${AuthService.AVATAR_BUCKET}`);
     }
+  }
+
+  private generateOtp(): string {
+    return String(randomInt(100000, 999999));
   }
 
   private generateUsername(firstName?: string, lastName?: string, email?: string): string {
@@ -237,7 +250,8 @@ export class AuthService {
     };
   }
 
-  async signup(data: {
+  // Step 1: Validate email, store pending signup data in Redis, send OTP
+  async initiateSignup(data: {
     email: string;
     password: string;
     firstName?: string;
@@ -247,6 +261,58 @@ export class AuthService {
     this.ensureStrongPassword(data.password);
     const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
     if (existingEmail) {
+      throw new ConflictException('Email already registered');
+    }
+
+    // Rate limit: one OTP request per 60 seconds per email
+    const rateKey = `${this.SIGNUP_RATE_PREFIX}:${data.email}`;
+    const rateLimited = await this.redis.get(rateKey);
+    if (rateLimited) {
+      throw new BadRequestException('Please wait before requesting a new code');
+    }
+
+    const otp = this.generateOtp();
+
+    // Store pending signup data (no Keycloak/Prisma records created yet)
+    await this.redis.set(
+      `${this.SIGNUP_DATA_PREFIX}:${data.email}`,
+      JSON.stringify(data),
+      this.SIGNUP_OTP_TTL,
+    );
+    await this.redis.set(`${this.SIGNUP_OTP_PREFIX}:${data.email}`, otp, this.SIGNUP_OTP_TTL);
+    await this.redis.set(rateKey, '1', this.SIGNUP_RATE_TTL);
+
+    this.email.sendSignupVerifyEmail(data.email, otp, data.firstName).catch(() => {});
+
+    return { message: 'Verification code sent to your email' };
+  }
+
+  // Step 2: Verify OTP and complete registration
+  async verifySignupOtp(email: string, otp: string) {
+    const storedOtp = await this.redis.get(`${this.SIGNUP_OTP_PREFIX}:${email}`);
+    if (!storedOtp) {
+      throw new BadRequestException('Verification code expired or not found. Please sign up again.');
+    }
+    if (storedOtp !== otp) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    const signupDataStr = await this.redis.get(`${this.SIGNUP_DATA_PREFIX}:${email}`);
+    if (!signupDataStr) {
+      throw new BadRequestException('Signup session expired. Please sign up again.');
+    }
+    const data = JSON.parse(signupDataStr) as {
+      email: string;
+      password: string;
+      firstName?: string;
+      lastName?: string;
+    };
+
+    // Guard against race condition: another signup with same email completed during OTP window
+    const existingEmail = await this.keycloak.findPlatformUserByEmail(email);
+    if (existingEmail) {
+      await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
+      await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
       throw new ConflictException('Email already registered');
     }
 
@@ -260,12 +326,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.create({
-      data: {
-        id: keycloakId,
-        username,
-        email: data.email,
-        role: 'USER',
-      },
+      data: { id: keycloakId, username, email: data.email, role: 'USER' },
     });
 
     const displayName = data.firstName || data.email.split('@')[0];
@@ -280,10 +341,12 @@ export class AuthService {
       },
     });
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { activeTeamId: team.id },
-    });
+    await this.prisma.user.update({ where: { id: user.id }, data: { activeTeamId: team.id } });
+
+    // Clean up Redis keys
+    await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
+    await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
+    await this.redis.del(`${this.SIGNUP_RATE_PREFIX}:${email}`);
 
     const teamName = `${displayName}'s Team`;
     try {
@@ -303,6 +366,32 @@ export class AuthService {
     const tokens = await this.login(data.email, data.password);
     const selectedPlan = data.planName || 'free';
     return { ...tokens, hasPendingInvites: linkedCount > 0, selectedPlan };
+  }
+
+  // Resend OTP for a pending signup (rate-limited to once per 60 seconds)
+  async resendSignupOtp(email: string) {
+    const signupDataStr = await this.redis.get(`${this.SIGNUP_DATA_PREFIX}:${email}`);
+    if (!signupDataStr) {
+      throw new BadRequestException('No pending signup found. Please sign up again.');
+    }
+
+    const rateKey = `${this.SIGNUP_RATE_PREFIX}:${email}`;
+    const rateLimited = await this.redis.get(rateKey);
+    if (rateLimited) {
+      throw new BadRequestException('Please wait before requesting a new code');
+    }
+
+    const data = JSON.parse(signupDataStr) as { firstName?: string };
+    const otp = this.generateOtp();
+
+    // Overwrite OTP and refresh data TTL
+    await this.redis.set(`${this.SIGNUP_OTP_PREFIX}:${email}`, otp, this.SIGNUP_OTP_TTL);
+    await this.redis.set(`${this.SIGNUP_DATA_PREFIX}:${email}`, signupDataStr, this.SIGNUP_OTP_TTL);
+    await this.redis.set(rateKey, '1', this.SIGNUP_RATE_TTL);
+
+    this.email.sendSignupVerifyEmail(email, otp, data.firstName).catch(() => {});
+
+    return { message: 'New verification code sent' };
   }
 
   private async linkEmailInvitesToUser(email: string, userId: string): Promise<number> {
