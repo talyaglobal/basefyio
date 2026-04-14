@@ -942,9 +942,10 @@ export class AuthService {
           this.CLI_LOGIN_EXCHANGE_TTL,
         );
 
-        // Redirect browser to the CLI's loopback server with the exchange code
+        // Redirect to the website confirmation page; user grants or denies from there
+        const websiteUrl = this.config.get<string>('websiteUrl');
         return {
-          cliRedirectUrl: `http://127.0.0.1:${cliState.port}/callback?code=${exchangeCode}`,
+          cliRedirectUrl: `${websiteUrl}/cli-connect?token=${exchangeCode}&port=${cliState.port}`,
         };
       } catch (err: any) {
         // On failure, redirect CLI loopback with error so the CLI doesn't hang until timeout
