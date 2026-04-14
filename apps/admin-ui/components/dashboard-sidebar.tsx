@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
+import { useDashboard } from '@/app/dashboard/layout';
 
 const COLLAPSED_KEY = 'kb_dashboard_nav_collapsed';
 const SIDEBAR_MODE_KEY = 'kb_dashboard_sidebar_mode';
@@ -98,10 +99,10 @@ export function DashboardSidebar({
 }) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
+  const { teams } = useDashboard();
+  const team = teams.find((t) => t.id === activeTeamId) ?? null;
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('open');
   const [autoExpanded, setAutoExpanded] = useState(false);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [team, setTeam] = useState<Team | null>(null);
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -119,24 +120,6 @@ export function DashboardSidebar({
     }
     setHydrated(true);
   }, []);
-
-  useEffect(() => {
-    if (!activeTeamId) {
-      setTeam(null);
-      setTeams([]);
-      return;
-    }
-    api.teams
-      .list()
-      .then((allTeams) => {
-        setTeams(allTeams);
-        setTeam(allTeams.find((t) => t.id === activeTeamId) ?? null);
-      })
-      .catch(() => {
-        setTeams([]);
-        setTeam(null);
-      });
-  }, [activeTeamId, refreshKey]);
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {

@@ -36,6 +36,8 @@ import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
 import type { UserProfile } from '@/lib/types';
+import { useDashboard } from '@/app/dashboard/layout';
+import { useProject } from '@/contexts/project-context';
 
 interface HeaderProps {
   user: UserInfo;
@@ -64,15 +66,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
 
-  const [teams, setTeams] = useState<Team[]>([]);
+  const { teams, inviteCount } = useDashboard();
+  // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
+  const { project: contextProject } = useProject();
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
-  const [routeProject, setRouteProject] = useState<Project | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
   const [docsMenuOpen, setDocsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [inviteCount, setInviteCount] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
@@ -98,11 +100,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   }, []);
 
   useEffect(() => {
-    api.teams.list().then(setTeams).catch(() => {});
-    api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
-  }, [activeTeamId, refreshKey]);
-
-  useEffect(() => {
     if (!activeTeamId) {
       setTeamProjects([]);
       return;
@@ -121,34 +118,23 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
     : null;
 
+  // Derive routeProject from context — ProjectLayout already fetched it, no second request needed
+  const routeProject = contextProject?.id === currentProjectIdFromPath ? contextProject : null;
+
+  // Sync active team when the route project belongs to a different team
   useEffect(() => {
-    if (!currentProjectIdFromPath) {
-      setRouteProject(null);
-      return;
-    }
-    let cancelled = false;
+    if (!routeProject) return;
+    if (routeProject.teamId === activeTeamIdRef.current) return;
     (async () => {
       try {
-        const p = await api.projects.get(currentProjectIdFromPath);
-        if (cancelled) return;
-        setRouteProject(p);
-        if (p.teamId !== activeTeamIdRef.current) {
-          try {
-            await api.teams.setActive(p.teamId);
-            Cookies.set('kb_active_team', p.teamId, { expires: 365 });
-            onTeamChange(p.teamId, { source: 'route-sync' });
-          } catch {
-            /* keep header label from route project even if team switch fails */
-          }
-        }
+        await api.teams.setActive(routeProject.teamId);
+        Cookies.set('kb_active_team', routeProject.teamId, { expires: 365 });
+        onTeamChange(routeProject.teamId, { source: 'route-sync' });
       } catch {
-        if (!cancelled) setRouteProject(null);
+        /* keep header label even if team switch fails */
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentProjectIdFromPath, onTeamChange]);
+  }, [routeProject, onTeamChange]);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
 

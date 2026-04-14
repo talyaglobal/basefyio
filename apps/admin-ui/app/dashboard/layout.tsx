@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { CreditCard } from 'lucide-react';
 import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { UserInfo, UserProfile } from '@/lib/types';
+import type { UserInfo, UserProfile, Team } from '@/lib/types';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
@@ -23,6 +23,8 @@ interface DashboardContextValue {
   refreshTeams: () => void;
   profile: UserProfile | null;
   refreshProfile: () => void;
+  teams: Team[];
+  inviteCount: number;
 }
 
 export const DashboardContext = createContext<DashboardContextValue>({
@@ -33,6 +35,8 @@ export const DashboardContext = createContext<DashboardContextValue>({
   refreshTeams: () => {},
   profile: null,
   refreshProfile: () => {},
+  teams: [],
+  inviteCount: 0,
 });
 
 export function useActiveTeam() {
@@ -41,6 +45,14 @@ export function useActiveTeam() {
 
 export function useDashboard() {
   return useContext(DashboardContext);
+}
+
+export function useTeams() {
+  return useContext(DashboardContext).teams;
+}
+
+export function useInviteCount() {
+  return useContext(DashboardContext).inviteCount;
 }
 
 export default function DashboardLayout({
@@ -53,6 +65,11 @@ export default function DashboardLayout({
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [inviteCount, setInviteCount] = useState(0);
+  const [accountStatusLoaded, setAccountStatusLoaded] = useState(false);
+  // Cached billing data — fetched once per team, not on every navigation
+  const [billingData, setBillingData] = useState<any>(null);
   const [billingBanner, setBillingBanner] = useState<{
     planName: string;
     type: 'warning' | 'error';
@@ -135,67 +152,73 @@ export default function DashboardLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  // Fetch billing data once per team — no pathname dependency so navigation doesn't re-trigger this
   useEffect(() => {
     if (!activeTeamId) return;
-    
     let isMounted = true;
-    
+
     api.billing.subscription(activeTeamId).then((sub: any) => {
-      if (!isMounted || !sub?.plan) return;
-
-      const isPaidPlan = sub.plan.priceMonthly > 0 && sub.plan.name !== 'legacy';
-      const hasPaymentMethod = sub.hasPaymentMethod === true;
-      const accountStatus = sub.accountStatus || 'ACTIVE';
-      const subscriptionStatus = sub.status || 'ACTIVE';
-
-      // FROZEN accounts: restrict access to certain pages only
-      // Allow: billing, projects (read-only), overview
-      // Block: team settings, management, feedback
-      const allowedPaths = ['/dashboard/billing', '/dashboard/projects', '/dashboard'];
-      const isAllowedPath = allowedPaths.some(path => pathname === path || pathname.startsWith(path));
-      
-      if (accountStatus === 'FROZEN' && !isAllowedPath) {
-        router.replace('/dashboard/billing');
-        toast.error('Your account is suspended. Please update your payment method to access this page.');
-        return;
-      }
-
-      // Determine banner type and message
-      if (accountStatus === 'FROZEN') {
-        setBillingBanner({
-          planName: sub.plan.displayName,
-          type: 'error',
-          message: 'Account suspended due to payment failure. Please update your payment method.',
-          action: 'Retry Payment',
-        });
-      } else if (subscriptionStatus === 'PAST_DUE' && isPaidPlan) {
-        setBillingBanner({
-          planName: sub.plan.displayName,
-          type: 'warning',
-          message: 'Payment failed. Please update your payment method to avoid service interruption.',
-          action: 'Update Card',
-        });
-      } else if (isPaidPlan && !hasPaymentMethod) {
-        setBillingBanner({
-          planName: sub.plan.displayName,
-          type: 'warning',
-          message: 'Add a payment method to keep your subscription active.',
-          action: 'Add Payment Method',
-        });
-      } else {
-        // Everything is OK, no banner
-        setBillingBanner(null);
-      }
+      if (!isMounted) return;
+      setBillingData(sub ?? null);
+      if (!sub?.plan) setAccountStatusLoaded(true);
     }).catch((err) => {
-      // Don't break the page if billing API fails
       console.error('Failed to load billing subscription:', err);
-      setBillingBanner(null);
+      setBillingData(null);
+      setAccountStatusLoaded(true);
     });
-    
-    return () => {
-      isMounted = false;
-    };
-  }, [activeTeamId, pathname, router]);
+
+    return () => { isMounted = false; };
+  }, [activeTeamId]);
+
+  // Derive banner + frozen-redirect from cached billingData whenever pathname changes
+  useEffect(() => {
+    if (billingData === null) return;
+    const sub = billingData;
+    if (!sub?.plan) {
+      setAccountStatusLoaded(true);
+      return;
+    }
+
+    const isPaidPlan = sub.plan.priceMonthly > 0 && sub.plan.name !== 'legacy';
+    const hasPaymentMethod = sub.hasPaymentMethod === true;
+    const accountStatus = sub.accountStatus || 'ACTIVE';
+    const subscriptionStatus = sub.status || 'ACTIVE';
+
+    const allowedPaths = ['/dashboard/billing'];
+    const isAllowedPath = allowedPaths.some(path => pathname === path || pathname.startsWith(path));
+
+    if (accountStatus === 'FROZEN' && !isAllowedPath) {
+      router.replace('/dashboard/billing');
+      toast.error('Your account is suspended. Please update your payment method to access this page.');
+    }
+
+    setAccountStatusLoaded(true);
+
+    if (accountStatus === 'FROZEN') {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'error',
+        message: 'Account suspended due to payment failure. Please update your payment method.',
+        action: 'Retry Payment',
+      });
+    } else if (subscriptionStatus === 'PAST_DUE' && isPaidPlan) {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'warning',
+        message: 'Payment failed. Please update your payment method to avoid service interruption.',
+        action: 'Update Card',
+      });
+    } else if (isPaidPlan && !hasPaymentMethod) {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'warning',
+        message: 'Add a payment method to keep your subscription active.',
+        action: 'Add Payment Method',
+      });
+    } else {
+      setBillingBanner(null);
+    }
+  }, [billingData, pathname, router]);
 
   const handleTeamChange = useCallback((id: string) => {
     setActiveTeamId(id);
@@ -238,6 +261,13 @@ export default function DashboardLayout({
     setRefreshKey((k) => k + 1);
   }, []);
 
+  // Single source-of-truth for teams + invites — Header and Sidebar read from context
+  useEffect(() => {
+    if (!activeTeamId) return;
+    api.teams.list().then(setTeams).catch(() => {});
+    api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
+  }, [activeTeamId, refreshKey]);
+
   useEffect(() => {
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
@@ -259,7 +289,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile }}>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile, teams, inviteCount }}>
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -315,7 +345,14 @@ export default function DashboardLayout({
                   : 'flex-1 p-3 sm:p-4 md:p-6'
               }
             >
-              {children}
+              {/* Gate children until account status is resolved to prevent frozen-user flash */}
+              {!accountStatusLoaded && activeTeamId ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+                </div>
+              ) : (
+                children
+              )}
             </div>
           </main>
           <AiAssistant />
