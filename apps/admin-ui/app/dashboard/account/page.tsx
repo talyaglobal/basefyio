@@ -164,47 +164,47 @@ export default function AccountPage() {
     }
   };
 
-  const handleLinkGitHub = async () => {
-    const gh = githubInput.trim();
-    if (!gh) {
-      toast.error('Enter a GitHub username');
-      return;
-    }
-    setGithubChecking(true);
-    try {
-      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(gh)}`);
-      if (!res.ok) {
-        toast.error(`GitHub user "${gh}" not found`);
-        return;
-      }
-      const updated = await api.auth.updateProfile({ githubUsername: gh });
-      setProfile(updated);
-      setGithubLinking(false);
-      setGithubInput('');
-      toast.success(`GitHub account "${gh}" linked`);
-      refreshUser();
-      refreshProfile();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to link GitHub');
-    } finally {
-      setGithubChecking(false);
-    }
-  };
+  // const handleLinkGitHub = async () => {
+  //   const gh = githubInput.trim();
+  //   if (!gh) {
+  //     toast.error('Enter a GitHub username');
+  //     return;
+  //   }
+  //   setGithubChecking(true);
+  //   try {
+  //     const res = await fetch(`https://api.github.com/users/${encodeURIComponent(gh)}`);
+  //     if (!res.ok) {
+  //       toast.error(`GitHub user "${gh}" not found`);
+  //       return;
+  //     }
+  //     const updated = await api.auth.updateProfile({ githubUsername: gh });
+  //     setProfile(updated);
+  //     setGithubLinking(false);
+  //     setGithubInput('');
+  //     toast.success(`GitHub account "${gh}" linked`);
+  //     refreshUser();
+  //     refreshProfile();
+  //   } catch (err: any) {
+  //     toast.error(err.message || 'Failed to link GitHub');
+  //   } finally {
+  //     setGithubChecking(false);
+  //   }
+  // };
 
-  const handleUnlinkGitHub = async () => {
-    setGithubUnlinking(true);
-    try {
-      const updated = await api.auth.updateProfile({ githubUsername: '' });
-      setProfile(updated);
-      toast.success('GitHub account unlinked');
-      refreshUser();
-      refreshProfile();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to unlink GitHub');
-    } finally {
-      setGithubUnlinking(false);
-    }
-  };
+  // const handleUnlinkGitHub = async () => {
+  //   setGithubUnlinking(true);
+  //   try {
+  //     const updated = await api.auth.updateProfile({ githubUsername: '' });
+  //     setProfile(updated);
+  //     toast.success('GitHub account unlinked');
+  //     refreshUser();
+  //     refreshProfile();
+  //   } catch (err: any) {
+  //     toast.error(err.message || 'Failed to unlink GitHub');
+  //   } finally {
+  //     setGithubUnlinking(false);
+  //   }
+  // };
 
   const hasNotifChanges =
     profile &&
@@ -470,7 +470,7 @@ export default function AccountPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+       {/* <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Github className="h-4 w-4" />
           GitHub account
@@ -479,7 +479,6 @@ export default function AccountPage() {
         {profile.githubUsername ? (
           <div className="flex items-center justify-between rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`https://github.com/${profile.githubUsername}.png?size=80`}
                 alt={profile.githubUsername}
@@ -548,7 +547,7 @@ export default function AccountPage() {
             </Button>
           </div>
         )}
-      </div>
+      </div> */}
 
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">
