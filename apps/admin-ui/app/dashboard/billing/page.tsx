@@ -1084,7 +1084,7 @@ export default function BillingPage() {
                 <p className="mt-1 text-3xl font-bold text-foreground">
                   {formatMoney(upgradePreview.dueNow, upgradePreview.currency)}
                 </p>
-                {(upgradePreview.prorationCredit ?? 0) > 0 && (
+                {!isFree && (upgradePreview.prorationCredit ?? 0) > 0 && (
                   <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
                     {formatMoney(upgradePreview.prorationCredit ?? 0, upgradePreview.currency)} credit applied from your current plan.
                   </p>
