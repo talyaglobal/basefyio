@@ -76,7 +76,8 @@ function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState('free');
-  const [plans, setPlans] = useState<SignupPlan[]>(FALLBACK_PLANS);
+  const [plans, setPlans] = useState<SignupPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -146,9 +147,18 @@ function SignupForm() {
               mappedPlans[0].name;
             setSelectedPlan(fallbackSelected);
           }
+        } else {
+          // API returned empty — use hardcoded fallback
+          setPlans(FALLBACK_PLANS);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Network error — use hardcoded fallback
+        setPlans(FALLBACK_PLANS);
+      })
+      .finally(() => {
+        setPlansLoading(false);
+      });
   }, [searchParams, router]);
 
   // Countdown timer for resend cooldown
@@ -289,25 +299,35 @@ function SignupForm() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Choose a plan</label>
               <div className="grid grid-cols-3 gap-2">
-                {plans.map((plan) => (
-                  <button
-                    key={plan.name}
-                    type="button"
-                    onClick={() => setSelectedPlan(plan.name)}
-                    className={`relative rounded-lg border p-3 text-left transition-all ${
-                      selectedPlan === plan.name
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                        : 'border-border hover:border-muted-foreground/40'
-                    }`}
-                  >
-                    {selectedPlan === plan.name && (
-                      <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
-                    )}
-                    <div className="text-sm font-semibold">{plan.label}</div>
-                    <div className="text-xs font-medium text-primary">{plan.price}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground leading-tight">{plan.desc}</div>
-                  </button>
-                ))}
+                {plansLoading
+                  ? // Skeleton cards while plans load
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="animate-pulse rounded-lg border border-border p-3 space-y-2">
+                        <div className="h-3.5 w-12 rounded bg-muted" />
+                        <div className="h-3 w-10 rounded bg-muted" />
+                        <div className="mt-1 h-2.5 w-full rounded bg-muted" />
+                        <div className="h-2.5 w-3/4 rounded bg-muted" />
+                      </div>
+                    ))
+                  : plans.map((plan) => (
+                      <button
+                        key={plan.name}
+                        type="button"
+                        onClick={() => setSelectedPlan(plan.name)}
+                        className={`relative rounded-lg border p-3 text-left transition-all ${
+                          selectedPlan === plan.name
+                            ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                            : 'border-border hover:border-muted-foreground/40'
+                        }`}
+                      >
+                        {selectedPlan === plan.name && (
+                          <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
+                        )}
+                        <div className="text-sm font-semibold">{plan.label}</div>
+                        <div className="text-xs font-medium text-primary">{plan.price}</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground leading-tight">{plan.desc}</div>
+                      </button>
+                    ))}
               </div>
             </div>
 
@@ -425,7 +445,7 @@ function SignupForm() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full" disabled={loading || plansLoading}>
                 {loading ? 'Sending code...' : 'Sign up'}
               </Button>
             </form>

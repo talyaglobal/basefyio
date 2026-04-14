@@ -1204,8 +1204,9 @@ export const api = {
   },
 
   billing: {
-    plans() {
-      return request<any[]>('/billing/plans');
+    plans(): Promise<any[]> {
+      // Uses a dedicated cached route (5-min ISR) instead of the force-dynamic proxy
+      return fetch('/api/billing-plans').then((r) => (r.ok ? r.json() : []));
     },
     subscription(teamId: string) {
       return request<any>(`/billing/subscription?teamId=${teamId}`);
