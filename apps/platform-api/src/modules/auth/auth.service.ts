@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   InternalServerErrorException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -17,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 import { RedisService } from '../redis/redis.service';
+import { getDisplayName } from '../../common/utils/display-name';
 
 type RolePermissionKey =
   | 'canAccessManagement'
@@ -86,6 +88,12 @@ export class AuthService {
   private readonly SIGNUP_OTP_TTL = 600;   // 10 minutes
   private readonly SIGNUP_RATE_TTL = 60;   // 1 resend per 60 seconds
 
+  // Redis key prefixes for CLI browser-based login flow
+  private readonly CLI_LOGIN_STATE_PREFIX = 'platform_cli_login_state';
+  private readonly CLI_LOGIN_EXCHANGE_PREFIX = 'platform_cli_login_exchange';
+  private readonly CLI_LOGIN_STATE_TTL = 300;    // 5 minutes for user to authenticate
+  private readonly CLI_LOGIN_EXCHANGE_TTL = 60;  // 60 seconds one-time code window
+
   constructor(
     private readonly config: ConfigService,
     private readonly http: HttpService,
@@ -131,18 +139,6 @@ export class AuthService {
 
   private generateOtp(): string {
     return String(randomInt(100000, 999999));
-  }
-
-  private generateUsername(firstName?: string, lastName?: string, email?: string): string {
-    let base: string;
-    if (firstName || lastName) {
-      base = `${firstName || ''}${lastName || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
-    } else {
-      base = (email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    }
-    if (!base) base = 'user';
-    const suffix = Math.random().toString(36).substring(2, 7);
-    return `${base}${suffix}`;
   }
 
   private normalizeEmail(email: string): string {
@@ -317,21 +313,21 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const username = this.generateUsername(data.firstName, data.lastName, data.email);
-
     let keycloakId: string;
     try {
-      keycloakId = await this.keycloak.createPlatformUser({ ...data, username });
+      // Keycloak requires a username — use email since it's already unique
+      keycloakId = await this.keycloak.createPlatformUser({ ...data, username: data.email });
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to create account: ${err.message}`);
     }
 
     const user = await this.prisma.user.create({
-      data: { id: keycloakId, username, email: data.email, role: 'USER' },
+      data: { id: keycloakId, email: data.email, role: 'USER' },
     });
 
     const displayName = data.firstName || data.email.split('@')[0];
-    const teamSlug = `personal-${username}-${keycloakId.slice(0, 8)}`;
+    const emailSlug = data.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    const teamSlug = `personal-${emailSlug}-${keycloakId.slice(0, 8)}`;
 
     const team = await this.prisma.team.create({
       data: {
@@ -429,7 +425,6 @@ export class AuthService {
   async ensureUserProfile(
     sub: string,
     email: string,
-    username: string,
     oauthName?: { givenName?: string; familyName?: string; name?: string },
   ) {
     const existing = await this.prisma.user.findUnique({ where: { id: sub } });
@@ -452,7 +447,6 @@ export class AuthService {
     }
 
     try {
-      const safeUsername = username || `user-${sub.slice(0, 8)}`;
       const safeEmail = email || `${sub.slice(0, 8)}@kolaybase.local`;
       const parsed = oauthName
         ? this.parseOAuthName(oauthName.givenName, oauthName.familyName, oauthName.name)
@@ -461,7 +455,6 @@ export class AuthService {
       const user = await this.prisma.user.create({
         data: {
           id: sub,
-          username: safeUsername,
           email: safeEmail,
           role: 'USER',
           ...(parsed.firstName ? { firstName: parsed.firstName } : {}),
@@ -469,11 +462,13 @@ export class AuthService {
         },
       });
 
-      const slug = `personal-${safeUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}-${sub.slice(0, 8)}`;
+      const emailSlug = safeEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      const slug = `personal-${emailSlug}-${sub.slice(0, 8)}`;
 
+      const teamDisplayName = (user.firstName || safeEmail.split('@')[0]);
       const team = await this.prisma.team.create({
         data: {
-          name: `${safeUsername}'s Team`,
+          name: `${teamDisplayName}'s Team`,
           slug,
           personalForUserId: user.id,
           members: { create: { userId: user.id, role: 'OWNER' } },
@@ -486,7 +481,7 @@ export class AuthService {
       });
 
       try {
-        await this.billing.createFreeSubscription(team.id, safeEmail, `${safeUsername}'s Team`);
+        await this.billing.createFreeSubscription(team.id, safeEmail, `${teamDisplayName}'s Team`);
       } catch (err) {
         this.logger.error(`Failed to create free subscription for team ${team.id}: ${err}`);
       }
@@ -602,23 +597,16 @@ export class AuthService {
       try {
         data = await requestToken(email);
       } catch {
-        // Fallback to username login when Keycloak email-login is disabled.
-        const localUser = await this.prisma.user.findUnique({
-          where: { email },
-          select: { username: true },
-        });
-        if (!localUser?.username) {
-          throw new UnauthorizedException('Invalid credentials');
-        }
-        data = await requestToken(localUser.username);
+        throw new UnauthorizedException('Invalid credentials');
       }
 
-      const user = await this.prisma.user.findFirst({
-        where: { OR: [{ username: email }, { email }] },
+      const user = await this.prisma.user.findUnique({
+        where: { email },
         select: {
           id: true,
           email: true,
-          username: true,
+          firstName: true,
+          lastName: true,
           notifySignIn: true,
           notifySignInNewDevice: true,
           lastLoginFingerprint: true,
@@ -632,7 +620,7 @@ export class AuthService {
         (user.notifySignIn || (user.notifySignInNewDevice && isNewDevice));
       if (shouldSendSignInEmail) {
         this.email
-          .sendSignInNotification(user.email, user.username, {
+          .sendSignInNotification(user.email, getDisplayName(user), {
             ...meta,
             isNewDevice,
           } as { ipAddress?: string; userAgent?: string })
@@ -795,6 +783,85 @@ export class AuthService {
     return { message: 'Password changed successfully' };
   }
 
+  /** Step 1 of CLI login: store state in Redis, return the Keycloak authorize URL. */
+  async startCliLogin(port: number, nonce: string): Promise<string> {
+    if (port < 1024 || port > 65535) {
+      throw new BadRequestException('Invalid port');
+    }
+
+    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
+    const publicApiUrl = this.config.get<string>('publicApiUrl');
+    const platformClientId = this.keycloak.getPlatformOAuthClientId();
+    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
+
+    // Backend-generated PKCE pair (verifier stored in Redis, challenge sent to Keycloak)
+    const pkceVerifier = randomBytes(32).toString('base64url');
+    const pkceChallenge = createHash('sha256').update(pkceVerifier).digest('base64url');
+
+    // Opaque stateId — only the Redis lookup proves it's a CLI flow
+    const stateId = randomBytes(16).toString('hex');
+    await this.redis.set(
+      `${this.CLI_LOGIN_STATE_PREFIX}:${stateId}`,
+      JSON.stringify({ port, nonce, pkceVerifier }),
+      this.CLI_LOGIN_STATE_TTL,
+    );
+
+    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
+    const params = new URLSearchParams({
+      client_id: platformClientId,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: callbackUrl,
+      state: stateId,
+      code_challenge: pkceChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    return `${authUrl}?${params.toString()}`;
+  }
+
+  /**
+   * Used by the error path in oauthCallback to detect a CLI flow and get the loopback port.
+   * Atomically consumes the state so it cannot be replayed.
+   */
+  async resolveCliState(stateId: string): Promise<{ port: number } | null> {
+    const raw = await this.redis.getdel(`${this.CLI_LOGIN_STATE_PREFIX}:${stateId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { port: number; nonce: string; pkceVerifier: string };
+    return { port: parsed.port };
+  }
+
+  /** Step 3 of CLI login: consume the one-time exchange code and return real tokens. */
+  async exchangeCliCode(code: string, nonce: string) {
+    const raw = await this.redis.getdel(`${this.CLI_LOGIN_EXCHANGE_PREFIX}:${code}`);
+    if (!raw) {
+      // Generic 404 — don't leak whether the code was expired, consumed, or never existed
+      throw new NotFoundException();
+    }
+
+    const stored = JSON.parse(raw) as {
+      accessToken: string;
+      refreshToken: string;
+      idToken: string;
+      expiresIn: number;
+      tokenType: string;
+      nonce: string;
+    };
+
+    // Nonce check defends against a different CLI process on the same machine replaying the code
+    if (stored.nonce !== nonce) {
+      throw new NotFoundException();
+    }
+
+    return {
+      accessToken: stored.accessToken,
+      refreshToken: stored.refreshToken,
+      idToken: stored.idToken,
+      expiresIn: stored.expiresIn,
+      tokenType: stored.tokenType,
+    };
+  }
+
   getOAuthRedirectUrl(provider: string, redirectTo?: string) {
     const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
     const publicApiUrl = this.config.get<string>('publicApiUrl');
@@ -838,10 +905,59 @@ export class AuthService {
     const platformClientId = this.keycloak.getPlatformOAuthClientId();
     const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
 
+    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
+
+    // Detect CLI flow: stateId is an opaque hex string stored in Redis
+    const cliStateRaw = await this.redis.getdel(`${this.CLI_LOGIN_STATE_PREFIX}:${state}`);
+    if (cliStateRaw) {
+      const cliState = JSON.parse(cliStateRaw) as { port: number; nonce: string; pkceVerifier: string };
+
+      const cliParams = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: platformClientId,
+        code,
+        redirect_uri: callbackUrl,
+        code_verifier: cliState.pkceVerifier, // PKCE S256 verification against Keycloak
+      });
+
+      try {
+        const { data } = await firstValueFrom(
+          this.http.post(tokenUrl, cliParams.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          }),
+        );
+
+        // Store tokens under a one-time exchange code (60s TTL)
+        const exchangeCode = randomBytes(32).toString('hex');
+        await this.redis.set(
+          `${this.CLI_LOGIN_EXCHANGE_PREFIX}:${exchangeCode}`,
+          JSON.stringify({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            idToken: data.id_token,
+            expiresIn: data.expires_in,
+            tokenType: data.token_type,
+            nonce: cliState.nonce,
+          }),
+          this.CLI_LOGIN_EXCHANGE_TTL,
+        );
+
+        // Redirect browser to the CLI's loopback server with the exchange code
+        return {
+          cliRedirectUrl: `http://127.0.0.1:${cliState.port}/callback?code=${exchangeCode}`,
+        };
+      } catch (err: any) {
+        // On failure, redirect CLI loopback with error so the CLI doesn't hang until timeout
+        return {
+          cliRedirectUrl: `http://127.0.0.1:${cliState.port}/callback?error=${encodeURIComponent('Authentication failed')}`,
+        };
+      }
+    }
+
+    // Standard web OAuth flow: state is base64url-encoded JSON
     const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
     const { redirectTo } = stateData;
 
-    const tokenUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/token`;
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: platformClientId,
@@ -998,23 +1114,8 @@ export class AuthService {
     let kcUser = await this.keycloak.findPlatformUserByEmail(email);
 
     if (!kcUser) {
-      // Keycloak email field might be empty; fall back to Prisma username lookup
-      const dbUser = await this.prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
-        select: { username: true },
-      });
-      if (dbUser?.username) {
-        kcUser = await this.keycloak.findPlatformUserByUsername(dbUser.username);
-        // Patch missing email in Keycloak so future lookups work
-        if (kcUser?.id && !kcUser.email) {
-          try {
-            await this.keycloak.updatePlatformUserEmail(kcUser.id, email);
-            this.logger.log(`[FORGOT_PASSWORD] Patched missing email in Keycloak for ${kcUser.username}`);
-          } catch {
-            // non-critical
-          }
-        }
-      }
+      // No user found by email in Keycloak
+      return { message: 'If that email exists, a reset link has been sent.' };
     }
 
     if (!kcUser) {
@@ -1046,10 +1147,15 @@ export class AuthService {
       data: { email, token, expiresAt },
     });
 
-    const username = kcUser.username || email;
-    
+    // Use the user's display name for the password reset email
+    const dbUser = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const displayName = dbUser ? getDisplayName(dbUser) : email.split('@')[0];
+
     try {
-      const emailResult = await this.email.sendPasswordResetLink(email, username, token);
+      const emailResult = await this.email.sendPasswordResetLink(email, displayName, token);
       
       if (!emailResult) {
         this.logger.error(`[FORGOT_PASSWORD] Email sending failed for ${email} - Resend returned null`);
@@ -1173,7 +1279,6 @@ export class AuthService {
 
     return {
       id: user.id,
-      username: user.username,
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
@@ -1196,7 +1301,6 @@ export class AuthService {
   async updateProfile(
     userId: string,
     data: {
-      username?: string;
       firstName?: string;
       lastName?: string;
       email?: string;
@@ -1226,20 +1330,11 @@ export class AuthService {
       signOnMethod = 'local';
       forcePasswordChange = false;
     }
-    const changingIdentityFields =
-      data.username !== undefined || data.email !== undefined;
+    const changingIdentityFields = data.email !== undefined;
     if (authProvider !== 'local' && changingIdentityFields && !data.allowIdentityEdit) {
       throw new BadRequestException(
         `This account uses ${authProvider} sign-in. Use "Enable identity edits" first.`,
       );
-    }
-
-    if (data.username !== undefined) {
-      const existing = await this.prisma.user.findFirst({
-        where: { username: data.username, NOT: { id: userId } },
-      });
-      if (existing) throw new ConflictException('Username already taken');
-      updateData.username = data.username;
     }
 
     if (data.firstName !== undefined) {
@@ -1299,7 +1394,6 @@ export class AuthService {
 
     return {
       id: user.id,
-      username: user.username,
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
@@ -1366,7 +1460,6 @@ export class AuthService {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
-        username: true,
         email: true,
         firstName: true,
         lastName: true,
@@ -1431,7 +1524,6 @@ export class AuthService {
       data: { role: role as 'USER' | 'ADMIN' | 'ROOT' },
       select: {
         id: true,
-        username: true,
         email: true,
         role: true,
       },
@@ -1444,7 +1536,7 @@ export class AuthService {
   ) {
     const target = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, username: true, email: true },
+      select: { id: true, email: true },
     });
     if (!target) {
       throw new BadRequestException('User not found');
@@ -1456,7 +1548,6 @@ export class AuthService {
     );
     return {
       id: target.id,
-      username: target.username,
       email: target.email,
       authProvider: method,
     };
@@ -1513,8 +1604,9 @@ export class AuthService {
             user: {
               select: {
                 id: true,
-                username: true,
                 email: true,
+                firstName: true,
+                lastName: true,
               },
             },
           },
@@ -1585,13 +1677,13 @@ export class AuthService {
     }
     const target = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, email: true, username: true },
+      select: { id: true, email: true },
     });
     if (!target) {
       throw new BadRequestException('User not found');
     }
     await this.keycloak.setPlatformUserEnabledById(targetUserId, isActive);
-    return { id: target.id, email: target.email, username: target.username, isActive };
+    return { id: target.id, email: target.email, isActive };
   }
 
   async getRolePermissionsByRoot() {

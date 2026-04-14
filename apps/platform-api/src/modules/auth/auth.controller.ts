@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete, HttpCode, HttpStatus } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -93,7 +93,6 @@ export class AuthController {
     await this.authService.ensureUserProfile(
       user.sub,
       user.email,
-      user.preferred_username,
       {
         givenName: user.given_name,
         familyName: user.family_name,
@@ -418,6 +417,43 @@ export class AuthController {
     );
   }
 
+  /**
+   * CLI browser-based login — step 1.
+   * Stores state in Redis and redirects the browser to Keycloak's login page.
+   * The CLI opens this URL; the user picks their provider on Keycloak's UI.
+   */
+  @Get('cli-login')
+  async cliLogin(
+    @Res() res: Response,
+    @Query('port') portStr: string,
+    @Query('nonce') nonce: string,
+  ) {
+    const port = parseInt(portStr, 10);
+    if (!nonce || isNaN(port)) {
+      return (res as any).status(400).json({ message: 'port and nonce are required' });
+    }
+    const keycloakUrl = await this.authService.startCliLogin(port, nonce);
+    return res.redirect(keycloakUrl);
+  }
+
+  /**
+   * CLI browser-based login — step 3.
+   * Exchanges the one-time code (received at the loopback server) for real tokens.
+   * Returns 404 for any failure to avoid leaking state.
+   */
+  @Post('cli/exchange')
+  @HttpCode(HttpStatus.OK)
+  async cliExchange(
+    @Body('code') code: string,
+    @Body('nonce') nonce: string,
+  ) {
+    if (!code || !nonce) {
+      // Return 404, not 400, to avoid distinguishing error types
+      return this.authService.exchangeCliCode('', '');
+    }
+    return this.authService.exchangeCliCode(code, nonce);
+  }
+
   @Get('oauth/providers')
   getOAuthProviders() {
     return { providers: this.keycloak.getEnabledPlatformProviders() };
@@ -435,6 +471,15 @@ export class AuthController {
 
     if (error || !code) {
       const msg = errorDescription || error || 'OAuth authentication failed';
+
+      // If this was a CLI flow, redirect the error to the loopback so the CLI doesn't hang
+      if (state) {
+        const cliState = await this.authService.resolveCliState(state);
+        if (cliState) {
+          return res.redirect(`http://127.0.0.1:${cliState.port}/callback?error=${encodeURIComponent(msg)}`);
+        }
+      }
+
       const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent(msg)}`;
       return res.redirect(loginUrl);
     }
@@ -442,6 +487,12 @@ export class AuthController {
     try {
       const result = await this.authService.handleOAuthCallback(code, state);
 
+      // CLI flow: redirect browser to the loopback server with the exchange code
+      if ((result as any).cliRedirectUrl) {
+        return res.redirect((result as any).cliRedirectUrl);
+      }
+
+      // Standard web flow: embed tokens in the fragment so the frontend can read them
       const appUrl = result.redirectTo?.startsWith('http')
         ? result.redirectTo
         : `${baseAppUrl}${result.redirectTo || '/login'}`;

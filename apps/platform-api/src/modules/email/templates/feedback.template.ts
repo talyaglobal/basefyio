@@ -8,7 +8,7 @@ function escapeHtmlAttr(s: string): string {
 }
 
 interface FeedbackData {
-  username: string;
+  displayName: string;
   email: string;
   url: string;
   title: string;
@@ -38,7 +38,7 @@ export function feedbackTemplate(data: FeedbackData): string {
 
         <div class="info-card">
           <div class="info-card-title">From</div>
-          <p class="info-card-value">${data.username} (${data.email})</p>
+          <p class="info-card-value">${data.displayName} (${data.email})</p>
         </div>
 
         <div class="info-card">

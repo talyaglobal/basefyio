@@ -121,7 +121,6 @@ export class FeedbackController {
   ) {
     return this.feedbackService.create({
       userId: user.sub,
-      username: user.preferred_username,
       email: user.email,
       url: dto.url,
       title: dto.title,
@@ -144,7 +143,7 @@ export class FeedbackController {
     @Param('id') id: string,
     @Body() dto: UpdateFeedbackStatusDto,
   ) {
-    return this.feedbackService.updateStatus(user.sub, user.preferred_username, id, dto.status);
+    return this.feedbackService.updateStatus(user.sub, id, dto.status);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -154,7 +153,7 @@ export class FeedbackController {
     @Param('id') id: string,
     @Body() dto: UpdateFeedbackDto,
   ) {
-    return this.feedbackService.updateFeedback(user.sub, user.preferred_username, id, dto);
+    return this.feedbackService.updateFeedback(user.sub, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -163,7 +162,7 @@ export class FeedbackController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
   ) {
-    return this.feedbackService.removeFeedback(user.sub, user.preferred_username, id);
+    return this.feedbackService.removeFeedback(user.sub, id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -182,7 +181,7 @@ export class FeedbackController {
     @Param('id') id: string,
     @Body() dto: AddCommentDto,
   ) {
-    return this.feedbackService.addComment(user.sub, user.preferred_username, id, dto);
+    return this.feedbackService.addComment(user.sub, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -1,7 +1,7 @@
 import { baseLayout } from './base.template';
 
 interface ForgotPasswordData {
-  username: string;
+  displayName: string;
   resetUrl: string;
   expiresInMinutes: number;
 }
@@ -14,7 +14,7 @@ export function forgotPasswordTemplate(data: ForgotPasswordData): string {
       </div>
       <h1 class="greeting">Reset your password</h1>
       <p class="text">
-        Hi <strong>${data.username}</strong>, we received a request to reset your password.
+        Hi <strong>${data.displayName}</strong>, we received a request to reset your password.
         Click the button below to choose a new one.
       </p>
 

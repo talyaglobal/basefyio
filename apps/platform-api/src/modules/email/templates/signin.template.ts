@@ -1,7 +1,7 @@
 import { baseLayout } from './base.template';
 
 interface SignInData {
-  username: string;
+  displayName: string;
   ipAddress?: string;
   userAgent?: string;
   timestamp: string;
@@ -16,7 +16,7 @@ export function signInTemplate(data: SignInData): string {
         </div>
         <h1 class="greeting">New sign-in detected</h1>
         <p class="text">
-          Hello <strong>${data.username}</strong>, we noticed a new sign-in to your
+          Hello <strong>${data.displayName}</strong>, we noticed a new sign-in to your
           Kolaybase account. If this was you, no action is needed.
         </p>
 

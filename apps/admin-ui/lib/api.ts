@@ -209,7 +209,6 @@ export const api = {
       return request<UserProfile>('/auth/profile');
     },
     updateProfile(data: {
-      username?: string;
       firstName?: string;
       lastName?: string;
       email?: string;
@@ -278,7 +277,7 @@ export const api = {
       return request<ManagementUser[]>('/auth/management/users');
     },
     updateManagementUserRole(userId: string, role: 'USER' | 'ADMIN' | 'ROOT') {
-      return request<{ id: string; username: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
+      return request<{ id: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
         `/auth/management/users/${userId}/role`,
         {
           method: 'PATCH',
@@ -287,7 +286,7 @@ export const api = {
       );
     },
     updateManagementUserActive(userId: string, isActive: boolean) {
-      return request<{ id: string; email: string; username: string; isActive: boolean }>(
+      return request<{ id: string; email: string; isActive: boolean }>(
         `/auth/management/users/${userId}/active`,
         {
           method: 'PATCH',
@@ -299,7 +298,7 @@ export const api = {
       userId: string,
       method: 'local' | 'google' | 'github',
     ) {
-      return request<{ id: string; username: string; email: string; authProvider: 'local' | 'google' | 'github' }>(
+      return request<{ id: string; email: string; authProvider: 'local' | 'google' | 'github' }>(
         `/auth/management/users/${userId}/sign-in-method`,
         {
           method: 'PATCH',
@@ -1022,7 +1021,6 @@ export const api = {
       return request<{
         id: string;
         userId: string;
-        username: string;
         email: string;
         url: string;
         title: string;
@@ -1032,7 +1030,7 @@ export const api = {
           id: string;
           feedbackId: string;
           userId: string;
-          username: string;
+          user?: { email: string } | null;
           comment: string;
           attachments?: unknown;
           parentCommentId?: string | null;
@@ -1066,7 +1064,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         comment: string;
         attachments?: unknown;
         parentCommentId?: string | null;
@@ -1078,7 +1076,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         comment: string;
         attachments?: unknown;
         parentCommentId?: string | null;
@@ -1093,7 +1091,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         action: string;
         detail?: string | null;
         createdAt: string;

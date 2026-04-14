@@ -289,27 +289,7 @@ export default async function Home() {
 					</div>
 				</div>
 			</section>
-
-			{/* CTA */}
-			<section className="py-24 px-6">
-				<div className="mx-auto max-w-4xl rounded-3xl border border-primary/30 bg-brand-gradient-subtle p-12 text-center shadow-sm">
-					<h2 className="text-2xl font-bold sm:text-3xl">
-						Get started for free
-					</h2>
-					<p className="mt-4 text-muted-foreground">
-						Create an account, set up your first project, and start using your
-						API in minutes.
-					</p>
-					<Link
-						href="https://app.kolaybase.com/signup"
-						className="mt-8 inline-flex items-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
-						Get started for free Create an account, set up your first project,
-						and start using your API in minutes.
-						<ArrowRight className="h-4 w-4" />
-					</Link>
-				</div>
-			</section>
-
+      
 			{/* Footer */}
 			<footer className="border-t border-border py-16 px-6">
 				<div className="mx-auto max-w-6xl grid grid-cols-2 sm:grid-cols-4 gap-8">

@@ -25,10 +25,6 @@ export default function ProjectError({
         Something went wrong loading this project.
       </p>
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/projects')}>
-          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-          Back to Projects
-        </Button>
         <Button size="sm" onClick={reset}>
           <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
           Retry

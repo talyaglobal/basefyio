@@ -74,13 +74,13 @@ export default function FeedbacksPage() {
   const [commentByFeedback, setCommentByFeedback] = useState<Record<string, string>>({});
   const [commentFiles, setCommentFiles] = useState<Record<string, File[]>>({});
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
-  const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; username: string } | null>>({});
+  const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; email: string } | null>>({});
   const [preview, setPreview] = useState<{ url: string; isVideo: boolean; revokeOnClose?: boolean } | null>(null);
   const [selectedFilesOpenByFeedback, setSelectedFilesOpenByFeedback] = useState<Record<string, boolean>>({});
   const [historyFeedbackId, setHistoryFeedbackId] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyItems, setHistoryItems] = useState<
-    { id: string; username: string; action: string; detail?: string | null; createdAt: string }[]
+    { id: string; user?: { email: string } | null; action: string; detail?: string | null; createdAt: string }[]
   >([]);
 
   const isRoot = profile?.role === 'ROOT';
@@ -231,7 +231,6 @@ export default function FeedbacksPage() {
     const haystack = [
       f.title,
       f.description || '',
-      f.username,
       f.email,
       f.url,
       f.status,
@@ -349,7 +348,7 @@ export default function FeedbacksPage() {
                   <div className="space-y-1 rounded border bg-background p-2">
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span>
-                        <strong>{node.username}</strong> · {new Date(node.createdAt).toLocaleString()}
+                        <strong>{node.user?.email ?? node.userId}</strong> · {new Date(node.createdAt).toLocaleString()}
                       </span>
                       {canComment && (
                         <Button
@@ -359,7 +358,7 @@ export default function FeedbacksPage() {
                           onClick={() => {
                             setReplyToByFeedback((prev) => ({
                               ...prev,
-                              [fb.id]: { id: node.id, username: node.username },
+                              [fb.id]: { id: node.id, email: node.user?.email ?? node.userId },
                             }));
                           }}
                         >
@@ -369,7 +368,7 @@ export default function FeedbacksPage() {
                     </div>
                     {node.parentCommentId && commentById[node.parentCommentId] && (
                       <p className="text-[11px] text-muted-foreground">
-                        Reply to <strong>{commentById[node.parentCommentId].username}</strong>
+                        Reply to <strong>{commentById[node.parentCommentId].user?.email ?? commentById[node.parentCommentId].userId}</strong>
                       </p>
                     )}
                     <p className="text-sm">{node.comment}</p>
@@ -515,7 +514,7 @@ export default function FeedbacksPage() {
 
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span>
-                        <strong>{fb.username}</strong> ({fb.email})
+                        <strong>{fb.email}</strong>
                       </span>
                       <span>·</span>
                       <span>{new Date(fb.createdAt).toLocaleString()}</span>
@@ -564,7 +563,7 @@ export default function FeedbacksPage() {
                         {replyToByFeedback[fb.id] && (
                           <div className="flex items-center justify-between rounded-md border bg-muted/30 px-2 py-1 text-xs">
                             <span>
-                              Replying to <strong>{replyToByFeedback[fb.id]?.username}</strong>
+                              Replying to <strong>{replyToByFeedback[fb.id]?.email}</strong>
                             </span>
                             <Button
                               size="sm"
@@ -828,7 +827,7 @@ export default function FeedbacksPage() {
               {historyItems.map((item) => (
                 <div key={item.id} className="rounded-md border bg-muted/20 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-semibold">{item.username}</span>
+                    <span className="font-semibold">{item.user?.email ?? 'Unknown'}</span>
                     <span className="text-muted-foreground">·</span>
                     <span className="text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</span>
                   </div>

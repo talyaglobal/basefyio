@@ -11,6 +11,7 @@ import { QuotaService } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
 import { BillingService } from '../billing/billing.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { getDisplayName } from '../../common/utils/display-name';
 
 @Injectable()
 export class TeamsService {
@@ -33,11 +34,11 @@ export class TeamsService {
     return members.map((m) => m.userId);
   }
 
-  async createPersonalTeam(userId: string, username: string) {
+  async createPersonalTeam(userId: string, displayName: string, teamSlug: string) {
     const team = await this.prisma.team.create({
       data: {
-        name: `${username}'s Team`,
-        slug: `personal-${username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        name: `${displayName}'s Team`,
+        slug: teamSlug,
         personalForUserId: userId,
         members: {
           create: { userId, role: 'OWNER' },
@@ -50,7 +51,7 @@ export class TeamsService {
       data: { activeTeamId: team.id },
     });
 
-    this.logger.log(`Personal team created for "${username}" (${team.id})`);
+    this.logger.log(`Personal team created for "${displayName}" (${team.id})`);
     return team;
   }
 
@@ -192,13 +193,12 @@ export class TeamsService {
 
     const members = await this.prisma.teamMember.findMany({
       where: { teamId },
-      include: { user: { select: { id: true, username: true, email: true, firstName: true, lastName: true, avatarUrl: true } } },
+      include: { user: { select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true } } },
       orderBy: { createdAt: 'asc' },
     });
 
     return members.map((m) => ({
       id: m.user.id,
-      username: m.user.username,
       email: m.user.email,
       firstName: m.user.firstName,
       lastName: m.user.lastName,
@@ -213,12 +213,7 @@ export class TeamsService {
     await this.quota.assertCanInviteMember(teamId);
 
     const targetUser = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { username: usernameOrEmail },
-          { email: usernameOrEmail },
-        ],
-      },
+      where: { email: usernameOrEmail.toLowerCase() },
     });
 
     const team = await this.prisma.team.findUnique({
@@ -228,7 +223,7 @@ export class TeamsService {
 
     const inviter = await this.prisma.user.findUnique({
       where: { id: ownerUserId },
-      select: { username: true },
+      select: { email: true, firstName: true, lastName: true },
     });
 
     if (targetUser) {
@@ -260,18 +255,20 @@ export class TeamsService {
       }
 
       if (targetUser.email && team && inviter) {
+        const inviterDisplay = getDisplayName(inviter);
+        const targetDisplay = getDisplayName({ ...targetUser, email: targetUser.email });
         this.email
           .sendTeamInvite(
             targetUser.email,
-            targetUser.username,
-            inviter.username,
+            targetDisplay,
+            inviterDisplay,
             team.name,
             false,
           )
           .catch(() => {});
       }
 
-      this.logger.log(`Invite sent to "${targetUser.username}" for team ${teamId}`);
+      this.logger.log(`Invite sent to "${targetUser.email}" for team ${teamId}`);
       await this.realtime.publish({
         entityType: 'team_invite',
         action: 'invite_sent',
@@ -279,15 +276,15 @@ export class TeamsService {
         actorUserId: ownerUserId,
         teamId,
         userIds: [targetUser.id, ...(await this.teamUserIds(teamId))],
-        payload: { usernameOrEmail: targetUser.username },
+        payload: { usernameOrEmail: targetUser.email },
       });
-      return { message: `Invite sent to ${targetUser.username}` };
+      return { message: `Invite sent to ${targetUser.email}` };
     }
 
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameOrEmail);
     if (!isEmail) {
       throw new NotFoundException(
-        `User "${usernameOrEmail}" not found. Please enter a valid email address to invite someone who doesn't have an account yet.`,
+        `No account found with that email. Please enter a valid email address.`,
       );
     }
 
@@ -316,7 +313,7 @@ export class TeamsService {
         .sendTeamInvite(
           email,
           email.split('@')[0],
-          inviter.username,
+          getDisplayName(inviter),
           team.name,
           true,
         )
@@ -343,7 +340,6 @@ export class TeamsService {
         team: { select: { id: true, name: true, slug: true } },
         invitedBy: {
           select: {
-            username: true,
             firstName: true,
             lastName: true,
             email: true,
@@ -358,7 +354,7 @@ export class TeamsService {
         .filter(Boolean)
         .join(' ')
         .trim();
-      const inviterDisplayName = inviterFullName || i.invitedBy.username;
+      const inviterDisplayName = inviterFullName || i.invitedBy.email.split('@')[0];
       const invitedEmail = i.invitedEmail ?? i.invitedBy.email;
       const expiresAt = new Date(i.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000);
       return {
@@ -383,7 +379,7 @@ export class TeamsService {
     const invites = await this.prisma.teamInvite.findMany({
       where: { teamId, status: 'PENDING' },
       include: {
-        invitedUser: { select: { id: true, username: true, email: true } },
+        invitedUser: { select: { id: true, email: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -392,7 +388,6 @@ export class TeamsService {
       ...inv,
       invitedUser: inv.invitedUser ?? {
         id: null,
-        username: inv.invitedEmail?.split('@')[0] ?? 'unknown',
         email: inv.invitedEmail,
       },
     }));
@@ -476,7 +471,7 @@ export class TeamsService {
     const invite = await this.prisma.teamInvite.findFirst({
       where: { id: inviteId, teamId, status: 'PENDING' },
       include: {
-        invitedUser: { select: { username: true, email: true } },
+        invitedUser: { select: { email: true, firstName: true, lastName: true } },
       },
     });
     if (!invite) {
@@ -489,7 +484,7 @@ export class TeamsService {
     });
     const inviter = await this.prisma.user.findUnique({
       where: { id: ownerUserId },
-      select: { username: true },
+      select: { email: true, firstName: true, lastName: true },
     });
     if (!team || !inviter) {
       throw new NotFoundException('Team or inviter not found');
@@ -499,12 +494,13 @@ export class TeamsService {
     if (!targetEmail) {
       throw new NotFoundException('Invite target email not found');
     }
-    const targetName =
-      invite.invitedUser?.username ?? invite.invitedEmail?.split('@')[0] ?? 'user';
+    const targetName = invite.invitedUser
+      ? getDisplayName(invite.invitedUser)
+      : invite.invitedEmail?.split('@')[0] ?? 'user';
     const isEmailInvite = !invite.invitedUserId;
 
     this.email
-      .sendTeamInvite(targetEmail, targetName, inviter.username, team.name, isEmailInvite)
+      .sendTeamInvite(targetEmail, targetName, getDisplayName(inviter), team.name, isEmailInvite)
       .catch(() => {});
 
     return { message: `Re-invite email sent to ${targetEmail}` };

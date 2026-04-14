@@ -41,9 +41,9 @@ export class EmailService {
     return this.send({ to, subject: 'Verify your email to join Kolaybase', html });
   }
 
-  async sendWelcome(to: string, username: string) {
+  async sendWelcome(to: string, displayName: string) {
     const html = welcomeTemplate({
-      username,
+      displayName,
       email: to,
       loginUrl: `${this.appUrl}/login`,
       dashboardUrl: `${this.appUrl}/dashboard`,
@@ -51,18 +51,18 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `Welcome to Kolaybase, ${username}! 🚀`,
+      subject: `Welcome to Kolaybase, ${displayName}! 🚀`,
       html,
     });
   }
 
   async sendSignInNotification(
     to: string,
-    username: string,
+    displayName: string,
     meta?: { ipAddress?: string; userAgent?: string },
   ) {
     const html = signInTemplate({
-      username,
+      displayName,
       ipAddress: meta?.ipAddress,
       userAgent: meta?.userAgent,
       timestamp: new Date().toLocaleString('en-US', {
@@ -81,8 +81,8 @@ export class EmailService {
 
   async sendTeamInvite(
     to: string,
-    invitedUsername: string,
-    inviterUsername: string,
+    invitedDisplay: string,
+    inviterDisplay: string,
     teamName: string,
     isNewUser = false,
   ) {
@@ -91,8 +91,8 @@ export class EmailService {
       : `${this.appUrl}/dashboard/team`;
 
     const html = inviteTemplate({
-      invitedUsername,
-      inviterUsername,
+      invitedUsername: invitedDisplay,
+      inviterUsername: inviterDisplay,
       teamName,
       acceptUrl,
       dashboardUrl: `${this.appUrl}/dashboard/team`,
@@ -101,7 +101,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `${inviterUsername} invited you to join ${teamName} on Kolaybase`,
+      subject: `${inviterDisplay} invited you to join ${teamName} on Kolaybase`,
       html,
     });
   }
@@ -109,7 +109,7 @@ export class EmailService {
   async sendFeedbackNotification(
     to: string,
     data: {
-      username: string;
+      displayName: string;
       email: string;
       url: string;
       title: string;
@@ -122,19 +122,19 @@ export class EmailService {
     const html = feedbackTemplate(data);
     return this.send({
       to,
-      subject: `[Feedback] ${data.title} — by ${data.username}`,
+      subject: `[Feedback] ${data.title} — by ${data.displayName}`,
       html,
     });
   }
 
   async sendPasswordResetLink(
     to: string,
-    username: string,
+    displayName: string,
     resetToken: string,
   ) {
     const resetUrl = `${this.appUrl}/reset-password?token=${resetToken}`;
     const html = forgotPasswordTemplate({
-      username,
+      displayName,
       resetUrl,
       expiresInMinutes: 60,
     });

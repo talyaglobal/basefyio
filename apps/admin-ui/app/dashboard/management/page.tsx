@@ -6,6 +6,7 @@ import { Copy, Github, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
+import { getDisplayName } from '@/lib/display-name';
 import type {
   AuditLogEntry,
   ManagementPlan,
@@ -748,7 +749,7 @@ export default function ManagementPage() {
                   <td className="px-2 py-2 font-medium">
                     {u.firstName || u.lastName
                       ? `${u.firstName || ''} ${u.lastName || ''}`.trim()
-                      : u.username}
+                      : u.email.split('@')[0]}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">{u.email}</td>
                   <td className="px-2 py-2">
@@ -789,7 +790,7 @@ export default function ManagementPage() {
                                     : x,
                                 ),
                               );
-                              toast.success(`${u.username} package updated`);
+                              toast.success(`${u.email} package updated`);
                             } catch (err: any) {
                               toast.error(err.message || 'Failed to update package');
                             } finally {
@@ -868,8 +869,8 @@ export default function ManagementPage() {
                             );
                             toast.success(
                               updated.isActive
-                                ? `${u.username} activated`
-                                : `${u.username} deactivated`,
+                                ? `${u.email} activated`
+                                : `${u.email} deactivated`,
                             );
                           } catch (err: any) {
                             toast.error(err.message || 'Failed to update user status');
@@ -1158,7 +1159,7 @@ export default function ManagementPage() {
                   <td className="px-2 py-2 font-medium">{t.name}</td>
                   <td className="px-2 py-2 text-muted-foreground">{t.slug}</td>
                   <td className="px-2 py-2">
-                    {t.owner ? `${t.owner.username} (${t.owner.email})` : 'N/A'}
+                    {t.owner ? `${getDisplayName({ firstName: t.owner.firstName, lastName: t.owner.lastName, email: t.owner.email })} (${t.owner.email})` : 'N/A'}
                   </td>
                   <td className="px-2 py-2">{t.memberCount}</td>
                   <td className="px-2 py-2">{t.projectCount}</td>
@@ -1420,7 +1421,7 @@ export default function ManagementPage() {
                   </div>
 
                   <div className="grid gap-2 text-sm">
-                    <p><span className="font-medium">Who:</span> {actor ? `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.username : log.actorUserId} {actor?.email ? `(${actor.email})` : ''}</p>
+                    <p><span className="font-medium">Who:</span> {actor ? getDisplayName({ firstName: actor.firstName, lastName: actor.lastName, email: actor.email }) : log.actorUserId} {actor?.email ? `(${actor.email})` : ''}</p>
                     <p><span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}</p>
                     <p><span className="font-medium">Team:</span> {teamName || '-'} {teamId ? `(${teamId})` : ''}</p>
                     <p><span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}</p>

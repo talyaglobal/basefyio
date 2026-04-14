@@ -44,18 +44,6 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensurePlatformIdentityProviders();
   }
 
-  private generateUsername(firstName?: string, lastName?: string, email?: string): string {
-    let base: string;
-    if (firstName || lastName) {
-      base = `${firstName || ''}${lastName || ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
-    } else {
-      base = (email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    }
-    if (!base) base = 'user';
-    const suffix = Math.random().toString(36).substring(2, 7);
-    return `${base}${suffix}`;
-  }
-
   private async ensureRealmTokenLifespan() {
     try {
       const realm = await this.client.realms.findOne({ realm: 'master' });
@@ -490,14 +478,13 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async createUser(
     realmName: string,
-    data: { username?: string; email: string; password: string; firstName?: string; lastName?: string },
+    data: { email: string; password: string; firstName?: string; lastName?: string; username?: string },
   ) {
     await this.ensureAuth();
-    const username = data.username || this.generateUsername(data.firstName, data.lastName, data.email);
 
     await this.client.users.create({
       realm: realmName,
-      username,
+      username: data.email,
       email: data.email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -508,7 +495,7 @@ export class KeycloakAdminService implements OnModuleInit {
       ],
     });
 
-    this.logger.log(`User "${username}" created in realm "${realmName}"`);
+    this.logger.log(`User "${data.email}" created in realm "${realmName}"`);
     return { message: `User created in realm` };
   }
 
@@ -517,11 +504,10 @@ export class KeycloakAdminService implements OnModuleInit {
     data: { email: string; password: string; firstName?: string; lastName?: string },
   ): Promise<string> {
     await this.ensureAuth();
-    const username = this.generateUsername(data.firstName, data.lastName, data.email);
 
     const { id } = await this.client.users.create({
       realm: realmName,
-      username,
+      username: data.email,
       email: data.email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -533,7 +519,7 @@ export class KeycloakAdminService implements OnModuleInit {
       ],
     });
 
-    this.logger.log(`Project user "${username}" created in realm "${realmName}" (${id})`);
+    this.logger.log(`Project user "${data.email}" created in realm "${realmName}" (${id})`);
     return id;
   }
 
@@ -632,17 +618,17 @@ export class KeycloakAdminService implements OnModuleInit {
   // ── Platform user operations ──
 
   async createPlatformUser(data: {
-    username: string;
     email: string;
     password: string;
     firstName?: string;
     lastName?: string;
+    username?: string; // kept for callers that pass email as username; ignored
   }): Promise<string> {
     await this.ensureAuth();
 
     const { id } = await this.client.users.create({
       realm: 'master',
-      username: data.username,
+      username: data.email,
       email: data.email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -653,7 +639,7 @@ export class KeycloakAdminService implements OnModuleInit {
       ],
     });
 
-    this.logger.log(`Platform user "${data.username}" created (${id})`);
+    this.logger.log(`Platform user "${data.email}" created (${id})`);
     return id;
   }
 

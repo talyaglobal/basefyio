@@ -248,7 +248,7 @@ export default function DashboardLayout({
         Cookies.remove('kb_force_password_change', { path: '/' });
       }
       setUser((prev) =>
-        prev ? { ...prev, preferred_username: p.username, email: p.email } : prev,
+        prev ? { ...prev, email: p.email } : prev,
       );
     }).catch(() => {});
   }, [router]);

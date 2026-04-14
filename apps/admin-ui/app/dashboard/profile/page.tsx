@@ -37,7 +37,6 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [pendingAvatarDataUrl, setPendingAvatarDataUrl] = useState<string | null>(null);
@@ -77,7 +76,6 @@ export default function ProfilePage() {
       .getProfile()
       .then((p) => {
         setProfile(p);
-        setUsername(p.username);
         setEmail(p.email);
         setAvatarPreview(p.avatarUrl || null);
         setPendingAvatarDataUrl(null);
@@ -116,8 +114,7 @@ export default function ProfilePage() {
 
   const hasProfileChanges =
     profile &&
-    (username !== profile.username ||
-      email !== profile.email ||
+    (email !== profile.email ||
       pendingAvatarDataUrl !== null);
 
   const handleSaveProfile = async () => {
@@ -125,7 +122,6 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       const updates: Record<string, string> = {};
-      if (username !== profile!.username) updates.username = username;
       if (email !== profile!.email) updates.email = email;
       if (pendingAvatarDataUrl !== null) updates.avatarUrl = pendingAvatarDataUrl;
 
@@ -310,16 +306,10 @@ export default function ProfilePage() {
 
         <Separator />
 
-        {/* Username + Email */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-          </div>
+        {/* Email */}
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
         </div>
 
         <div className="flex items-center justify-between">
