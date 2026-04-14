@@ -306,6 +306,7 @@ export class AuthService {
       password: string;
       firstName?: string;
       lastName?: string;
+      planName?: string;
     };
 
     // Guard against race condition: another signup with same email completed during OTP window
