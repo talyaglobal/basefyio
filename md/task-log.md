@@ -87,6 +87,7 @@
 
 ## 2026-04-15
 
+- **Website GA4 / Google tag:** `apps/website` gtag now uses `next/script` with `strategy="beforeInteractive"` (and Google’s script order: gtag/js then inline init) so the tag is present in the initial HTML for GA’s site verification. Documented that an empty `NEXT_PUBLIC_GA_MEASUREMENT_ID` at **build** removes the tag; compose Dockerfile default remains `G-9HTNF4CR06`.
 - **Management — Google marketing tabs:** Added Search Console and Analytics tabs under `/dashboard/management`. Backend `MarketingInsightsModule` (`GET /api/auth/management/marketing/search-console`, `.../analytics/traffic`) uses a service account (`GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON` or `GOOGLE_MARKETING_SA_JSON_B64`), `GOOGLE_SEARCH_CONSOLE_SITE_URL`, optional `GOOGLE_SEARCH_CONSOLE_INSPECT_URL`, and `GOOGLE_ANALYTICS_PROPERTY_ID`. Docker compose passes these env vars through.
 - **Billing (plan change):** Invoice is created when upgrading (`open` then `paid` or `unpaid`); failed card keeps current plan, sets `pendingPlanId` / `pendingAmountDue`, `PAST_DUE`, and retries use pending amount.
 - **Billing (retries / freeze):** `processRecurringCharges` merges scheduled bill-day subs with `PAST_DUE` or pending-upgrade subs in the 3-day window; at most one charge per local calendar day (`lastRetryDate`). Freeze only via `freezeOverdueAccounts` (`firstFailureAt` + 3 days), not immediate freeze on retry count 3.

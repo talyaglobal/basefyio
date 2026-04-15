@@ -18,11 +18,11 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.20",
-    "@types/three": "^0.170.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/three": "^0.170.0",
+    "autoprefixer": "^10.4.20",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
