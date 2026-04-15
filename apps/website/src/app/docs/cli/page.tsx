@@ -14,12 +14,21 @@ export default function CliDocs() {
 
       <h2>Authentication</h2>
       <h3>kb login</h3>
-      <p>Log in to the Kolaybase platform.</p>
+      <p>
+        Log in to your Kolaybase account. The CLI opens your default browser,
+        where you authenticate via Keycloak. After signing in you are shown a
+        confirmation page — click <strong>Allow access</strong> to connect the
+        CLI to your account, or <strong>Cancel</strong> to abort. The browser
+        tab can be closed once the terminal confirms you are logged in.
+      </p>
       <pre><code>{`kb login
-# Prompts for email and password
 
-# Custom API URL
-kb login --api-url https://api.kolaybase.com`}</code></pre>
+# Point at a self-hosted instance
+kb login --api-url https://api.your-domain.com`}</code></pre>
+      <p>
+        Credentials are stored in <code>~/.kolaybase/config.json</code>. Run{" "}
+        <code>kb login</code> again at any time to switch accounts.
+      </p>
 
       <h2>Project Setup</h2>
 
