@@ -23,7 +23,7 @@ export default function CliDocs() {
       </p>
       <pre><code>{`kb login
 
-# Point at a self-hosted instance
+# Custom API URL
 kb login --api-url https://api.your-domain.com`}</code></pre>
       <p>
         Credentials are stored in <code>~/.kolaybase/config.json</code>. Run{" "}
