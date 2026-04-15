@@ -149,6 +149,24 @@ export class ObservabilityService {
       this.incrementMetric('root_action_failed_total');
     }
 
+    const defaultBefore: Prisma.InputJsonValue = {
+      audit: 'kolaybase.root_action',
+      snapshot: 'before',
+      note: 'No explicit before state was supplied; use action, resource, and Metadata for context.',
+      action: params.action,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId ?? null,
+    };
+    const defaultAfter: Prisma.InputJsonValue = {
+      audit: 'kolaybase.root_action',
+      snapshot: 'after',
+      success: params.success,
+      latencyMs: params.latencyMs,
+      action: params.action,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId ?? null,
+    };
+
     const row = await this.prisma.auditLog.create({
       data: {
         traceId: params.traceId,
@@ -159,8 +177,8 @@ export class ObservabilityService {
         resourceId: params.resourceId || null,
         severity: params.severity || 'MEDIUM',
         success: params.success,
-        beforeJson: params.beforeJson ?? Prisma.JsonNull,
-        afterJson: params.afterJson ?? Prisma.JsonNull,
+        beforeJson: params.beforeJson != null ? params.beforeJson : defaultBefore,
+        afterJson: params.afterJson != null ? params.afterJson : defaultAfter,
         metadataJson: {
           latencyMs: params.latencyMs,
           metadata: params.metadataJson ?? Prisma.JsonNull,

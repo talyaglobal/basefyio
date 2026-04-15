@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (ROOT alert audit details — Before / After not N/A)
+
+**Done:** `AuditLogInterceptor` now writes structured `beforeJson` / `afterJson` for HTTP audits. `ObservabilityService.captureRootAction` defaults before/after JSON when callers omit them. `root-alerts-panel` replaces `N/A` with `(none)` for missing audit id and clearer empty JSON text.
+
 ## 2026-04-15 (admin-ui — AI quick-connect prompt)
 
 **Done:** Connection page “AI prompt for quick connect” embeds the same env lines as the Raw Editor for the selected framework, with short English instructions: verbatim `.env`, migration push commands, REST headers, CORS/CSP, and not echoing secrets.

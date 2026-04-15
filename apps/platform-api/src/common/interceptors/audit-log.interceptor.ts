@@ -40,6 +40,28 @@ export class AuditLogInterceptor implements NestInterceptor {
     latencyMs: number;
     metadataJson?: Record<string, unknown>;
   }) {
+    const path = (input.metadataJson?.url as string | undefined) || '';
+    const method = (input.metadataJson?.method as string | undefined) || '';
+    const statusCode = input.metadataJson?.statusCode as number | undefined;
+
+    const beforeSnapshot: Prisma.InputJsonValue = {
+      audit: 'kolaybase.http',
+      snapshot: 'before',
+      note: 'HTTP access audit: no domain entity diff; request context is recorded in After.',
+      action: input.action,
+      resourceType: input.resourceType,
+    };
+
+    const afterSnapshot: Prisma.InputJsonValue = {
+      audit: 'kolaybase.http',
+      snapshot: 'after',
+      method,
+      path,
+      statusCode: statusCode ?? null,
+      latencyMs: input.latencyMs,
+      success: input.success,
+    };
+
     try {
       await AuditLogInterceptor.prisma.auditLog.create({
         data: {
@@ -51,6 +73,8 @@ export class AuditLogInterceptor implements NestInterceptor {
           resourceId: null,
           severity: input.success ? 'LOW' : 'HIGH',
           success: input.success,
+          beforeJson: beforeSnapshot,
+          afterJson: afterSnapshot,
           metadataJson: {
             latencyMs: input.latencyMs,
             method: input.metadataJson?.method,

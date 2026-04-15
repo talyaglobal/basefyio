@@ -72,7 +72,9 @@ export function RootAlertsPanel({
   }
 
   function renderJson(value: unknown) {
-    if (value === null || value === undefined) return 'N/A';
+    if (value === null || value === undefined) {
+      return '(none — legacy row or field not stored)';
+    }
     try {
       return JSON.stringify(value, null, 2);
     } catch {
@@ -192,7 +194,12 @@ export function RootAlertsPanel({
                   <div><span className="text-muted-foreground">Severity:</span> <span className="ml-1">{selectedAlert.severity}</span></div>
                   <div><span className="text-muted-foreground">Read:</span> <span className="ml-1">{selectedAlert.isRead ? 'Yes' : 'No'}</span></div>
                   <div><span className="text-muted-foreground">Created:</span> <span className="ml-1">{new Date(selectedAlert.createdAt).toLocaleString()}</span></div>
-                  <div><span className="text-muted-foreground">Related Audit ID:</span> <span className="ml-1 font-mono text-xs">{selectedAlert.relatedAuditLogId || 'N/A'}</span></div>
+                  <div>
+                    <span className="text-muted-foreground">Related Audit ID:</span>{' '}
+                    <span className="ml-1 font-mono text-xs">
+                      {selectedAlert.relatedAuditLogId || '(none)'}
+                    </span>
+                  </div>
                 </div>
                 {(selectedAlert.relatedActorDisplay || selectedAlert.relatedTargetDisplay) && (
                   <div className="mt-3 rounded-md border border-border/80 bg-muted/30 px-3 py-2 text-xs">
