@@ -40,6 +40,8 @@ import type {
   ManagementUser,
   ManagementPlan,
   ManagementUserPackage,
+  ManagementSearchConsoleSummary,
+  ManagementAnalyticsTrafficSummary,
   RolePermissionMatrix,
   UserProfile,
   RootAlert,
@@ -49,6 +51,19 @@ import type {
   VercelIntegration,
   VercelProject,
 } from './types';
+
+/** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
+async function parseOkJsonBody<T>(res: Response): Promise<T> {
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) return undefined as T;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return undefined as T;
+  }
+}
 
 async function request<T>(
   path: string,
@@ -102,7 +117,7 @@ async function request<T>(
           body: JSON.stringify({ refreshToken }),
         });
         if (refreshRes.ok) {
-          const tokens: AuthTokens = await refreshRes.json();
+          const tokens: AuthTokens = await parseOkJsonBody<AuthTokens>(refreshRes);
           setTokens(tokens);
           const retry = await fetch(`/api/proxy${path}`, {
             ...options,
@@ -112,7 +127,7 @@ async function request<T>(
               ...options.headers,
             },
           });
-          if (retry.ok) return retry.json();
+          if (retry.ok) return parseOkJsonBody<T>(retry);
         }
         // If refresh endpoint is reachable but rejects credentials, session is truly invalid.
         if (refreshRes.status === 400 || refreshRes.status === 401) {
@@ -141,7 +156,15 @@ async function request<T>(
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
+    const errText = await res.text();
+    let body: { message?: string; code?: string } = {};
+    if (errText.trim()) {
+      try {
+        body = JSON.parse(errText) as { message?: string; code?: string };
+      } catch {
+        body = { message: errText.slice(0, 200) };
+      }
+    }
     const err = new Error(body.message || `Request failed: ${res.status}`) as Error & {
       code?: string;
       status?: number;
@@ -151,12 +174,7 @@ async function request<T>(
     throw err;
   }
 
-  const contentType = res.headers.get('content-type') ?? '';
-  const contentLength = res.headers.get('content-length');
-  if (res.status === 204 || contentLength === '0' || !contentType.includes('application/json')) {
-    return undefined as T;
-  }
-  return res.json();
+  return parseOkJsonBody<T>(res);
 }
 
 export const api = {
@@ -361,6 +379,12 @@ export const api = {
           body: JSON.stringify(patch),
         },
       );
+    },
+    managementSearchConsole() {
+      return request<ManagementSearchConsoleSummary>('/auth/management/marketing/search-console');
+    },
+    managementAnalyticsTraffic() {
+      return request<ManagementAnalyticsTrafficSummary>('/auth/management/marketing/analytics/traffic');
     },
   },
 

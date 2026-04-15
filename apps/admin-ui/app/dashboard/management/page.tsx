@@ -2,14 +2,35 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Copy, Github, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BarChart3,
+  Copy,
+  Github,
+  KeyRound,
+  Loader2,
+  Search,
+  ShieldCheck,
+} from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { toast } from 'sonner';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import type {
   AuditLogEntry,
+  ManagementAnalyticsTrafficSummary,
   ManagementPlan,
+  ManagementSearchConsoleSummary,
   ManagementTeam,
   ManagementUser,
   ManagementUserPackage,
@@ -135,8 +156,18 @@ export default function ManagementPage() {
   const [managementPermissions, setManagementPermissions] = useState<RolePermissionMatrix | null>(
     null,
   );
+  const [gscData, setGscData] = useState<ManagementSearchConsoleSummary | null>(null);
+  const [gaData, setGaData] = useState<ManagementAnalyticsTrafficSummary | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'users' | 'plans' | 'teams' | 'rootAlerts' | 'audit' | 'permissions' | 'deletionReasons'
+    | 'users'
+    | 'plans'
+    | 'teams'
+    | 'rootAlerts'
+    | 'audit'
+    | 'permissions'
+    | 'deletionReasons'
+    | 'searchConsole'
+    | 'analytics'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -234,7 +265,16 @@ export default function ManagementPage() {
   }
 
   async function loadTabData(
-    tab: 'users' | 'plans' | 'teams' | 'rootAlerts' | 'audit' | 'permissions' | 'deletionReasons',
+    tab:
+      | 'users'
+      | 'plans'
+      | 'teams'
+      | 'rootAlerts'
+      | 'audit'
+      | 'permissions'
+      | 'deletionReasons'
+      | 'searchConsole'
+      | 'analytics',
     force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
@@ -283,6 +323,12 @@ export default function ManagementPage() {
       } else if (tab === 'deletionReasons' && (managementPermissions?.canViewAuditLogs || isRoot)) {
         const deletionReasons = await api.projects.listDeletionReasons(200);
         setProjectDeletionReasons(deletionReasons);
+      } else if (tab === 'searchConsole' && canAccessManagement) {
+        const data = await api.auth.managementSearchConsole();
+        setGscData(data);
+      } else if (tab === 'analytics' && canAccessManagement) {
+        const data = await api.auth.managementAnalyticsTraffic();
+        setGaData(data);
       }
       setLoadedTabs((prev) => new Set(prev).add(tab));
     } catch (err: any) {
@@ -430,14 +476,19 @@ export default function ManagementPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            Management
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Role-based management area. Permissions are controlled by ROOT.
-          </p>
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/dashboard')}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-bold">
+              <ShieldCheck className="h-6 w-6 text-primary" />
+              Management
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Role-based management area. Permissions are controlled by ROOT.
+            </p>
+          </div>
         </div>
         <Button
           variant="outline"
@@ -543,6 +594,32 @@ export default function ManagementPage() {
           Audit Logs
         </button>
         )}
+        {canAccessManagement && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'searchConsole'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('searchConsole')}
+        >
+          Search Console
+        </button>
+        )}
+        {canAccessManagement && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'analytics'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('analytics')}
+        >
+          Analytics
+        </button>
+        )}
       </div>
 
       {tabLoading && (
@@ -550,6 +627,237 @@ export default function ManagementPage() {
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading tab data...
         </div>
+      )}
+
+      {activeTab === 'searchConsole' && canAccessManagement && (
+        <section className="space-y-4 rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <h2 className="text-base font-semibold">Google Search Console</h2>
+              <p className="text-sm text-muted-foreground">
+                Sitemap warnings, URL inspection hints, and 28-day search performance.
+              </p>
+            </div>
+          </div>
+          {!gscData && !tabLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : gscData && !gscData.configured ? (
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
+              <p className="font-medium">Not configured</p>
+              <p className="mt-2 text-muted-foreground">{gscData.message}</p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Set GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON (or GOOGLE_MARKETING_SA_JSON_B64),
+                GOOGLE_SEARCH_CONSOLE_SITE_URL (property URL or sc-domain:…), and optionally
+                GOOGLE_SEARCH_CONSOLE_INSPECT_URL for domain properties.
+              </p>
+            </div>
+          ) : gscData && gscData.configured ? (
+            <div className="space-y-6">
+              <p className="text-xs text-muted-foreground">
+                Property: <span className="font-mono text-foreground">{gscData.siteUrl}</span>
+              </p>
+              {gscData.sitemaps.some((s) => s.warnings > 0 || s.errors > 0) && (
+                <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-red-200">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    Sitemap issues
+                  </div>
+                  <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-red-100/90">
+                    {gscData.sitemaps
+                      .filter((s) => s.warnings > 0 || s.errors > 0)
+                      .map((s) => (
+                        <li key={s.path}>
+                          {s.path}: {s.errors} error(s), {s.warnings} warning(s)
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {gscData.urlInspection &&
+                typeof gscData.urlInspection === 'object' &&
+                Array.isArray((gscData.urlInspection as { issues?: string[] }).issues) &&
+                (gscData.urlInspection as { issues: string[] }).issues.length > 0 && (
+                  <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3">
+                    <p className="text-sm font-medium text-amber-200">URL inspection</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {(gscData.urlInspection as { inspectionUrl?: string }).inspectionUrl}
+                    </p>
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-amber-100/90">
+                      {(gscData.urlInspection as { issues: string[] }).issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              <div>
+                <h3 className="mb-2 text-sm font-medium">Sitemaps</h3>
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">Path</th>
+                        <th className="px-3 py-2">Warnings</th>
+                        <th className="px-3 py-2">Errors</th>
+                        <th className="px-3 py-2">Last downloaded</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gscData.sitemaps.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-4 text-muted-foreground">
+                            No sitemaps submitted for this property.
+                          </td>
+                        </tr>
+                      ) : (
+                        gscData.sitemaps.map((s) => (
+                          <tr key={s.path} className="border-b border-border/60 last:border-0">
+                            <td className="max-w-[280px] truncate px-3 py-2 font-mono text-xs">{s.path}</td>
+                            <td className="px-3 py-2">{s.warnings}</td>
+                            <td className="px-3 py-2">{s.errors}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {s.lastDownloaded || '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {gscData.searchPerformance &&
+                !('error' in gscData.searchPerformance) &&
+                Array.isArray(
+                  (gscData.searchPerformance as { byDate?: unknown }).byDate,
+                ) && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">Search traffic (28 days)</h3>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Clicks:{' '}
+                      <span className="text-foreground">
+                        {(gscData.searchPerformance as { totals: { clicks: number } }).totals.clicks}
+                      </span>
+                      {' · '}
+                      Impressions:{' '}
+                      <span className="text-foreground">
+                        {
+                          (gscData.searchPerformance as { totals: { impressions: number } }).totals
+                            .impressions
+                        }
+                      </span>
+                    </p>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={(gscData.searchPerformance as { byDate: { date: string; clicks: number; impressions: number }[] }).byDate.map((row) => ({
+                            label: row.date.slice(5),
+                            clicks: row.clicks,
+                            impressions: row.impressions,
+                          }))}
+                          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                          <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
+                          <Tooltip contentStyle={{ fontSize: 12 }} />
+                          <Area
+                            type="monotone"
+                            dataKey="clicks"
+                            name="Clicks"
+                            stroke="hsl(var(--primary))"
+                            fill="hsl(var(--primary))"
+                            fillOpacity={0.2}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+            </div>
+          ) : null}
+        </section>
+      )}
+
+      {activeTab === 'analytics' && canAccessManagement && (
+        <section className="space-y-4 rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <h2 className="text-base font-semibold">Google Analytics (GA4)</h2>
+              <p className="text-sm text-muted-foreground">Sessions and page views for the last 28 days.</p>
+            </div>
+          </div>
+          {!gaData && !tabLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : gaData && !gaData.configured ? (
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
+              <p className="font-medium">Not configured</p>
+              <p className="mt-2 text-muted-foreground">{gaData.message}</p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Grant the service account at least Viewer on the GA4 property, then set
+                GOOGLE_ANALYTICS_PROPERTY_ID.
+              </p>
+            </div>
+          ) : gaData && gaData.configured ? (
+            <div className="space-y-4">
+              {gaData.error && (
+                <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-200">
+                  {gaData.error}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-4 text-sm">
+                {Object.entries(gaData.summary).map(([k, v]) => (
+                  <div key={k} className="rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="text-xs capitalize text-muted-foreground">{k.replace(/([A-Z])/g, ' $1')}</div>
+                    <div className="text-lg font-semibold tabular-nums">{Number(v).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              {gaData.byDate.length > 0 && (
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={gaData.byDate.map((row) => {
+                        const raw = String(row.date || '');
+                        const label =
+                          raw.length === 8
+                            ? `${raw.slice(4, 6)}/${raw.slice(6, 8)}`
+                            : raw.slice(5, 10);
+                        return {
+                          label,
+                          sessions: Number(row.sessions ?? 0),
+                          screenPageViews: Number(row.screenPageViews ?? 0),
+                        };
+                      })}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                      <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} />
+                      <Tooltip contentStyle={{ fontSize: 12 }} />
+                      <Area
+                        type="monotone"
+                        dataKey="sessions"
+                        name="Sessions"
+                        stroke="hsl(var(--primary))"
+                        fill="hsl(var(--primary))"
+                        fillOpacity={0.15}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="screenPageViews"
+                        name="Page views"
+                        stroke="hsl(142 76% 36%)"
+                        fill="hsl(142 76% 36%)"
+                        fillOpacity={0.1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </section>
       )}
 
       {activeTab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot) && (

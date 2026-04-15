@@ -551,14 +551,14 @@ export class BillingService implements OnModuleInit {
 
     await this.prisma.invoice.upsert({
       where: { stripeInvoiceId: stripeInvoice.id },
-      update: { status: 'payment_failed' },
+      update: { status: 'unpaid' },
       create: {
         teamId: sub.teamId,
         stripeInvoiceId: stripeInvoice.id,
         amountDue: stripeInvoice.amount_due || 0,
         amountPaid: 0,
         currency: stripeInvoice.currency || 'usd',
-        status: 'payment_failed',
+        status: 'unpaid',
         invoiceUrl: stripeInvoice.hosted_invoice_url || null,
         invoicePdf: stripeInvoice.invoice_pdf || null,
         periodStart: stripeInvoice.period_start
@@ -773,7 +773,30 @@ export class BillingService implements OnModuleInit {
     // Calculate amount to charge immediately
     const amountDue = Math.max(0, newPlan.priceMonthly - prorationCredit);
 
-    // PREPAID: Charge immediately
+    // Calculate next billing date (same day of month, next month)
+    const now = new Date();
+    const billingDayOfMonth = now.getDate();
+    const nextBillingDate = new Date(now);
+    nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    nextBillingDate.setDate(billingDayOfMonth);
+    nextBillingDate.setHours(now.getHours(), 0, 0, 0);
+
+    // Invoice exists as soon as the plan change is initiated (open → paid or unpaid).
+    const upgradeInvoice = await this.prisma.invoice.create({
+      data: {
+        teamId,
+        stripeInvoiceId: null,
+        amountDue,
+        amountPaid: 0,
+        currency: 'usd',
+        status: amountDue > 0 ? 'open' : 'paid',
+        periodStart: now,
+        periodEnd: nextBillingDate,
+        retryCount: 0,
+      },
+    });
+
+    // PREPAID: Charge immediately when there is an amount due
     let paymentIntent: any;
     if (amountDue > 0) {
       try {
@@ -796,19 +819,27 @@ export class BillingService implements OnModuleInit {
         }
       } catch (err: any) {
         this.logger.error(`Payment failed for team ${teamId}: ${err.message}`);
+        await this.prisma.invoice.update({
+          where: { id: upgradeInvoice.id },
+          data: { status: 'unpaid' },
+        });
+        const firstFailureAt = sub.firstFailureAt ?? new Date();
+        await this.prisma.subscription.update({
+          where: { id: sub.id },
+          data: {
+            pendingPlanId: newPlan.id,
+            pendingAmountDue: amountDue,
+            firstFailureAt,
+            lastRetryDate: new Date(),
+            retryCount: { increment: 1 },
+            status: 'PAST_DUE',
+          },
+        });
         throw new BadRequestException(`Payment failed: ${err.message}`);
       }
     }
 
-    // Calculate next billing date (same day of month, next month)
-    const now = new Date();
-    const billingDayOfMonth = now.getDate();
-    const nextBillingDate = new Date(now);
-    nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-    nextBillingDate.setDate(billingDayOfMonth);
-    nextBillingDate.setHours(now.getHours(), 0, 0, 0); // Same hour, zero minutes/seconds
-
-    // Update subscription
+    // Update subscription (paid path or $0 upgrade)
     await this.prisma.subscription.update({
       where: { id: sub.id },
       data: {
@@ -820,21 +851,18 @@ export class BillingService implements OnModuleInit {
         billingDayOfMonth,
         retryCount: 0,
         lastRetryDate: null,
+        firstFailureAt: null,
+        pendingPlanId: null,
+        pendingAmountDue: null,
       },
     });
 
-    // Create invoice record
-    await this.prisma.invoice.create({
+    await this.prisma.invoice.update({
+      where: { id: upgradeInvoice.id },
       data: {
-        teamId,
         stripeInvoiceId: paymentIntent?.id || null,
-        amountDue,
         amountPaid: amountDue,
-        currency: 'usd',
         status: 'paid',
-        periodStart: now,
-        periodEnd: nextBillingDate,
-        retryCount: 0,
       },
     });
 
@@ -924,30 +952,50 @@ export class BillingService implements OnModuleInit {
 
     const today = new Date();
     const dayOfMonth = today.getDate();
+    const startOfLocalDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const graceStart = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
 
-    // Find subscriptions due for billing today
-    const subscriptions = await this.prisma.subscription.findMany({
+    const scheduled = await this.prisma.subscription.findMany({
       where: {
         billingDayOfMonth: dayOfMonth,
         status: 'ACTIVE',
         team: { accountStatus: 'ACTIVE' },
+        pendingPlanId: null,
       },
-      include: {
-        team: true,
-        plan: true,
-      },
+      include: { team: true, plan: true },
     });
 
+    const retryCandidates = await this.prisma.subscription.findMany({
+      where: {
+        team: { accountStatus: 'ACTIVE' },
+        firstFailureAt: { not: null, gte: graceStart },
+        retryCount: { lt: 3 },
+        OR: [{ pendingPlanId: { not: null } }, { status: 'PAST_DUE' }],
+      },
+      include: { team: true, plan: true },
+    });
+
+    const byId = new Map<string, (typeof scheduled)[number]>();
+    for (const s of scheduled) byId.set(s.id, s);
+    for (const s of retryCandidates) {
+      if (!byId.has(s.id)) byId.set(s.id, s);
+    }
+
     this.logger.log(
-      `Processing recurring charges for day ${dayOfMonth}. Found ${subscriptions.length} subscription(s)`,
+      `Processing recurring/retry charges for day ${dayOfMonth}. Unique subscriptions: ${byId.size}`,
     );
 
     const results: Array<{ teamId: string; status: 'success' | 'failed' | 'retry' | 'frozen'; message?: string }> =
       [];
     let succeeded = 0;
     let failed = 0;
+    let skipped = 0;
 
-    for (const sub of subscriptions) {
+    for (const sub of byId.values()) {
+      if (sub.lastRetryDate && sub.lastRetryDate >= startOfLocalDay) {
+        skipped++;
+        continue;
+      }
       try {
         const result = await this.chargeSubscription(sub.teamId, sub.id);
         results.push(result);
@@ -968,7 +1016,7 @@ export class BillingService implements OnModuleInit {
     }
 
     return {
-      processed: subscriptions.length,
+      processed: byId.size - skipped,
       succeeded,
       failed,
       details: results,
@@ -1001,10 +1049,13 @@ export class BillingService implements OnModuleInit {
       throw new BadRequestException('No payment method on file');
     }
 
-    const amountDue = sub.plan.priceMonthly;
+    const hasPendingUpgrade =
+      sub.pendingPlanId != null &&
+      sub.pendingAmountDue != null &&
+      sub.pendingAmountDue > 0;
+    const amountDue = hasPendingUpgrade ? sub.pendingAmountDue! : sub.plan.priceMonthly;
 
     try {
-      // Attempt payment
       const paymentIntent = await this.stripe.createPaymentIntent({
         amount: amountDue,
         currency: 'usd',
@@ -1013,16 +1064,77 @@ export class BillingService implements OnModuleInit {
         metadata: {
           teamId: sub.teamId,
           subscriptionId: sub.id,
-          type: 'recurring_charge',
+          type: hasPendingUpgrade ? 'pending_plan_charge' : 'recurring_charge',
         },
       });
 
       if (paymentIntent.status === 'succeeded') {
-        // Payment succeeded - reset retry count and set next billing date
         const now = new Date();
         const nextBillingDate = new Date(now);
         nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
         nextBillingDate.setDate(sub.billingDayOfMonth || now.getDate());
+
+        if (hasPendingUpgrade && sub.pendingPlanId) {
+          const openInv = await this.prisma.invoice.findFirst({
+            where: {
+              teamId: sub.teamId,
+              status: { in: ['open', 'unpaid'] },
+              amountPaid: 0,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (openInv) {
+            await this.prisma.invoice.update({
+              where: { id: openInv.id },
+              data: {
+                status: 'paid',
+                amountPaid: amountDue,
+                stripeInvoiceId: paymentIntent.id,
+              },
+            });
+          } else {
+            await this.prisma.invoice.create({
+              data: {
+                teamId: sub.teamId,
+                stripeInvoiceId: paymentIntent.id,
+                amountDue,
+                amountPaid: amountDue,
+                currency: 'usd',
+                status: 'paid',
+                periodStart: now,
+                periodEnd: nextBillingDate,
+                retryCount: 0,
+              },
+            });
+          }
+
+          await this.prisma.subscription.update({
+            where: { id: sub.id },
+            data: {
+              planId: sub.pendingPlanId,
+              pendingPlanId: null,
+              pendingAmountDue: null,
+              status: 'ACTIVE',
+              currentPeriodStart: now,
+              currentPeriodEnd: nextBillingDate,
+              nextBillingDate,
+              billingDayOfMonth: sub.billingDayOfMonth || now.getDate(),
+              retryCount: 0,
+              lastRetryDate: null,
+              firstFailureAt: null,
+            },
+          });
+
+          await this.prisma.team.update({
+            where: { id: sub.teamId },
+            data: { accountStatus: 'ACTIVE' },
+          });
+
+          this.logger.log(
+            `Pending plan charge succeeded for team ${teamId}. Amount: $${(amountDue / 100).toFixed(2)}`,
+          );
+          return { teamId, status: 'success' };
+        }
 
         await this.prisma.subscription.update({
           where: { id: sub.id },
@@ -1056,75 +1168,76 @@ export class BillingService implements OnModuleInit {
 
         return { teamId, status: 'success' };
       } else {
-        // Payment failed - increment retry count
-        return await this.handleFailedPayment(sub.id, sub.teamId, sub.retryCount);
+        return await this.handleFailedPayment(sub.id, sub.teamId, sub.retryCount, amountDue);
       }
     } catch (err: any) {
       this.logger.error(`Payment failed for team ${teamId}: ${err.message}`);
-      return await this.handleFailedPayment(sub.id, sub.teamId, sub.retryCount);
+      return await this.handleFailedPayment(sub.id, sub.teamId, sub.retryCount, amountDue);
     }
   }
 
   /**
-   * Handle failed payment: increment retry count, or freeze account after 3 retries
+   * Handle failed payment: increment retry; freeze is time-based (firstFailureAt + 3d) in freezeOverdueAccounts.
    */
   private async handleFailedPayment(
     subscriptionId: string,
     teamId: string,
     currentRetryCount: number,
-  ): Promise<{ teamId: string; status: 'retry' | 'frozen'; message: string }> {
+    chargeAmountCents: number,
+  ): Promise<{ teamId: string; status: 'retry'; message: string }> {
     const newRetryCount = currentRetryCount + 1;
 
-    // Stamp firstFailureAt only on the first miss — keeps 3-day window anchored correctly
     const existing = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
       select: { firstFailureAt: true },
     });
     const firstFailureAt = existing?.firstFailureAt ?? new Date();
 
-    if (newRetryCount >= 3) {
-      // Freeze account after 3 failed attempts
-      await this.prisma.team.update({
-        where: { id: teamId },
-        data: { accountStatus: 'FROZEN' },
-      });
+    await this.prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        status: 'PAST_DUE',
+        retryCount: newRetryCount,
+        lastRetryDate: new Date(),
+        firstFailureAt,
+      },
+    });
 
-      await this.prisma.subscription.update({
-        where: { id: subscriptionId },
-        data: {
-          status: 'PAST_DUE',
-          retryCount: newRetryCount,
-          lastRetryDate: new Date(),
-          firstFailureAt,
+    if (chargeAmountCents > 0) {
+      const openUnpaid = await this.prisma.invoice.findFirst({
+        where: {
+          teamId,
+          status: { in: ['open', 'unpaid'] },
+          amountPaid: 0,
         },
+        orderBy: { createdAt: 'desc' },
       });
-
-      this.logger.warn(`Account frozen for team ${teamId} after 3 failed payment attempts`);
-
-      return {
-        teamId,
-        status: 'frozen',
-        message: 'Account frozen after 3 failed payment attempts',
-      };
-    } else {
-      // Schedule retry for next day
-      await this.prisma.subscription.update({
-        where: { id: subscriptionId },
-        data: {
-          retryCount: newRetryCount,
-          lastRetryDate: new Date(),
-          firstFailureAt,
-        },
-      });
-
-      this.logger.warn(`Payment failed for team ${teamId}. Retry ${newRetryCount}/3 scheduled`);
-
-      return {
-        teamId,
-        status: 'retry',
-        message: `Payment failed. Retry ${newRetryCount}/3 scheduled for tomorrow`,
-      };
+      if (!openUnpaid) {
+        await this.prisma.invoice.create({
+          data: {
+            teamId,
+            stripeInvoiceId: null,
+            amountDue: chargeAmountCents,
+            amountPaid: 0,
+            currency: 'usd',
+            status: 'unpaid',
+            periodStart: new Date(),
+            periodEnd: null,
+            retryCount: newRetryCount,
+          },
+        });
+      }
     }
+
+    this.logger.warn(
+      `Payment failed for team ${teamId}. Retry count=${newRetryCount}/3 (account freezes after 3 days if still unpaid)`,
+    );
+
+    return {
+      teamId,
+      status: 'retry',
+      message: `Payment failed. Retry ${newRetryCount}/3`,
+    };
   }
 
   /**
@@ -1169,7 +1282,11 @@ export class BillingService implements OnModuleInit {
       throw new BadRequestException('No payment method on file. Please add a card first.');
     }
 
-    const amountDue = sub.plan.priceMonthly;
+    const hasPendingUpgrade =
+      sub.pendingPlanId != null &&
+      sub.pendingAmountDue != null &&
+      sub.pendingAmountDue > 0;
+    const amountDue = hasPendingUpgrade ? sub.pendingAmountDue! : sub.plan.priceMonthly;
 
     try {
       const paymentIntent = await this.stripe.createPaymentIntent({
@@ -1180,12 +1297,11 @@ export class BillingService implements OnModuleInit {
         metadata: {
           teamId,
           subscriptionId: sub.id,
-          type: 'retry_payment',
+          type: hasPendingUpgrade ? 'pending_plan_retry' : 'retry_payment',
         },
       });
 
       if (paymentIntent.status === 'succeeded') {
-        // Payment succeeded - unfreeze account
         const now = new Date();
         const nextBillingDate = new Date(now);
         nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
@@ -1196,32 +1312,84 @@ export class BillingService implements OnModuleInit {
           data: { accountStatus: 'ACTIVE' },
         });
 
-        await this.prisma.subscription.update({
-          where: { id: sub.id },
-          data: {
-            status: 'ACTIVE',
-            currentPeriodStart: now,
-            currentPeriodEnd: nextBillingDate,
-            nextBillingDate,
-            retryCount: 0,
-            lastRetryDate: null,
-            firstFailureAt: null,
-          },
-        });
+        if (hasPendingUpgrade && sub.pendingPlanId) {
+          const openInv = await this.prisma.invoice.findFirst({
+            where: {
+              teamId,
+              status: { in: ['open', 'unpaid'] },
+              amountPaid: 0,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (openInv) {
+            await this.prisma.invoice.update({
+              where: { id: openInv.id },
+              data: {
+                status: 'paid',
+                amountPaid: amountDue,
+                stripeInvoiceId: paymentIntent.id,
+              },
+            });
+          } else {
+            await this.prisma.invoice.create({
+              data: {
+                teamId,
+                stripeInvoiceId: paymentIntent.id,
+                amountDue,
+                amountPaid: amountDue,
+                currency: 'usd',
+                status: 'paid',
+                periodStart: now,
+                periodEnd: nextBillingDate,
+                retryCount: 0,
+              },
+            });
+          }
 
-        await this.prisma.invoice.create({
-          data: {
-            teamId,
-            stripeInvoiceId: paymentIntent.id,
-            amountDue,
-            amountPaid: amountDue,
-            currency: 'usd',
-            status: 'paid',
-            periodStart: now,
-            periodEnd: nextBillingDate,
-            retryCount: 0,
-          },
-        });
+          await this.prisma.subscription.update({
+            where: { id: sub.id },
+            data: {
+              planId: sub.pendingPlanId,
+              pendingPlanId: null,
+              pendingAmountDue: null,
+              status: 'ACTIVE',
+              currentPeriodStart: now,
+              currentPeriodEnd: nextBillingDate,
+              nextBillingDate,
+              billingDayOfMonth: sub.billingDayOfMonth || now.getDate(),
+              retryCount: 0,
+              lastRetryDate: null,
+              firstFailureAt: null,
+            },
+          });
+        } else {
+          await this.prisma.subscription.update({
+            where: { id: sub.id },
+            data: {
+              status: 'ACTIVE',
+              currentPeriodStart: now,
+              currentPeriodEnd: nextBillingDate,
+              nextBillingDate,
+              retryCount: 0,
+              lastRetryDate: null,
+              firstFailureAt: null,
+            },
+          });
+
+          await this.prisma.invoice.create({
+            data: {
+              teamId,
+              stripeInvoiceId: paymentIntent.id,
+              amountDue,
+              amountPaid: amountDue,
+              currency: 'usd',
+              status: 'paid',
+              periodStart: now,
+              periodEnd: nextBillingDate,
+              retryCount: 0,
+            },
+          });
+        }
 
         this.logger.log(`Retry payment succeeded for team ${teamId}. Account unfrozen.`);
 

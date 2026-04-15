@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Cookies from 'js-cookie';
@@ -77,6 +77,7 @@ export default function DashboardLayout({
     action: string;
   } | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const frozenRedirectToastShown = useRef(false);
   const pathname = usePathname();
   const isProjectDetailRoute =
     pathname.startsWith('/dashboard/projects/') &&
@@ -187,9 +188,16 @@ export default function DashboardLayout({
     const allowedPaths = ['/dashboard/billing'];
     const isAllowedPath = allowedPaths.some(path => pathname === path || pathname.startsWith(path));
 
+    if (accountStatus !== 'FROZEN') {
+      frozenRedirectToastShown.current = false;
+    }
+
     if (accountStatus === 'FROZEN' && !isAllowedPath) {
       router.replace('/dashboard/billing');
-      toast.error('Your account is suspended. Please update your payment method to access this page.');
+      if (!frozenRedirectToastShown.current) {
+        frozenRedirectToastShown.current = true;
+        toast.error('Your account is suspended. Please update your payment method to access this page.');
+      }
     }
 
     setAccountStatusLoaded(true);

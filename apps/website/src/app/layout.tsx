@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { GoogleAnalytics } from "@/components/google-analytics";
 import { SiteJsonLd } from "@/components/site-json-ld";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
@@ -83,6 +84,7 @@ export default function RootLayout({
       <body
         className={`${inter.className} antialiased min-h-screen bg-background text-foreground`}
       >
+        <GoogleAnalytics />
         <ThemeProvider>
           <SiteJsonLd />
           {children}

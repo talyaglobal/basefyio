@@ -72,6 +72,16 @@ export default () => ({
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   },
 
+  /** Google Search Console + GA4 (service account JSON; grant Viewer in GSC + GA4). */
+  marketing: {
+    serviceAccountJson: process.env.GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON || '',
+    serviceAccountJsonB64: process.env.GOOGLE_MARKETING_SA_JSON_B64 || '',
+    gscSiteUrl: process.env.GOOGLE_SEARCH_CONSOLE_SITE_URL || '',
+    ga4PropertyId: process.env.GOOGLE_ANALYTICS_PROPERTY_ID || '',
+    /** Optional full URL for URL Inspection when property is sc-domain:… */
+    inspectUrlOverride: process.env.GOOGLE_SEARCH_CONSOLE_INSPECT_URL || '',
+  },
+
   docker: {
     socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
     network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',

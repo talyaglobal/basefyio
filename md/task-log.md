@@ -84,3 +84,14 @@
     - This fixes incorrect or stale status rendering in "Importing from Supabase" progress UI.
   - Updated storage import naming in `apps/platform-api/src/modules/projects/supabase-import.service.ts` to keep Supabase bucket name casing as received (removed forced lowercase conversion before import/prune tracking).
   - Updated `apps/platform-api/src/modules/storage/storage.service.ts` bucket name validation to accept mixed-case logical names (physical MinIO bucket mapping remains normalized by existing internal mapper).
+
+## 2026-04-15
+
+- **Management — Google marketing tabs:** Added Search Console and Analytics tabs under `/dashboard/management`. Backend `MarketingInsightsModule` (`GET /api/auth/management/marketing/search-console`, `.../analytics/traffic`) uses a service account (`GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON` or `GOOGLE_MARKETING_SA_JSON_B64`), `GOOGLE_SEARCH_CONSOLE_SITE_URL`, optional `GOOGLE_SEARCH_CONSOLE_INSPECT_URL`, and `GOOGLE_ANALYTICS_PROPERTY_ID`. Docker compose passes these env vars through.
+- **Billing (plan change):** Invoice is created when upgrading (`open` then `paid` or `unpaid`); failed card keeps current plan, sets `pendingPlanId` / `pendingAmountDue`, `PAST_DUE`, and retries use pending amount.
+- **Billing (retries / freeze):** `processRecurringCharges` merges scheduled bill-day subs with `PAST_DUE` or pending-upgrade subs in the 3-day window; at most one charge per local calendar day (`lastRetryDate`). Freeze only via `freezeOverdueAccounts` (`firstFailureAt` + 3 days), not immediate freeze on retry count 3.
+- **Billing:** `handleFailedPayment` creates an `unpaid` invoice only when no open/unpaid invoice exists; Stripe webhook invoice failure uses `unpaid` status.
+- **Signup verify:** `apps/admin-ui/lib/api.ts` parses OK response bodies as JSON without relying on case-sensitive `Content-Type`; refresh-retry path uses the same parser. Signup OTP verify guarded against double submit and missing token payload.
+- **Dashboard:** Suspended-account redirect toast fires once per frozen stint (`useRef`), reset when account is not `FROZEN`.
+- **Billing UI:** Invoice badges/labels for explicit `unpaid` status; `open` label shown as "Open".
+- **Prisma:** Migration `20260415120000_subscription_pending_plan` — `pending_plan_id`, `pending_amount_due` on `subscriptions`.

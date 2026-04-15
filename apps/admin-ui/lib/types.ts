@@ -287,6 +287,39 @@ export interface ManagementUserPackage {
   subscriptionStatus: string | null;
 }
 
+export interface ManagementGscSitemapRow {
+  path: string;
+  type?: string;
+  lastSubmitted?: string | null;
+  lastDownloaded?: string | null;
+  isPending?: boolean;
+  warnings: number;
+  errors: number;
+}
+
+export type ManagementSearchConsoleSummary =
+  | { configured: false; message?: string }
+  | {
+      configured: true;
+      siteUrl: string;
+      sites: { siteUrl: string; permissionLevel: string }[];
+      sitemaps: ManagementGscSitemapRow[];
+      urlInspection: Record<string, unknown> | null;
+      searchPerformance: Record<string, unknown> | null;
+    };
+
+export type ManagementAnalyticsTrafficSummary =
+  | { configured: false; message?: string }
+  | {
+      configured: true;
+      propertyId: string;
+      byDate: Record<string, number | string>[];
+      dimensionHeaders: string[];
+      metricHeaders: string[];
+      summary: Record<string, number>;
+      error?: string;
+    };
+
 export interface RootAlert {
   id: string;
   kind: string;

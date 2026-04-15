@@ -119,7 +119,8 @@ function formatMoney(cents: number, currency: string): string {
 function invoiceStatusBadge(status: string) {
   const normalized = (status || '').toLowerCase();
   if (normalized === 'paid') return 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400';
-  if (normalized === 'payment_failed' || normalized === 'uncollectible') return 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400';
+  if (normalized === 'payment_failed' || normalized === 'uncollectible' || normalized === 'unpaid')
+    return 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400';
   if (normalized === 'open' || normalized === 'draft') return 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400';
   return 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
 }
@@ -129,7 +130,8 @@ function invoiceStatusLabel(status: string) {
   if (normalized === 'paid') return 'Paid';
   if (normalized === 'payment_failed') return 'Payment Failed';
   if (normalized === 'uncollectible') return 'Uncollectible';
-  if (normalized === 'open') return 'Unpaid';
+  if (normalized === 'unpaid') return 'Unpaid';
+  if (normalized === 'open') return 'Open';
   if (normalized === 'draft') return 'Draft';
   if (normalized === 'void') return 'Void';
   return status || 'Unknown';

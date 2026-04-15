@@ -491,6 +491,9 @@ model Subscription {
   retryCount           Int                @default(0) @map("retry_count")
   lastRetryDate        DateTime?          @map("last_retry_date")
   firstFailureAt       DateTime?          @map("first_failure_at")
+  /// When a plan upgrade payment fails, target plan and amount are stored until paid or window lapses.
+  pendingPlanId        String?            @map("pending_plan_id")
+  pendingAmountDue     Int?               @map("pending_amount_due")
   cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")

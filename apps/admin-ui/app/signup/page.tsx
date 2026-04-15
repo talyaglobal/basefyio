@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -90,6 +90,7 @@ function SignupForm() {
   const [step, setStep] = useState<'form' | 'otp'>('form');
   const [otp, setOtp] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
+  const verifyOtpInFlight = useRef(false);
 
   useEffect(() => {
     const hash = window.location.hash.substring(1);
@@ -191,9 +192,14 @@ function SignupForm() {
   // Step 2: verify OTP and complete registration
   async function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
+    if (verifyOtpInFlight.current || loading) return;
+    verifyOtpInFlight.current = true;
     setLoading(true);
     try {
       const result = await api.auth.verifySignupOtp(form.email, otp);
+      if (!result?.accessToken) {
+        throw new Error('Invalid response from server. Please try again.');
+      }
       setTokens(result);
       startProactiveRefresh();
       toast.success('Account created');
@@ -210,6 +216,7 @@ function SignupForm() {
       toast.error(err.message || 'Verification failed');
     } finally {
       setLoading(false);
+      verifyOtpInFlight.current = false;
     }
   }
 
