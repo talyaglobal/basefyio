@@ -1,8 +1,8 @@
-# Kolaybase marketing sitesi (`kolaybase.com`)
+# Kolaybase marketing site (`apps/website`)
 
-Anti-Gravity Astro şablonu temelli kurumsal vitrin. Statik çıktı, `@astrojs/sitemap`, Open Graph ve JSON-LD ile SEO odaklı yapılandırma.
+Next.js app for **kolaybase.com**: landing, docs, SEO (metadata, Open Graph, JSON-LD, sitemap, robots).
 
-## Geliştirme
+## Development
 
 ```bash
 cd apps/website
@@ -11,25 +11,17 @@ npm install
 npm run dev
 ```
 
-Varsayılan port: **3002** (`http://localhost:3002`).
+Default dev URL: **http://localhost:3002**
 
-## Ortam değişkenleri
+## Environment
 
-| Değişken | Açıklama |
-|----------|----------|
-| `PUBLIC_SITE_URL` | Canonical URL (varsayılan `https://kolaybase.com`) — sitemap ve meta |
-| `PUBLIC_ADMIN_URL` | Footer’daki “Yönetim girişi” |
-| `PUBLIC_APP_URL` | Kayıt CTA kökü (`.../signup?plan=`) — local: `http://localhost:3000` |
-| `PUBLIC_PLATFORM_API_URL` | API kökü (`/api/billing/plans`) — local: `http://localhost:8000` |
+See `.env.example` for `NEXT_PUBLIC_*` variables (site URL, GA measurement ID, billing API URL, etc.). Public env vars are baked at **build** time for Docker/production.
 
-Üretimde bu üç adresi domain’lerinize göre ayarlayıp **imajı yeniden derleyin** (statik bundle’a gömülür).
-
-## Üretim derlemesi
+## Production build
 
 ```bash
 npm run build
+npm run start
 ```
 
-Çıktı: `dist/`. Docker imajı `nginx` ile statik dosyaları sunar (`Dockerfile`).
-
-Kaynak arşiv: projede `Anti-Gravity.zip` (referans tasarım).
+Docker: see repo root `docker-compose.yml` / `Dockerfile` in this directory.

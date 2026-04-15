@@ -48,6 +48,5 @@
   ],
   "tailwindCSS.includeLanguages": {
     "astro": "html"
-  },
-  "livePreview.defaultPreviewPath": "/anti-gravity-v1/dist/404.html"
+  }
 }

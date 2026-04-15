@@ -8,5 +8,6 @@ dist
 .env.*
 coverage
 npm-debug.log*
-Anti-Gravity.zip
-anti-gravity-extracted
+# Keep Docker context small: local reference zips / extract trees
+*.zip
+reference-extract

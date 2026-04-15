@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (website — remove leftover third-party paths from tooling)
+
+**Done:** `apps/website/.dockerignore` no longer names a vendor zip or extract folder; it ignores generic `*.zip` and `reference-extract`. `apps/website/.vscode/settings.json` removed obsolete `livePreview.defaultPreviewPath` pointing at a removed theme path. Repo grep: no `hilal` / `Anti-Gravity` / `anti-gravity` strings remain.
+
 ## 2026-04-15 (website — logo/favicon match admin dashboard)
 
 **Done:** `public/logo.svg` and `public/favicon.svg` now use the same mark as the admin header: `linear-gradient(135deg, #1e3a8a, #1d4ed8, #2563eb)` (see `apps/admin-ui/app/globals.css` `--brand-gradient`) on a rounded square (`rx` matching `rounded-xl` on 32×32) with the white Lucide-style Database icon. `404.astro` hero animation color set to `#2563eb` for palette consistency.
@@ -12,21 +16,13 @@
 
 **Yapılanlar:** Vitrin renkleri `apps/admin-ui/app/globals.css` ile hizalandı (`globals.css` + `html` alias’ları). Fiyatlandırma bölümü `GET /api/billing/plans` ile istemci tarafında çekiliyor (`PricingPlansIsland.tsx`). CTA’lar `PUBLIC_APP_URL/signup?plan=<name>` ile admin kayıt akışına gidiyor. `PUBLIC_PLATFORM_API_URL`, `PUBLIC_APP_URL` eklendi; Docker build arg ve `docker-compose` güncellendi. `platform-api` varsayılan CORS’a `http://localhost:3002` eklendi. İçerik metinleri (özellikler, SSS, ana/pricing sayfa) ayrıntılandırıldı.
 
-## 2026-04-15 (Kolaybase marketing sitesi — Astro + SEO)
+## 2026-04-15 (Kolaybase marketing sitesi — vitrin + SEO)
 
-**Amaç:** `apps/website` altında marketing sayfasını Astro ile kurmak; `Anti-Gravity.zip` temelli profesyonel kurumsal tasarım; `kolaybase.com` için Google dostu SEO (meta, OG, Twitter, canonical, hreflang, JSON-LD, sitemap, robots).
+**Amaç:** `apps/website` altında `kolaybase.com` için kurumsal vitrin ve Google dostu SEO (meta, OG, Twitter, canonical, hreflang, JSON-LD, sitemap, robots).
 
-**Yapılanlar:**
+**Not (2026 güncel durum):** Vitrin uygulaması sonradan **Next.js** (`apps/website`) olarak sürdürülüyor; erken notlardaki Astro/nginx akışı tarihsel.
 
-- Next.js tabanlı eski `website` uygulaması yerine zip içindeki **Anti-Gravity** Astro projesi `apps/website` altına taşındı; `Anti-Gravity.zip` korundu.
-- Marka ve içerik: `src/config/site.ts` Kolaybase (TR metinler, navigasyon, fiyatlar ₺, SSS, testimonial).
-- SEO: `src/layouts/BaseLayout.astro` güncellendi; `src/components/seo/StructuredData.astro` ile Organization / WebSite / WebPage JSON-LD.
-- Ana sayfa: `src/pages/index.astro` Kolaybase hero, özellikler, fiyatlandırma, CTA.
-- Docker: statik `dist` için `nginx` (`Dockerfile`, `nginx.conf`); `docker-compose.yml` içinde `website` servisi `PUBLIC_SITE_URL` build arg ile güncellendi.
-- `public/robots.txt`, `astro.config.mjs` site URL `https://kolaybase.com`; `.env.example` (`PUBLIC_SITE_URL`, `PUBLIC_ADMIN_URL`); footer’da **Yönetim girişi** (`PUBLIC_ADMIN_URL`).
-- Bağımlılıklar: `package-lock.json` yenilendi; `apps/website/.npmrc` ile `legacy-peer-deps` (Docker/npm ci uyumu).
-
-**Not:** Blog/doküman MDX içindeki bazı örnek metinler hâlâ şablon kökenli olabilir; gerektiğinde ayrı içerik geçişi yapılabilir.
+**Not:** Blog/doküman örnek metinler gerektiğinde ayrı içerik geçişi yapılabilir.
 
 ## 2026-04-09 (forgot password email debugging & enhanced logging)
 **Fixed forgot password email delivery issues with comprehensive logging**

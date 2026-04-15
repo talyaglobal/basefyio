@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Antigravity 3D particle animation (from Anti-Gravity theme).
- * WebGL via Three.js + @react-three/fiber.
+ * Kolaybase landing: 3D particle background (Three.js + @react-three/fiber).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import React, { useMemo, useRef } from "react";
