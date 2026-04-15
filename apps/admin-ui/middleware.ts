@@ -1,19 +1,25 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/signup', '/'];
+const PUBLIC_PATHS = ['/login', '/signup'];
 const FORCE_PASSWORD_CHANGE_PATH = '/set-new-password';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname === p)) {
-    return NextResponse.next();
-  }
-
   const token =
     request.cookies.get('kb_access_token')?.value ||
     request.cookies.get('kb_logged_in')?.value;
+
+  // Root redirect: logged-in → dashboard, otherwise → login
+  if (pathname === '/') {
+    const dest = token ? '/dashboard' : '/login';
+    return NextResponse.redirect(new URL(dest, request.url));
+  }
+
+  if (PUBLIC_PATHS.some((p) => pathname === p)) {
+    return NextResponse.next();
+  }
   const forcePasswordChange = request.cookies.get('kb_force_password_change')?.value === '1';
 
   if (!token) {
@@ -42,5 +48,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/set-new-password'],
+  matcher: ['/', '/dashboard/:path*', '/set-new-password'],
 };
