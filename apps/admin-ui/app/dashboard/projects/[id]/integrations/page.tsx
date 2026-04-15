@@ -852,9 +852,9 @@ function VercelCard({
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm font-mono space-y-1">
-            <p>NEXT_PUBLIC_SUPABASE_URL</p>
-            <p>NEXT_PUBLIC_SUPABASE_ANON_KEY</p>
-            <p className="text-amber-600 dark:text-amber-400">SUPABASE_SERVICE_ROLE_KEY</p>
+            <p>NEXT_PUBLIC_KOLAYBASE_URL</p>
+            <p>NEXT_PUBLIC_KOLAYBASE_ANON_KEY</p>
+            <p className="text-amber-600 dark:text-amber-400">KOLAYBASE_SERVICE_ROLE_KEY</p>
             <p>DATABASE_URL</p>
             <p>DIRECT_URL</p>
             <p>PROJECT_ID</p>

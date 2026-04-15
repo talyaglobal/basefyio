@@ -416,7 +416,7 @@ datasource db {
             <p className="text-sm text-muted-foreground mt-2">
               <code className="rounded bg-muted px-1 py-0.5 text-xs">DATABASE_URL</code> uses the
               connection pool (PgBouncer). <code className="rounded bg-muted px-1 py-0.5 text-xs">DIRECT_URL</code>{' '}
-              targets Postgres directly for Prisma migrate and Supabase CLI (
+              targets Postgres directly for Prisma migrate and hosted vendor CLI (
               <code className="rounded bg-muted px-1 py-0.5 text-xs">db push</code>
               ); when no separate public Postgres port is configured, both URLs match. The project
               database role includes permission to create migration history schemas.

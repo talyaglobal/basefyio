@@ -66,7 +66,7 @@ import {
   List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────

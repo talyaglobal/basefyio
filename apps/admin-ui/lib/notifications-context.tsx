@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 export const KB_NOTIFY_EVENT = 'kb-notify-event';

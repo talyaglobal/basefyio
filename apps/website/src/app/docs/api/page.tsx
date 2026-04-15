@@ -3,7 +3,7 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Kolaybase REST API: authentication headers, Supabase-compatible queries, storage, and project-scoped endpoints.";
+  "Kolaybase REST API: authentication headers, PostgREST-style queries, storage, and project-scoped endpoints.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/api", {
@@ -53,9 +53,9 @@ export default function ApiDocs() {
       </table>
 
       {/* ── Public REST API ─────────────────────────── */}
-      <h2>Public REST API (Supabase-compatible)</h2>
+      <h2>Public REST API (PostgREST-style)</h2>
       <p>
-        These endpoints use the API key and follow a Supabase-compatible query
+        These endpoints use the API key and follow a PostgREST-style query
         interface. Base path: <code>/api/rest/v1</code>.
       </p>
 

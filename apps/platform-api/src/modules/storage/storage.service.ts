@@ -222,7 +222,7 @@ export class StorageService {
   }
 
   /**
-   * Delete MinIO buckets for this project that are not in the Supabase source list.
+   * Delete MinIO buckets for this project that are not in the remote source list.
    * Fixes ghost buckets like `2-docs` when physical name is `kb-{slug}-2-docs` (same
    * project prefix as `docs`) — listing logic cannot tell them apart without this cleanup.
    */
@@ -256,7 +256,7 @@ export class StorageService {
       try {
         await this.deleteBucket(projectId, undefined, logical);
         this.logger.log(
-          `Pruned storage bucket "${logical}" (not in Supabase list) for project ${projectId}`,
+          `Pruned storage bucket "${logical}" (not in remote source list) for project ${projectId}`,
         );
       } catch (err: any) {
         this.logger.warn(

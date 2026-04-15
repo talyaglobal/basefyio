@@ -27,7 +27,7 @@ import {
   Image as ImageIcon,
   Video,
 } from 'lucide-react';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];

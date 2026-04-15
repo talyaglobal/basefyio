@@ -421,7 +421,7 @@ function ProvidersTab({
     <div className="space-y-6">
       <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
         <Info className="h-4 w-4 shrink-0" />
-        <p>Configure sign-in providers like Supabase Auth. Users can sign in with enabled providers via Kolaybase Auth SDK.</p>
+        <p>Configure sign-in providers for your app. Users can sign in with enabled providers via Kolaybase Auth SDK.</p>
       </div>
 
       {PROVIDER_DEFS.map((p) => (

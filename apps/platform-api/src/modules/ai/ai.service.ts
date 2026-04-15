@@ -174,7 +174,7 @@ export class AiService {
 - Explain in one line what each SQL block will do.`,
     };
 
-    let prompt = `You are the KolayBase AI assistant. KolayBase is a Supabase-like Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
+    let prompt = `You are the KolayBase AI assistant. KolayBase is a hosted PostgreSQL Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
 
 Active mode: ${mode.toUpperCase()}
 ${modeInstructions[mode]}

@@ -26,7 +26,7 @@ export function getPgbouncerClientEndpoints(config: ConfigService): {
 }
 
 /**
- * Host/port clients should use to reach Postgres directly (migrations, Prisma migrate, Supabase CLI).
+ * Host/port clients should use to reach Postgres directly (migrations, Prisma migrate, hosted vendor CLI).
  * When unset, falls back to the pooler endpoint (same as DATABASE_URL) — still works once DB CREATE is granted.
  */
 export function getPostgresDirectClientEndpoints(

@@ -12,7 +12,7 @@ import type { UserInfo, UserProfile, Team } from '@/lib/types';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/supabase-realtime';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 interface DashboardContextValue {

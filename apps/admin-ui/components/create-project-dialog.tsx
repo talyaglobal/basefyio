@@ -19,7 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Database, Shield, HardDrive, Loader2, CheckCircle2, AlertTriangle, Minus } from 'lucide-react';
+import {
+  ArrowLeft,
+  Database,
+  Shield,
+  HardDrive,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  Minus,
+} from 'lucide-react';
 import {
   normalizeImportProgressData,
   type ImportProgressData,

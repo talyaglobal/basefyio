@@ -2,7 +2,7 @@
 
 ## 🎯 What is Kolaybase CLI?
 
-Kolaybase CLI is a command-line interface tool for managing [Kolaybase](https://github.com/fsipka/kolaybase-new) projects. It provides a developer-friendly way to interact with the Kolaybase platform, similar to how Supabase CLI works for Supabase.
+Kolaybase CLI is a command-line interface tool for managing [Kolaybase](https://github.com/fsipka/kolaybase-new) projects. It provides a developer-friendly way to interact with the Kolaybase platform, similar to popular hosted Postgres developer CLIs.
 
 ## 🚀 Key Features
 
@@ -292,7 +292,7 @@ MIT License - see [LICENSE](./LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Inspired by [Supabase CLI](https://github.com/supabase/cli)
+- Inspired by mature open-source Postgres / BaaS CLI workflows
 - Built with love for the developer community
 - Thanks to all contributors
 

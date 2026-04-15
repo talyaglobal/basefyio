@@ -940,7 +940,7 @@ export class ProjectsService {
     try {
       await client.query(`CREATE USER "${sanitizedUser}" WITH PASSWORD '${password.replace(/'/g, "''")}'`);
       await client.query(`GRANT CONNECT ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
-      // Supabase CLI / Prisma migrate create schemas (e.g. supabase_migrations) — needs DB-level CREATE.
+      // Hosted vendor CLI / Prisma migrate may create migration schemas — needs DB-level CREATE.
       await client.query(`GRANT CREATE ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
       this.logger.log(`User "${sanitizedUser}" created`);
     } catch (err: any) {
@@ -1072,7 +1072,7 @@ export class ProjectsService {
   }
 
   /**
-   * Ensures the project DB role can create schemas (e.g. supabase_migrations) for Supabase CLI / Prisma migrate.
+   * Ensures the project DB role can create schemas for vendor migration tooling / Prisma migrate.
    * Idempotent. Only applies on the shared control-plane Postgres (matches POSTGRES_HOST/PORT in env).
    */
   async ensureProjectMigrationGrants(

@@ -109,7 +109,7 @@ Sign in at `http://localhost:3000/login` with your Keycloak master-realm admin c
 
 ## Kolaybase CLI
 
-We provide a powerful CLI tool (similar to Supabase CLI) for managing your Kolaybase projects:
+We provide a powerful CLI tool (similar to common hosted Postgres CLIs) for managing your Kolaybase projects:
 
 ```bash
 # Install CLI globally

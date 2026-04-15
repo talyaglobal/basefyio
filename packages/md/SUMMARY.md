@@ -2,7 +2,7 @@
 
 ## Özet
 
-Kolaybase platformu için **production-ready**, **Supabase CLI benzeri** güçlü bir komut satırı arayüzü oluşturduk.
+Kolaybase platformu için **production-ready**, **yaygın barındırılan Postgres CLI’larına benzer** güçlü bir komut satırı arayüzü oluşturduk.
 
 ## 📦 Oluşturulan Dosyalar
 
@@ -141,9 +141,9 @@ kb gen types
 - **Conf** - Config management
 - **pg** - PostgreSQL client
 
-## 🎯 Supabase CLI ile Karşılaştırma
+## 🎯 Barındırılan Postgres CLI ile Karşılaştırma
 
-| Özellik | Supabase CLI | Kolaybase CLI | Durum |
+| Özellik | Referans CLI | Kolaybase CLI | Durum |
 |---------|--------------|---------------|-------|
 | Authentication | ✅ | ✅ | **Tamamlandı** |
 | Project Management | ✅ | ✅ | **Tamamlandı** |
@@ -297,7 +297,7 @@ kb logs --sql --tail 50 # Son 50 SQL query
 
 ## 🌟 Güçlü Yanlar
 
-1. **Supabase CLI ile Parité**: Temel özelliklerde tam uyumluluk
+1. **Referans CLI ile parité**: Temel özelliklerde tam uyumluluk
 2. **Developer Experience**: Mükemmel UX ve DX
 3. **Documentation**: Kapsamlı ve detaylı
 4. **Type Safety**: Full TypeScript support
@@ -319,7 +319,7 @@ Oluşturulan tüm dokümantasyon:
 
 **Kolaybase CLI başarıyla tamamlandı!** 
 
-Supabase CLI seviyesinde, production-ready, developer-friendly bir CLI tool oluşturduk. Tüm core features implement edildi ve kapsamlı dokümantasyon hazırlandı.
+Referans CLI seviyesinde, production-ready, developer-friendly bir CLI tool oluşturduk. Tüm core features implement edildi ve kapsamlı dokümantasyon hazırlandı.
 
 ### Başlamak için:
 ```bash

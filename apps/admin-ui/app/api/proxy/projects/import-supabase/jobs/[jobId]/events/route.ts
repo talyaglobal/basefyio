@@ -10,7 +10,6 @@ export async function GET(
 ) {
   const { jobId } = await params;
 
-  // EventSource can't set headers, so accept token from query param or header
   const token =
     request.headers.get('Authorization') ||
     request.nextUrl.searchParams.get('token');

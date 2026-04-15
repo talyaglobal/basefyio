@@ -24,7 +24,7 @@ import {
 const ogTitle =
   "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
 const ogDescription =
-  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.";
+  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {

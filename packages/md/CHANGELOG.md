@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ⚡ Fast and efficient CLI with modern tooling
 
 ### Developer Experience
-- Intuitive command structure similar to Supabase CLI
+- Intuitive command structure similar to common hosted Postgres CLIs
 - Clear error messages and helpful suggestions
 - Auto-detection of project root
 - Support for both ESM and CommonJS

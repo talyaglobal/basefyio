@@ -19,7 +19,7 @@ export function buildSqlRunErrorPrompt(sql: string, errorMessage: string): strin
     `I used the **Run** button on a SQL block you suggested. The database returned an error.\n\n` +
     `--- SQL ---\n${sql.trim()}\n\n` +
     `--- Error ---\n${err}\n\n` +
-    `Explain why this failed (missing roles like service_role, RLS, grants, extensions, schema, or KolayBase vs Supabase differences) and give corrected SQL or setup steps I should take.`
+    `Explain why this failed (missing roles like service_role, RLS, grants, extensions, schema, or differences vs a typical hosted Postgres + PostgREST stack) and give corrected SQL or setup steps I should take.`
   );
 }
 

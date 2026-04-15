@@ -1,8 +1,16 @@
 # Task Log
 
-## 2026-04-15 (platform-api + admin-ui + CLI — migration / Supabase CLI DB permissions & URLs)
+## 2026-04-15 (Supabase wording — only “Import from Supabase” service)
 
-**Problem:** Raw Editor `DATABASE_URL` / `DIRECT_URL` used the same host:port; project role lacked `CREATE ON DATABASE`, so Supabase CLI (`db push`) failed with `permission denied for database … (42501)` when creating `supabase_migrations`.
+**Done:** Reverted generic “remote import” naming for the hosted import path only: restored `SupabaseImportService`, `/projects/import-supabase`, `supabase_import_log`, activity kinds `supabase_import.*`, admin copy and types (`supabaseUrl`, etc.), queue job `supabase-import`, and `@supabase/supabase-js` for that flow. Added Prisma migration `20260415190000_restore_supabase_import_fields` (rolls back `20260415140000_rename_remote_import_fields` data where applicable). Marketing site, `kb-realtime.ts`, and non-import env naming stay neutral (`KOLAYBASE_*` where already changed).
+
+## 2026-04-15 (repo wording + remote import naming — superseded by entry above)
+
+**Historical:** Earlier pass renamed import to “remote” everywhere; superseded by the scoped revert in the previous entry.
+
+## 2026-04-15 (platform-api + admin-ui + CLI — migration / hosted vendor CLI DB permissions & URLs)
+
+**Problem:** Raw Editor `DATABASE_URL` / `DIRECT_URL` used the same host:port; project role lacked `CREATE ON DATABASE`, so common hosted Postgres CLIs (`db push`) failed with `permission denied for database … (42501)` when creating migration-history schemas on the vendor stack.
 
 **Done:** On shared Postgres provisioning, `GRANT CREATE ON DATABASE` for `kb_user_*` (new projects + idempotent repair on `GET …/connect` for JWT or service key). Optional `POSTGRES_PUBLIC_HOST` / `POSTGRES_PUBLIC_PORT` in platform-api config for true direct Postgres URLs (local compose defaults `localhost:5433`). Connection response builds `poolerUri` vs `uri` with URL-encoded credentials. Vercel env sync sets real `DIRECT_URL`. Admin Raw Editor uses API URIs; password rotate refetches connect. `kb link` / `kb init` call `/connect` and write `DIRECT_URL` to `.env`.
 

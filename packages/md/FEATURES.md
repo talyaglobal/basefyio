@@ -108,9 +108,9 @@
 | `unlink` | - | 1 |
 | **Total** | | **22** |
 
-## 🎯 Feature Parity with Supabase CLI
+## 🎯 Feature parity with common hosted Postgres CLIs
 
-| Feature | Supabase CLI | Kolaybase CLI | Status |
+| Feature | Reference CLI | Kolaybase CLI | Status |
 |---------|--------------|---------------|--------|
 | Authentication | ✅ | ✅ | ✅ Complete |
 | Project Management | ✅ | ✅ | ✅ Complete |

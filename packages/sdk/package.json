@@ -46,7 +46,7 @@
     "storage",
     "auth",
     "sdk",
-    "supabase-alternative",
+    "hosted-postgres",
     "backend-as-a-service"
   ],
   "license": "MIT",

@@ -71,4 +71,3 @@ export function subscribeKbRealtime(
     if (source) source.close();
   };
 }
-

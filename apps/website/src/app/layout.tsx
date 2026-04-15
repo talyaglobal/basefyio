@@ -12,7 +12,7 @@ import "./globals.css";
 const defaultTitle =
   "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
 const defaultDescription =
-  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.";
+  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = await getSiteUrlFromRequest();
@@ -36,8 +36,8 @@ export async function generateMetadata(): Promise<Metadata> {
       "JavaScript SDK",
       "TypeScript SDK",
       "authentication API",
-      "Supabase alternative",
-      "Supabase-compatible",
+      "hosted postgres",
+      "PostgREST compatible",
       "hosted PostgreSQL",
       "no-code backend",
       "CLI database",

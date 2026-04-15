@@ -44,7 +44,7 @@ export async function SiteJsonLd() {
         },
         featureList: [
           "PostgreSQL database per project",
-          "REST API and Supabase-compatible queries",
+          "REST API and PostgREST-style queries",
           "OAuth and email authentication",
           "Object storage",
           "kolaybase-js SDK",
