@@ -1,5 +1,11 @@
 # Task Log
 
+## 2026-04-15 (platform-api + admin-ui + CLI — migration / Supabase CLI DB permissions & URLs)
+
+**Problem:** Raw Editor `DATABASE_URL` / `DIRECT_URL` used the same host:port; project role lacked `CREATE ON DATABASE`, so Supabase CLI (`db push`) failed with `permission denied for database … (42501)` when creating `supabase_migrations`.
+
+**Done:** On shared Postgres provisioning, `GRANT CREATE ON DATABASE` for `kb_user_*` (new projects + idempotent repair on `GET …/connect` for JWT or service key). Optional `POSTGRES_PUBLIC_HOST` / `POSTGRES_PUBLIC_PORT` in platform-api config for true direct Postgres URLs (local compose defaults `localhost:5433`). Connection response builds `poolerUri` vs `uri` with URL-encoded credentials. Vercel env sync sets real `DIRECT_URL`. Admin Raw Editor uses API URIs; password rotate refetches connect. `kb link` / `kb init` call `/connect` and write `DIRECT_URL` to `.env`.
+
 ## 2026-04-15 (website — build: self-host Inter, no Google Fonts at build time)
 
 **Done:** Replaced `next/font/google` (Inter) with `@fontsource/inter` CSS imports in `layout.tsx` and `fontFamily.sans` in `tailwind.config.ts`. **Why:** `next build` fetches fonts from `fonts.googleapis.com`; flaky or blocked networks (Docker/CI) can fail the build. Self-hosted fonts remove that dependency.

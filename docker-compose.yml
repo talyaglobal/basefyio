@@ -126,6 +126,9 @@ services:
       PGBOUNCER_PORT: 6432
       PGBOUNCER_EXTERNAL_HOST: ${PGBOUNCER_EXTERNAL_HOST:-localhost}
       PGBOUNCER_EXTERNAL_PORT: ${PGBOUNCER_PORT:-6432}
+      # Host/port your laptop uses for direct Postgres (migrations). Match host-mapped Postgres (default 5433).
+      POSTGRES_PUBLIC_HOST: ${POSTGRES_PUBLIC_HOST:-localhost}
+      POSTGRES_PUBLIC_PORT: ${POSTGRES_PUBLIC_PORT:-5433}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

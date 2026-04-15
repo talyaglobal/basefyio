@@ -81,7 +81,14 @@ export async function initCommand(options: InitOptions) {
       linkedAt: new Date().toISOString(),
     });
 
-    await writeEnvFile(project);
+    let connect: Awaited<ReturnType<typeof apiClient.getProjectConnect>> | undefined;
+    try {
+      connect = await apiClient.getProjectConnect(project.id);
+    } catch {
+      /* fall back */
+    }
+
+    await writeEnvFile(project, connect);
 
     console.log();
     printHeader('Project ready');

@@ -39,6 +39,20 @@ export default () => ({
     configDir: process.env.PGBOUNCER_CONFIG_DIR || '/etc/pgbouncer',
   },
 
+  /**
+   * Public hostname/port for direct Postgres (migrations). Optional: defaults to pooler host/port.
+   * Local Docker example: POSTGRES_PUBLIC_HOST=localhost POSTGRES_PUBLIC_PORT=5433 (host-mapped Postgres).
+   */
+  postgresPublic: {
+    directHost: (process.env.POSTGRES_PUBLIC_HOST || '').trim(),
+    directPort: (() => {
+      const v = process.env.POSTGRES_PUBLIC_PORT;
+      if (v == null || v.trim() === '') return undefined;
+      const n = parseInt(v, 10);
+      return Number.isNaN(n) ? undefined : n;
+    })(),
+  },
+
   publicApiUrl: process.env.PUBLIC_API_URL || 'http://localhost:4000',
   websiteUrl: process.env.WEBSITE_URL || 'http://localhost:3002',
 

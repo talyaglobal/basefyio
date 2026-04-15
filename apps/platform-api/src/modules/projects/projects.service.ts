@@ -940,6 +940,8 @@ export class ProjectsService {
     try {
       await client.query(`CREATE USER "${sanitizedUser}" WITH PASSWORD '${password.replace(/'/g, "''")}'`);
       await client.query(`GRANT CONNECT ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
+      // Supabase CLI / Prisma migrate create schemas (e.g. supabase_migrations) — needs DB-level CREATE.
+      await client.query(`GRANT CREATE ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
       this.logger.log(`User "${sanitizedUser}" created`);
     } catch (err: any) {
       if (err.code === '42710') {
@@ -1043,6 +1045,7 @@ export class ProjectsService {
     try {
       await client.query(`CREATE USER "${sanitizedUser}" WITH PASSWORD '${password.replace(/'/g, "''")}'`);
       await client.query(`GRANT CONNECT ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
+      await client.query(`GRANT CREATE ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
       this.logger.log(`User "${sanitizedUser}" created on ${host}`);
     } catch (err: any) {
       if (err.code === '42710') {
@@ -1065,6 +1068,53 @@ export class ProjectsService {
     } finally {
       projectClient.release();
       await projectPool.end();
+    }
+  }
+
+  /**
+   * Ensures the project DB role can create schemas (e.g. supabase_migrations) for Supabase CLI / Prisma migrate.
+   * Idempotent. Only applies on the shared control-plane Postgres (matches POSTGRES_HOST/PORT in env).
+   */
+  async ensureProjectMigrationGrants(
+    projectId: string,
+    userId?: string,
+    opts?: { skipTeamAssert?: boolean },
+  ): Promise<void> {
+    if (!userId && !opts?.skipTeamAssert) {
+      return;
+    }
+    const row = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: {
+        teamId: true,
+        dbHost: true,
+        dbPort: true,
+        dbUser: true,
+        dbName: true,
+      },
+    });
+    if (!row) return;
+    if (userId) {
+      await this.assertTeamMember(row.teamId, userId);
+    }
+    const cfgHost = this.config.get<string>('database.host')!;
+    const cfgPort = Number(this.config.get<number>('database.port'));
+    if (row.dbHost !== cfgHost || Number(row.dbPort) !== cfgPort) {
+      return;
+    }
+    const sanitizedDb = row.dbName.replace(/[^a-z0-9_]/g, '');
+    const sanitizedUser = row.dbUser.replace(/[^a-z0-9_]/g, '');
+    const pool = this.getAdminPool();
+    const client = await pool.connect();
+    try {
+      await client.query(`GRANT CREATE ON DATABASE "${sanitizedDb}" TO "${sanitizedUser}"`);
+    } catch (err: any) {
+      this.logger.warn(
+        `ensureProjectMigrationGrants failed for ${projectId}: ${err?.message || err}`,
+      );
+    } finally {
+      client.release();
+      await pool.end();
     }
   }
 

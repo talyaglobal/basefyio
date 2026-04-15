@@ -110,8 +110,15 @@ export function setApiUrl(url: string): void {
 
 // Write Kolaybase variables into .env without touching existing content.
 // Existing KOLAYBASE_* keys are updated in-place; new ones are appended.
-export async function writeEnvFile(project: any): Promise<void> {
+export async function writeEnvFile(
+  project: any,
+  connect?: { poolerUri: string; uri: string },
+): Promise<void> {
   const apiUrl = getApiUrl();
+
+  const fallbackDbUrl = `postgresql://${project.dbUser}:${project.dbPassword}@${project.dbHost}:${project.dbPort}/${project.dbName}`;
+  const databaseUrl = connect?.poolerUri || fallbackDbUrl;
+  const directUrl = connect?.uri || databaseUrl;
 
   const kolaybaseVars: Record<string, string> = {
     KOLAYBASE_PROJECT_ID: project.id,
@@ -124,8 +131,9 @@ export async function writeEnvFile(project: any): Promise<void> {
     KOLAYBASE_DB_NAME: project.dbName,
     KOLAYBASE_DB_USER: project.dbUser,
     KOLAYBASE_DB_PASSWORD: project.dbPassword,
-    KOLAYBASE_DATABASE_URL: `postgresql://${project.dbUser}:${project.dbPassword}@${project.dbHost}:${project.dbPort}/${project.dbName}`,
-    DATABASE_URL: `postgresql://${project.dbUser}:${project.dbPassword}@${project.dbHost}:${project.dbPort}/${project.dbName}`,
+    KOLAYBASE_DATABASE_URL: databaseUrl,
+    DATABASE_URL: databaseUrl,
+    DIRECT_URL: directUrl,
     KOLAYBASE_KEYCLOAK_REALM: project.keycloakRealm,
   };
 

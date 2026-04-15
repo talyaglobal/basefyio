@@ -99,6 +99,28 @@ export class ApiClient {
     return data;
   }
 
+  /** Pooler + direct Postgres URIs (same shape as Admin UI Raw Editor). */
+  async getProjectConnect(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/connect`);
+    return data as {
+      uri: string;
+      poolerUri: string;
+      host: string;
+      port: number;
+      database: string;
+      user: string;
+      password: string;
+      poolerHost: string;
+      poolerPort: number;
+      restUrl: string;
+      publicBaseUrl: string;
+      keycloakRealm: string;
+      keycloakUrl: string;
+      anonKey: string;
+      serviceKey: string;
+    };
+  }
+
   async createProject(projectData: {
     name: string;
     description?: string;

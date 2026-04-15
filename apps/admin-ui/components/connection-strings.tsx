@@ -80,6 +80,19 @@ function getHostnameFromUrl(value: string): string | null {
   }
 }
 
+/** When API returns localhost DB but publicBaseUrl is a real host, rewrite URIs for remote dev. */
+function rewriteLocalhostInPgUri(uri: string, replacementHost: string | null): string {
+  if (!replacementHost) return uri;
+  try {
+    const u = new URL(uri);
+    if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return uri;
+    u.hostname = replacementHost;
+    return u.toString();
+  } catch {
+    return uri;
+  }
+}
+
 /**
  * Single copy-paste block for ChatGPT, Claude, Cursor, etc. so the model can
  * wire up env vars, ORMs, or REST clients without guessing.
@@ -275,14 +288,13 @@ datasource db {
   url      = "${conn.poolerUri}"
 }`;
   const publicHostname = getHostnameFromUrl(conn.publicBaseUrl);
-  const connectionHost =
+  const replacementHost =
     conn.host === 'localhost' || conn.host === '127.0.0.1'
-      ? publicHostname || conn.host
-      : conn.host;
-  const connectionPort = conn.poolerPort || conn.port;
+      ? publicHostname
+      : null;
   const restBaseUrl = `${conn.publicBaseUrl}/api/proxy`;
-  const pooledUrl = `postgresql://${conn.user}:${conn.password}@${connectionHost}:${connectionPort}/${conn.database}`;
-  const directUrl = `postgresql://${conn.user}:${conn.password}@${connectionHost}:${conn.port}/${conn.database}`;
+  const pooledUrl = rewriteLocalhostInPgUri(conn.poolerUri, replacementHost);
+  const directUrl = rewriteLocalhostInPgUri(conn.uri, replacementHost);
 
   const baseVars = {
     DATABASE_URL: pooledUrl,
@@ -353,18 +365,9 @@ datasource db {
     setRotatingPassword(true);
     try {
       const result = await api.projects.rotateDbPassword(projectId, candidate);
-      setConn((prev) => {
-        if (!prev) return prev;
-        const nextUri = `postgresql://${prev.user}:${result.password}@${prev.host}:${prev.port}/${prev.database}`;
-        const nextPoolerUri = `postgresql://${prev.user}:${result.password}@${prev.poolerHost}:${prev.poolerPort}/${prev.database}`;
-        return {
-          ...prev,
-          password: result.password,
-          uri: nextUri,
-          poolerUri: nextPoolerUri,
-        };
-      });
       setNextPassword(result.password);
+      const fresh = await api.projects.connect(projectId);
+      setConn(fresh);
       toast.success('Database password reset');
     } catch (err: any) {
       toast.error(err.message || 'Password reset failed');
@@ -409,6 +412,14 @@ datasource db {
             <h2 className="text-lg font-semibold">Raw Editor</h2>
             <p className="text-sm text-muted-foreground">
               Add, edit, or copy your project variables in ENV or JSON format.
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">DATABASE_URL</code> uses the
+              connection pool (PgBouncer). <code className="rounded bg-muted px-1 py-0.5 text-xs">DIRECT_URL</code>{' '}
+              targets Postgres directly for Prisma migrate and Supabase CLI (
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">db push</code>
+              ); when no separate public Postgres port is configured, both URLs match. The project
+              database role includes permission to create migration history schemas.
             </p>
           </div>
           {isLocalPublicBase && (

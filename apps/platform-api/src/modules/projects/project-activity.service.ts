@@ -5,9 +5,9 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 
 /** Stored in DB `kind` — keep lowercase dot notation for API stability */
 export const ProjectActivityKind = {
-  SUPABASE_IMPORT_COMPLETED: 'supabase_import.completed',
-  SUPABASE_IMPORT_FAILED: 'supabase_import.failed',
-  SUPABASE_IMPORT_CANCELLED: 'supabase_import.cancelled',
+  REMOTE_IMPORT_COMPLETED: 'remote_import.completed',
+  REMOTE_IMPORT_FAILED: 'remote_import.failed',
+  REMOTE_IMPORT_CANCELLED: 'remote_import.cancelled',
   PROJECT_CREATED: 'project.created',
   PROJECT_UPDATED: 'project.updated',
   PROJECT_DELETED: 'project.deleted',

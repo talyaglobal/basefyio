@@ -13,6 +13,11 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from '../projects/project-activity.service';
+import {
+  buildPostgresUri,
+  getPgbouncerClientEndpoints,
+  getPostgresDirectClientEndpoints,
+} from '../projects/postgres-uri.util';
 
 @Injectable()
 export class IntegrationsService {
@@ -293,20 +298,27 @@ export class IntegrationsService {
     const publicApiUrl =
       this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
     const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
-    const host = project.dbHost;
-    const port = project.dbPort;
 
-    const publicHostname = (() => {
-      try {
-        return new URL(publicBaseUrl).hostname;
-      } catch {
-        return host;
-      }
-    })();
-    const connectionHost =
-      host === 'localhost' || host === '127.0.0.1' ? publicHostname : host;
-
-    const pooledUrl = `postgresql://${project.dbUser}:${project.dbPassword}@${connectionHost}:${port}/${project.dbName}`;
+    const { host: poolerHost, port: poolerPort } = getPgbouncerClientEndpoints(this.config);
+    const { host: directHost, port: directPort } = getPostgresDirectClientEndpoints(
+      this.config,
+      poolerHost,
+      poolerPort,
+    );
+    const pooledUrl = buildPostgresUri(
+      poolerHost,
+      poolerPort,
+      project.dbUser,
+      project.dbPassword,
+      project.dbName,
+    );
+    const directUrl = buildPostgresUri(
+      directHost,
+      directPort,
+      project.dbUser,
+      project.dbPassword,
+      project.dbName,
+    );
     const restBaseUrl = `${publicBaseUrl}/api/proxy`;
 
     const vars: Record<string, string> = {
@@ -314,7 +326,7 @@ export class IntegrationsService {
       NEXT_PUBLIC_SUPABASE_ANON_KEY: project.anonKey,
       SUPABASE_SERVICE_ROLE_KEY: project.serviceKey,
       DATABASE_URL: pooledUrl,
-      DIRECT_URL: pooledUrl,
+      DIRECT_URL: directUrl,
       PROJECT_ID: projectId,
     };
 

@@ -54,6 +54,13 @@ export async function linkCommand(options: LinkOptions) {
     const spinner = createSpinner('Linking…');
     const project = await apiClient.getProject(projectId!);
 
+    let connect: Awaited<ReturnType<typeof apiClient.getProjectConnect>> | undefined;
+    try {
+      connect = await apiClient.getProjectConnect(projectId!);
+    } catch {
+      /* older API — fall back to project row URLs */
+    }
+
     await setProjectConfig({
       projectId: project.id,
       projectName: project.name,
@@ -62,7 +69,7 @@ export async function linkCommand(options: LinkOptions) {
       linkedAt: new Date().toISOString(),
     });
 
-    await writeEnvFile(project);
+    await writeEnvFile(project, connect);
 
     spinner.succeed(`Linked to ${chalk.cyan(project.name)}`);
     console.log();

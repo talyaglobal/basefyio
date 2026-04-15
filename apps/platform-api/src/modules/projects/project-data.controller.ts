@@ -7,11 +7,13 @@ import {
   Param,
   Query,
   Body,
+  Req,
   UseGuards,
   UseInterceptors,
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ProjectDataService } from './project-data.service';
 import { ProjectsService } from './projects.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -244,8 +246,19 @@ export class ProjectDataController {
   @Get('connect')
   async getConnectionStrings(
     @Param('projectId') projectId: string,
+    @Req() req: Request & { apiKeyPayload?: { projectId: string; role: string } },
     @CurrentUser() user?: JwtPayload,
   ) {
+    const api = req.apiKeyPayload;
+    const allowRepairWithServiceKey =
+      Boolean(!user?.sub && api?.role === 'service' && api.projectId === projectId);
+
+    if (user?.sub || allowRepairWithServiceKey) {
+      await this.projectsService.ensureProjectMigrationGrants(projectId, user?.sub, {
+        skipTeamAssert: allowRepairWithServiceKey,
+      });
+    }
+
     const project = await this.projectsService.findOne(projectId, user?.sub);
     return this.dataService.getConnectionStrings(project);
   }

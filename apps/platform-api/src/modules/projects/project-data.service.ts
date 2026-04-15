@@ -6,6 +6,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  buildPostgresUri,
+  getPostgresDirectClientEndpoints,
+} from './postgres-uri.util';
 
 export interface TableInfo {
   name: string;
@@ -596,24 +600,30 @@ export class ProjectDataService {
   }
 
   getConnectionStrings(project: any) {
-    const host = project.dbHost;
-    const port = project.dbPort;
+    const poolerHost = project.dbHost;
+    const poolerPort = project.dbPort;
     const db = project.dbName;
     const user = project.dbUser;
     const password = project.dbPassword;
     const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
     const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
 
+    const { host: directHost, port: directPort } = getPostgresDirectClientEndpoints(
+      this.config,
+      poolerHost,
+      poolerPort,
+    );
+
     return {
-      uri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
-      poolerUri: `postgresql://${user}:${password}@${host}:${port}/${db}`,
-      host,
-      port,
+      uri: buildPostgresUri(directHost, directPort, user, password, db),
+      poolerUri: buildPostgresUri(poolerHost, poolerPort, user, password, db),
+      host: poolerHost,
+      port: directPort,
       database: db,
       user,
       password,
-      poolerHost: host,
-      poolerPort: port,
+      poolerHost,
+      poolerPort,
       restUrl: `${publicApiUrl}/rest/v1`,
       publicBaseUrl,
       keycloakRealm: project.keycloakRealm,
