@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (website — build: self-host Inter, no Google Fonts at build time)
+
+**Done:** Replaced `next/font/google` (Inter) with `@fontsource/inter` CSS imports in `layout.tsx` and `fontFamily.sans` in `tailwind.config.ts`. **Why:** `next build` fetches fonts from `fonts.googleapis.com`; flaky or blocked networks (Docker/CI) can fail the build. Self-hosted fonts remove that dependency.
+
 ## 2026-04-15 (website — remove leftover third-party paths from tooling)
 
 **Done:** `apps/website/.dockerignore` no longer names a vendor zip or extract folder; it ignores generic `*.zip` and `reference-extract`. `apps/website/.vscode/settings.json` removed obsolete `livePreview.defaultPreviewPath` pointing at a removed theme path. Repo grep: no `hilal` / `Anti-Gravity` / `anti-gravity` strings remain.

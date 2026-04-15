@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GoogleAnalytics } from "@/components/google-analytics";
 import { SiteJsonLd } from "@/components/site-json-ld";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 const defaultTitle =
   "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
@@ -82,7 +83,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.className} antialiased min-h-screen bg-background text-foreground`}
+        className="font-sans antialiased min-h-screen bg-background text-foreground"
       >
         <GoogleAnalytics />
         <ThemeProvider>
