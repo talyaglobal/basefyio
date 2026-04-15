@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (admin-ui — AI quick-connect prompt)
+
+**Done:** Connection page “AI prompt for quick connect” embeds the same env lines as the Raw Editor for the selected framework, with short English instructions: verbatim `.env`, migration push commands, REST headers, CORS/CSP, and not echoing secrets.
+
 ## 2026-04-15 (Supabase wording — only “Import from Supabase” service)
 
 **Done:** Reverted generic “remote import” naming for the hosted import path only: restored `SupabaseImportService`, `/projects/import-supabase`, `supabase_import_log`, activity kinds `supabase_import.*`, admin copy and types (`supabaseUrl`, etc.), queue job `supabase-import`, and `@supabase/supabase-js` for that flow. Added Prisma migration `20260415190000_restore_supabase_import_fields` (rolls back `20260415140000_rename_remote_import_fields` data where applicable). Marketing site, `kb-realtime.ts`, and non-import env naming stay neutral (`KOLAYBASE_*` where already changed).

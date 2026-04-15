@@ -93,47 +93,51 @@ function rewriteLocalhostInPgUri(uri: string, replacementHost: string | null): s
   }
 }
 
+function frameworkPresetLabel(preset: FrameworkPreset): string {
+  switch (preset) {
+    case 'nextjs':
+      return 'Next.js';
+    case 'vite':
+      return 'Vite';
+    case 'react-native':
+      return 'React Native (Expo)';
+    case 'node':
+      return 'Node.js';
+    default:
+      return preset;
+  }
+}
+
 /**
- * Single copy-paste block for ChatGPT, Claude, Cursor, etc. so the model can
- * wire up env vars, ORMs, or REST clients without guessing.
+ * Short, actionable prompt for AI assistants: same env as Raw Editor + migration + REST rules.
  */
 function buildAiQuickConnectPrompt(
-  conn: ConnectionStrings,
-  projectId: string,
+  envBlockOneLinePerVar: string,
+  frameworkPreset: FrameworkPreset,
 ): string {
-  return `You are configuring a production app to connect to Kolaybase.
-Use ONLY the exact values below. Do NOT replace with localhost, examples, or placeholders.
+  const stack = frameworkPresetLabel(frameworkPreset);
+  return `You are helping in the user's repo. Connect to Kolaybase using ONLY the environment block below (real deployment — not localhost or placeholders).
 
-## Project Values (source of truth)
-PROJECT_ID="${projectId}"
-DATABASE_URL_POOLER="${conn.poolerUri}"
-DATABASE_URL_DIRECT="${conn.uri}"
-REST_BASE_URL="${conn.restUrl}"
-ANON_KEY="${conn.anonKey}"
-SERVICE_KEY="${conn.serviceKey}"
-KEYCLOAK_URL="${conn.keycloakUrl}"
-KEYCLOAK_REALM="${conn.keycloakRealm}"
+## 1) Put this in .env or .env.local (verbatim — one line per variable)
+${envBlockOneLinePerVar}
 
-## Critical Rules
-1) Treat these as production values.
-2) Never change host, port, keys, or project id.
-3) SERVICE_KEY must stay server-side only.
-4) If browser calls are blocked by CORS/CSP, use a same-origin backend proxy.
-5) For Kolaybase REST/Auth requests include:
-   - apikey: <ANON_KEY or SERVICE_KEY>
-   - x-project-id: <PROJECT_ID>
+## 2) Stack preset
+${stack} (use the env names above; do not rename keys unless the framework strictly requires it).
 
-## What to generate
-1) Ready-to-paste .env/.env.local block.
-2) Minimal working setup for my stack (client + server where needed).
-3) Prisma datasource config using DATABASE_URL_POOLER (use DIRECT only if explicitly asked).
-4) Example API request using REST_BASE_URL with correct headers.
-5) Short verification checklist (how to confirm connection works).
+## 3) When the user asks you to run migrations
+- Ensure DATABASE_URL and DIRECT_URL are in .env (exactly as above).
+- From the project root, run their migration command (e.g. npx supabase db push, npm run db:push:kolaybase, or prisma migrate). The machine must reach the Postgres host in those URLs.
+- Do not substitute hosts or passwords.
 
-## Important
-- Do not invent new env names unless required by the chosen framework.
-- Do not output fake values.
-- Reminder: never commit SERVICE_KEY or DB password to git.`;
+## 4) REST / Kolaybase API
+- Browser/client: use the public URL + anon key env from the block. Send headers apikey and x-project-id with PROJECT_ID.
+- Service role key: server-side only; never expose to client bundles or public repos.
+
+## 5) CORS / CSP
+If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the Kolaybase URLs to unrelated domains.
+
+## 6) Do not
+Echo full secrets in your reply, invent fake values, or commit .env to git.`;
 }
 
 function CopyBlock({
@@ -260,8 +264,6 @@ export function ConnectionStringsView({
     );
   }
 
-  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(conn, projectId);
-
   const curlExample = `curl '${conn.restUrl}/your_table?select=*&limit=10' \\
   -H 'apikey: ${conn.anonKey}'`;
 
@@ -346,6 +348,8 @@ datasource db {
     .join('\n');
   const rawJsonContent = JSON.stringify(selectedVars, null, 2);
   const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
+
+  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(rawEnvContent, framework);
 
   const passwordValidation =
     nextPassword.length === 0
@@ -710,10 +714,9 @@ datasource db {
                   AI prompt for quick connect
                 </h3>
                 <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                  Copy into your AI assistant. The block states that hosts below are the real
-                  Kolaybase deployment (often production)—not localhost—and covers CSP
-                  (connect-src), CORS, and server-side proxying so sign-in does not hit
-                  blocked or wrong URLs.
+                  Copy into your AI assistant. It embeds the same env as the Raw Editor (for the
+                  framework selected above), tells the model to apply it verbatim, run
+                  migration push when asked, and handle REST headers, CORS/CSP, and secrets safely.
                 </p>
               </div>
             </div>
