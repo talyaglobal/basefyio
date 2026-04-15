@@ -1067,7 +1067,7 @@ export default function BillingPage() {
               {/* Billing Breakdown */}
               <div className="rounded-lg border bg-card p-4 space-y-2 text-sm">
                 <h4 className="font-medium text-foreground">Billing Breakdown</h4>
-                {upgradePreview.lines.map((line, idx) => (
+                {upgradePreview.lines.filter((line) => !(line.proration && line.amount === 0)).map((line, idx) => (
                   <div key={idx} className="flex items-center justify-between py-1">
                     <span className={line.proration ? 'text-muted-foreground' : 'text-foreground'}>
                       {line.description}
