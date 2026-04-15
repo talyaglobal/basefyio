@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
   title: "Kolaybase | Backend as a Service",
@@ -13,9 +17,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased min-h-screen bg-background text-foreground">
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${inter.className} antialiased min-h-screen bg-background text-foreground`}
+      >
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
