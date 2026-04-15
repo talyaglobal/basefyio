@@ -187,6 +187,8 @@ export default function ManagementPage() {
         const matchesSearch =
           log.action.toLowerCase().includes(q) ||
           log.actorUserId.toLowerCase().includes(q) ||
+          (log.actorDisplayName || '').toLowerCase().includes(q) ||
+          (log.resourceDisplayName || '').toLowerCase().includes(q) ||
           log.resourceType.toLowerCase().includes(q) ||
           (log.resourceId || '').toLowerCase().includes(q) ||
           log.traceId.toLowerCase().includes(q);
@@ -1665,10 +1667,19 @@ export default function ManagementPage() {
                         {log.action}
                       </button>
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">{log.actorUserId}</td>
-                    <td className="px-2 py-2 text-muted-foreground">
-                      {log.resourceType}
-                      {log.resourceId ? `:${log.resourceId}` : ''}
+                    <td className="max-w-[220px] px-2 py-2">
+                      <div className="truncate text-xs" title={log.actorDisplayName || log.actorUserId}>
+                        {log.actorDisplayName || log.actorUserId}
+                      </div>
+                    </td>
+                    <td className="max-w-[240px] px-2 py-2">
+                      <div
+                        className="truncate text-xs text-muted-foreground"
+                        title={log.resourceDisplayName || `${log.resourceType}${log.resourceId ? `:${log.resourceId}` : ''}`}
+                      >
+                        {log.resourceDisplayName ||
+                          `${log.resourceType}${log.resourceId ? `:${log.resourceId}` : ''}`}
+                      </div>
                     </td>
                     <td className="max-w-[260px] truncate px-2 py-2 font-mono text-xs text-muted-foreground" title={log.traceId}>
                       {log.traceId}
@@ -1729,11 +1740,21 @@ export default function ManagementPage() {
                   </div>
 
                   <div className="grid gap-2 text-sm">
-                    <p><span className="font-medium">Who:</span> {actor ? getDisplayName({ firstName: actor.firstName, lastName: actor.lastName, email: actor.email }) : log.actorUserId} {actor?.email ? `(${actor.email})` : ''}</p>
+                    <p>
+                      <span className="font-medium">Who:</span>{' '}
+                      {log.actorDisplayName ||
+                        (actor
+                          ? `${getDisplayName({ firstName: actor.firstName, lastName: actor.lastName, email: actor.email })}${actor.email ? ` (${actor.email})` : ''}`
+                          : log.actorUserId)}
+                    </p>
                     <p><span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}</p>
                     <p><span className="font-medium">Team:</span> {teamName || '-'} {teamId ? `(${teamId})` : ''}</p>
                     <p><span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}</p>
-                    <p><span className="font-medium">Resource:</span> {log.resourceType}{log.resourceId ? `:${log.resourceId}` : ''}</p>
+                    <p>
+                      <span className="font-medium">Resource:</span>{' '}
+                      {log.resourceDisplayName ||
+                        `${log.resourceType}${log.resourceId ? `:${log.resourceId}` : ''}`}
+                    </p>
                     <p><span className="font-medium">Trace:</span> <span className="font-mono text-xs">{log.traceId}</span></p>
                     <p><span className="font-medium">HTTP:</span> {method || '-'} {url || '-'} {statusCode ? `(${statusCode})` : ''}</p>
                     <p><span className="font-medium">Latency:</span> {Number.isFinite(latencyMs as number) ? `${latencyMs} ms` : '-'}</p>

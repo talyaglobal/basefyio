@@ -329,6 +329,10 @@ export interface RootAlert {
   relatedAuditLogId: string | null;
   isRead: boolean;
   createdAt: string;
+  /** Resolved from related audit: who performed the action */
+  relatedActorDisplay?: string | null;
+  /** Resolved from related audit: primary resource (e.g. affected user) */
+  relatedTargetDisplay?: string | null;
 }
 
 export interface AuditLogEntry {
@@ -345,6 +349,10 @@ export interface AuditLogEntry {
   afterJson: Record<string, unknown> | null;
   metadataJson: Record<string, unknown> | null;
   createdAt: string;
+  /** Resolved user label for actorUserId */
+  actorDisplayName?: string | null;
+  /** Resolved label when resource is a user (or other known types later) */
+  resourceDisplayName?: string | null;
 }
 
 export interface ProjectDeletionReasonEntry {

@@ -113,6 +113,20 @@ export function RootAlertsPanel({
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{a.title}</p>
                   <p className="text-xs text-muted-foreground">{a.message}</p>
+                  {(a.relatedActorDisplay || a.relatedTargetDisplay) && (
+                    <div className="mt-2 space-y-0.5 rounded-md bg-muted/40 px-2 py-1.5 text-[11px] text-foreground/90">
+                      {a.relatedActorDisplay && (
+                        <p>
+                          <span className="text-muted-foreground">Actor:</span> {a.relatedActorDisplay}
+                        </p>
+                      )}
+                      {a.relatedTargetDisplay && (
+                        <p>
+                          <span className="text-muted-foreground">Target:</span> {a.relatedTargetDisplay}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     {new Date(a.createdAt).toLocaleString()}
                   </p>
@@ -180,6 +194,22 @@ export function RootAlertsPanel({
                   <div><span className="text-muted-foreground">Created:</span> <span className="ml-1">{new Date(selectedAlert.createdAt).toLocaleString()}</span></div>
                   <div><span className="text-muted-foreground">Related Audit ID:</span> <span className="ml-1 font-mono text-xs">{selectedAlert.relatedAuditLogId || 'N/A'}</span></div>
                 </div>
+                {(selectedAlert.relatedActorDisplay || selectedAlert.relatedTargetDisplay) && (
+                  <div className="mt-3 rounded-md border border-border/80 bg-muted/30 px-3 py-2 text-xs">
+                    {selectedAlert.relatedActorDisplay && (
+                      <p>
+                        <span className="font-medium text-muted-foreground">Who acted:</span>{' '}
+                        {selectedAlert.relatedActorDisplay}
+                      </p>
+                    )}
+                    {selectedAlert.relatedTargetDisplay && (
+                      <p className="mt-1">
+                        <span className="font-medium text-muted-foreground">Who / what was affected:</span>{' '}
+                        {selectedAlert.relatedTargetDisplay}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="mt-3">
                   <p className="font-medium">{selectedAlert.title}</p>
                   <p className="mt-1 text-muted-foreground">{selectedAlert.message}</p>
@@ -197,9 +227,34 @@ export function RootAlertsPanel({
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <div><span className="text-muted-foreground">Trace ID:</span> <span className="ml-1 font-mono text-xs">{selectedAudit.traceId}</span></div>
                       <div><span className="text-muted-foreground">Action:</span> <span className="ml-1">{selectedAudit.action}</span></div>
-                      <div><span className="text-muted-foreground">User ID:</span> <span className="ml-1 font-mono text-xs">{selectedAudit.actorUserId}</span></div>
+                      <div className="md:col-span-2">
+                        <span className="text-muted-foreground">Actor:</span>
+                        {selectedAudit.actorDisplayName ? (
+                          <div className="mt-0.5 text-foreground">
+                            <span className="text-sm">{selectedAudit.actorDisplayName}</span>
+                          </div>
+                        ) : (
+                          <span className="ml-1 font-mono text-xs">{selectedAudit.actorUserId}</span>
+                        )}
+                      </div>
                       <div><span className="text-muted-foreground">Role:</span> <span className="ml-1">{selectedAudit.actorRole}</span></div>
-                      <div><span className="text-muted-foreground">Resource:</span> <span className="ml-1">{selectedAudit.resourceType}{selectedAudit.resourceId ? ` / ${selectedAudit.resourceId}` : ''}</span></div>
+                      <div className="md:col-span-2">
+                        <span className="text-muted-foreground">Resource:</span>
+                        {selectedAudit.resourceDisplayName ? (
+                          <div className="mt-0.5">
+                            <span className="text-sm text-foreground">{selectedAudit.resourceDisplayName}</span>
+                            <span className="ml-2 text-muted-foreground">
+                              ({selectedAudit.resourceType}
+                              {selectedAudit.resourceId ? ` · ${selectedAudit.resourceId}` : ''})
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="ml-1">
+                            {selectedAudit.resourceType}
+                            {selectedAudit.resourceId ? ` / ${selectedAudit.resourceId}` : ''}
+                          </span>
+                        )}
+                      </div>
                       <div><span className="text-muted-foreground">Result:</span> <span className="ml-1">{selectedAudit.success ? 'SUCCESS' : 'FAIL'}</span></div>
                       <div><span className="text-muted-foreground">Severity:</span> <span className="ml-1">{selectedAudit.severity}</span></div>
                       <div><span className="text-muted-foreground">Time:</span> <span className="ml-1">{new Date(selectedAudit.createdAt).toLocaleString()}</span></div>

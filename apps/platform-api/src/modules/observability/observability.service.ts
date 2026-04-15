@@ -1,9 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { Prisma, UserRole } from '@prisma/client';
+import { AuditLog, Prisma, User, UserRole } from '@prisma/client';
 
 type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+function formatUserLabel(u: Pick<User, 'id' | 'email' | 'firstName' | 'lastName'> | null | undefined): string {
+  if (!u) return 'Unknown user';
+  const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+  if (name) return `${name} (${u.email})`;
+  return u.email;
+}
+
 
 interface CaptureRootActionParams {
   traceId: string;
@@ -83,11 +91,16 @@ export class ObservabilityService {
         },
       });
       if (failedCount >= 3) {
+        const actor = await this.prisma.user.findUnique({
+          where: { id: params.actorUserId },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        });
+        const actorLabel = formatUserLabel(actor);
         await this.createRootAlert(
           'REPEATED_FAILED_PRIVILEGED_ACTIONS',
           'HIGH',
           'Repeated failed privileged actions',
-          `User ${params.actorUserId} produced ${failedCount} failed privileged actions in the last 10 minutes.`,
+          `${actorLabel} (${params.actorUserId}) produced ${failedCount} failed privileged actions in the last 10 minutes.`,
           auditLogId,
         );
       }
@@ -99,11 +112,22 @@ export class ObservabilityService {
       params.action === 'BILLING_PLAN_DELETED' ||
       params.action === 'AUTH_USER_DEACTIVATED';
     if (highRiskAction) {
+      const ids = [params.actorUserId, params.resourceId].filter((x): x is string => !!x);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      });
+      const byId = new Map(users.map((u) => [u.id, u] as const));
+      const actorLabel = formatUserLabel(byId.get(params.actorUserId));
+      const resourcePart =
+        params.resourceType?.toLowerCase() === 'user' && params.resourceId
+          ? `${formatUserLabel(byId.get(params.resourceId))} (${params.resourceId})`
+          : `${params.resourceType}:${params.resourceId || '-'}`;
       await this.createRootAlert(
         'HIGH_RISK_ROOT_ACTION',
         'CRITICAL',
         'High-risk ROOT action detected',
-        `${params.action} on ${params.resourceType}:${params.resourceId || '-'}`,
+        `${params.action} — by ${actorLabel} (${params.actorUserId}) on ${resourcePart}`,
         auditLogId,
       );
     }
@@ -148,10 +172,89 @@ export class ObservabilityService {
     return row;
   }
 
+  private async attachUserLabelsToAuditLogs(rows: AuditLog[]) {
+    const userIds = new Set<string>();
+    for (const r of rows) {
+      userIds.add(r.actorUserId);
+      if (r.resourceId && String(r.resourceType).toLowerCase() === 'user') {
+        userIds.add(r.resourceId);
+      }
+    }
+    if (userIds.size === 0) {
+      return rows.map((r) => ({
+        ...r,
+        actorDisplayName: null as string | null,
+        resourceDisplayName: null as string | null,
+      }));
+    }
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...userIds] } },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    const byId = new Map(users.map((u) => [u.id, u] as const));
+    return rows.map((r) => ({
+      ...r,
+      actorDisplayName: formatUserLabel(byId.get(r.actorUserId)) + ` · id ${r.actorUserId}`,
+      resourceDisplayName:
+        r.resourceId && String(r.resourceType).toLowerCase() === 'user'
+          ? formatUserLabel(byId.get(r.resourceId)) + ` · id ${r.resourceId}`
+          : r.resourceId
+            ? `${r.resourceType}: ${r.resourceId}`
+            : null,
+    }));
+  }
+
   async listRootAlerts(limit = 100) {
-    return this.prisma.rootAlert.findMany({
+    const alerts = await this.prisma.rootAlert.findMany({
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 200),
+    });
+    const auditIds = alerts.map((a) => a.relatedAuditLogId).filter((id): id is string => !!id);
+    if (auditIds.length === 0) {
+      return alerts.map((a) => ({
+        ...a,
+        relatedActorDisplay: null as string | null,
+        relatedTargetDisplay: null as string | null,
+      }));
+    }
+    const audits = await this.prisma.auditLog.findMany({
+      where: { id: { in: auditIds } },
+    });
+    const auditById = new Map(audits.map((x) => [x.id, x] as const));
+    const userIds = new Set<string>();
+    for (const a of audits) {
+      userIds.add(a.actorUserId);
+      if (a.resourceId && String(a.resourceType).toLowerCase() === 'user') {
+        userIds.add(a.resourceId);
+      }
+    }
+    const users =
+      userIds.size > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: [...userIds] } },
+            select: { id: true, email: true, firstName: true, lastName: true },
+          })
+        : [];
+    const byId = new Map(users.map((u) => [u.id, u] as const));
+    return alerts.map((alert) => {
+      const audit = alert.relatedAuditLogId ? auditById.get(alert.relatedAuditLogId) : undefined;
+      let relatedActorDisplay: string | null = null;
+      let relatedTargetDisplay: string | null = null;
+      if (audit) {
+        relatedActorDisplay =
+          formatUserLabel(byId.get(audit.actorUserId)) + ` · id ${audit.actorUserId}`;
+        if (audit.resourceId && String(audit.resourceType).toLowerCase() === 'user') {
+          relatedTargetDisplay =
+            formatUserLabel(byId.get(audit.resourceId)) + ` · id ${audit.resourceId}`;
+        } else if (audit.resourceId) {
+          relatedTargetDisplay = `${audit.resourceType}: ${audit.resourceId}`;
+        }
+      }
+      return {
+        ...alert,
+        relatedActorDisplay,
+        relatedTargetDisplay,
+      };
     });
   }
 
@@ -163,10 +266,11 @@ export class ObservabilityService {
   }
 
   async listAuditLogs(limit = 200) {
-    return this.prisma.auditLog.findMany({
+    const rows = await this.prisma.auditLog.findMany({
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 500),
     });
+    return this.attachUserLabelsToAuditLogs(rows);
   }
 }
 
