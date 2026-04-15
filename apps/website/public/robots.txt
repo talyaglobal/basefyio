@@ -1,0 +1,8 @@
+# https://kolaybase.com — crawler guidelines
+# https://www.robotstxt.org/robotstxt.html
+
+User-agent: *
+Allow: /
+
+# If preview/staging uses a different PUBLIC_SITE_URL, adjust the sitemap URL at build time.
+Sitemap: https://kolaybase.com/sitemap-index.xml

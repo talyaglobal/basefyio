@@ -1,0 +1,37 @@
+---
+import SparklesLogoCloud from './SparklesLogoCloud';
+
+interface Props {
+  title?: string;
+  subtitle?: string;
+  className?: string;
+  particleColor?: string;
+  particleDensity?: number;
+  minSize?: number;
+  maxSize?: number;
+  speed?: number;
+}
+
+const {
+  title = 'Trusted by experts.',
+  subtitle = 'Used by the leaders.',
+  className = '',
+  particleColor = '#6366f1',
+  particleDensity = 80,
+  minSize = 0.6,
+  maxSize = 1.4,
+  speed = 2,
+} = Astro.props;
+---
+
+<SparklesLogoCloud
+  client:visible
+  title={title}
+  subtitle={subtitle}
+  className={className}
+  particleColor={particleColor}
+  particleDensity={particleDensity}
+  minSize={minSize}
+  maxSize={maxSize}
+  speed={speed}
+/>

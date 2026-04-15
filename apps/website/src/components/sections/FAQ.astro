@@ -1,0 +1,110 @@
+---
+import { faqItems } from '../../config/site';
+
+interface Props {
+  title?: string;
+  description?: string;
+  items?: typeof faqItems;
+}
+
+const {
+  title = 'Frequently asked questions',
+  description = 'Common questions about Kolaybase, plans, and onboarding.',
+  items = faqItems,
+} = Astro.props;
+---
+
+<section class="section" id="faq">
+  <div class="container">
+    <div class="max-w-3xl mx-auto">
+      <!-- Section header -->
+      <div class="text-center mb-12">
+        <h2 class="text-h2 text-text">{title}</h2>
+        <p class="mt-4 text-body text-text-secondary">{description}</p>
+      </div>
+
+      <!-- FAQ items -->
+      <div class="space-y-4" id="faq-accordion">
+        {items.map((item, index) => (
+          <div
+            class="border border-border rounded-lg overflow-hidden transition-all duration-200 hover:border-border-hover"
+            data-faq-item
+          >
+            <button
+              type="button"
+              class="flex items-center justify-between w-full px-6 py-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+              aria-expanded="false"
+              aria-controls={`faq-answer-${index}`}
+              data-faq-trigger
+            >
+              <span class="text-body font-medium text-text pr-4">{item.question}</span>
+              <svg
+                class="w-5 h-5 text-muted shrink-0 transition-transform duration-200"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                data-faq-icon
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div
+              id={`faq-answer-${index}`}
+              class="hidden px-6 pb-4"
+              data-faq-content
+            >
+              <p class="text-body-sm text-text-secondary">{item.answer}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <!-- Contact CTA -->
+      <div class="mt-12 text-center p-8 rounded-lg bg-surface border border-border">
+        <h3 class="text-h5 text-text">Still have questions?</h3>
+        <p class="mt-2 text-body-sm text-muted">
+          Can't find the answer you're looking for? Please reach out to our friendly team.
+        </p>
+        <a
+          href="/contact"
+          class="inline-flex items-center justify-center h-10 px-6 mt-6 rounded-md bg-primary text-primary-foreground font-medium text-body-sm hover:bg-primary-hover transition-colors duration-150"
+        >
+          Get in touch
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const accordion = document.getElementById('faq-accordion');
+  const items = accordion?.querySelectorAll('[data-faq-item]');
+
+  items?.forEach((item) => {
+    const trigger = item.querySelector('[data-faq-trigger]');
+    const content = item.querySelector('[data-faq-content]');
+    const icon = item.querySelector('[data-faq-icon]');
+
+    trigger?.addEventListener('click', () => {
+      const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+
+      // Close all other items
+      items.forEach((otherItem) => {
+        if (otherItem !== item) {
+          const otherTrigger = otherItem.querySelector('[data-faq-trigger]');
+          const otherContent = otherItem.querySelector('[data-faq-content]');
+          const otherIcon = otherItem.querySelector('[data-faq-icon]');
+          
+          otherTrigger?.setAttribute('aria-expanded', 'false');
+          otherContent?.classList.add('hidden');
+          otherIcon?.classList.remove('rotate-180');
+        }
+      });
+
+      // Toggle current item
+      trigger.setAttribute('aria-expanded', String(!isExpanded));
+      content?.classList.toggle('hidden', isExpanded);
+      icon?.classList.toggle('rotate-180', !isExpanded);
+    });
+  });
+</script>

@@ -1,30 +1,24 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine AS build
 WORKDIR /app
 
-FROM base AS deps
-COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+COPY package.json package-lock.json* .npmrc* ./
+RUN npm ci
 
-FROM base AS build
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN mkdir -p public
+
+ARG PUBLIC_SITE_URL=https://kolaybase.com
+ENV PUBLIC_SITE_URL=${PUBLIC_SITE_URL}
+ARG PUBLIC_APP_URL=https://app.kolaybase.com
+ENV PUBLIC_APP_URL=${PUBLIC_APP_URL}
+ARG PUBLIC_PLATFORM_API_URL=https://api.kolaybase.com
+ENV PUBLIC_PLATFORM_API_URL=${PUBLIC_PLATFORM_API_URL}
+
 RUN npm run build
 
-FROM base AS runner
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-COPY --from=build --chown=nextjs:nodejs /app/public ./public
-COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-USER nextjs
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
-CMD ["node", "server.js"]
+
+CMD ["nginx", "-g", "daemon off;"]

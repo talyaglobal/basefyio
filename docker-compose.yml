@@ -176,12 +176,13 @@ services:
     build:
       context: ./apps/website
       dockerfile: Dockerfile
+      args:
+        PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://kolaybase.com}
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+        PUBLIC_PLATFORM_API_URL: ${PUBLIC_PLATFORM_API_URL:-http://localhost:8000}
     restart: unless-stopped
     ports:
       - "${WEBSITE_PORT:-3002}:3000"
-    environment:
-      HOSTNAME: 0.0.0.0
-      NEXT_PUBLIC_BILLING_API_URL: http://platform-api:4000
 
 volumes:
   postgres_data:

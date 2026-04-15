@@ -1,0 +1,244 @@
+---
+title: "Theming"
+description: "Learn how to customize colors, typography, spacing, and more in Anti-Gravity."
+order: 3
+section: "Customization"
+---
+
+# Theming
+
+Anti-Gravity uses CSS variables and Tailwind CSS for theming, making it easy to customize every aspect of your site.
+
+## Color System
+
+### Color Tokens
+
+Colors are defined as CSS variables in `src/styles/globals.css`:
+
+```css
+:root {
+  /* Background colors */
+  --color-bg: #ffffff;
+  --color-surface: #fafafa;
+  --color-surface-2: #f5f5f5;
+  
+  /* Text colors */
+  --color-text: #0a0a0a;
+  --color-text-secondary: #404040;
+  --color-muted: #737373;
+  
+  /* Border */
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.15);
+  
+  /* Primary */
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-primary-foreground: #ffffff;
+  --color-primary-muted: rgba(79, 70, 229, 0.15);
+  
+  /* Semantic */
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+}
+```
+
+### Dark Mode Colors
+
+Dark mode colors are defined in the `.dark` class:
+
+```css
+.dark {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-2: #1f1f1f;
+  
+  --color-text: #fafafa;
+  --color-text-secondary: #a3a3a3;
+  --color-muted: #737373;
+  
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  
+  /* Slightly brighter primary for dark mode */
+  --color-primary: #6366f1;
+  --color-primary-hover: #818cf8;
+}
+```
+
+### Changing the Primary Color
+
+To change the primary color, update the `--color-primary` variables:
+
+```css
+:root {
+  /* Green primary */
+  --color-primary: #10b981;
+  --color-primary-hover: #059669;
+  --color-primary-muted: rgba(16, 185, 129, 0.15);
+}
+
+.dark {
+  --color-primary: #34d399;
+  --color-primary-hover: #6ee7b7;
+  --color-primary-muted: rgba(52, 211, 153, 0.2);
+}
+```
+
+## Typography
+
+### Font Families
+
+Fonts are configured in `tailwind.config.mjs`:
+
+```javascript
+fontFamily: {
+  sans: ['Inter', 'system-ui', 'sans-serif'],
+  mono: ['JetBrains Mono', 'monospace'],
+}
+```
+
+### Changing Fonts
+
+1. Install the new font:
+```bash
+npm install @fontsource/plus-jakarta-sans
+```
+
+2. Import in `globals.css`:
+```css
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+```
+
+3. Update Tailwind config:
+```javascript
+fontFamily: {
+  sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+}
+```
+
+### Typography Scale
+
+The typography scale is defined in Tailwind:
+
+```javascript
+fontSize: {
+  'display': ['4rem', { lineHeight: '1.1', fontWeight: '700' }],
+  'h1': ['3rem', { lineHeight: '1.15', fontWeight: '700' }],
+  'h2': ['2.25rem', { lineHeight: '1.2', fontWeight: '600' }],
+  'h3': ['1.5rem', { lineHeight: '1.3', fontWeight: '600' }],
+  'h4': ['1.25rem', { lineHeight: '1.4', fontWeight: '600' }],
+  'h5': ['1.125rem', { lineHeight: '1.4', fontWeight: '600' }],
+  'h6': ['1rem', { lineHeight: '1.5', fontWeight: '600' }],
+  'body': ['1rem', { lineHeight: '1.6' }],
+  'body-sm': ['0.875rem', { lineHeight: '1.5' }],
+  'small': ['0.75rem', { lineHeight: '1.4' }],
+}
+```
+
+## Spacing
+
+### Spacing Scale
+
+Anti-Gravity uses a consistent spacing rhythm:
+
+```javascript
+// 4px base unit
+spacing: {
+  1: '0.25rem',   // 4px
+  2: '0.5rem',    // 8px
+  3: '0.75rem',   // 12px
+  4: '1rem',      // 16px
+  6: '1.5rem',    // 24px
+  8: '2rem',      // 32px
+  12: '3rem',     // 48px
+  16: '4rem',     // 64px
+}
+```
+
+## Border Radius
+
+Three radius sizes are available:
+
+```javascript
+borderRadius: {
+  'sm': '6px',
+  'DEFAULT': '10px',
+  'lg': '14px',
+}
+```
+
+## Shadows
+
+Subtle shadows for depth:
+
+```javascript
+boxShadow: {
+  'subtle': '0 1px 2px 0 rgb(0 0 0 / 0.03)',
+  'soft': '0 2px 8px -2px rgb(0 0 0 / 0.08)',
+  'medium': '0 4px 12px -2px rgb(0 0 0 / 0.1)',
+  'focus': '0 0 0 3px var(--color-primary-muted)',
+}
+```
+
+## Motion
+
+### Animation Durations
+
+```javascript
+transitionDuration: {
+  '150': '150ms',  // Fast interactions
+  '200': '200ms',  // Standard
+  '250': '250ms',  // Slower, more deliberate
+}
+```
+
+### Reduced Motion
+
+Anti-Gravity respects `prefers-reduced-motion`:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+## Using Tokens in Components
+
+### In Tailwind Classes
+
+```html
+<div class="bg-bg text-text border-border">
+  <h1 class="text-h1 text-text">Title</h1>
+  <p class="text-body text-text-secondary">Description</p>
+  <button class="bg-primary text-primary-foreground">
+    Click me
+  </button>
+</div>
+```
+
+### In CSS
+
+```css
+.custom-element {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+```
+
+## Best Practices
+
+1. **Never hardcode colors** - Always use tokens
+2. **Test both themes** - Ensure your changes work in light and dark mode
+3. **Maintain contrast** - Keep text readable (WCAG AA minimum)
+4. **Use semantic tokens** - `text-muted` instead of specific gray values
+5. **Be consistent** - Stick to the spacing scale

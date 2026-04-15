@@ -1,0 +1,183 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/sections/Hero.astro';
+import { roadmapItems } from '../config/site';
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return 'bg-success/10 text-success border-success/20';
+    case 'in-progress':
+      return 'bg-primary-muted text-primary border-primary/20';
+    case 'planned':
+      return 'bg-warning/10 text-warning border-warning/20';
+    case 'considering':
+      return 'bg-surface text-muted border-border';
+    default:
+      return 'bg-surface text-muted border-border';
+  }
+};
+
+const getStatusLabel = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return 'Completed';
+    case 'in-progress':
+      return 'In Progress';
+    case 'planned':
+      return 'Planned';
+    case 'considering':
+      return 'Considering';
+    default:
+      return status;
+  }
+};
+
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`;
+    case 'in-progress':
+      return `<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>`;
+    case 'planned':
+      return `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+    case 'considering':
+      return `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+    default:
+      return '';
+  }
+};
+
+// Group items by quarter
+const groupedItems = roadmapItems.reduce((acc, item) => {
+  if (!acc[item.quarter]) {
+    acc[item.quarter] = [];
+  }
+  acc[item.quarter].push(item);
+  return acc;
+}, {} as Record<string, typeof roadmapItems>);
+
+const quarters = Object.keys(groupedItems).sort();
+---
+
+<BaseLayout
+  title="Roadmap"
+  description="See what's coming next for Anti-Gravity. Our public roadmap shows planned features and improvements."
+>
+  <!-- Hero -->
+  <Hero
+    variant="default"
+    badge="Roadmap"
+    title="What's coming"
+    titleHighlight="next"
+    description="Our public roadmap shows what we're working on and what's planned for the future. Have a feature request? Let us know!"
+  />
+
+  <!-- Roadmap -->
+  <section class="section-sm">
+    <div class="container">
+      <div class="max-w-4xl mx-auto">
+        <!-- Legend -->
+        <div class="mb-12 p-4 rounded-xl border border-border bg-surface/50">
+          <div class="flex flex-wrap items-center gap-4">
+            <span class="text-body-sm text-muted">Status:</span>
+            {['completed', 'in-progress', 'planned', 'considering'].map((status) => (
+              <div class="flex items-center gap-2">
+                <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-tiny font-medium border ${getStatusColor(status)}`}>
+                  <Fragment set:html={getStatusIcon(status)} />
+                  {getStatusLabel(status)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <!-- Quarters -->
+        <div class="space-y-12">
+          {quarters.map((quarter) => (
+            <div>
+              <h2 class="text-h3 text-text mb-6 flex items-center gap-3">
+                <span class="w-10 h-10 rounded-lg bg-primary-muted flex items-center justify-center text-primary">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </span>
+                {quarter}
+              </h2>
+
+              <div class="grid gap-4">
+                {groupedItems[quarter].map((item) => (
+                  <div class="p-6 rounded-xl border border-border bg-bg hover:border-border-hover transition-colors duration-200">
+                    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                      <div class="flex-1">
+                        <div class="flex items-center gap-3 mb-2">
+                          <h3 class="text-h5 text-text">{item.title}</h3>
+                          <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-tiny font-medium border ${getStatusColor(item.status)}`}>
+                            <Fragment set:html={getStatusIcon(item.status)} />
+                            {getStatusLabel(item.status)}
+                          </span>
+                        </div>
+                        <p class="text-body-sm text-text-secondary">{item.description}</p>
+                      </div>
+                      
+                      {item.status === 'considering' && (
+                        <button
+                          class="shrink-0 inline-flex items-center gap-2 h-9 px-4 rounded-md border border-border text-body-sm text-text-secondary hover:text-text hover:border-border-hover transition-all duration-150"
+                          data-vote-id={item.id}
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+                          </svg>
+                          Upvote
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <!-- Feature Request CTA -->
+        <div class="mt-16 p-8 rounded-xl border border-primary bg-primary-muted text-center">
+          <h3 class="text-h4 text-text mb-2">Have a feature request?</h3>
+          <p class="text-body-sm text-text-secondary mb-6 max-w-md mx-auto">
+            We'd love to hear your ideas! Submit a feature request and help shape the future of Anti-Gravity.
+          </p>
+          <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href="https://github.com/antigravity/issues/new?template=feature_request.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center h-10 px-6 rounded-md bg-primary text-primary-foreground font-medium text-body-sm hover:bg-primary-hover transition-colors duration-150"
+            >
+              <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+              </svg>
+              Submit on GitHub
+            </a>
+            <a
+              href="/contact"
+              class="inline-flex items-center justify-center h-10 px-6 rounded-md border border-border text-text font-medium text-body-sm hover:bg-bg hover:border-border-hover transition-colors duration-150"
+            >
+              Contact Us
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  // Handle upvote clicks
+  document.querySelectorAll('[data-vote-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.getAttribute('data-vote-id');
+      // Here you would typically send the vote to your backend
+      console.log('Upvoted:', id);
+      alert('Thanks for your vote! We\'ll consider this feature.');
+    });
+  });
+</script>

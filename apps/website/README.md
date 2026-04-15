@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kolaybase marketing sitesi (`kolaybase.com`)
 
-## Getting Started
+Anti-Gravity Astro şablonu temelli kurumsal vitrin. Statik çıktı, `@astrojs/sitemap`, Open Graph ve JSON-LD ile SEO odaklı yapılandırma.
 
-First, run the development server:
+## Geliştirme
 
 ```bash
+cd apps/website
+cp .env.example .env
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Varsayılan port: **3002** (`http://localhost:3002`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Ortam değişkenleri
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Değişken | Açıklama |
+|----------|----------|
+| `PUBLIC_SITE_URL` | Canonical URL (varsayılan `https://kolaybase.com`) — sitemap ve meta |
+| `PUBLIC_ADMIN_URL` | Footer’daki “Yönetim girişi” |
+| `PUBLIC_APP_URL` | Kayıt CTA kökü (`.../signup?plan=`) — local: `http://localhost:3000` |
+| `PUBLIC_PLATFORM_API_URL` | API kökü (`/api/billing/plans`) — local: `http://localhost:8000` |
 
-## Learn More
+Üretimde bu üç adresi domain’lerinize göre ayarlayıp **imajı yeniden derleyin** (statik bundle’a gömülür).
 
-To learn more about Next.js, take a look at the following resources:
+## Üretim derlemesi
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Çıktı: `dist/`. Docker imajı `nginx` ile statik dosyaları sunar (`Dockerfile`).
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Kaynak arşiv: projede `Anti-Gravity.zip` (referans tasarım).

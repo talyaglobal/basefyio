@@ -1,0 +1,226 @@
+---
+title: "Performance Optimization Tips for Astro Sites"
+description: "Maximize your site's performance with these proven optimization techniques for Astro-based websites."
+pubDate: 2025-09-11
+author:
+  name: "Marcus Johnson"
+  role: "Lead Developer"
+image:
+  src: "https://placehold.co/1200x630/1a1a1a/ffffff?text=Performance"
+  alt: "Performance Optimization"
+tags: ["performance", "astro", "optimization"]
+featured: false
+---
+
+# Performance Optimization Tips for Astro Sites
+
+Astro is already blazing fast out of the box, but there are several techniques you can use to squeeze out even more performance. Let's dive in!
+
+## Why Performance Matters
+
+- **User Experience**: Faster sites lead to happier users
+- **SEO**: Google uses page speed as a ranking factor
+- **Conversion**: Every 100ms delay can reduce conversions by 7%
+- **Accessibility**: Slow sites disproportionately affect users on slower connections
+
+## 1. Leverage Astro's Islands Architecture
+
+Astro's islands architecture is its superpower. Only hydrate components that need interactivity.
+
+```astro
+---
+// Static by default - no JavaScript shipped
+import StaticComponent from './StaticComponent.astro';
+
+// Only hydrate when needed
+import InteractiveComponent from './InteractiveComponent.tsx';
+---
+
+<StaticComponent />
+
+<!-- Only loads JS when visible -->
+<InteractiveComponent client:visible />
+
+<!-- Only loads JS on idle -->
+<InteractiveComponent client:idle />
+```
+
+### Client Directives
+
+Choose the right hydration strategy:
+
+| Directive | When to Use |
+|-----------|-------------|
+| `client:load` | Critical interactive elements |
+| `client:idle` | Lower-priority interactive elements |
+| `client:visible` | Elements below the fold |
+| `client:media` | Mobile-only or desktop-only components |
+| `client:only` | Client-side only rendering |
+
+## 2. Optimize Images
+
+Images are often the largest assets on a page. Use Astro's built-in image optimization:
+
+```astro
+---
+import { Image } from 'astro:assets';
+import heroImage from '../assets/hero.jpg';
+---
+
+<Image 
+  src={heroImage} 
+  alt="Hero image"
+  width={1200}
+  height={630}
+  format="webp"
+  quality={80}
+/>
+```
+
+### Image Best Practices
+
+- Use modern formats (WebP, AVIF)
+- Specify dimensions to prevent layout shift
+- Use lazy loading for below-fold images
+- Serve responsive images with `srcset`
+
+## 3. Minimize JavaScript
+
+Every kilobyte of JavaScript has a cost. Audit your dependencies regularly.
+
+```bash
+# Check bundle size
+npm run build
+npx astro-bundle-analyzer
+```
+
+### Tips for Reducing JS
+
+1. **Use Astro components** instead of React when possible
+2. **Tree-shake** unused code
+3. **Code-split** large components
+4. **Lazy load** non-critical scripts
+
+## 4. Optimize Fonts
+
+Fonts can significantly impact performance. Here's how to optimize them:
+
+```css
+/* Preload critical fonts */
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+
+/* Use font-display: swap */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter.woff2') format('woff2');
+  font-display: swap;
+}
+```
+
+### Font Loading Strategies
+
+- **Preload** critical fonts
+- Use **font-display: swap** to prevent invisible text
+- **Subset** fonts to include only needed characters
+- Consider **system fonts** for body text
+
+## 5. Enable Caching
+
+Proper caching can dramatically improve repeat visit performance.
+
+```javascript
+// astro.config.mjs
+export default defineConfig({
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          assetFileNames: 'assets/[hash][extname]',
+        },
+      },
+    },
+  },
+});
+```
+
+### Cache Headers
+
+Set appropriate cache headers for different asset types:
+
+```
+# Static assets (1 year)
+Cache-Control: public, max-age=31536000, immutable
+
+# HTML (no cache)
+Cache-Control: no-cache, no-store, must-revalidate
+```
+
+## 6. Preload Critical Resources
+
+Help the browser discover critical resources early:
+
+```html
+<!-- Preload critical CSS -->
+<link rel="preload" href="/styles/critical.css" as="style">
+
+<!-- Preconnect to external domains -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+
+<!-- DNS prefetch for third-party resources -->
+<link rel="dns-prefetch" href="https://analytics.example.com">
+```
+
+## 7. Optimize CSS
+
+Keep your CSS lean and efficient:
+
+```css
+/* Use CSS layers for better organization */
+@layer base, components, utilities;
+
+/* Avoid expensive selectors */
+/* Bad */
+.container > div > ul > li > a { }
+
+/* Good */
+.nav-link { }
+```
+
+### CSS Tips
+
+- **Purge unused CSS** with Tailwind's built-in purging
+- **Minimize specificity** conflicts
+- **Use CSS containment** for complex layouts
+- **Avoid layout thrashing**
+
+## 8. Monitor Performance
+
+Regularly measure your site's performance:
+
+```bash
+# Run Lighthouse
+npx lighthouse https://your-site.com --view
+
+# Use WebPageTest for detailed analysis
+# https://www.webpagetest.org/
+```
+
+### Key Metrics to Track
+
+- **LCP** (Largest Contentful Paint) < 2.5s
+- **FID** (First Input Delay) < 100ms
+- **CLS** (Cumulative Layout Shift) < 0.1
+- **TTFB** (Time to First Byte) < 600ms
+
+## Conclusion
+
+Performance optimization is an ongoing process. Start with the biggest wins:
+
+1. Minimize JavaScript with islands architecture
+2. Optimize images
+3. Use proper caching
+4. Monitor and iterate
+
+Remember: **measure first, optimize second**. Don't optimize blindly—use data to guide your decisions.
+
+Happy optimizing! 🚀

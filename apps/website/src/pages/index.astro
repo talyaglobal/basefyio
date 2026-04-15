@@ -1,0 +1,66 @@
+---
+import CTA from '../components/sections/CTA.astro';
+import FAQ from '../components/sections/FAQ.astro';
+import Features from '../components/sections/Features.astro';
+import Hero from '../components/sections/Hero.astro';
+import Pricing from '../components/sections/Pricing.astro';
+import Testimonials from '../components/sections/Testimonials.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  title="Kolaybase — Projects, teams, and billing in one place"
+  description="Manage projects, quotas, storage, and API usage from a single control plane. Plans come from live product data; choose a tier and sign up. Stripe-compatible billing and SSO-ready workflows."
+  keywords="Kolaybase, project management, team management, SaaS, API, billing"
+>
+  <Hero
+    variant="antigravity"
+    badge="Enterprise-ready platform"
+    title="Run operations"
+    titleHighlight="in one place"
+    description="Kolaybase unifies projects, teams, quotas, and APIs. Pricing cards reflect real plans from the API. Sign up with the tier you need; payments run on Stripe. Same visual language as the admin app—switch light or dark anytime."
+    primaryCta={{
+      text: 'Pricing',
+      href: '/pricing',
+    }}
+    secondaryCta={{
+      text: 'Documentation',
+      href: '/docs',
+    }}
+    stats={[
+      { value: 'SSO', label: 'Enterprise identity' },
+      { value: 'API', label: 'Integrations' },
+      { value: 'SLA', label: 'Priority support' },
+    ]}
+    antigravityOptions={{
+      count: 320,
+      color: '#2563eb',
+      particleShape: 'capsule',
+    }}
+  />
+
+  <Features
+    title="Built for serious teams"
+    description="Technical architecture, security posture, and collaboration patterns summarized below. The marketing site uses the same color system as the dashboard."
+  />
+
+  <Testimonials />
+
+  <Pricing />
+
+  <FAQ />
+
+  <CTA
+    variant="default"
+    title="Talk to us"
+    description="Need a pilot, volume pricing, or a custom hosting profile? Our team will align technical and commercial details with you."
+    primaryCta={{
+      text: 'Contact',
+      href: '/contact',
+    }}
+    secondaryCta={{
+      text: 'Features',
+      href: '/features',
+    }}
+  />
+</BaseLayout>

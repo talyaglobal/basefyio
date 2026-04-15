@@ -1,0 +1,12 @@
+node_modules
+dist
+.astro
+.git
+.vscode
+*.md
+.env
+.env.*
+coverage
+npm-debug.log*
+Anti-Gravity.zip
+anti-gravity-extracted

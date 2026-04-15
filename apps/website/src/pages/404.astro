@@ -1,0 +1,107 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import AntigravityIsland from '../components/animations/AntigravityIsland.astro';
+---
+
+<BaseLayout
+  title="Page Not Found"
+  description="The page you're looking for doesn't exist or has been moved."
+  noIndex={true}
+>
+  <section class="relative flex min-h-[80vh] items-center justify-center overflow-hidden">
+    <!-- Antigravity Animation Background -->
+    <div class="absolute inset-0 z-0">
+      <AntigravityIsland
+        count={100}
+        color="#2563eb"
+        waveSpeed={0.3}
+        autoAnimate={true}
+        height="100%"
+        class="h-full w-full"
+      />
+    </div>
+
+    <div class="container relative z-10">
+      <div class="mx-auto max-w-md text-center">
+        <!-- 404 Illustration -->
+        <div class="relative mb-8">
+          <div class="text-surface/50 select-none text-[10rem] font-bold leading-none">404</div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <img src="/logo.svg" alt="" width="96" height="96" class="h-24 w-24" />
+          </div>
+        </div>
+
+        <!-- Content -->
+        <h1 class="mb-4 text-h2 text-text">Page not found</h1>
+        <p class="mb-8 text-body text-text-secondary">
+          Sorry, we couldn't find the page you're looking for. It might have been moved or deleted.
+        </p>
+
+        <!-- Actions -->
+        <div class="flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <a
+            href="/"
+            class="inline-flex h-12 items-center justify-center rounded-md bg-primary px-6 font-medium text-primary-foreground shadow-subtle transition-all duration-150 hover:bg-primary-hover hover:shadow-soft"
+          >
+            <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              ></path>
+            </svg>
+            Go Home
+          </a>
+          <button
+            onclick="history.back()"
+            class="bg-bg/80 inline-flex h-12 items-center justify-center rounded-md border border-border px-6 font-medium text-text backdrop-blur-sm transition-all duration-150 hover:border-border-hover hover:bg-surface"
+          >
+            <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+            </svg>
+            Go Back
+          </button>
+        </div>
+
+        <!-- Helpful links -->
+        <div class="border-border/50 mt-12 border-t pt-8">
+          <p class="mb-4 text-body-sm text-muted">Here are some helpful links:</p>
+          <div class="flex flex-wrap items-center justify-center gap-4">
+            <a
+              href="/features"
+              class="text-body-sm text-primary transition-colors hover:text-primary-hover"
+            >
+              Features
+            </a>
+            <span class="text-border">•</span>
+            <a
+              href="/pricing"
+              class="text-body-sm text-primary transition-colors hover:text-primary-hover"
+            >
+              Pricing
+            </a>
+            <span class="text-border">•</span>
+            <a
+              href="/docs"
+              class="text-body-sm text-primary transition-colors hover:text-primary-hover"
+            >
+              Documentation
+            </a>
+            <span class="text-border">•</span>
+            <a
+              href="/contact"
+              class="text-body-sm text-primary transition-colors hover:text-primary-hover"
+            >
+              Contact
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

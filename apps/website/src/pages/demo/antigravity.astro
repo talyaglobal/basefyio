@@ -1,0 +1,206 @@
+---
+import AntigravityIsland from '../../components/animations/AntigravityIsland.astro';
+import Hero from '../../components/sections/Hero.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  title="Antigravity Animation Demo - Anti-Gravity"
+  description="Interactive 3D particle animation demo showcasing the Antigravity effect"
+>
+  <!-- Hero with Antigravity Animation -->
+  <Hero
+    variant="antigravity"
+    badge="Interactive Demo"
+    title="Experience the"
+    titleHighlight="Antigravity Effect"
+    description="A mesmerizing 3D particle animation that responds to your cursor. Built with Three.js and React Three Fiber for smooth, performant WebGL rendering."
+    primaryCta={{
+      text: 'View Source',
+      href: 'https://github.com/antigravity/theme',
+    }}
+    secondaryCta={{
+      text: 'Back to Home',
+      href: '/',
+    }}
+    antigravityOptions={{
+      count: 350,
+      color: '#818cf8',
+      particleShape: 'capsule',
+    }}
+  />
+
+  <!-- Animation Variants Section -->
+  <section class="section bg-surface">
+    <div class="container">
+      <div class="mb-12 text-center">
+        <h2 class="text-h2 text-text">Animation Variants</h2>
+        <p class="mx-auto mt-4 max-w-2xl text-body text-text-secondary">
+          Explore different particle shapes and color configurations.
+        </p>
+      </div>
+
+      <div class="grid gap-8 md:grid-cols-2">
+        <!-- Capsule (Default) -->
+        <div class="overflow-hidden rounded-lg border border-border bg-bg">
+          <div class="relative h-64">
+            <AntigravityIsland
+              count={150}
+              color="#6366f1"
+              particleShape="capsule"
+              autoAnimate={true}
+              height="100%"
+            />
+          </div>
+          <div class="border-t border-border p-4">
+            <h3 class="text-h5 text-text">Capsule (Default)</h3>
+            <p class="mt-1 text-body-sm text-muted">Elongated particles with smooth motion</p>
+          </div>
+        </div>
+
+        <!-- Sphere -->
+        <div class="overflow-hidden rounded-lg border border-border bg-bg">
+          <div class="relative h-64">
+            <AntigravityIsland
+              count={150}
+              color="#ec4899"
+              particleShape="sphere"
+              autoAnimate={true}
+              height="100%"
+            />
+          </div>
+          <div class="border-t border-border p-4">
+            <h3 class="text-h5 text-text">Sphere</h3>
+            <p class="mt-1 text-body-sm text-muted">Round particles with pink color</p>
+          </div>
+        </div>
+
+        <!-- Box -->
+        <div class="overflow-hidden rounded-lg border border-border bg-bg">
+          <div class="relative h-64">
+            <AntigravityIsland
+              count={150}
+              color="#10b981"
+              particleShape="box"
+              autoAnimate={true}
+              height="100%"
+            />
+          </div>
+          <div class="border-t border-border p-4">
+            <h3 class="text-h5 text-text">Box</h3>
+            <p class="mt-1 text-body-sm text-muted">Cubic particles with emerald color</p>
+          </div>
+        </div>
+
+        <!-- Tetrahedron -->
+        <div class="overflow-hidden rounded-lg border border-border bg-bg">
+          <div class="relative h-64">
+            <AntigravityIsland
+              count={150}
+              color="#f59e0b"
+              particleShape="tetrahedron"
+              autoAnimate={true}
+              height="100%"
+            />
+          </div>
+          <div class="border-t border-border p-4">
+            <h3 class="text-h5 text-text">Tetrahedron</h3>
+            <p class="mt-1 text-body-sm text-muted">
+              Triangular pyramid particles with amber color
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Usage Section -->
+  <section class="section">
+    <div class="container">
+      <div class="mx-auto max-w-3xl">
+        <h2 class="mb-8 text-center text-h2 text-text">Usage</h2>
+
+        <div class="prose">
+          <p>
+            The Antigravity animation can be used as a background for hero sections, feature
+            highlights, or standalone decorative elements.
+          </p>
+
+          <h3>Basic Usage</h3>
+          <pre
+            class="overflow-x-auto rounded-lg bg-surface p-4"><code class="text-body-sm">&lt;AntigravityIsland 
+  count={300}
+  color="#6366f1"
+  particleShape="capsule"
+  autoAnimate={true}
+  height="400px"
+/&gt;</code></pre>
+
+          <h3>Props</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-body-sm">
+              <thead>
+                <tr class="border-b border-border">
+                  <th class="py-2 pr-4 text-left text-text">Prop</th>
+                  <th class="py-2 pr-4 text-left text-text">Type</th>
+                  <th class="py-2 pr-4 text-left text-text">Default</th>
+                  <th class="py-2 text-left text-text">Description</th>
+                </tr>
+              </thead>
+              <tbody class="text-text-secondary">
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">count</td>
+                  <td class="py-2 pr-4">number</td>
+                  <td class="py-2 pr-4">300</td>
+                  <td class="py-2">Number of particles</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">color</td>
+                  <td class="py-2 pr-4">string</td>
+                  <td class="py-2 pr-4">#6366f1</td>
+                  <td class="py-2">Particle color (hex)</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">particleShape</td>
+                  <td class="py-2 pr-4">string</td>
+                  <td class="py-2 pr-4">capsule</td>
+                  <td class="py-2">Shape: capsule, sphere, box, tetrahedron</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">autoAnimate</td>
+                  <td class="py-2 pr-4">boolean</td>
+                  <td class="py-2 pr-4">true</td>
+                  <td class="py-2">Auto-animate when mouse is idle</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">magnetRadius</td>
+                  <td class="py-2 pr-4">number</td>
+                  <td class="py-2 pr-4">10</td>
+                  <td class="py-2">Radius of magnetic attraction</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">ringRadius</td>
+                  <td class="py-2 pr-4">number</td>
+                  <td class="py-2 pr-4">7</td>
+                  <td class="py-2">Radius of ring formation</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">waveSpeed</td>
+                  <td class="py-2 pr-4">number</td>
+                  <td class="py-2 pr-4">0.4</td>
+                  <td class="py-2">Speed of wave animation</td>
+                </tr>
+                <tr class="border-b border-border">
+                  <td class="py-2 pr-4 font-mono text-small">height</td>
+                  <td class="py-2 pr-4">string</td>
+                  <td class="py-2 pr-4">400px</td>
+                  <td class="py-2">Container height</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

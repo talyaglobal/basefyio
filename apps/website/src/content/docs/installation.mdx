@@ -1,0 +1,148 @@
+---
+title: 'Installation'
+description: 'Step-by-step guide to installing and setting up Anti-Gravity theme.'
+order: 2
+section: 'Getting Started'
+---
+
+# Installation
+
+This guide will walk you through setting up Anti-Gravity for your project.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** - Version 18.14.1 or higher
+- **npm**, **pnpm**, or **yarn** - Package manager of your choice
+- **Git** - For cloning the repository
+
+## Installation Methods
+
+### Step 1: Download Your Theme
+
+After purchasing Anti-Gravity, download the theme files from your purchase dashboard:
+
+1. Log in to your purchase dashboard
+2. Download the `anti-gravity-theme.zip` file
+3. Extract to your desired project location
+
+### Step 2: Extract and Install
+
+```bash
+# Extract the theme
+unzip anti-gravity-theme.zip -d my-project
+
+# Navigate to the project
+cd my-project
+
+# Install dependencies
+npm install
+```
+
+### Step 3: Verify Installation
+
+```bash
+# Start development server
+npm run dev
+```
+
+Your site will be available at `http://localhost:4321`.
+
+## Development Server
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Your site will be available at `http://localhost:4321`.
+
+## Available Scripts
+
+| Command           | Description              |
+| ----------------- | ------------------------ |
+| `npm run dev`     | Start development server |
+| `npm run build`   | Build for production     |
+| `npm run preview` | Preview production build |
+| `npm run astro`   | Run Astro CLI commands   |
+
+## Project Configuration
+
+### Site Configuration
+
+Edit `src/config/site.ts` to update your site's information:
+
+```typescript
+export const siteConfig = {
+  name: 'Your Site Name',
+  description: 'Your site description',
+  url: 'https://your-domain.com',
+  // ... more options
+};
+```
+
+### Astro Configuration
+
+The main Astro configuration is in `astro.config.mjs`:
+
+```javascript
+import { defineConfig } from 'astro/config';
+import tailwind from '@astrojs/tailwind';
+import react from '@astrojs/react';
+import mdx from '@astrojs/mdx';
+
+export default defineConfig({
+  site: 'https://your-domain.com',
+  integrations: [tailwind(), react(), mdx()],
+});
+```
+
+## TypeScript Support
+
+Anti-Gravity is built with TypeScript. The configuration is in `tsconfig.json`:
+
+```json
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Port already in use:**
+
+```bash
+# Use a different port
+npm run dev -- --port 3000
+```
+
+**Dependencies not installing:**
+
+```bash
+# Clear npm cache and reinstall
+rm -rf node_modules package-lock.json
+npm install
+```
+
+**TypeScript errors:**
+
+```bash
+# Sync Astro types
+npm run astro sync
+```
+
+## Next Steps
+
+- [Theming Guide](/docs/theming) - Customize the look and feel
+- [Components](/docs/components) - Explore available components
+- [Deployment](/docs/deployment) - Deploy your site

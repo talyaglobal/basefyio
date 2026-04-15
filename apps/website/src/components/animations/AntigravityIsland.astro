@@ -1,0 +1,99 @@
+---
+/**
+ * Antigravity Animation Island
+ *
+ * Astro island wrapper for the Antigravity 3D particle animation.
+ * Uses Three.js and @react-three/fiber for WebGL rendering.
+ *
+ * @example
+ * <AntigravityIsland
+ *   color="#6366f1"
+ *   count={200}
+ *   autoAnimate={true}
+ * />
+ */
+import Antigravity from './Antigravity';
+
+interface Props {
+  /** Number of particles (default: 300) */
+  count?: number;
+  /** Radius of magnetic attraction (default: 10) */
+  magnetRadius?: number;
+  /** Radius of the ring formation (default: 7) */
+  ringRadius?: number;
+  /** Speed of wave animation (default: 0.4) */
+  waveSpeed?: number;
+  /** Amplitude of wave motion (default: 1) */
+  waveAmplitude?: number;
+  /** Interpolation speed for smooth movement (default: 0.05) */
+  lerpSpeed?: number;
+  /** Color of particles (default: '#6366f1') */
+  color?: string;
+  /** Enable auto-animation when mouse is idle (default: true) */
+  autoAnimate?: boolean;
+  /** Variance in particle behavior (default: 1) */
+  particleVariance?: number;
+  /** Speed of rotation (default: 0) */
+  rotationSpeed?: number;
+  /** Depth factor for 3D effect (default: 1) */
+  depthFactor?: number;
+  /** Speed of pulse animation (default: 3) */
+  pulseSpeed?: number;
+  /** Shape of particles: 'capsule' | 'sphere' | 'box' | 'tetrahedron' (default: 'capsule') */
+  particleShape?: 'capsule' | 'sphere' | 'box' | 'tetrahedron';
+  /** Strength of magnetic field (default: 10) */
+  fieldStrength?: number;
+  /** Additional CSS classes */
+  class?: string;
+  /** Height of the container (default: '400px') */
+  height?: string;
+}
+
+const {
+  count = 300,
+  magnetRadius = 10,
+  ringRadius = 7,
+  waveSpeed = 0.4,
+  waveAmplitude = 1,
+  lerpSpeed = 0.05,
+  color = '#6366f1',
+  autoAnimate = true,
+  particleVariance = 1,
+  rotationSpeed = 0,
+  depthFactor = 1,
+  pulseSpeed = 3,
+  particleShape = 'capsule',
+  fieldStrength = 10,
+  class: className = '',
+  height = '400px',
+} = Astro.props;
+---
+
+<div class:list={['antigravity-container', className]} style={`height: ${height};`}>
+  <Antigravity
+    client:visible
+    count={count}
+    magnetRadius={magnetRadius}
+    ringRadius={ringRadius}
+    waveSpeed={waveSpeed}
+    waveAmplitude={waveAmplitude}
+    lerpSpeed={lerpSpeed}
+    color={color}
+    autoAnimate={autoAnimate}
+    particleVariance={particleVariance}
+    rotationSpeed={rotationSpeed}
+    depthFactor={depthFactor}
+    pulseSpeed={pulseSpeed}
+    particleShape={particleShape}
+    fieldStrength={fieldStrength}
+    style={{ width: '100%', height: '100%' }}
+  />
+</div>
+
+<style>
+  .antigravity-container {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+  }
+</style>

@@ -1,0 +1,56 @@
+---
+import { siteConfig } from '../../config/site';
+
+interface Props {
+  /** Page-specific title for structured data (falls back to site name) */
+  pageTitle?: string;
+  /** Page-specific description (falls back to site description) */
+  pageDescription?: string;
+}
+
+const { pageTitle = siteConfig.name, pageDescription = siteConfig.description } = Astro.props;
+
+const siteUrl = siteConfig.url.replace(/\/$/, '');
+const orgId = `${siteUrl}/#organization`;
+
+const graph = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': orgId,
+      name: siteConfig.name,
+      url: siteUrl,
+      logo: new URL(siteConfig.logoPath, Astro.site).href,
+      description: siteConfig.description,
+      email: siteConfig.email,
+      sameAs: [
+        siteConfig.socials.linkedin,
+        siteConfig.socials.twitter,
+        siteConfig.socials.github,
+      ].filter((u) => typeof u === 'string' && u.startsWith('http')),
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${siteUrl}/#website`,
+      name: siteConfig.name,
+      url: siteUrl,
+      description: siteConfig.description,
+      inLanguage: ['en-US'],
+      publisher: { '@id': orgId },
+    },
+    {
+      '@type': 'WebPage',
+      '@id': `${Astro.url.href}#webpage`,
+      url: Astro.url.href,
+      name: pageTitle,
+      description: pageDescription,
+      isPartOf: { '@id': `${siteUrl}/#website` },
+      about: { '@id': orgId },
+      inLanguage: 'en-US',
+    },
+  ],
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(graph)} />
