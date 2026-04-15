@@ -1,4 +1,18 @@
-export const metadata = { title: "API Reference | Kolaybase Docs" };
+import type { Metadata } from "next";
+
+const pageDescription =
+  "Kolaybase REST API: authentication headers, Supabase-compatible queries, storage, and project-scoped endpoints.";
+
+export const metadata: Metadata = {
+  title: "API Reference",
+  description: pageDescription,
+  alternates: { canonical: "/docs/api" },
+  openGraph: {
+    url: "/docs/api",
+    title: "API Reference | Kolaybase Docs",
+    description: pageDescription,
+  },
+};
 
 export default function ApiDocs() {
   return (

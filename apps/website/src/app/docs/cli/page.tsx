@@ -1,4 +1,18 @@
-export const metadata = { title: "CLI Reference | Kolaybase Docs" };
+import type { Metadata } from "next";
+
+const pageDescription =
+  "Kolaybase CLI (kb): login, projects, migrations, types, and terminal workflows.";
+
+export const metadata: Metadata = {
+  title: "CLI Reference",
+  description: pageDescription,
+  alternates: { canonical: "/docs/cli" },
+  openGraph: {
+    url: "/docs/cli",
+    title: "CLI Reference | Kolaybase Docs",
+    description: pageDescription,
+  },
+};
 
 export default function CliDocs() {
   return (

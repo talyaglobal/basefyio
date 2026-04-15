@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
   Database,
@@ -12,6 +13,16 @@ import {
 import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+  openGraph: {
+    url: "/",
+    title: "Kolaybase | Backend as a Service",
+    description:
+      "Set up database, authentication, and REST API in minutes. No-code backend platform.",
+  },
+};
 
 type PublicPlan = {
   id: string;
@@ -140,7 +151,7 @@ export default async function Home() {
       </header>
 
       <HomeHero>
-        <div className="relative mx-auto max-w-4xl pb-20 pt-28 text-center md:pb-28 md:pt-36">
+        <div className="mx-auto max-w-4xl text-center">
           <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
             Backend in <span className="gradient-text">minutes</span>, not days
           </h1>

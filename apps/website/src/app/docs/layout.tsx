@@ -1,7 +1,23 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Book, Code, Terminal, Server } from "lucide-react";
 import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+const docsDescription =
+  "Kolaybase documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
+
+export const metadata: Metadata = {
+  title: {
+    template: "%s | Kolaybase Docs",
+    default: "Documentation | Kolaybase Docs",
+  },
+  description: docsDescription,
+  openGraph: {
+    title: "Documentation | Kolaybase Docs",
+    description: docsDescription,
+  },
+};
 
 const nav = [
   { href: "/docs", label: "Overview", icon: Book },

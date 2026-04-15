@@ -182,6 +182,8 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
       NEXT_PUBLIC_BILLING_API_URL: http://platform-api:4000
+      # Canonical URL for sitemap, OG, robots (override in production)
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
 
 volumes:
   postgres_data:

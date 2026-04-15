@@ -1,7 +1,20 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Server, Code, Terminal } from "lucide-react";
 
-export const metadata = { title: "Documentation | Kolaybase" };
+const pageDescription =
+  "Kolaybase is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
+
+export const metadata: Metadata = {
+  title: "Documentation",
+  description: pageDescription,
+  alternates: { canonical: "/docs" },
+  openGraph: {
+    url: "/docs",
+    title: "Documentation | Kolaybase Docs",
+    description: pageDescription,
+  },
+};
 
 export default function DocsOverview() {
   return (

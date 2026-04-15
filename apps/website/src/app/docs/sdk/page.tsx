@@ -1,4 +1,18 @@
-export const metadata = { title: "SDK Reference | Kolaybase Docs" };
+import type { Metadata } from "next";
+
+const pageDescription =
+  "JavaScript / TypeScript SDK (kolaybase-js): createClient, database queries, auth, and storage from your app.";
+
+export const metadata: Metadata = {
+  title: "SDK Reference",
+  description: pageDescription,
+  alternates: { canonical: "/docs/sdk" },
+  openGraph: {
+    url: "/docs/sdk",
+    title: "SDK Reference | Kolaybase Docs",
+    description: pageDescription,
+  },
+};
 
 export default function SdkDocs() {
   return (

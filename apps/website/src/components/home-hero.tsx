@@ -28,7 +28,7 @@ export function HomeHero({ children }: { children: React.ReactNode }) {
   const particleColor = usePrimaryParticleColor();
 
   return (
-    <section className="relative min-h-[80vh] overflow-hidden">
+    <section className="relative flex min-h-[80vh] flex-col overflow-hidden">
       <div className="absolute inset-0 z-0 min-h-[80vh] w-full">
         <Antigravity
           count={320}
@@ -49,7 +49,12 @@ export function HomeHero({ children }: { children: React.ReactNode }) {
         aria-hidden
       />
       <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-b from-background/50 via-transparent to-background" />
-      <div className="relative z-10 mx-auto max-w-6xl px-6">{children}</div>
+      {/* Outer: full hero height; pt-16 clears fixed header (h-16). Inner: flex-1 + justify-center = vertical center */}
+      <div className="relative z-10 flex min-h-[80vh] w-full flex-col px-6 pt-16 md:pb-4">
+        <div className="flex flex-1 flex-col items-center justify-center py-8 md:py-12">
+          <div className="mx-auto w-full max-w-6xl">{children}</div>
+        </div>
+      </div>
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-[5] h-32 bg-gradient-to-t from-background to-transparent" />
     </section>
   );
