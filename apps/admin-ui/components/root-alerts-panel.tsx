@@ -61,11 +61,14 @@ export function RootAlertsPanel({
 
     setDetailsLoading(true);
     try {
-      const rows = await api.observability.listAuditLogs(500);
-      const row = rows.find((x) => x.id === alert.relatedAuditLogId) || null;
+      const row = await api.observability.getAuditLog(alert.relatedAuditLogId);
       setSelectedAudit(row);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load alert details');
+      if (err?.status === 404) {
+        setSelectedAudit(null);
+      } else {
+        toast.error(err.message || 'Failed to load alert details');
+      }
     } finally {
       setDetailsLoading(false);
     }

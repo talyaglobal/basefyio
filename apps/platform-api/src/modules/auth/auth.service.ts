@@ -1510,60 +1510,69 @@ export class AuthService {
     return { avatarUrl };
   }
 
-  async listManagementUsers() {
-    const users = await this.prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        createdAt: true,
-        _count: {
-          select: { teamMembers: true },
+  async listManagementUsersPage(opts: { page: number; pageSize: number; q?: string }) {
+    const page = Math.max(1, Math.floor(opts.page));
+    const pageSize = Math.min(100, Math.max(1, Math.floor(opts.pageSize)));
+    const skip = (page - 1) * pageSize;
+    const rawQ = opts.q?.trim();
+    const where =
+      rawQ && rawQ.length > 0
+        ? {
+            OR: [
+              { email: { contains: rawQ, mode: 'insensitive' as const } },
+              { firstName: { contains: rawQ, mode: 'insensitive' as const } },
+              { lastName: { contains: rawQ, mode: 'insensitive' as const } },
+            ],
+          }
+        : {};
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          createdAt: true,
+          _count: {
+            select: { teamMembers: true },
+          },
         },
-      },
-    });
-    const enabledMap = new Map<string, boolean>();
-    const signInMap = new Map<
-      string,
-      {
-        authProvider: 'local' | 'google' | 'github';
-        signOnMethod: 'local' | 'google' | 'github';
-        linkedProviders: Array<'google' | 'github'>;
-        hasPasswordAuth: boolean;
-      }
-    >();
-    await Promise.all(
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const enriched = await Promise.all(
       users.map(async (u) => {
         try {
-          const enabled = await this.keycloak.getPlatformUserEnabledById(u.id);
-          enabledMap.set(u.id, enabled);
+          const snap = await this.keycloak.getPlatformUserManagementSnapshotById(u.id, u.email);
+          return {
+            ...u,
+            isActive: snap.isActive,
+            authProvider: snap.authProvider,
+            signOnMethod: snap.signOnMethod,
+            linkedProviders: snap.linkedProviders,
+            hasPasswordAuth: snap.hasPasswordAuth,
+          };
         } catch {
-          enabledMap.set(u.id, true);
-        }
-        try {
-          const methods = await this.keycloak.getPlatformUserSignInMethodsById(u.id, u.email);
-          signInMap.set(u.id, methods);
-        } catch {
-          signInMap.set(u.id, {
-            authProvider: 'local',
-            signOnMethod: 'local',
-            linkedProviders: [],
+          return {
+            ...u,
+            isActive: true,
+            authProvider: 'local' as const,
+            signOnMethod: 'local' as const,
+            linkedProviders: [] as Array<'google' | 'github'>,
             hasPasswordAuth: true,
-          });
+          };
         }
       }),
     );
-    return users.map((u) => ({
-      ...u,
-      isActive: enabledMap.get(u.id) ?? true,
-      authProvider: signInMap.get(u.id)?.authProvider ?? 'local',
-      signOnMethod: signInMap.get(u.id)?.signOnMethod ?? 'local',
-      linkedProviders: signInMap.get(u.id)?.linkedProviders ?? [],
-      hasPasswordAuth: signInMap.get(u.id)?.hasPasswordAuth ?? true,
-    }));
+
+    return { users: enriched, total };
   }
 
   async updateUserRoleByRoot(currentUserId: string, targetUserId: string, role: string) {

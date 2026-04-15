@@ -1,4 +1,12 @@
-import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Query,
+  UseGuards,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
 import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
@@ -24,7 +32,22 @@ export class ObservabilityController {
   @Get('audit-logs')
   @RequireManagementPermission('canViewAuditLogs')
   async listAuditLogs(@Query('limit') limit?: string) {
-    return this.observability.listAuditLogs(limit ? Number(limit) : 200);
+    if (limit == null || limit.trim() === '') {
+      return this.observability.listAuditLogs(undefined);
+    }
+    const n = Number(limit);
+    if (!Number.isFinite(n) || n <= 0) {
+      return this.observability.listAuditLogs(undefined);
+    }
+    return this.observability.listAuditLogs(Math.floor(n));
+  }
+
+  @Get('audit-logs/:id')
+  @RequireManagementPermission('canViewAuditLogs')
+  async getAuditLog(@Param('id') id: string) {
+    const row = await this.observability.getAuditLogById(id);
+    if (!row) throw new NotFoundException('Audit log not found');
+    return row;
   }
 }
 

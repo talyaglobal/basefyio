@@ -405,7 +405,14 @@ export class BillingController {
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManageUserPackages')
   @Get('management/user-packages')
-  async managementUserPackages() {
+  async managementUserPackages(@Query('userIds') userIds?: string) {
+    if (userIds?.trim()) {
+      const ids = userIds
+        .split(',')
+        .map((s) => s.trim())
+        .filter((id) => id.length > 0);
+      return this.billing.listManagementUserPackagesForUserIds(ids);
+    }
     return this.billing.listManagementUserPackages();
   }
 

@@ -1740,6 +1740,32 @@ export class BillingService implements OnModuleInit {
     return created;
   }
 
+  private mapUsersToManagementPackages(
+    users: Array<{
+      id: string;
+      email: string;
+      personalTeam: {
+        id: string;
+        name: string;
+        subscription: {
+          status: string;
+          plan: { name: string; displayName: string; priceMonthly: number };
+        } | null;
+      } | null;
+    }>,
+  ) {
+    return users.map((u) => ({
+      userId: u.id,
+      email: u.email,
+      teamId: u.personalTeam?.id ?? null,
+      teamName: u.personalTeam?.name ?? null,
+      planName: u.personalTeam?.subscription?.plan?.name ?? null,
+      planDisplayName: u.personalTeam?.subscription?.plan?.displayName ?? null,
+      planPriceMonthly: u.personalTeam?.subscription?.plan?.priceMonthly ?? null,
+      subscriptionStatus: u.personalTeam?.subscription?.status ?? null,
+    }));
+  }
+
   async listManagementUserPackages() {
     const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -1763,16 +1789,39 @@ export class BillingService implements OnModuleInit {
       },
     });
 
-    return users.map((u) => ({
-      userId: u.id,
-      email: u.email,
-      teamId: u.personalTeam?.id ?? null,
-      teamName: u.personalTeam?.name ?? null,
-      planName: u.personalTeam?.subscription?.plan?.name ?? null,
-      planDisplayName: u.personalTeam?.subscription?.plan?.displayName ?? null,
-      planPriceMonthly: u.personalTeam?.subscription?.plan?.priceMonthly ?? null,
-      subscriptionStatus: u.personalTeam?.subscription?.status ?? null,
-    }));
+    return this.mapUsersToManagementPackages(users);
+  }
+
+  async listManagementUserPackagesForUserIds(userIds: string[]) {
+    const unique = [...new Set(userIds.filter((id) => typeof id === 'string' && id.length > 0))].slice(
+      0,
+      100,
+    );
+    if (unique.length === 0) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique } },
+      select: {
+        id: true,
+        email: true,
+        personalTeam: {
+          select: {
+            id: true,
+            name: true,
+            subscription: {
+              select: {
+                status: true,
+                plan: {
+                  select: { name: true, displayName: true, priceMonthly: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return this.mapUsersToManagementPackages(users);
   }
 
   async updateManagementUserPackage(userId: string, planName: string) {

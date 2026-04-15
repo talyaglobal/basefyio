@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -116,7 +116,11 @@ function planToDraft(p: ManagementPlan): PlanDraft {
 export default function ManagementPage() {
   const router = useRouter();
   const { profile } = useDashboard();
+  const plansHydratedRef = useRef(false);
   const [users, setUsers] = useState<ManagementUser[]>([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersSearchInput, setUsersSearchInput] = useState('');
+  const [usersSearchQ, setUsersSearchQ] = useState('');
   const [teams, setTeams] = useState<ManagementTeam[]>([]);
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
@@ -149,7 +153,6 @@ export default function ManagementPage() {
   const [auditDateTo, setAuditDateTo] = useState('');
   const [auditSeverityFilter, setAuditSeverityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('ALL');
   const [auditResultFilter, setAuditResultFilter] = useState<'ALL' | 'SUCCESS' | 'FAILED'>('ALL');
-  const [auditPage, setAuditPage] = useState(1);
   const [auditActionPreview, setAuditActionPreview] = useState<{
     log: AuditLogEntry;
   } | null>(null);
@@ -174,7 +177,6 @@ export default function ManagementPage() {
 
   const isRoot = profile?.role === 'ROOT';
   const canAccessManagement = isRoot || !!managementPermissions?.canAccessManagement;
-  const AUDIT_PAGE_SIZE = 20;
   const USERS_PAGE_SIZE = 20;
 
   const filteredAuditLogs = useMemo(() => {
@@ -214,17 +216,7 @@ export default function ManagementPage() {
     });
   }, [auditLogs, auditSearch, auditDateFrom, auditDateTo, auditSeverityFilter, auditResultFilter]);
 
-  const auditTotalPages = Math.max(1, Math.ceil(filteredAuditLogs.length / AUDIT_PAGE_SIZE));
-  const pagedAuditLogs = useMemo(() => {
-    const start = (auditPage - 1) * AUDIT_PAGE_SIZE;
-    return filteredAuditLogs.slice(start, start + AUDIT_PAGE_SIZE);
-  }, [filteredAuditLogs, auditPage]);
-
-  const usersTotalPages = Math.max(1, Math.ceil(users.length / USERS_PAGE_SIZE));
-  const pagedUsers = useMemo(() => {
-    const start = (usersPage - 1) * USERS_PAGE_SIZE;
-    return users.slice(start, start + USERS_PAGE_SIZE);
-  }, [users, usersPage]);
+  const usersTotalPages = Math.max(1, Math.ceil(usersTotal / USERS_PAGE_SIZE));
 
   const userById = useMemo(() => {
     return new Map(users.map((u) => [u.id, u] as const));
@@ -268,7 +260,6 @@ export default function ManagementPage() {
 
   async function loadTabData(
     tab:
-      | 'users'
       | 'plans'
       | 'teams'
       | 'rootAlerts'
@@ -283,26 +274,7 @@ export default function ManagementPage() {
     if (!force && loadedTabs.has(tab)) return;
     setTabLoading(true);
     try {
-      if (tab === 'users' && (managementPermissions?.canManageUsers || isRoot)) {
-        const [usersData, plansData, packagesData] = await Promise.all([
-          api.auth.managementUsers(),
-          managementPermissions?.canManagePlans || isRoot
-            ? api.billing.managementPlans()
-            : Promise.resolve([]),
-          managementPermissions?.canManageUserPackages || isRoot
-            ? api.billing.managementUserPackages()
-            : Promise.resolve([]),
-        ]);
-        setUsers(usersData);
-        setPlans(plansData);
-        setPlanDrafts(
-          plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
-            acc[p.id] = planToDraft(p);
-            return acc;
-          }, {}),
-        );
-        setUserPackages(packagesData);
-      } else if (tab === 'plans' && (managementPermissions?.canManagePlans || isRoot)) {
+      if (tab === 'plans' && (managementPermissions?.canManagePlans || isRoot)) {
         const plansData = await api.billing.managementPlans();
         setPlans(plansData);
         setPlanDrafts(
@@ -315,7 +287,7 @@ export default function ManagementPage() {
         const teamsData = await api.auth.managementTeams();
         setTeams(teamsData);
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
-        const auditData = await api.observability.listAuditLogs(200);
+        const auditData = await api.observability.listAuditLogs();
         setAuditLogs(auditData);
       } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
         // Root alerts tab uses its own component-level fetch.
@@ -339,6 +311,81 @@ export default function ManagementPage() {
       setTabLoading(false);
     }
   }
+
+  const loadUsersTab = useCallback(
+    async (force = false) => {
+      if (!managementPermissions?.canManageUsers && !isRoot) return;
+      if (force) plansHydratedRef.current = false;
+      setTabLoading(true);
+      try {
+        const res = await api.auth.managementUsers({
+          page: usersPage,
+          pageSize: USERS_PAGE_SIZE,
+          q: usersSearchQ || undefined,
+        });
+        setUsers(res.users);
+        setUsersTotal(res.total);
+
+        const pageUserIds = res.users.map((u) => u.id);
+        const shouldFetchPlans =
+          (managementPermissions?.canManagePlans || isRoot) &&
+          (force || !plansHydratedRef.current);
+
+        const [plansData, packagesData] = await Promise.all([
+          shouldFetchPlans ? api.billing.managementPlans() : Promise.resolve(null),
+          managementPermissions?.canManageUserPackages || isRoot
+            ? pageUserIds.length > 0
+              ? api.billing.managementUserPackagesForUsers(pageUserIds)
+              : Promise.resolve<ManagementUserPackage[]>([])
+            : Promise.resolve<ManagementUserPackage[]>([]),
+        ]);
+
+        if (plansData) {
+          plansHydratedRef.current = true;
+          setPlans(plansData);
+          setPlanDrafts(
+            plansData.reduce<Record<string, PlanDraft>>((acc, p) => {
+              acc[p.id] = planToDraft(p);
+              return acc;
+            }, {}),
+          );
+        }
+
+        if (managementPermissions?.canManageUserPackages || isRoot) {
+          setUserPackages((prev) => {
+            const byId = new Map(prev.map((x) => [x.userId, x]));
+            for (const p of packagesData) {
+              byId.set(p.userId, p);
+            }
+            return Array.from(byId.values());
+          });
+        }
+
+        setLoadedTabs((prev) => new Set(prev).add('users'));
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load management data');
+      } finally {
+        setTabLoading(false);
+      }
+    },
+    [
+      usersPage,
+      usersSearchQ,
+      managementPermissions?.canManageUsers,
+      managementPermissions?.canManagePlans,
+      managementPermissions?.canManageUserPackages,
+      isRoot,
+    ],
+  );
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setUsersSearchQ(usersSearchInput.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [usersSearchInput]);
+
+  useEffect(() => {
+    setUsersPage(1);
+  }, [usersSearchQ]);
 
   function generatePassword() {
     const chars =
@@ -375,23 +422,20 @@ export default function ManagementPage() {
   useEffect(() => {
     if (profile === null) return;
     setLoadedTabs(new Set());
+    plansHydratedRef.current = false;
     loadPermissions();
   }, [profile, router]);
 
   useEffect(() => {
     if (!managementPermissions && !isRoot) return;
-    void loadTabData(activeTab);
-  }, [activeTab, managementPermissions, isRoot]);
-
-  useEffect(() => {
-    setAuditPage(1);
-  }, [auditSearch, auditDateFrom, auditDateTo, auditSeverityFilter, auditResultFilter]);
-
-  useEffect(() => {
-    if (auditPage > auditTotalPages) {
-      setAuditPage(auditTotalPages);
+    if (activeTab === 'users') {
+      if (managementPermissions?.canManageUsers || isRoot) {
+        void loadUsersTab();
+      }
+      return;
     }
-  }, [auditPage, auditTotalPages]);
+    void loadTabData(activeTab);
+  }, [activeTab, managementPermissions, isRoot, usersPage, usersSearchQ, loadUsersTab]);
 
   useEffect(() => {
     if (usersPage > usersTotalPages) setUsersPage(usersTotalPages);
@@ -497,7 +541,12 @@ export default function ManagementPage() {
           onClick={async () => {
             await loadPermissions();
             setLoadedTabs(new Set());
-            await loadTabData(activeTab, true);
+            plansHydratedRef.current = false;
+            if (activeTab === 'users' && (managementPermissions?.canManageUsers || isRoot)) {
+              await loadUsersTab(true);
+            } else if (activeTab !== 'users') {
+              await loadTabData(activeTab, true);
+            }
           }}
         >
           Refresh
@@ -1016,27 +1065,42 @@ export default function ManagementPage() {
 
       {activeTab === 'users' && (managementPermissions?.canManageUsers || isRoot) && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
-        <h2 className="text-base font-semibold">Users</h2>
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={usersPage <= 1}
-            onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
-          >
-            Prev
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Page {usersPage} / {usersTotalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={usersPage >= usersTotalPages}
-            onClick={() => setUsersPage((p) => Math.min(usersTotalPages, p + 1))}
-          >
-            Next
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-base font-semibold">Users</h2>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={usersSearchInput}
+                onChange={(e) => setUsersSearchInput(e.target.value)}
+                placeholder="Search by email or name…"
+                className="h-9 pl-8"
+                aria-label="Search users"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={usersPage <= 1 || tabLoading}
+                onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                Page {usersPage} / {usersTotalPages}
+                {usersTotal > 0 ? ` · ${usersTotal} total` : ''}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={usersPage >= usersTotalPages || tabLoading}
+                onClick={() => setUsersPage((p) => Math.min(usersTotalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
@@ -1054,7 +1118,7 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedUsers.map((u) => (
+              {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-2 py-2 font-medium">
                     {u.firstName || u.lastName
@@ -1520,7 +1584,9 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Audit Logs</h2>
           <p className="text-xs text-muted-foreground">
-            Showing {pagedAuditLogs.length} / {filteredAuditLogs.length} records
+            {filteredAuditLogs.length === auditLogs.length
+              ? `${auditLogs.length} records (all loaded)`
+              : `${filteredAuditLogs.length} shown · ${auditLogs.length} loaded`}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1585,29 +1651,8 @@ export default function ManagementPage() {
               Clear Filters
             </Button>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={auditPage <= 1}
-              onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
-            >
-              Prev
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Page {auditPage} / {auditTotalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={auditPage >= auditTotalPages}
-              onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
-            >
-              Next
-            </Button>
-          </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-y-auto overflow-x-auto rounded-md border">
           <table className="w-full min-w-[1220px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
@@ -1628,7 +1673,7 @@ export default function ManagementPage() {
                   </td>
                 </tr>
               ) : (
-                pagedAuditLogs.map((log) => (
+                filteredAuditLogs.map((log) => (
                   <tr key={log.id} className="border-b last:border-0">
                     <td className="px-2 py-2 text-muted-foreground">
                       {new Date(log.createdAt).toLocaleString()}

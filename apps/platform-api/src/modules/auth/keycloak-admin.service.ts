@@ -750,19 +750,17 @@ export class KeycloakAdminService implements OnModuleInit {
     return methods.authProvider;
   }
 
-  async getPlatformUserSignInMethodsById(
-    userId: string,
-    email?: string,
+  /** One Keycloak user fetch + federated + credentials (used by management list + sign-in helpers). */
+  private async buildPlatformSignInMethodsFromUser(
+    resolvedId: string,
+    user: Record<string, unknown> | null,
+    adminToken: string,
   ): Promise<{
     authProvider: 'local' | 'google' | 'github';
     signOnMethod: 'local' | 'google' | 'github';
     linkedProviders: Array<'google' | 'github'>;
     hasPasswordAuth: boolean;
   }> {
-    await this.ensureAuth();
-    const resolvedId = await this.resolvePlatformUserId(userId, email);
-    const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
-    const adminToken = await this.getAdminAccessToken();
     const baseUrl = this.config.get<string>('keycloak.url');
     const headers = { Authorization: `Bearer ${adminToken}` };
     const { data: federatedData } = await axios.get(
@@ -789,9 +787,8 @@ export class KeycloakAdminService implements OnModuleInit {
       hasPasswordAuth = true;
     }
 
-    const override = String(
-      user?.attributes?.kb_auth_provider_override?.[0] || '',
-    ).toLowerCase();
+    const attrs = user?.attributes as Record<string, string[]> | undefined;
+    const override = String(attrs?.kb_auth_provider_override?.[0] || '').toLowerCase();
     if (override === 'google' || override === 'github' || override === 'local') {
       return {
         authProvider: override,
@@ -827,6 +824,50 @@ export class KeycloakAdminService implements OnModuleInit {
       linkedProviders,
       hasPasswordAuth,
     };
+  }
+
+  async getPlatformUserSignInMethodsById(
+    userId: string,
+    email?: string,
+  ): Promise<{
+    authProvider: 'local' | 'google' | 'github';
+    signOnMethod: 'local' | 'google' | 'github';
+    linkedProviders: Array<'google' | 'github'>;
+    hasPasswordAuth: boolean;
+  }> {
+    await this.ensureAuth();
+    const adminToken = await this.getAdminAccessToken();
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
+    return this.buildPlatformSignInMethodsFromUser(
+      resolvedId,
+      user as Record<string, unknown> | null,
+      adminToken,
+    );
+  }
+
+  /** Single Keycloak round-trip for enabled + sign-in fields (management user rows). */
+  async getPlatformUserManagementSnapshotById(
+    userId: string,
+    email?: string,
+  ): Promise<{
+    isActive: boolean;
+    authProvider: 'local' | 'google' | 'github';
+    signOnMethod: 'local' | 'google' | 'github';
+    linkedProviders: Array<'google' | 'github'>;
+    hasPasswordAuth: boolean;
+  }> {
+    await this.ensureAuth();
+    const adminToken = await this.getAdminAccessToken();
+    const resolvedId = await this.resolvePlatformUserId(userId, email);
+    const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
+    const isActive = (user as { enabled?: boolean } | undefined)?.enabled !== false;
+    const methods = await this.buildPlatformSignInMethodsFromUser(
+      resolvedId,
+      user as Record<string, unknown> | null,
+      adminToken,
+    );
+    return { isActive, ...methods };
   }
 
   async setPlatformUserAuthProviderOverrideById(

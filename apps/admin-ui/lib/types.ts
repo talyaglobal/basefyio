@@ -140,6 +140,8 @@ export interface ProjectListItem {
   projectSizeBytes?: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Set when status is DELETED; used for 24h trash retention. */
+  deletedAt?: string | null;
 }
 
 export interface Team {
@@ -232,6 +234,11 @@ export interface ManagementUser {
   hasPasswordAuth?: boolean;
   createdAt: string;
   _count: { teamMembers: number };
+}
+
+export interface ManagementUsersPageResponse {
+  users: ManagementUser[];
+  total: number;
 }
 
 export interface RolePermissionMatrix {

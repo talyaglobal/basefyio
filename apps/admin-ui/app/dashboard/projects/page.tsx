@@ -52,6 +52,7 @@ import {
   FolderOpen,
   FolderPlus,
   GripVertical,
+  Info,
   Pencil,
   Plus,
   RefreshCw,
@@ -105,6 +106,8 @@ const SORT_OPTIONS = [
   { value: 'oldest',    label: 'Oldest' },
   { value: 'name-asc',  label: 'Name (A-Z)' },
   { value: 'name-desc', label: 'Name (Z-A)' },
+  { value: 'size-desc', label: 'DB Size Largest' },
+  { value: 'size-asc',  label: 'DB Size Smallest' },
 ] as const;
 type SortValue = typeof SORT_OPTIONS[number]['value'];
 
@@ -146,6 +149,12 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/** Bytes for sorting; missing or invalid sizes sort last in both directions. */
+function projectSizeSortKey(bytes?: number | null): number {
+  if (bytes == null || bytes < 0) return -1;
+  return bytes;
 }
 
 function formatSize(bytes?: number | null) {
@@ -205,7 +214,10 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery]       = useState(savedState?.searchQuery ?? '');
   const [statusFilter, setStatusFilter]     = useState<string | null>(urlStatus ?? savedState?.statusFilter ?? null);
   const [thisMonthOnly, setThisMonthOnly]   = useState(urlFilter === 'this-month' ? true : (savedState?.thisMonthOnly ?? false));
-  const [sortBy, setSortBy]                 = useState<SortValue>(savedState?.sortBy ?? 'newest');
+  const [sortBy, setSortBy]                 = useState<SortValue>(() => {
+    const raw = savedState?.sortBy ?? 'newest';
+    return SORT_OPTIONS.some((o) => o.value === raw) ? raw : 'newest';
+  });
   const [sortOpen, setSortOpen]             = useState(false);
   const [viewMode, setViewMode]             = useState<ProjectsViewMode>(() => {
     if (typeof window === 'undefined') return 'grid';
@@ -379,6 +391,16 @@ export default function ProjectsPage() {
       if (sortBy === 'name-asc')  return a.name.localeCompare(b.name);
       if (sortBy === 'name-desc') return b.name.localeCompare(a.name);
       if (sortBy === 'oldest')    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (sortBy === 'size-desc' || sortBy === 'size-asc') {
+        const sa = projectSizeSortKey(a.projectSizeBytes);
+        const sb = projectSizeSortKey(b.projectSizeBytes);
+        if (sa < 0 && sb < 0) return a.name.localeCompare(b.name);
+        if (sa < 0) return 1;
+        if (sb < 0) return -1;
+        const bySize = sortBy === 'size-desc' ? sb - sa : sa - sb;
+        if (bySize !== 0) return bySize;
+        return a.name.localeCompare(b.name);
+      }
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
@@ -1107,8 +1129,27 @@ export default function ProjectsPage() {
                     <ArrowLeft className="h-4 w-4" />
                   </button>
                   <Trash2 className="h-5 w-5 text-destructive" />
-                  <h2 className="text-lg font-semibold">Deleted Projects</h2>
-                  <span className="text-sm text-muted-foreground">({deletedProjects.length})</span>
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold">Deleted Projects</h2>
+                    <span
+                      className="group relative inline-flex shrink-0 cursor-help items-center"
+                      tabIndex={0}
+                      aria-label="Trash retention policy"
+                    >
+                      <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      <span
+                        role="tooltip"
+                        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem)))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
+                      >
+                        Projects stay in trash for <span className="font-medium">24 hours</span> from
+                        deletion. After that they are <span className="font-medium">permanently removed</span>{' '}
+                        (database, auth realm, and record). Purge runs every hour and also when you open
+                        this view. Use <span className="font-medium">Restore</span> or{' '}
+                        <span className="font-medium">Delete forever</span> anytime before then.
+                      </span>
+                    </span>
+                    <span className="text-sm text-muted-foreground">({deletedProjects.length})</span>
+                  </div>
                 </div>
 
                 {loadingTrash ? (
@@ -1144,18 +1185,21 @@ export default function ProjectsPage() {
                         </div>
                         <p className="text-[10px] text-muted-foreground/50 mb-3">
                           {(() => {
-                            if (!project.updatedAt) return 'Deleted';
-                            const d = new Date(project.updatedAt);
-                            const deletedAt = d.getTime();
+                            const raw = project.deletedAt ?? project.updatedAt;
+                            if (!raw) return 'Deleted';
+                            const d = new Date(raw);
+                            const deletedMs = d.getTime();
                             const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
                             const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const expiresAt = deletedAt + 24 * 60 * 60 * 1000;
+                            const expiresAt = deletedMs + 24 * 60 * 60 * 1000;
                             const remaining = expiresAt - Date.now();
-                            if (remaining <= 0) return `Deleted ${dateStr} ${timeStr} · Expires soon`;
+                            if (remaining <= 0) {
+                              return `Deleted ${dateStr} ${timeStr} · Retention ended — auto-removal within 1 hour (or refresh)`;
+                            }
                             const hours = Math.floor(remaining / 3600000);
                             const mins = Math.floor((remaining % 3600000) / 60000);
-                            const rem = hours > 0 ? `${hours}h ${mins}m remaining` : `${mins}m remaining`;
-                            return `Deleted ${dateStr} ${timeStr} · ${rem}`;
+                            const rem = hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`;
+                            return `Deleted ${dateStr} ${timeStr} · ${rem} until purge`;
                           })()}
                         </p>
                         <div className="flex items-center gap-2">

@@ -160,8 +160,18 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManageUsers')
   @Get('management/users')
-  async managementUsers() {
-    return this.authService.listManagementUsers();
+  async managementUsers(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+  ) {
+    const p = page != null && page.trim() !== '' ? Number(page) : 1;
+    const ps = pageSize != null && pageSize.trim() !== '' ? Number(pageSize) : 20;
+    return this.authService.listManagementUsersPage({
+      page: Number.isFinite(p) && p > 0 ? p : 1,
+      pageSize: Number.isFinite(ps) && ps > 0 ? ps : 20,
+      q: q?.trim() || undefined,
+    });
   }
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)

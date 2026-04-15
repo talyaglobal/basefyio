@@ -38,6 +38,7 @@ import type {
   UserInfo,
   ManagementTeam,
   ManagementUser,
+  ManagementUsersPageResponse,
   ManagementPlan,
   ManagementUserPackage,
   ManagementSearchConsoleSummary,
@@ -306,8 +307,21 @@ export const api = {
         body: JSON.stringify({ state, refreshToken }),
       });
     },
-    managementUsers() {
-      return request<ManagementUser[]>('/auth/management/users');
+    managementUsers(params?: { page?: number; pageSize?: number; q?: string }) {
+      const sp = new URLSearchParams();
+      if (params?.page != null && params.page > 0) {
+        sp.set('page', String(Math.floor(params.page)));
+      }
+      if (params?.pageSize != null && params.pageSize > 0) {
+        sp.set('pageSize', String(Math.floor(params.pageSize)));
+      }
+      if (params?.q?.trim()) {
+        sp.set('q', params.q.trim());
+      }
+      const qs = sp.toString();
+      return request<ManagementUsersPageResponse>(
+        `/auth/management/users${qs ? `?${qs}` : ''}`,
+      );
     },
     updateManagementUserRole(userId: string, role: 'USER' | 'ADMIN' | 'ROOT') {
       return request<{ id: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
@@ -1408,6 +1422,13 @@ export const api = {
     managementUserPackages() {
       return request<ManagementUserPackage[]>('/billing/management/user-packages');
     },
+    managementUserPackagesForUsers(userIds: string[]) {
+      if (!userIds.length) {
+        return Promise.resolve([] as ManagementUserPackage[]);
+      }
+      const qs = `?userIds=${userIds.map((id) => encodeURIComponent(id)).join(',')}`;
+      return request<ManagementUserPackage[]>(`/billing/management/user-packages${qs}`);
+    },
     updateManagementUserPackage(userId: string, planName: string) {
       return request<{
         userId: string;
@@ -1431,8 +1452,15 @@ export const api = {
         method: 'PATCH',
       });
     },
-    listAuditLogs(limit = 200) {
-      return request<AuditLogEntry[]>(`/observability/audit-logs?limit=${limit}`);
+    listAuditLogs(limit?: number) {
+      const qs =
+        limit != null && Number.isFinite(limit) && limit > 0
+          ? `?limit=${Math.floor(limit)}`
+          : '';
+      return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
+    },
+    getAuditLog(id: string) {
+      return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
     },
   },
 

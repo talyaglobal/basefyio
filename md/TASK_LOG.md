@@ -1,5 +1,25 @@
 # Task Log
 
+## 2026-04-15 (projects trash — 24h hard delete + Deleted Projects info)
+
+**Problem:** Soft-deleted projects used `updatedAt` for retention and ran cleanup **once per day at midnight**, so items could exceed 24h in trash; UI showed "Expires soon" while rows lingered.
+
+**Done:** Added `projects.deleted_at` (migration backfills from `updated_at` for existing `DELETED` rows). Soft delete sets `deletedAt`; restore clears it. Purge uses `deletedAt` (fallback `updatedAt` only when `deletedAt` is null). Cron **hourly**; `findDeleted` runs purge before listing so opening trash applies retention immediately. Admin: `Info` hover tooltip (English) explaining policy; card copy uses `deletedAt ?? updatedAt` and clearer overdue text.
+
+## 2026-04-15 (management — users tab performance + server pagination)
+
+**Problem:** Users tab called `listManagementUsers()` which ran **two Keycloak round-trips per user** (enabled + sign-in) for the entire table; UI only showed 20 rows via client slice — slow and misleading pagination.
+
+**Done:** `GET /auth/management/users?page=&pageSize=&q=` returns `{ users, total }` with Prisma `skip/take` and Keycloak enrichment only for that page. Keycloak: `getPlatformUserManagementSnapshotById` merges enabled + sign-in with a single user fetch. Billing: `GET /management/user-packages?userIds=…` loads packages only for visible user IDs (full list still works without query). Admin: debounced search, `Page X / Y · N total`, plans fetched once per session (refreshed on force refresh).
+
+## 2026-04-15 (management — audit logs: full history, no client paging)
+
+**Done:** `GET /observability/audit-logs` without `limit` returns up to 500k rows (was capped at 200 client + 500 API). Added `GET /observability/audit-logs/:id` for single-row fetch. Admin management Audit tab loads `listAuditLogs()` with no limit, removed Prev/Page/Next client pagination; scrollable table (`max-h-[70vh]`). `api.getAuditLog` + `root-alerts-panel` use it instead of scanning 500 rows.
+
+## 2026-04-15 (admin-ui — projects page sort by database size)
+
+**Done:** Dashboard `/dashboard/projects` sort dropdown: under Name (Z-A), added **DB Size Largest** and **DB Size Smallest** using `projectSizeBytes`; unknown sizes sort last, then name. Session `sortBy` validated against known options.
+
 ## 2026-04-15 (ROOT alert audit details — Before / After not N/A)
 
 **Done:** `AuditLogInterceptor` now writes structured `beforeJson` / `afterJson` for HTTP audits. `ObservabilityService.captureRootAction` defaults before/after JSON when callers omit them. `root-alerts-panel` replaces `N/A` with `(none)` for missing audit id and clearer empty JSON text.

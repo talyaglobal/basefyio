@@ -187,6 +187,8 @@ model Project {
   status        ProjectStatus @default(ACTIVE)
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
+  /// When the project was moved to trash; used for 24h retention (not `updatedAt`).
+  deletedAt     DateTime?     @map("deleted_at")
 
   // Folder
   folderId      String?  @map("folder_id")

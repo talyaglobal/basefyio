@@ -283,12 +283,26 @@ export class ObservabilityService {
     });
   }
 
-  async listAuditLogs(limit = 200) {
+  /** Upper bound for a single list response (safety). Omit `limit` to use this maximum. */
+  private static readonly AUDIT_LOG_LIST_MAX = 500_000;
+
+  async listAuditLogs(limit?: number) {
+    const take =
+      limit != null && Number.isFinite(limit) && limit > 0
+        ? Math.min(Math.floor(limit), ObservabilityService.AUDIT_LOG_LIST_MAX)
+        : ObservabilityService.AUDIT_LOG_LIST_MAX;
     const rows = await this.prisma.auditLog.findMany({
       orderBy: { createdAt: 'desc' },
-      take: Math.min(Math.max(limit, 1), 500),
+      take,
     });
     return this.attachUserLabelsToAuditLogs(rows);
+  }
+
+  async getAuditLogById(id: string) {
+    const row = await this.prisma.auditLog.findUnique({ where: { id } });
+    if (!row) return null;
+    const enriched = await this.attachUserLabelsToAuditLogs([row]);
+    return enriched[0] ?? null;
   }
 }
 

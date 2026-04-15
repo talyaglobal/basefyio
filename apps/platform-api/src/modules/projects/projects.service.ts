@@ -526,6 +526,7 @@ export class ProjectsService {
       where: { id },
       data: {
         status: 'DELETED',
+        deletedAt: new Date(),
         name: deletedName,
         slug: deletedSlug,
         dbName: archivedDbName,
@@ -654,9 +655,11 @@ export class ProjectsService {
       throw new ForbiddenException('Only the team owner can view deleted projects');
     }
 
+    await this.purgeDeletedProjectsPastRetention();
+
     return this.prisma.project.findMany({
       where: { teamId, status: 'DELETED' },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: [{ deletedAt: 'desc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
         name: true,
@@ -665,6 +668,7 @@ export class ProjectsService {
         status: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
       },
     });
   }
@@ -738,6 +742,7 @@ export class ProjectsService {
       where: { id },
       data: {
         status: 'ACTIVE',
+        deletedAt: null,
         name: originalName,
         slug: originalSlug,
         dbName: originalDbName,
@@ -819,23 +824,27 @@ export class ProjectsService {
     );
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async cleanupExpiredDeletedProjects() {
+  /** Permanently remove soft-deleted projects past the 24-hour retention window. */
+  private async purgeDeletedProjectsPastRetention(): Promise<number> {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const expired = await this.prisma.project.findMany({
       where: {
         status: 'DELETED',
-        updatedAt: { lt: cutoff },
+        OR: [
+          { deletedAt: { lt: cutoff } },
+          { AND: [{ deletedAt: null }, { updatedAt: { lt: cutoff } }] },
+        ],
       },
     });
 
     if (expired.length === 0) {
-      this.logger.log('Trash cleanup: no expired projects to remove');
-      return;
+      return 0;
     }
 
-    this.logger.log(`Trash cleanup: permanently deleting ${expired.length} project(s) older than 24h`);
+    this.logger.log(
+      `Trash cleanup: permanently deleting ${expired.length} project(s) past 24h retention`,
+    );
 
     for (const project of expired) {
       try {
@@ -859,6 +868,16 @@ export class ProjectsService {
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed after cleanup: ${err}`),
     );
+
+    return expired.length;
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredDeletedProjects() {
+    const n = await this.purgeDeletedProjectsPastRetention();
+    if (n > 0) {
+      this.logger.log(`Trash cleanup: removed ${n} expired project(s) past 24h retention`);
+    }
   }
 
   private async assertTeamMember(teamId: string, userId: string) {
