@@ -13,6 +13,7 @@ import {
 import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
+import { HomeMarketing } from "@/components/home-marketing";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
@@ -129,6 +130,18 @@ export default async function Home() {
               Pricing
             </Link>
             <Link
+              href="#why-kolaybase"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Why us
+            </Link>
+            <Link
+              href="#ai-assistant"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              AI
+            </Link>
+            <Link
               href="/docs"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
@@ -156,7 +169,7 @@ export default async function Home() {
           <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
             Backend in <span className="gradient-text">minutes</span>, not days
           </h1>
-          <p className="animate-fade-in mt-6 max-w-2xl text-balance text-lg text-muted-foreground [animation-delay:120ms] motion-reduce:animate-none">
+          <p className="animate-fade-in mx-auto mt-6 max-w-2xl text-balance text-center text-lg leading-relaxed text-muted-foreground [animation-delay:120ms] motion-reduce:animate-none">
             Database, authentication, and REST API. Launch your project with
             no-code backend.
           </p>
@@ -178,17 +191,17 @@ export default async function Home() {
         </div>
       </HomeHero>
 
-      <section className="relative px-6 py-24">
+      <section className="relative px-6 pb-20 pt-10 md:pb-24 md:pt-12">
         <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
         <div className="relative mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
             Everything in one platform
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground">
+          <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
             Visual table editor, SQL Editor, OAuth, email, and ready-to-use REST
             API. Simplify backend development and database management.
           </p>
-          <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
                 icon: Database,
@@ -236,6 +249,8 @@ export default async function Home() {
           </div>
         </div>
       </section>
+
+      <HomeMarketing />
 
       <section
         id="pricing"
@@ -334,6 +349,22 @@ export default async function Home() {
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Pricing
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="#why-kolaybase"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Why Kolaybase
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="#ai-assistant"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  AI assistant
                 </Link>
               </li>
               <li>
