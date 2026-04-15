@@ -8,9 +8,10 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 const siteUrl = getSiteUrl();
-const defaultTitle = "Kolaybase | Backend as a Service";
+const defaultTitle =
+  "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
 const defaultDescription =
-  "Set up database, authentication, and REST API in minutes. No-code backend platform.";
+  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -24,11 +25,17 @@ export const metadata: Metadata = {
     "Kolaybase",
     "backend as a service",
     "BaaS",
-    "PostgreSQL",
+    "developer backend",
+    "PostgreSQL API",
     "REST API",
-    "authentication",
+    "JavaScript SDK",
+    "TypeScript SDK",
+    "authentication API",
+    "Supabase alternative",
     "Supabase-compatible",
+    "hosted PostgreSQL",
     "no-code backend",
+    "CLI database",
   ],
   authors: [{ name: "Kolaybase" }],
   creator: "Kolaybase",
@@ -52,6 +59,13 @@ export const metadata: Metadata = {
       follow: true,
     },
   },
+  ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+    ? {
+        verification: {
+          google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+        },
+      }
+    : {}),
 };
 
 export default function RootLayout({

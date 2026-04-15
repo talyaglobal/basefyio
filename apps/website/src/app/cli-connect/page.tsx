@@ -6,8 +6,8 @@ import { Terminal, CheckCircle, XCircle } from 'lucide-react';
 
 function CliConnectContent() {
   const params = useSearchParams();
-  const token = params.get('token');
-  const portStr = params.get('port');
+  const token = params?.get("token") ?? null;
+  const portStr = params?.get("port") ?? null;
   const port = portStr ? parseInt(portStr, 10) : NaN;
 
   // Validate params — both are required and port must be a valid loopback port

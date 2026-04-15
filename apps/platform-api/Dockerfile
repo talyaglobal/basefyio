@@ -9,7 +9,6 @@ RUN npm ci || npm install
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx prisma generate
 RUN npm run build
 
 FROM base AS runner

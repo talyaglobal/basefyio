@@ -18,9 +18,10 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   openGraph: {
     url: "/",
-    title: "Kolaybase | Backend as a Service",
+    title:
+      "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform",
     description:
-      "Set up database, authentication, and REST API in minutes. No-code backend platform.",
+      "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.",
   },
 };
 

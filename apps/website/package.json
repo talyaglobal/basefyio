@@ -18,6 +18,7 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "autoprefixer": "^10.4.20",
     "@types/three": "^0.170.0",
     "@types/node": "^20",
     "@types/react": "^18",
