@@ -201,7 +201,6 @@ export class ProjectsService {
             where: { id: { in: creatorIds } },
             select: {
               id: true,
-              username: true,
               firstName: true,
               lastName: true,
               email: true,
@@ -214,7 +213,7 @@ export class ProjectsService {
           .filter(Boolean)
           .join(' ')
           .trim();
-        const displayName = fullName || creator.username || creator.email;
+        const displayName = fullName || creator.email;
         return [creator.id, displayName] as const;
       }),
     );
@@ -585,7 +584,6 @@ export class ProjectsService {
             where: { id: { in: actorIds } },
             select: {
               id: true,
-              username: true,
               firstName: true,
               lastName: true,
               email: true,
@@ -623,7 +621,6 @@ export class ProjectsService {
           if (!actorUser) return null;
           return (
             [actorUser.firstName, actorUser.lastName].filter(Boolean).join(' ').trim() ||
-            actorUser.username ||
             actorUser.email ||
             null
           );

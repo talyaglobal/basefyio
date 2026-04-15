@@ -19,7 +19,6 @@ export interface FeedbackAttachmentRef {
 
 interface CreateFeedbackDto {
   userId: string;
-  username: string;
   email: string;
   url: string;
   title: string;
@@ -68,7 +67,6 @@ export class FeedbackService {
   private async appendEvent(params: {
     feedbackId: string;
     userId: string;
-    username: string;
     action: string;
     detail?: string;
     metadata?: Prisma.InputJsonValue;
@@ -77,7 +75,6 @@ export class FeedbackService {
       data: {
         feedbackId: params.feedbackId,
         userId: params.userId,
-        username: params.username,
         action: params.action,
         detail: params.detail,
         metadata: params.metadata,
@@ -94,7 +91,6 @@ export class FeedbackService {
     const feedback = await this.prisma.feedback.create({
       data: {
         userId: dto.userId,
-        username: dto.username,
         email: dto.email,
         url: dto.url,
         title: dto.title,
@@ -106,16 +102,15 @@ export class FeedbackService {
     await this.appendEvent({
       feedbackId: feedback.id,
       userId: dto.userId,
-      username: dto.username,
       action: 'FEEDBACK_CREATED',
       detail: dto.title,
     });
 
-    this.logger.log(`Feedback created: "${dto.title}" by ${dto.username} (${feedback.id})`);
+    this.logger.log(`Feedback created: "${dto.title}" by ${dto.email} (${feedback.id})`);
 
     for (const to of NOTIFY_EMAILS) {
       this.emailService.sendFeedbackNotification(to, {
-        username: dto.username,
+        displayName: dto.email.split('@')[0],
         email: dto.email,
         url: dto.url,
         title: dto.title,
@@ -138,7 +133,12 @@ export class FeedbackService {
     return this.prisma.feedback.findMany({
       where: includeDeleted ? {} : { deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      include: { comments: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          include: { user: { select: { email: true } } },
+        },
+      },
     });
   }
 
@@ -175,11 +175,16 @@ export class FeedbackService {
     return this.prisma.feedback.findMany({
       where: { userId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      include: { comments: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          include: { user: { select: { email: true } } },
+        },
+      },
     });
   }
 
-  async updateStatus(userId: string, username: string, id: string, status: FeedbackStatus) {
+  async updateStatus(userId: string, id: string, status: FeedbackStatus) {
     const { isRoot, feedback } = await this.assertCanAccessFeedback(userId, id);
     if (!isRoot) {
       const canMarkDone = status === FeedbackStatus.DONE;
@@ -199,7 +204,6 @@ export class FeedbackService {
     await this.appendEvent({
       feedbackId: id,
       userId,
-      username,
       action: 'STATUS_CHANGED',
       detail: `${feedback.status} -> ${status}`,
       metadata: { from: feedback.status, to: status } as unknown as Prisma.InputJsonValue,
@@ -220,7 +224,7 @@ export class FeedbackService {
     return updated;
   }
 
-  async updateFeedback(userId: string, username: string, id: string, dto: UpdateFeedbackDto) {
+  async updateFeedback(userId: string, id: string, dto: UpdateFeedbackDto) {
     const { feedback } = await this.assertCanAccessFeedback(userId, id);
     const updated = await this.prisma.feedback.update({
       where: { id },
@@ -232,7 +236,6 @@ export class FeedbackService {
     await this.appendEvent({
       feedbackId: id,
       userId,
-      username,
       action: 'FEEDBACK_EDITED',
       detail: 'Feedback content updated',
       metadata: {
@@ -254,7 +257,7 @@ export class FeedbackService {
     return updated;
   }
 
-  async removeFeedback(userId: string, username: string, id: string) {
+  async removeFeedback(userId: string, id: string) {
     const { feedback } = await this.assertCanAccessFeedback(userId, id);
     await this.prisma.feedback.update({
       where: { id },
@@ -266,7 +269,6 @@ export class FeedbackService {
     await this.appendEvent({
       feedbackId: id,
       userId,
-      username,
       action: 'FEEDBACK_DELETED',
       detail: 'Feedback deleted',
     });
@@ -289,12 +291,12 @@ export class FeedbackService {
     return this.prisma.feedbackComment.findMany({
       where: { feedbackId },
       orderBy: { createdAt: 'asc' },
+      include: { user: { select: { email: true } } },
     });
   }
 
   async addComment(
     userId: string,
-    username: string,
     feedbackId: string,
     dto: { comment: string; attachments?: FeedbackAttachmentRef[]; parentCommentId?: string },
   ) {
@@ -322,16 +324,15 @@ export class FeedbackService {
       data: {
         feedbackId,
         userId,
-        username,
         comment: dto.comment,
         attachments: attachmentsJson,
         parentCommentId: dto.parentCommentId || null,
       },
+      include: { user: { select: { email: true } } },
     });
     await this.appendEvent({
       feedbackId,
       userId,
-      username,
       action: dto.parentCommentId ? 'COMMENT_REPLIED' : 'COMMENT_ADDED',
       detail: dto.comment.slice(0, 120),
       metadata: dto.parentCommentId
@@ -359,6 +360,7 @@ export class FeedbackService {
     return this.prisma.feedbackEvent.findMany({
       where: { feedbackId },
       orderBy: { createdAt: 'desc' },
+      include: { user: { select: { email: true } } },
     });
   }
 }

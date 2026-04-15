@@ -4,11 +4,6 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  username?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
   firstName?: string;
 
   @IsOptional()

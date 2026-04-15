@@ -1067,7 +1067,7 @@ export default function BillingPage() {
               {/* Billing Breakdown */}
               <div className="rounded-lg border bg-card p-4 space-y-2 text-sm">
                 <h4 className="font-medium text-foreground">Billing Breakdown</h4>
-                {upgradePreview.lines.map((line, idx) => (
+                {upgradePreview.lines.filter((line) => !(line.proration && line.amount === 0)).map((line, idx) => (
                   <div key={idx} className="flex items-center justify-between py-1">
                     <span className={line.proration ? 'text-muted-foreground' : 'text-foreground'}>
                       {line.description}
@@ -1084,7 +1084,7 @@ export default function BillingPage() {
                 <p className="mt-1 text-3xl font-bold text-foreground">
                   {formatMoney(upgradePreview.dueNow, upgradePreview.currency)}
                 </p>
-                {(upgradePreview.prorationCredit ?? 0) > 0 && (
+                {!isFree && (upgradePreview.prorationCredit ?? 0) > 0 && (
                   <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
                     {formatMoney(upgradePreview.prorationCredit ?? 0, upgradePreview.currency)} credit applied from your current plan.
                   </p>

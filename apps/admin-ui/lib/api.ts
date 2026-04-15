@@ -162,9 +162,21 @@ async function request<T>(
 export const api = {
   auth: {
     signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
-      return request<AuthTokens & { selectedPlan?: string }>('/auth/signup', {
+      return request<{ message: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
+      });
+    },
+    verifySignupOtp(email: string, otp: string) {
+      return request<AuthTokens>('/auth/signup/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp }),
+      });
+    },
+    resendSignupOtp(email: string) {
+      return request<{ message: string }>('/auth/signup/resend-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
       });
     },
     login(email: string, password: string, captchaAnswer?: string) {
@@ -197,7 +209,6 @@ export const api = {
       return request<UserProfile>('/auth/profile');
     },
     updateProfile(data: {
-      username?: string;
       firstName?: string;
       lastName?: string;
       email?: string;
@@ -262,11 +273,20 @@ export const api = {
       const qs = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
       return request<{ url: string; provider: string }>(`/auth/oauth/${provider}${qs}`);
     },
+    getCliStatePort(state: string) {
+      return request<{ port: number }>(`/auth/cli-state?state=${encodeURIComponent(state)}`);
+    },
+    cliAuthorize(state: string, refreshToken: string) {
+      return request<{ exchangeCode: string; port: number }>('/auth/cli-authorize', {
+        method: 'POST',
+        body: JSON.stringify({ state, refreshToken }),
+      });
+    },
     managementUsers() {
       return request<ManagementUser[]>('/auth/management/users');
     },
     updateManagementUserRole(userId: string, role: 'USER' | 'ADMIN' | 'ROOT') {
-      return request<{ id: string; username: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
+      return request<{ id: string; email: string; role: 'USER' | 'ADMIN' | 'ROOT' }>(
         `/auth/management/users/${userId}/role`,
         {
           method: 'PATCH',
@@ -275,7 +295,7 @@ export const api = {
       );
     },
     updateManagementUserActive(userId: string, isActive: boolean) {
-      return request<{ id: string; email: string; username: string; isActive: boolean }>(
+      return request<{ id: string; email: string; isActive: boolean }>(
         `/auth/management/users/${userId}/active`,
         {
           method: 'PATCH',
@@ -287,7 +307,7 @@ export const api = {
       userId: string,
       method: 'local' | 'google' | 'github',
     ) {
-      return request<{ id: string; username: string; email: string; authProvider: 'local' | 'google' | 'github' }>(
+      return request<{ id: string; email: string; authProvider: 'local' | 'google' | 'github' }>(
         `/auth/management/users/${userId}/sign-in-method`,
         {
           method: 'PATCH',
@@ -1010,7 +1030,6 @@ export const api = {
       return request<{
         id: string;
         userId: string;
-        username: string;
         email: string;
         url: string;
         title: string;
@@ -1020,7 +1039,7 @@ export const api = {
           id: string;
           feedbackId: string;
           userId: string;
-          username: string;
+          user?: { email: string } | null;
           comment: string;
           attachments?: unknown;
           parentCommentId?: string | null;
@@ -1054,7 +1073,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         comment: string;
         attachments?: unknown;
         parentCommentId?: string | null;
@@ -1066,7 +1085,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         comment: string;
         attachments?: unknown;
         parentCommentId?: string | null;
@@ -1081,7 +1100,7 @@ export const api = {
         id: string;
         feedbackId: string;
         userId: string;
-        username: string;
+        user?: { email: string } | null;
         action: string;
         detail?: string | null;
         createdAt: string;
@@ -1192,8 +1211,9 @@ export const api = {
   },
 
   billing: {
-    plans() {
-      return request<any[]>('/billing/plans');
+    plans(): Promise<any[]> {
+      // Uses a dedicated cached route (5-min ISR) instead of the force-dynamic proxy
+      return fetch('/api/billing-plans').then((r) => (r.ok ? r.json() : []));
     },
     subscription(teamId: string) {
       return request<any>(`/billing/subscription?teamId=${teamId}`);

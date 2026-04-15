@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete, HttpCode, HttpStatus } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -9,6 +9,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifySignupOtpDto } from './dto/verify-signup-otp.dto';
+import { ResendSignupOtpDto } from './dto/resend-signup-otp.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
@@ -30,7 +32,17 @@ export class AuthController {
 
   @Post('signup')
   async signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+    return this.authService.initiateSignup(dto);
+  }
+
+  @Post('signup/verify-otp')
+  async verifySignupOtp(@Body() dto: VerifySignupOtpDto) {
+    return this.authService.verifySignupOtp(dto.email, dto.otp);
+  }
+
+  @Post('signup/resend-otp')
+  async resendSignupOtp(@Body() dto: ResendSignupOtpDto) {
+    return this.authService.resendSignupOtp(dto.email);
   }
 
   @Post('login')
@@ -81,7 +93,6 @@ export class AuthController {
     await this.authService.ensureUserProfile(
       user.sub,
       user.email,
-      user.preferred_username,
       {
         givenName: user.given_name,
         familyName: user.family_name,
@@ -406,6 +417,78 @@ export class AuthController {
     );
   }
 
+  /**
+   * CLI browser-based login — step 1.
+   * Stores state in Redis and redirects the browser to the admin-ui
+   * /cli-authorize page (branded login + grant screen, no raw Keycloak UI).
+   */
+  @Get('cli-login')
+  async cliLogin(
+    @Res() res: Response,
+    @Query('port') portStr: string,
+    @Query('nonce') nonce: string,
+  ) {
+    const port = parseInt(portStr, 10);
+    if (!nonce || isNaN(port)) {
+      return (res as any).status(400).json({ message: 'port and nonce are required' });
+    }
+    const authorizeUrl = await this.authService.startCliLogin(port, nonce);
+    return res.redirect(authorizeUrl);
+  }
+
+  /**
+   * CLI browser-based login — step 2a (info).
+   * Returns the loopback port for the given CLI state, so the frontend can
+   * build the deny redirect without consuming the state.
+   */
+  @Get('cli-state')
+  @UseGuards(JwtAuthGuard)
+  async getCliState(@Query('state') stateId: string) {
+    if (!stateId) throw new BadRequestException('state is required');
+    const port = await this.authService.getCliStatePort(stateId);
+    return { port };
+  }
+
+  /**
+   * CLI browser-based login — step 2b (grant).
+   * The user clicked Allow on /cli-authorize. Consumes the state, wraps the
+   * user's current tokens in a one-time exchange code, and returns it to the
+   * frontend so it can redirect the loopback server.
+   */
+  @Post('cli-authorize')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async cliAuthorize(
+    @Body('state') stateId: string,
+    @Body('refreshToken') refreshToken: string,
+    @Req() req: Request,
+  ) {
+    if (!stateId || !refreshToken) {
+      throw new BadRequestException('state and refreshToken are required');
+    }
+    // Extract the raw access token from the Authorization header
+    const accessToken = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    return this.authService.authorizeCliAccess(stateId, accessToken, refreshToken);
+  }
+
+  /**
+   * CLI browser-based login — step 3.
+   * Exchanges the one-time code (received at the loopback server) for real tokens.
+   * Returns 404 for any failure to avoid leaking state.
+   */
+  @Post('cli/exchange')
+  @HttpCode(HttpStatus.OK)
+  async cliExchange(
+    @Body('code') code: string,
+    @Body('nonce') nonce: string,
+  ) {
+    if (!code || !nonce) {
+      // Return 404, not 400, to avoid distinguishing error types
+      return this.authService.exchangeCliCode('', '');
+    }
+    return this.authService.exchangeCliCode(code, nonce);
+  }
+
   @Get('oauth/providers')
   getOAuthProviders() {
     return { providers: this.keycloak.getEnabledPlatformProviders() };
@@ -423,6 +506,15 @@ export class AuthController {
 
     if (error || !code) {
       const msg = errorDescription || error || 'OAuth authentication failed';
+
+      // If this was a CLI flow, redirect the error to the loopback so the CLI doesn't hang
+      if (state) {
+        const cliState = await this.authService.resolveCliState(state);
+        if (cliState) {
+          return res.redirect(`http://127.0.0.1:${cliState.port}/callback?error=${encodeURIComponent(msg)}`);
+        }
+      }
+
       const loginUrl = `${baseAppUrl}/login?error=${encodeURIComponent(msg)}`;
       return res.redirect(loginUrl);
     }
@@ -430,6 +522,12 @@ export class AuthController {
     try {
       const result = await this.authService.handleOAuthCallback(code, state);
 
+      // CLI flow: redirect browser to the loopback server with the exchange code
+      if ((result as any).cliRedirectUrl) {
+        return res.redirect((result as any).cliRedirectUrl);
+      }
+
+      // Standard web flow: embed tokens in the fragment so the frontend can read them
       const appUrl = result.redirectTo?.startsWith('http')
         ? result.redirectTo
         : `${baseAppUrl}${result.redirectTo || '/login'}`;

@@ -64,6 +64,18 @@ export class ApiClient {
     return data;
   }
 
+  /** Exchange the one-time CLI login code for real tokens. */
+  async cliExchange(code: string, nonce: string) {
+    const { data } = await this.client.post('/api/auth/cli/exchange', { code, nonce });
+    return data as { accessToken: string; refreshToken: string; idToken?: string; expiresIn: number; tokenType: string };
+  }
+
+  /** Fetch the current user's JWT payload to extract email after CLI login. */
+  async getMe() {
+    const { data } = await this.client.get('/api/auth/me');
+    return data as { email: string; sub: string; given_name?: string; family_name?: string };
+  }
+
   async signup(userData: {
     email: string;
     password: string;

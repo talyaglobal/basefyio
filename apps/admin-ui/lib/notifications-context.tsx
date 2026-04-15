@@ -281,7 +281,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                     addNotification({
                       type: 'feedback',
                       title: 'Feedback updated by another user',
-                      message: `"${item.title}" was updated by ${latest.username}.`,
+                      message: `"${item.title}" was updated by ${latest.user?.email ?? latest.userId}.`,
                       href: `/dashboard/feedbacks#feedback-${item.id}`,
                     });
                   }

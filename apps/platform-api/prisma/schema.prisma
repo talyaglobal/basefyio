@@ -50,7 +50,6 @@ enum InfraStatus {
 
 model User {
   id              String   @id
-  username        String   @unique
   firstName       String?  @map("first_name")
   lastName        String?  @map("last_name")
   email           String   @unique
@@ -66,11 +65,14 @@ model User {
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  activeTeam      Team?        @relation("ActiveTeam", fields: [activeTeamId], references: [id])
-  personalTeam    Team?        @relation("PersonalTeam")
-  teamMembers     TeamMember[]
-  receivedInvites TeamInvite[] @relation("ReceivedInvites")
-  sentInvites     TeamInvite[] @relation("SentInvites")
+  activeTeam       Team?             @relation("ActiveTeam", fields: [activeTeamId], references: [id])
+  personalTeam     Team?             @relation("PersonalTeam")
+  teamMembers      TeamMember[]
+  receivedInvites  TeamInvite[]      @relation("ReceivedInvites")
+  sentInvites      TeamInvite[]      @relation("SentInvites")
+  feedbacks        Feedback[]
+  feedbackComments FeedbackComment[]
+  feedbackEvents   FeedbackEvent[]
 
   @@map("users")
 }
@@ -392,7 +394,6 @@ model LoginSecurityState {
 model Feedback {
   id          String         @id @default(uuid())
   userId      String         @map("user_id")
-  username    String
   email       String
   url         String
   title       String
@@ -403,6 +404,7 @@ model Feedback {
   status      FeedbackStatus @default(OPEN)
   deletedAt   DateTime?      @map("deleted_at")
   createdAt   DateTime       @default(now()) @map("created_at")
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   comments    FeedbackComment[]
   events      FeedbackEvent[]
 
@@ -415,13 +417,13 @@ model FeedbackEvent {
   id        String   @id @default(uuid())
   feedbackId String  @map("feedback_id")
   userId    String   @map("user_id")
-  username  String
   action    String
   detail    String?
   metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
 
   feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([feedbackId, createdAt])
   @@map("feedback_events")
@@ -431,13 +433,13 @@ model FeedbackComment {
   id              String   @id @default(uuid())
   feedbackId      String   @map("feedback_id")
   userId          String   @map("user_id")
-  username        String
   comment         String
   attachments     Json?    @map("attachments")
   parentCommentId String?  @map("parent_comment_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
   feedback      Feedback         @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentComment FeedbackComment? @relation("FeedbackCommentReplies", fields: [parentCommentId], references: [id], onDelete: SetNull)
   replies       FeedbackComment[] @relation("FeedbackCommentReplies")
 
@@ -488,6 +490,7 @@ model Subscription {
   billingDayOfMonth    Int?               @map("billing_day_of_month")
   retryCount           Int                @default(0) @map("retry_count")
   lastRetryDate        DateTime?          @map("last_retry_date")
+  firstFailureAt       DateTime?          @map("first_failure_at")
   cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")

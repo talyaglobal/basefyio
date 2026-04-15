@@ -154,7 +154,6 @@ export interface Team {
 
 export interface TeamMember {
   id: string;
-  username: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
@@ -180,7 +179,7 @@ export interface TeamInvite {
 export interface PendingInvite {
   id: string;
   invitedEmail?: string | null;
-  invitedUser: { id: string | null; username: string; email: string | null };
+  invitedUser: { id: string | null; email: string | null };
 }
 
 export interface AuthTokens {
@@ -202,7 +201,6 @@ export interface UserInfo {
 
 export interface UserProfile {
   id: string;
-  username: string;
   firstName: string | null;
   lastName: string | null;
   email: string;
@@ -223,7 +221,6 @@ export interface UserProfile {
 
 export interface ManagementUser {
   id: string;
-  username: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
@@ -258,8 +255,9 @@ export interface ManagementTeam {
   projectCount: number;
   owner: {
     id: string;
-    username: string;
     email: string;
+    firstName: string | null;
+    lastName: string | null;
   } | null;
 }
 
@@ -281,7 +279,6 @@ export interface ManagementPlan {
 export interface ManagementUserPackage {
   userId: string;
   email: string;
-  username: string;
   teamId: string | null;
   teamName: string | null;
   planName: string | null;

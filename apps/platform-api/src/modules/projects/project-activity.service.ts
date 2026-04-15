@@ -141,7 +141,6 @@ export class ProjectActivityService {
             where: { id: { in: userIds } },
             select: {
               id: true,
-              username: true,
               firstName: true,
               lastName: true,
               email: true,
@@ -151,7 +150,7 @@ export class ProjectActivityService {
     const userMap = new Map(
       users.map((u) => [
         u.id,
-        [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || u.email,
+        [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email,
       ]),
     );
 

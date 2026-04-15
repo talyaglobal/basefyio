@@ -76,7 +76,8 @@ function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState('free');
-  const [plans, setPlans] = useState<SignupPlan[]>(FALLBACK_PLANS);
+  const [plans, setPlans] = useState<SignupPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -86,6 +87,9 @@ function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [providers, setProviders] = useState<string[]>(['github']);
+  const [step, setStep] = useState<'form' | 'otp'>('form');
+  const [otp, setOtp] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
     const hash = window.location.hash.substring(1);
@@ -143,24 +147,56 @@ function SignupForm() {
               mappedPlans[0].name;
             setSelectedPlan(fallbackSelected);
           }
+        } else {
+          // API returned empty — use hardcoded fallback
+          setPlans(FALLBACK_PLANS);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Network error — use hardcoded fallback
+        setPlans(FALLBACK_PLANS);
+      })
+      .finally(() => {
+        setPlansLoading(false);
+      });
   }, [searchParams, router]);
+
+  // Countdown timer for resend cooldown
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   function update(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  // Step 1: send OTP to email
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-
     try {
-      const result = await api.auth.signup({ ...form, planName: selectedPlan });
-      setTokens(result);
-      toast.success('Account created');
+      await api.auth.signup({ ...form, planName: selectedPlan });
+      setStep('otp');
+      setResendCooldown(60);
+      toast.success('Verification code sent to your email');
+    } catch (err: any) {
+      toast.error(err.message || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
+  }
 
+  // Step 2: verify OTP and complete registration
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const result = await api.auth.verifySignupOtp(form.email, otp);
+      setTokens(result);
+      startProactiveRefresh();
+      toast.success('Account created');
       if (result.hasPendingInvites) {
         toast.info('You have pending team invites!');
         router.push('/dashboard/team');
@@ -171,9 +207,19 @@ function SignupForm() {
         router.push('/dashboard');
       }
     } catch (err: any) {
-      toast.error(err.message || 'Signup failed');
+      toast.error(err.message || 'Verification failed');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    try {
+      await api.auth.resendSignupOtp(form.email);
+      setResendCooldown(60);
+      toast.success('New code sent');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to resend code');
     }
   }
 
@@ -197,161 +243,221 @@ function SignupForm() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Kolaybase</h1>
           <p className="text-sm text-muted-foreground">
-            Create your account
+            {step === 'form' ? 'Create your account' : 'Check your email'}
           </p>
         </div>
 
-        {/* Plan Selection */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Choose a plan</label>
-          <div className="grid grid-cols-3 gap-2">
-            {plans.map((plan) => (
+        {step === 'otp' ? (
+          <>
+            <p className="text-center text-sm text-muted-foreground">
+              We sent a 6-digit code to <span className="font-medium text-foreground">{form.email}</span>
+            </p>
+
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="otp">Verification Code</Label>
+                <Input
+                  id="otp"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  className="text-center text-2xl tracking-[0.5em] font-mono"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={loading || otp.length !== 6}>
+                {loading ? 'Verifying...' : 'Verify'}
+              </Button>
+            </form>
+
+            <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
               <button
-                key={plan.name}
                 type="button"
-                onClick={() => setSelectedPlan(plan.name)}
-                className={`relative rounded-lg border p-3 text-left transition-all ${
-                  selectedPlan === plan.name
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-border hover:border-muted-foreground/40'
-                }`}
+                onClick={handleResendOtp}
+                disabled={resendCooldown > 0}
+                className="font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {selectedPlan === plan.name && (
-                  <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
-                )}
-                <div className="text-sm font-semibold">{plan.label}</div>
-                <div className="text-xs font-medium text-primary">{plan.price}</div>
-                <div className="mt-1 text-[11px] text-muted-foreground leading-tight">{plan.desc}</div>
+                {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : 'Resend code'}
               </button>
-            ))}
-          </div>
-        </div>
-
-        {providers.length > 0 && (
-          <div className="space-y-2">
-            {providers.includes('google') && (
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                className="w-full"
-                disabled={!!oauthLoading}
-                onClick={() => handleOAuthSignup('google')}
+                onClick={() => { setStep('form'); setOtp(''); }}
+                className="hover:underline"
               >
-                {oauthLoading === 'google' ? (
-                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                ) : (
-                  <GoogleIcon className="mr-2 h-4 w-4" />
-                )}
-                Continue with Google
-              </Button>
-            )}
-            {providers.includes('github') && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={!!oauthLoading}
-                onClick={() => handleOAuthSignup('github')}
-              >
-                {oauthLoading === 'github' ? (
-                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                ) : (
-                  <GitHubIcon className="mr-2 h-4 w-4" />
-                )}
-                Continue with GitHub
-              </Button>
-            )}
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">or</span>
-              </div>
+                Back
+              </button>
             </div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          </>
+        ) : (
+          <>
+            {/* Plan Selection */}
             <div className="space-y-2">
-              <Label htmlFor="firstName">First Name</Label>
-              <Input
-                id="firstName"
-                value={form.firstName}
-                onChange={(e) => update('firstName', e.target.value)}
-                placeholder="John"
-              />
+              <label className="text-sm font-medium">Choose a plan</label>
+              <div className="grid grid-cols-3 gap-2">
+                {plansLoading
+                  ? // Skeleton cards while plans load
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="animate-pulse rounded-lg border border-border p-3 space-y-2">
+                        <div className="h-3.5 w-12 rounded bg-muted" />
+                        <div className="h-3 w-10 rounded bg-muted" />
+                        <div className="mt-1 h-2.5 w-full rounded bg-muted" />
+                        <div className="h-2.5 w-3/4 rounded bg-muted" />
+                      </div>
+                    ))
+                  : plans.map((plan) => (
+                      <button
+                        key={plan.name}
+                        type="button"
+                        onClick={() => setSelectedPlan(plan.name)}
+                        className={`relative rounded-lg border p-3 text-left transition-all ${
+                          selectedPlan === plan.name
+                            ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                            : 'border-border hover:border-muted-foreground/40'
+                        }`}
+                      >
+                        {selectedPlan === plan.name && (
+                          <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
+                        )}
+                        <div className="text-sm font-semibold">{plan.label}</div>
+                        <div className="text-xs font-medium text-primary">{plan.price}</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground leading-tight">{plan.desc}</div>
+                      </button>
+                    ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="lastName">Last Name</Label>
-              <Input
-                id="lastName"
-                value={form.lastName}
-                onChange={(e) => update('lastName', e.target.value)}
-                placeholder="Doe"
-              />
-            </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={(e) => update('email', e.target.value)}
-              placeholder="john@example.com"
-              required
-              autoFocus
-            />
-          </div>
+            {providers.length > 0 && (
+              <div className="space-y-2">
+                {providers.includes('google') && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    disabled={!!oauthLoading}
+                    onClick={() => handleOAuthSignup('google')}
+                  >
+                    {oauthLoading === 'google' ? (
+                      <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    ) : (
+                      <GoogleIcon className="mr-2 h-4 w-4" />
+                    )}
+                    Continue with Google
+                  </Button>
+                )}
+                {providers.includes('github') && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    disabled={!!oauthLoading}
+                    onClick={() => handleOAuthSignup('github')}
+                  >
+                    {oauthLoading === 'github' ? (
+                      <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    ) : (
+                      <GitHubIcon className="mr-2 h-4 w-4" />
+                    )}
+                    Continue with GitHub
+                  </Button>
+                )}
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="group relative">
-                <button
-                  type="button"
-                  aria-label="Password requirements"
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  <Info className="h-4 w-4" />
-                </button>
-                <div className="pointer-events-none invisible absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-md border bg-popover p-3 text-xs text-popover-foreground opacity-0 shadow-md transition-all group-hover:visible group-hover:opacity-100">
-                  <p className="mb-1 font-medium">Password requirements</p>
-                  <ul className="list-disc space-y-0.5 pl-4">
-                    <li>At least 8 characters</li>
-                    <li>At least one uppercase letter</li>
-                    <li>At least one lowercase letter</li>
-                    <li>At least one number</li>
-                    <li>At least one punctuation/special character</li>
-                  </ul>
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">or</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <PasswordInput
-              id="password"
-              value={form.password}
-              onChange={(e) => update('password', e.target.value)}
-              placeholder="At least 8 characters"
-              required
-              minLength={8}
-            />
-          </div>
+            )}
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Creating account...' : 'Sign up'}
-          </Button>
-        </form>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    value={form.firstName}
+                    onChange={(e) => update('firstName', e.target.value)}
+                    placeholder="John"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    value={form.lastName}
+                    onChange={(e) => update('lastName', e.target.value)}
+                    placeholder="Doe"
+                  />
+                </div>
+              </div>
 
-        <p className="text-center text-sm text-muted-foreground">
-          Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:underline">
-            Sign in
-          </Link>
-        </p>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => update('email', e.target.value)}
+                  placeholder="john@example.com"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="group relative">
+                    <button
+                      type="button"
+                      aria-label="Password requirements"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                    <div className="pointer-events-none invisible absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-md border bg-popover p-3 text-xs text-popover-foreground opacity-0 shadow-md transition-all group-hover:visible group-hover:opacity-100">
+                      <p className="mb-1 font-medium">Password requirements</p>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        <li>At least 8 characters</li>
+                        <li>At least one uppercase letter</li>
+                        <li>At least one lowercase letter</li>
+                        <li>At least one number</li>
+                        <li>At least one punctuation/special character</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                <PasswordInput
+                  id="password"
+                  value={form.password}
+                  onChange={(e) => update('password', e.target.value)}
+                  placeholder="At least 8 characters"
+                  required
+                  minLength={8}
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={loading || plansLoading}>
+                {loading ? 'Sending code...' : 'Sign up'}
+              </Button>
+            </form>
+
+            <p className="text-center text-sm text-muted-foreground">
+              Already have an account?{' '}
+              <Link href="/login" className="font-medium text-primary hover:underline">
+                Sign in
+              </Link>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

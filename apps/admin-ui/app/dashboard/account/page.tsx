@@ -40,7 +40,6 @@ export default function AccountPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -83,7 +82,6 @@ export default function AccountPage() {
       .getProfile()
       .then((p) => {
         setProfile(p);
-        setUsername(p.username);
         setEmail(p.email);
         setFirstName(p.firstName ?? '');
         setLastName(p.lastName ?? '');
@@ -126,8 +124,7 @@ export default function AccountPage() {
 
   const hasProfileChanges =
     profile &&
-    (username !== profile.username ||
-      email !== profile.email ||
+    (email !== profile.email ||
       firstName.trim() !== (profile.firstName ?? '') ||
       lastName.trim() !== (profile.lastName ?? '') ||
       pendingAvatarDataUrl !== null);
@@ -141,7 +138,6 @@ export default function AccountPage() {
     setSaving(true);
     try {
       const updates: Record<string, string | boolean> = {};
-      if (username !== profile!.username) updates.username = username;
       if (email !== profile!.email) updates.email = email;
       const fn = firstName.trim();
       const ln = lastName.trim();
@@ -164,47 +160,47 @@ export default function AccountPage() {
     }
   };
 
-  const handleLinkGitHub = async () => {
-    const gh = githubInput.trim();
-    if (!gh) {
-      toast.error('Enter a GitHub username');
-      return;
-    }
-    setGithubChecking(true);
-    try {
-      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(gh)}`);
-      if (!res.ok) {
-        toast.error(`GitHub user "${gh}" not found`);
-        return;
-      }
-      const updated = await api.auth.updateProfile({ githubUsername: gh });
-      setProfile(updated);
-      setGithubLinking(false);
-      setGithubInput('');
-      toast.success(`GitHub account "${gh}" linked`);
-      refreshUser();
-      refreshProfile();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to link GitHub');
-    } finally {
-      setGithubChecking(false);
-    }
-  };
+  // const handleLinkGitHub = async () => {
+  //   const gh = githubInput.trim();
+  //   if (!gh) {
+  //     toast.error('Enter a GitHub username');
+  //     return;
+  //   }
+  //   setGithubChecking(true);
+  //   try {
+  //     const res = await fetch(`https://api.github.com/users/${encodeURIComponent(gh)}`);
+  //     if (!res.ok) {
+  //       toast.error(`GitHub user "${gh}" not found`);
+  //       return;
+  //     }
+  //     const updated = await api.auth.updateProfile({ githubUsername: gh });
+  //     setProfile(updated);
+  //     setGithubLinking(false);
+  //     setGithubInput('');
+  //     toast.success(`GitHub account "${gh}" linked`);
+  //     refreshUser();
+  //     refreshProfile();
+  //   } catch (err: any) {
+  //     toast.error(err.message || 'Failed to link GitHub');
+  //   } finally {
+  //     setGithubChecking(false);
+  //   }
+  // };
 
-  const handleUnlinkGitHub = async () => {
-    setGithubUnlinking(true);
-    try {
-      const updated = await api.auth.updateProfile({ githubUsername: '' });
-      setProfile(updated);
-      toast.success('GitHub account unlinked');
-      refreshUser();
-      refreshProfile();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to unlink GitHub');
-    } finally {
-      setGithubUnlinking(false);
-    }
-  };
+  // const handleUnlinkGitHub = async () => {
+  //   setGithubUnlinking(true);
+  //   try {
+  //     const updated = await api.auth.updateProfile({ githubUsername: '' });
+  //     setProfile(updated);
+  //     toast.success('GitHub account unlinked');
+  //     refreshUser();
+  //     refreshProfile();
+  //   } catch (err: any) {
+  //     toast.error(err.message || 'Failed to unlink GitHub');
+  //   } finally {
+  //     setGithubUnlinking(false);
+  //   }
+  // };
 
   const hasNotifChanges =
     profile &&
@@ -402,33 +398,21 @@ export default function AccountPage() {
 
         <Separator />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="account-username">Username</Label>
-            <Input
-              id="account-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
-              disabled={!canEditIdentity}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="account-email">Email</Label>
-            <Input
-              id="account-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              disabled={!canEditIdentity}
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="account-email">Email</Label>
+          <Input
+            id="account-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            disabled={!canEditIdentity}
+          />
         </div>
         {isExternalAuth && !canEditIdentity && (
           <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
             <span>
-              This account uses {authProvider} sign-in. Username/email and password are locked. You can still update first and last name.
+              This account uses {authProvider} sign-in. Email and password are locked. You can still update first and last name.
             </span>
           </div>
         )}
@@ -470,7 +454,7 @@ export default function AccountPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+       {/* <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Github className="h-4 w-4" />
           GitHub account
@@ -479,7 +463,6 @@ export default function AccountPage() {
         {profile.githubUsername ? (
           <div className="flex items-center justify-between rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`https://github.com/${profile.githubUsername}.png?size=80`}
                 alt={profile.githubUsername}
@@ -548,7 +531,7 @@ export default function AccountPage() {
             </Button>
           </div>
         )}
-      </div>
+      </div> */}
 
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">

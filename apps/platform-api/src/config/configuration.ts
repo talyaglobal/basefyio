@@ -40,6 +40,7 @@ export default () => ({
   },
 
   publicApiUrl: process.env.PUBLIC_API_URL || 'http://localhost:4000',
+  websiteUrl: process.env.WEBSITE_URL || 'http://localhost:3002',
 
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',

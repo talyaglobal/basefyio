@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { getDisplayName } from '@/lib/display-name';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus } from '@/lib/types';
 import { useActiveTeam } from '../layout';
 import { parseJwt, getAccessToken } from '@/lib/auth';
@@ -349,7 +350,7 @@ export default function TeamSettingsPage() {
     setTransferring(true);
     try {
       await api.teams.transferOwnership(activeTeamId, transferTarget.id);
-      toast.success(`Ownership transferred to ${[transferTarget.firstName, transferTarget.lastName].filter(Boolean).join(' ') || transferTarget.username}`);
+      toast.success(`Ownership transferred to ${getDisplayName(transferTarget)}`);
       setTransferTarget(null);
       loadAll();
       refreshTeams();
@@ -389,11 +390,11 @@ export default function TeamSettingsPage() {
     }
   }
 
-  async function handleRemove(userId: string, username: string) {
-    if (!activeTeamId || !confirm(`Remove "${username}" from this team?`)) return;
+  async function handleRemove(userId: string, displayName: string) {
+    if (!activeTeamId || !confirm(`Remove "${displayName}" from this team?`)) return;
     try {
       await api.teams.removeMember(activeTeamId, userId);
-      toast.success(`${username} removed`);
+      toast.success(`${displayName} removed`);
       loadAll();
     } catch (err: any) {
       toast.error(err.message);
@@ -448,16 +449,6 @@ export default function TeamSettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-2 text-muted-foreground"
-        onClick={() => router.push('/dashboard')}
-      >
-        <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-        Back to projects
-      </Button>
-
       {/* Incoming invites */}
       {myInvites.length > 0 && (
         <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
@@ -615,10 +606,10 @@ export default function TeamSettingsPage() {
 
             <div className="divide-y">
               {members.map((m) => {
-                const displayName = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username;
+                const displayName = getDisplayName(m);
                 const initials = m.firstName && m.lastName
                   ? `${m.firstName[0]}${m.lastName[0]}`.toUpperCase()
-                  : (m.firstName || m.username).slice(0, 2).toUpperCase();
+                  : displayName.slice(0, 2).toUpperCase();
                 const isOwner = m.role === 'OWNER';
 
                 return (
@@ -675,7 +666,7 @@ export default function TeamSettingsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive/60 hover:text-destructive"
-                          onClick={() => handleRemove(m.id, m.username)}
+                          onClick={() => handleRemove(m.id, displayName)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -766,7 +757,7 @@ export default function TeamSettingsPage() {
             <DialogDescription>
               Are you sure you want to transfer ownership to{' '}
               <strong>
-                {[transferTarget?.firstName, transferTarget?.lastName].filter(Boolean).join(' ') || transferTarget?.username}
+                {transferTarget ? getDisplayName(transferTarget) : ''}
               </strong>?
               <br />
               <span className="text-destructive">You will become a regular member and lose owner privileges.</span>
@@ -830,7 +821,7 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite Member</DialogTitle>
           <DialogDescription>
-            Enter a username or email address. If they don't have an account yet,
+            Enter an email address. If they don't have an account yet,
             they'll receive an email to sign up and join your team.
           </DialogDescription>
         </DialogHeader>
@@ -841,7 +832,7 @@ function InviteDialog({
               id="inv-user"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder="username or user@example.com"
+              placeholder="user@example.com"
               required
             />
           </div>

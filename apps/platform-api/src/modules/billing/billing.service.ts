@@ -570,6 +570,14 @@ export class BillingService implements OnModuleInit {
       },
     });
 
+    // Stamp firstFailureAt on initial Stripe-initiated failure if not already set
+    if (!sub.firstFailureAt) {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { firstFailureAt: new Date() },
+      });
+    }
+
     this.logger.warn(`Invoice payment failed for team ${sub.teamId}: ${stripeInvoice.id}`);
   }
 
@@ -647,6 +655,14 @@ export class BillingService implements OnModuleInit {
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
     if (!sub?.stripeCustomerId) throw new BadRequestException('No Stripe customer found');
+
+    // Reject non-credit cards (debit, prepaid, unknown)
+    const pm = await this.stripe.retrievePaymentMethod(paymentMethodId);
+    if (pm.card?.funding !== 'credit') {
+      throw new BadRequestException(
+        'Only credit cards are accepted. Please use a credit card to continue.',
+      );
+    }
 
     await this.stripe.attachPaymentMethod(sub.stripeCustomerId, paymentMethodId);
     await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, paymentMethodId);
@@ -871,12 +887,41 @@ export class BillingService implements OnModuleInit {
    * Charge recurring subscriptions (called by cronjob)
    * Returns list of teams processed with their charge status
    */
+  /** Freeze accounts whose first payment failure is more than 3 days old */
+  private async freezeOverdueAccounts(): Promise<void> {
+    const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const overdue = await this.prisma.subscription.findMany({
+      where: {
+        firstFailureAt: { not: null, lt: cutoff },
+        team: { accountStatus: 'ACTIVE' },
+      },
+      select: { id: true, teamId: true, firstFailureAt: true },
+    });
+
+    for (const sub of overdue) {
+      await this.prisma.team.update({
+        where: { id: sub.teamId },
+        data: { accountStatus: 'FROZEN' },
+      });
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'PAST_DUE' },
+      });
+      this.logger.warn(
+        `Account frozen for team ${sub.teamId} (time-based): firstFailureAt=${sub.firstFailureAt?.toISOString()}`,
+      );
+    }
+  }
+
   async processRecurringCharges(): Promise<{
     processed: number;
     succeeded: number;
     failed: number;
     details: Array<{ teamId: string; status: 'success' | 'failed' | 'retry' | 'frozen'; message?: string }>;
   }> {
+    // Freeze accounts that have had an unresolved failure for 3+ days
+    await this.freezeOverdueAccounts();
+
     const today = new Date();
     const dayOfMonth = today.getDate();
 
@@ -987,6 +1032,7 @@ export class BillingService implements OnModuleInit {
             nextBillingDate,
             retryCount: 0,
             lastRetryDate: null,
+            firstFailureAt: null,
           },
         });
 
@@ -1029,6 +1075,13 @@ export class BillingService implements OnModuleInit {
   ): Promise<{ teamId: string; status: 'retry' | 'frozen'; message: string }> {
     const newRetryCount = currentRetryCount + 1;
 
+    // Stamp firstFailureAt only on the first miss — keeps 3-day window anchored correctly
+    const existing = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { firstFailureAt: true },
+    });
+    const firstFailureAt = existing?.firstFailureAt ?? new Date();
+
     if (newRetryCount >= 3) {
       // Freeze account after 3 failed attempts
       await this.prisma.team.update({
@@ -1042,6 +1095,7 @@ export class BillingService implements OnModuleInit {
           status: 'PAST_DUE',
           retryCount: newRetryCount,
           lastRetryDate: new Date(),
+          firstFailureAt,
         },
       });
 
@@ -1059,6 +1113,7 @@ export class BillingService implements OnModuleInit {
         data: {
           retryCount: newRetryCount,
           lastRetryDate: new Date(),
+          firstFailureAt,
         },
       });
 
@@ -1097,6 +1152,13 @@ export class BillingService implements OnModuleInit {
 
     // Update payment method if provided
     if (newPaymentMethodId) {
+      // Reject non-credit cards
+      const newPm = await this.stripe.retrievePaymentMethod(newPaymentMethodId);
+      if (newPm.card?.funding !== 'credit') {
+        throw new BadRequestException(
+          'Only credit cards are accepted. Please use a credit card to continue.',
+        );
+      }
       await this.stripe.attachPaymentMethod(sub.stripeCustomerId, newPaymentMethodId);
       await this.stripe.setDefaultPaymentMethod(sub.stripeCustomerId, newPaymentMethodId);
       this.logger.log(`Payment method updated for team ${teamId}`);
@@ -1143,6 +1205,7 @@ export class BillingService implements OnModuleInit {
             nextBillingDate,
             retryCount: 0,
             lastRetryDate: null,
+            firstFailureAt: null,
           },
         });
 
@@ -1515,7 +1578,6 @@ export class BillingService implements OnModuleInit {
       select: {
         id: true,
         email: true,
-        username: true,
         personalTeam: {
           select: {
             id: true,
@@ -1536,7 +1598,6 @@ export class BillingService implements OnModuleInit {
     return users.map((u) => ({
       userId: u.id,
       email: u.email,
-      username: u.username,
       teamId: u.personalTeam?.id ?? null,
       teamName: u.personalTeam?.name ?? null,
       planName: u.personalTeam?.subscription?.plan?.name ?? null,

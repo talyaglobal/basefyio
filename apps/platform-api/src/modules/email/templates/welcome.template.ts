@@ -1,7 +1,7 @@
 import { baseLayout } from './base.template';
 
 interface WelcomeData {
-  username: string;
+  displayName: string;
   email: string;
   loginUrl: string;
   dashboardUrl: string;
@@ -13,7 +13,7 @@ export function welcomeTemplate(data: WelcomeData): string {
         <div style="text-align: center;">
           <div class="icon-circle icon-green">&#127881;</div>
         </div>
-        <h1 class="greeting">Welcome to Kolaybase, ${data.username}!</h1>
+        <h1 class="greeting">Welcome to Kolaybase, ${data.displayName}!</h1>
         <p class="text">
           Your account has been created successfully. You now have access to a
           powerful open-source backend platform with databases, authentication,
@@ -24,8 +24,8 @@ export function welcomeTemplate(data: WelcomeData): string {
           <div class="info-card-title">Account Details</div>
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
-              <td style="padding: 6px 0; font-size: 14px; color: #64748b;">Username</td>
-              <td style="padding: 6px 0; font-size: 14px; font-weight: 500; color: #0f172a; text-align: right;">${data.username}</td>
+              <td style="padding: 6px 0; font-size: 14px; color: #64748b;">Name</td>
+              <td style="padding: 6px 0; font-size: 14px; font-weight: 500; color: #0f172a; text-align: right;">${data.displayName}</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #64748b;">Email</td>

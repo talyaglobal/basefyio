@@ -77,7 +77,10 @@ function LoginForm() {
         startProactiveRefresh();
         window.history.replaceState(null, '', '/login');
         toast.success('Welcome back');
-        window.location.assign('/dashboard');
+        // Restore CLI state that was stashed before the OAuth redirect
+        const cliState = sessionStorage.getItem('kb_cli_state');
+        sessionStorage.removeItem('kb_cli_state');
+        window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}` : '/dashboard');
         return;
       }
     }
@@ -100,7 +103,8 @@ function LoginForm() {
         return;
       }
       toast.success('Welcome back');
-      window.location.assign('/dashboard');
+      const cliState = searchParams.get('cli_state');
+      window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}` : '/dashboard');
     } catch (err: any) {
       const rawMessage = String(err?.message || '');
       const normalizedMessage = rawMessage.toUpperCase();
@@ -166,6 +170,9 @@ function LoginForm() {
   async function handleOAuthLogin(provider: string) {
     setOauthLoading(provider);
     try {
+      // Stash CLI state so we can restore it after the OAuth redirect
+      const cliState = searchParams.get('cli_state');
+      if (cliState) sessionStorage.setItem('kb_cli_state', cliState);
       const { url } = await api.auth.getOAuthRedirect(provider, window.location.origin + '/login');
       window.location.href = url;
     } catch (err: any) {
