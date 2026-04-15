@@ -14,17 +14,26 @@ import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
+import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import {
+  getAppPortalUrl,
+  getAppSignupUrl,
+  getBillingPlansFetchEndpoints,
+} from "@/lib/site-url";
 
-export const metadata: Metadata = {
-  alternates: { canonical: "/" },
-  openGraph: {
-    url: "/",
-    title:
-      "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform",
-    description:
-      "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.",
-  },
-};
+const ogTitle =
+  "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
+const ogDescription =
+  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, Supabase-compatible queries. Ship backends in minutes.";
+
+export async function generateMetadata(): Promise<Metadata> {
+  return withAbsoluteSiteUrls("/", {
+    openGraph: {
+      title: ogTitle,
+      description: ogDescription,
+    },
+  });
+}
 
 type PublicPlan = {
   id: string;
@@ -85,18 +94,7 @@ function planFeatures(plan: PublicPlan): string[] {
 }
 
 async function getPublicPlans(): Promise<PublicPlan[]> {
-  const bases = [
-    process.env.NEXT_PUBLIC_BILLING_API_URL,
-    process.env.NEXT_PUBLIC_API_BASE_URL,
-    process.env.NEXT_PUBLIC_APP_URL,
-    "https://app.kolaybase.com",
-    "http://platform-api:4000",
-    "http://localhost:4000",
-  ].filter(Boolean) as string[];
-  const endpoints = [
-    ...bases.flatMap((base) => [`${base}/api/billing/plans`, `${base}/billing/plans`]),
-    "https://app.kolaybase.com/api/proxy/billing/plans",
-  ];
+  const endpoints = getBillingPlansFetchEndpoints();
   for (const url of endpoints) {
     try {
       const res = await fetch(url, { cache: "no-store" });
@@ -117,6 +115,9 @@ async function getPublicPlans(): Promise<PublicPlan[]> {
 
 export default async function Home() {
   const plans = await getPublicPlans();
+  const appRoot = getAppPortalUrl();
+  const appSignup = getAppSignupUrl();
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg transition-all duration-200">
@@ -148,14 +149,14 @@ export default async function Home() {
               Docs
             </Link>
             <Link
-              href="https://app.kolaybase.com"
+              href={appRoot}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               Sign In
             </Link>
             <ThemeToggle />
             <Link
-              href="https://app.kolaybase.com/signup"
+              href={appSignup}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
             >
               Get Started Free
@@ -175,14 +176,14 @@ export default async function Home() {
           </p>
           <div className="animate-fade-in mt-10 flex flex-col justify-center gap-4 [animation-delay:200ms] motion-reduce:animate-none sm:flex-row">
             <Link
-              href="https://app.kolaybase.com/signup"
+              href={appSignup}
               className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-6 text-base font-semibold text-primary-foreground shadow-subtle transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
             >
               Get Started Free
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
-              href="https://app.kolaybase.com"
+              href={appRoot}
               className="inline-flex h-12 items-center justify-center rounded-md border border-border bg-background/80 px-6 text-base font-medium text-foreground backdrop-blur-sm transition-colors duration-150 hover:bg-accent"
             >
               View Demo
@@ -305,7 +306,7 @@ export default async function Home() {
                     ))}
                   </ul>
                   <Link
-                    href={`https://app.kolaybase.com/signup?plan=${encodeURIComponent(plan.name)}`}
+                    href={`${appSignup}?plan=${encodeURIComponent(plan.name)}`}
                     className={`mt-8 inline-flex items-center justify-center rounded-xl px-6 py-3 text-sm transition-colors ${
                       featured
                         ? "bg-primary font-semibold text-primary-foreground shadow-subtle hover:opacity-90"
@@ -337,7 +338,7 @@ export default async function Home() {
             <ul className="mt-3 space-y-2">
               <li>
                 <Link
-                  href="https://app.kolaybase.com"
+                  href={appRoot}
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Dashboard
@@ -369,7 +370,7 @@ export default async function Home() {
               </li>
               <li>
                 <Link
-                  href="https://app.kolaybase.com/signup"
+                  href={appSignup}
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Sign Up

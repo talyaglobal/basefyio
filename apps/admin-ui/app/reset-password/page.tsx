@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -8,7 +8,11 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Database, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Database, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+import {
+  PLATFORM_PASSWORD_RULES,
+  validatePlatformPassword,
+} from '@/lib/password-policy';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -19,6 +23,32 @@ function ResetPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [tokenStatus, setTokenStatus] = useState<'checking' | 'ok' | 'bad'>(
+    'checking',
+  );
+
+  useEffect(() => {
+    if (!token) {
+      setTokenStatus('bad');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { valid } = await api.auth.verifyResetToken(token);
+        if (!cancelled) {
+          setTokenStatus(valid ? 'ok' : 'bad');
+        }
+      } catch {
+        if (!cancelled) {
+          setTokenStatus('bad');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   if (!token) {
     return (
@@ -37,6 +67,32 @@ function ResetPasswordForm() {
     );
   }
 
+  if (tokenStatus === 'checking') {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        <p>Checking your reset link…</p>
+      </div>
+    );
+  }
+
+  if (tokenStatus === 'bad') {
+    return (
+      <div className="space-y-4 text-center">
+        <p className="text-sm text-destructive">
+          This reset link is invalid, expired, or has already been used. For
+          security, links only work for a limited time and only once.
+        </p>
+        <Link
+          href="/forgot-password"
+          className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+        >
+          Request a new link
+        </Link>
+      </div>
+    );
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -45,8 +101,9 @@ function ResetPasswordForm() {
       return;
     }
 
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    const pwdError = validatePlatformPassword(password);
+    if (pwdError) {
+      toast.error(pwdError);
       return;
     }
 
@@ -91,7 +148,7 @@ function ResetPasswordForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Choose a new password for your account.
+        Choose a new password for your account. {PLATFORM_PASSWORD_RULES}
       </p>
 
       <div className="space-y-2">
@@ -100,9 +157,9 @@ function ResetPasswordForm() {
           id="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Min 6 characters"
+          placeholder="Strong password"
           required
-          minLength={6}
+          minLength={8}
           autoFocus
         />
       </div>
@@ -115,7 +172,7 @@ function ResetPasswordForm() {
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder="Repeat your password"
           required
-          minLength={6}
+          minLength={8}
         />
       </div>
 

@@ -4,5 +4,6 @@
 User-agent: *
 Allow: /
 
-# If preview/staging uses a different PUBLIC_SITE_URL, adjust the sitemap URL at build time.
-Sitemap: https://kolaybase.com/sitemap-index.xml
+# Dynamic /robots.txt from src/app/robots.ts takes precedence when the Next server runs.
+# Static fallback sitemap URL:
+Sitemap: https://kolaybase.com/sitemap.xml

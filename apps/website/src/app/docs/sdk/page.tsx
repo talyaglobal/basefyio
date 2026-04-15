@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
+import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
   "JavaScript / TypeScript SDK (kolaybase-js): createClient, database queries, auth, and storage from your app.";
 
-export const metadata: Metadata = {
-  title: "SDK Reference",
-  description: pageDescription,
-  alternates: { canonical: "/docs/sdk" },
-  openGraph: {
-    url: "/docs/sdk",
-    title: "SDK Reference | Kolaybase Docs",
+export async function generateMetadata(): Promise<Metadata> {
+  return withAbsoluteSiteUrls("/docs/sdk", {
+    title: "SDK Reference",
     description: pageDescription,
-  },
-};
+    openGraph: {
+      title: "SDK Reference | Kolaybase Docs",
+      description: pageDescription,
+    },
+  });
+}
 
 export default function SdkDocs() {
+  const apiUrl = getPublicApiUrl();
+
   return (
     <div>
       <h1>JavaScript / TypeScript SDK</h1>
@@ -31,7 +35,7 @@ export default function SdkDocs() {
       <pre><code>{`import { createClient } from 'kolaybase-js'
 
 const kb = createClient({
-  apiUrl: 'https://api.kolaybase.com',
+  apiUrl: '${apiUrl}',
   projectId: 'your-project-id',
   apiKey: 'your-anon-key',
 })`}</code></pre>

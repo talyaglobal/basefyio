@@ -1,22 +1,36 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Server, Code, Terminal } from "lucide-react";
+import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
   "Kolaybase is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
 
-export const metadata: Metadata = {
-  title: "Documentation",
-  description: pageDescription,
-  alternates: { canonical: "/docs" },
-  openGraph: {
-    url: "/docs",
-    title: "Documentation | Kolaybase Docs",
+export async function generateMetadata(): Promise<Metadata> {
+  return withAbsoluteSiteUrls("/docs", {
+    title: "Documentation",
     description: pageDescription,
-  },
-};
+    openGraph: {
+      title: "Documentation | Kolaybase Docs",
+      description: pageDescription,
+    },
+  });
+}
+
+function appPortalHostLabel(): string {
+  try {
+    return new URL(getAppPortalUrl()).host;
+  } catch {
+    return "app.kolaybase.com";
+  }
+}
 
 export default function DocsOverview() {
+  const apiUrl = getPublicApiUrl();
+  const signupUrl = getAppSignupUrl();
+  const appHost = appPortalHostLabel();
+
   return (
     <div>
       <h1>Documentation</h1>
@@ -29,14 +43,14 @@ export default function DocsOverview() {
       <h2>Quick Start</h2>
       <p>
         Create a free account at{" "}
-        <a href="https://app.kolaybase.com/signup">app.kolaybase.com</a>, create
+        <a href={signupUrl}>{appHost}</a>, create
         a project, and start building immediately.
       </p>
       <pre><code>{`npm install kolaybase-js`}</code></pre>
       <pre><code>{`import { createClient } from 'kolaybase-js'
 
 const kb = createClient({
-  apiUrl: 'https://api.kolaybase.com',
+  apiUrl: '${apiUrl}',
   projectId: 'your-project-id',
   apiKey: 'your-anon-key',
 })

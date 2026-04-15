@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Book, Code, Terminal, Server } from "lucide-react";
 import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
   "Kolaybase documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
@@ -27,6 +28,9 @@ const nav = [
 ];
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
+  const appRoot = getAppPortalUrl();
+  const appSignup = getAppSignupUrl();
+
   return (
     <div className="min-h-screen pt-16">
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg">
@@ -43,14 +47,14 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </div>
           <nav className="flex items-center gap-4">
             <Link
-              href="https://app.kolaybase.com"
+              href={appRoot}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               Dashboard
             </Link>
             <ThemeToggle />
             <Link
-              href="https://app.kolaybase.com/signup"
+              href={appSignup}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
             >
               Get Started

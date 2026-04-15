@@ -54,7 +54,8 @@ export default function ForgotPasswordPage() {
                 </p>
                 <p className="mt-1 text-sm text-green-600 dark:text-green-400">
                   We sent a password reset link to{' '}
-                  <strong>{email}</strong>. The link will expire in 1 hour.
+                  <strong>{email}</strong>. The link expires in 30 minutes for
+                  security.
                 </p>
               </div>
             </div>

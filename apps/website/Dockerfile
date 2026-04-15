@@ -10,7 +10,8 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_SITE_URL=http://localhost:3002
+# Baked into the client/server bundle at build time — must be the public prod URL unless you override for local images.
+ARG NEXT_PUBLIC_SITE_URL=https://kolaybase.com
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 
 RUN npm run build

@@ -102,6 +102,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=https://kolaybase.com
 
   # ── Deploy (her production push'unda, build'lerden sonra) ──
   deploy:

@@ -94,6 +94,11 @@ export class AuthService {
   private readonly CLI_LOGIN_STATE_TTL = 300;    // 5 minutes for user to authenticate
   private readonly CLI_LOGIN_EXCHANGE_TTL = 60;  // 60 seconds one-time code window
 
+  /** Password-reset magic link TTL (must match email copy). */
+  private static readonly PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+  private static readonly RESET_LINK_INVALID =
+    'Invalid or expired reset link. Please request a new one.';
+
   constructor(
     private readonly config: ConfigService,
     private readonly http: HttpService,
@@ -1134,7 +1139,8 @@ export class AuthService {
   }
 
   async forgotPassword(email: string) {
-    let kcUser = await this.keycloak.findPlatformUserByEmail(email);
+    const emailNorm = this.normalizeEmail(email);
+    let kcUser = await this.keycloak.findPlatformUserByEmail(emailNorm);
 
     if (!kcUser) {
       // No user found by email in Keycloak
@@ -1147,7 +1153,7 @@ export class AuthService {
     try {
       const methods = await this.keycloak.getPlatformUserSignInMethodsById(
         kcUser.id!,
-        email,
+        emailNorm,
       );
       if (methods.signOnMethod !== 'local') {
         // Keep generic success response to avoid account-enumeration leaks.
@@ -1159,57 +1165,83 @@ export class AuthService {
 
     // Invalidate any previous unused tokens for this email
     await this.prisma.passwordResetToken.updateMany({
-      where: { email, usedAt: null },
+      where: { email: emailNorm, usedAt: null },
       data: { usedAt: new Date() },
     });
 
     const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = new Date(Date.now() + AuthService.PASSWORD_RESET_TTL_MS);
 
     await this.prisma.passwordResetToken.create({
-      data: { email, token, expiresAt },
+      data: { email: emailNorm, token, expiresAt },
     });
+
+    const expiresInMinutes = Math.round(AuthService.PASSWORD_RESET_TTL_MS / 60_000);
 
     // Use the user's display name for the password reset email
     const dbUser = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: emailNorm },
       select: { firstName: true, lastName: true, email: true },
     });
-    const displayName = dbUser ? getDisplayName(dbUser) : email.split('@')[0];
+    const displayName = dbUser ? getDisplayName(dbUser) : emailNorm.split('@')[0];
 
     try {
-      const emailResult = await this.email.sendPasswordResetLink(email, displayName, token);
+      const emailResult = await this.email.sendPasswordResetLink(
+        emailNorm,
+        displayName,
+        token,
+        expiresInMinutes,
+      );
       
       if (!emailResult) {
-        this.logger.error(`[FORGOT_PASSWORD] Email sending failed for ${email} - Resend returned null`);
+        this.logger.error(`[FORGOT_PASSWORD] Email sending failed for ${emailNorm} - Resend returned null`);
       } else {
-        this.logger.log(`[FORGOT_PASSWORD] Password reset link sent successfully to ${email}`);
+        this.logger.log(`[FORGOT_PASSWORD] Password reset link sent successfully to ${emailNorm}`);
       }
     } catch (err) {
-      this.logger.error(`[FORGOT_PASSWORD] Exception while sending email to ${email}: ${err.message}`, err.stack);
+      this.logger.error(`[FORGOT_PASSWORD] Exception while sending email to ${emailNorm}: ${err.message}`, err.stack);
     }
 
     // Always return generic success message to prevent email enumeration
     return { message: 'If that email exists, a reset link has been sent.' };
   }
 
+  /**
+   * Public check so the reset-password page can hide the form for dead links
+   * without revealing whether the token was invalid, used, or expired.
+   */
+  async verifyResetToken(token: string): Promise<{ valid: boolean }> {
+    const trimmed = (token || '').trim();
+    if (!trimmed || trimmed.length > 200) {
+      return { valid: false };
+    }
+    const row = await this.prisma.passwordResetToken.findUnique({
+      where: { token: trimmed },
+    });
+    const valid = !!(
+      row &&
+      !row.usedAt &&
+      row.expiresAt.getTime() >= Date.now()
+    );
+    return { valid };
+  }
+
   async resetPassword(token: string, newPassword: string) {
-    this.ensureStrongPassword(newPassword);
+    const trimmed = (token || '').trim();
     const resetToken = await this.prisma.passwordResetToken.findUnique({
-      where: { token },
+      where: { token: trimmed },
     });
 
-    if (!resetToken) {
-      throw new BadRequestException('Invalid or expired reset link.');
+    const usable =
+      !!resetToken &&
+      !resetToken.usedAt &&
+      resetToken.expiresAt.getTime() >= Date.now();
+
+    if (!usable || !resetToken) {
+      throw new BadRequestException(AuthService.RESET_LINK_INVALID);
     }
 
-    if (resetToken.usedAt) {
-      throw new BadRequestException('This reset link has already been used.');
-    }
-
-    if (resetToken.expiresAt < new Date()) {
-      throw new BadRequestException('This reset link has expired. Please request a new one.');
-    }
+    this.ensureStrongPassword(newPassword);
 
     let kcUser: any;
 

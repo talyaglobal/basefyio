@@ -205,6 +205,12 @@ export const api = {
         body: JSON.stringify({ token, password }),
       });
     },
+    verifyResetToken(token: string) {
+      return request<{ valid: boolean }>('/auth/reset-password/verify', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+    },
     getProfile() {
       return request<UserProfile>('/auth/profile');
     },

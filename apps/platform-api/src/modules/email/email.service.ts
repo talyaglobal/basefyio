@@ -131,12 +131,13 @@ export class EmailService {
     to: string,
     displayName: string,
     resetToken: string,
+    expiresInMinutes: number,
   ) {
     const resetUrl = `${this.appUrl}/reset-password?token=${resetToken}`;
     const html = forgotPasswordTemplate({
       displayName,
       resetUrl,
-      expiresInMinutes: 60,
+      expiresInMinutes,
     });
 
     return this.send({

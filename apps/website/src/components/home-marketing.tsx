@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { getAppSignupUrl } from "@/lib/site-url";
 
 const frameworks = [
   "React",
@@ -411,7 +412,7 @@ export function HomeMarketing() {
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link
-                    href="https://app.kolaybase.com/signup"
+                    href={getAppSignupUrl()}
                     className={buttonVariants({ size: "lg" })}
                   >
                     Create your backend

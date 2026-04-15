@@ -1,26 +1,33 @@
 import type { Metadata } from "next";
+import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
   "Kolaybase REST API: authentication headers, Supabase-compatible queries, storage, and project-scoped endpoints.";
 
-export const metadata: Metadata = {
-  title: "API Reference",
-  description: pageDescription,
-  alternates: { canonical: "/docs/api" },
-  openGraph: {
-    url: "/docs/api",
-    title: "API Reference | Kolaybase Docs",
+export async function generateMetadata(): Promise<Metadata> {
+  return withAbsoluteSiteUrls("/docs/api", {
+    title: "API Reference",
     description: pageDescription,
-  },
-};
+    openGraph: {
+      title: "API Reference | Kolaybase Docs",
+      description: pageDescription,
+    },
+  });
+}
 
 export default function ApiDocs() {
+  const apiRoot = getPublicApiUrl();
+
   return (
     <div>
       <h1>API Reference</h1>
       <p>
         The Kolaybase REST API is available at{" "}
-        <code>https://api.kolaybase.com/api</code>. All project-scoped
+        <code>
+          {apiRoot}/api
+        </code>
+        . All project-scoped
         endpoints require either a JWT token or an API key passed via the{" "}
         <code>apikey</code> header.
       </p>

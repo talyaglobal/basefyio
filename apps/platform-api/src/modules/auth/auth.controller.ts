@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyResetTokenDto } from './dto/verify-reset-token.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifySignupOtpDto } from './dto/verify-signup-otp.dto';
@@ -80,6 +81,12 @@ export class AuthController {
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto.email);
+  }
+
+  @Post('reset-password/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyResetToken(@Body() dto: VerifyResetTokenDto) {
+    return this.authService.verifyResetToken(dto.token);
   }
 
   @Post('reset-password')

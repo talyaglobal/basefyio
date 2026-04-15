@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
+import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
   "Kolaybase CLI (kb): login, projects, migrations, types, and terminal workflows.";
 
-export const metadata: Metadata = {
-  title: "CLI Reference",
-  description: pageDescription,
-  alternates: { canonical: "/docs/cli" },
-  openGraph: {
-    url: "/docs/cli",
-    title: "CLI Reference | Kolaybase Docs",
+export async function generateMetadata(): Promise<Metadata> {
+  return withAbsoluteSiteUrls("/docs/cli", {
+    title: "CLI Reference",
     description: pageDescription,
-  },
-};
+    openGraph: {
+      title: "CLI Reference | Kolaybase Docs",
+      description: pageDescription,
+    },
+  });
+}
 
 export default function CliDocs() {
+  const apiUrl = getPublicApiUrl();
+
   return (
     <div>
       <h1>CLI Reference</h1>
@@ -201,7 +205,7 @@ kb secrets unset DATABASE_URL`}</code></pre>
       <pre><code>{`# .kolaybase (project config)
 {
   "projectId": "uuid",
-  "apiUrl": "https://api.kolaybase.com"
+  "apiUrl": "${apiUrl}"
 }`}</code></pre>
     </div>
   );

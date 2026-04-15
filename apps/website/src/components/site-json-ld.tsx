@@ -1,11 +1,11 @@
-import { getSiteUrl } from "@/lib/site-url";
+import { getSiteUrlFromRequest } from "@/lib/site-url";
 
 /**
  * Organization, WebSite, and SoftwareApplication structured data for search engines
  * (brand + product signals for developer/BaaS queries).
  */
-export function SiteJsonLd() {
-  const url = getSiteUrl();
+export async function SiteJsonLd() {
+  const url = await getSiteUrlFromRequest();
   const data = {
     "@context": "https://schema.org",
     "@graph": [
