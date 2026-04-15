@@ -419,8 +419,8 @@ export class AuthController {
 
   /**
    * CLI browser-based login — step 1.
-   * Stores state in Redis and redirects the browser to Keycloak's login page.
-   * The CLI opens this URL; the user picks their provider on Keycloak's UI.
+   * Stores state in Redis and redirects the browser to the admin-ui
+   * /cli-authorize page (branded login + grant screen, no raw Keycloak UI).
    */
   @Get('cli-login')
   async cliLogin(
@@ -432,8 +432,43 @@ export class AuthController {
     if (!nonce || isNaN(port)) {
       return (res as any).status(400).json({ message: 'port and nonce are required' });
     }
-    const keycloakUrl = await this.authService.startCliLogin(port, nonce);
-    return res.redirect(keycloakUrl);
+    const authorizeUrl = await this.authService.startCliLogin(port, nonce);
+    return res.redirect(authorizeUrl);
+  }
+
+  /**
+   * CLI browser-based login — step 2a (info).
+   * Returns the loopback port for the given CLI state, so the frontend can
+   * build the deny redirect without consuming the state.
+   */
+  @Get('cli-state')
+  @UseGuards(JwtAuthGuard)
+  async getCliState(@Query('state') stateId: string) {
+    if (!stateId) throw new BadRequestException('state is required');
+    const port = await this.authService.getCliStatePort(stateId);
+    return { port };
+  }
+
+  /**
+   * CLI browser-based login — step 2b (grant).
+   * The user clicked Allow on /cli-authorize. Consumes the state, wraps the
+   * user's current tokens in a one-time exchange code, and returns it to the
+   * frontend so it can redirect the loopback server.
+   */
+  @Post('cli-authorize')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async cliAuthorize(
+    @Body('state') stateId: string,
+    @Body('refreshToken') refreshToken: string,
+    @Req() req: Request,
+  ) {
+    if (!stateId || !refreshToken) {
+      throw new BadRequestException('state and refreshToken are required');
+    }
+    // Extract the raw access token from the Authorization header
+    const accessToken = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    return this.authService.authorizeCliAccess(stateId, accessToken, refreshToken);
   }
 
   /**

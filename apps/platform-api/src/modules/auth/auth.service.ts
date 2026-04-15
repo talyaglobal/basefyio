@@ -783,41 +783,63 @@ export class AuthService {
     return { message: 'Password changed successfully' };
   }
 
-  /** Step 1 of CLI login: store state in Redis, return the Keycloak authorize URL. */
+  /**
+   * Step 1 of CLI login: store state in Redis, redirect browser to the
+   * admin-ui's /cli-authorize page. The user logs in there (if needed) and
+   * grants or denies access — no Keycloak page is shown.
+   */
   async startCliLogin(port: number, nonce: string): Promise<string> {
     if (port < 1024 || port > 65535) {
       throw new BadRequestException('Invalid port');
     }
 
-    const keycloakUrl = this.config.get<string>('keycloak.publicUrl');
-    const publicApiUrl = this.config.get<string>('publicApiUrl');
-    const platformClientId = this.keycloak.getPlatformOAuthClientId();
-    const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
-
-    // Backend-generated PKCE pair (verifier stored in Redis, challenge sent to Keycloak)
-    const pkceVerifier = randomBytes(32).toString('base64url');
-    const pkceChallenge = createHash('sha256').update(pkceVerifier).digest('base64url');
-
-    // Opaque stateId — only the Redis lookup proves it's a CLI flow
     const stateId = randomBytes(16).toString('hex');
     await this.redis.set(
       `${this.CLI_LOGIN_STATE_PREFIX}:${stateId}`,
-      JSON.stringify({ port, nonce, pkceVerifier }),
+      JSON.stringify({ port, nonce }),
       this.CLI_LOGIN_STATE_TTL,
     );
 
-    const authUrl = `${keycloakUrl}/realms/master/protocol/openid-connect/auth`;
-    const params = new URLSearchParams({
-      client_id: platformClientId,
-      response_type: 'code',
-      scope: 'openid email profile',
-      redirect_uri: callbackUrl,
-      state: stateId,
-      code_challenge: pkceChallenge,
-      code_challenge_method: 'S256',
-    });
+    const appUrl = this.config.get<string>('appUrl');
+    return `${appUrl}/cli-authorize?cli_state=${stateId}`;
+  }
 
-    return `${authUrl}?${params.toString()}`;
+  /** Returns the loopback port stored in a CLI state entry (non-consuming). */
+  async getCliStatePort(stateId: string): Promise<number> {
+    const raw = await this.redis.get(`${this.CLI_LOGIN_STATE_PREFIX}:${stateId}`);
+    if (!raw) throw new NotFoundException('CLI session not found or expired');
+    const parsed = JSON.parse(raw) as { port: number };
+    return parsed.port;
+  }
+
+  /**
+   * Step 2 of CLI login: the user clicked Allow on /cli-authorize.
+   * Consumes the state, stores the user's existing tokens under a one-time
+   * exchange code, and returns { exchangeCode, port } to the frontend.
+   */
+  async authorizeCliAccess(
+    stateId: string,
+    accessToken: string,
+    refreshToken: string,
+  ): Promise<{ exchangeCode: string; port: number }> {
+    const raw = await this.redis.getdel(`${this.CLI_LOGIN_STATE_PREFIX}:${stateId}`);
+    if (!raw) throw new NotFoundException('CLI session not found or expired');
+    const state = JSON.parse(raw) as { port: number; nonce: string };
+
+    const exchangeCode = randomBytes(32).toString('hex');
+    await this.redis.set(
+      `${this.CLI_LOGIN_EXCHANGE_PREFIX}:${exchangeCode}`,
+      JSON.stringify({
+        accessToken,
+        refreshToken,
+        nonce: state.nonce,
+        expiresIn: 300,
+        tokenType: 'Bearer',
+      }),
+      this.CLI_LOGIN_EXCHANGE_TTL,
+    );
+
+    return { exchangeCode, port: state.port };
   }
 
   /**

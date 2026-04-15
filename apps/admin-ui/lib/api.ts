@@ -273,6 +273,15 @@ export const api = {
       const qs = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
       return request<{ url: string; provider: string }>(`/auth/oauth/${provider}${qs}`);
     },
+    getCliStatePort(state: string) {
+      return request<{ port: number }>(`/auth/cli-state?state=${encodeURIComponent(state)}`);
+    },
+    cliAuthorize(state: string, refreshToken: string) {
+      return request<{ exchangeCode: string; port: number }>('/auth/cli-authorize', {
+        method: 'POST',
+        body: JSON.stringify({ state, refreshToken }),
+      });
+    },
     managementUsers() {
       return request<ManagementUser[]>('/auth/management/users');
     },
