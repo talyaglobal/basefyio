@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (AI quick connect prompt — kolaybase-js for auth)
+
+**Done:** `buildAiQuickConnectPrompt` §0 now tells JS/TS apps to use **kolaybase-js** (`createClient` + `kb.auth`) for Kolaybase auth and not `@supabase/supabase-js` against Kolaybase URLs unless explicitly requested. §4 prefers the SDK for data + auth; raw `fetch` with `apikey` / `x-project-id` is documented as fallback. Violet card blurb mentions kolaybase-js (`kb.auth`).
+
 ## 2026-04-17 (Connection Raw Editor / AI prompt — ENV without value quotes)
 
 **Done:** Raw Editor ENV lines and the embedded AI prompt block use `KEY=value` (no wrapping `"..."` around values) for simpler copy-paste. Prompt section 1 wording updated; Raw Editor help text notes the format.

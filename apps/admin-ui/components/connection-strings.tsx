@@ -128,6 +128,7 @@ function buildAiQuickConnectPrompt(
 ## 0) Authentication — read this first
 - Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local Keycloak requirement for login.
 - **Kolaybase is the auth surface**: sign-in and API access go through Kolaybase (the base URL and anon/service keys in the env block). Implement login and protected calls using Kolaybase as the backend auth provider — the same hosted Keycloak that powers Kolaybase is already behind that service; the app should consume Kolaybase APIs/keys, not stand up a separate IdP.
+- **JavaScript / TypeScript apps**: use the official **kolaybase-js** SDK (\`npm install kolaybase-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`kb.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported Kolaybase auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at Kolaybase URLs for auth unless the user explicitly asks for a custom low-level integration.
 - Do **not** tell the user to "provision Keycloak", import realms, or mirror Kolaybase's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
 
 ## 1) Append to .env or .env.local (copy exactly — each line is KEY=value with no quotes around values)
@@ -142,7 +143,8 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 - Do not substitute hosts or passwords.
 
 ## 4) REST / Kolaybase API
-- Browser/client: use the public URL + anon key env from the block. Send headers apikey and x-project-id with PROJECT_ID.
+- **JS/TS (preferred):** use **kolaybase-js** \`createClient\` with the env block; use \`kb.from(...)\` for tables and \`kb.auth\` for auth (same client).
+- **Raw HTTP (only if not using the SDK):** browser/client requests use the public URL + anon key from the block; send headers \`apikey\` and \`x-project-id\` with PROJECT_ID per API docs.
 - Service role key: server-side only; never expose to client bundles or public repos.
 
 ## 5) Official documentation (learn Kolaybase before inventing patterns)
@@ -767,8 +769,8 @@ datasource db {
                 </h3>
                 <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
                   Copy into your AI assistant. Same env as the Raw Editor (framework preset above),
-                  plus links to kolaybase.com/docs (API, SDK, CLI), auth rules, migrations, REST
-                  headers, CORS/CSP, and safe handling of secrets.
+                  plus kolaybase.com/docs (API, SDK, CLI), Kolaybase auth via kolaybase-js (kb.auth),
+                  migrations, REST/fetch fallback, CORS/CSP, and safe handling of secrets.
                 </p>
               </div>
             </div>
