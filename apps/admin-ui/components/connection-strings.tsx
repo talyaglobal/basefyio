@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
+  ChevronDown,
+  ChevronRight,
   Copy,
   Database,
   Key,
@@ -116,7 +118,12 @@ function buildAiQuickConnectPrompt(
   frameworkPreset: FrameworkPreset,
 ): string {
   const stack = frameworkPresetLabel(frameworkPreset);
-  return `You are helping in the user's repo. Connect to Kolaybase using ONLY the environment block below (real deployment — not localhost or placeholders).
+  return `You are helping in the user's repo. Wire the app to Kolaybase using ONLY the environment block below (real Kolaybase URLs and keys — not fake placeholders).
+
+## 0) Authentication — read this first
+- Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local Keycloak requirement for login.
+- **Kolaybase is the auth surface**: sign-in and API access go through Kolaybase (the base URL and anon/service keys in the env block). Implement login and protected calls using Kolaybase as the backend auth provider — the same hosted Keycloak that powers Kolaybase is already behind that service; the app should consume Kolaybase APIs/keys, not stand up a separate IdP.
+- Do **not** tell the user to "provision Keycloak", import realms, or mirror Kolaybase's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
 
 ## 1) Put this in .env or .env.local (verbatim — one line per variable)
 ${envBlockOneLinePerVar}
@@ -133,10 +140,19 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 - Browser/client: use the public URL + anon key env from the block. Send headers apikey and x-project-id with PROJECT_ID.
 - Service role key: server-side only; never expose to client bundles or public repos.
 
-## 5) CORS / CSP
+## 5) Official documentation (learn Kolaybase before inventing patterns)
+Use these public URLs for product behavior, SDK, CLI, and REST conventions. Prefer them over generic third-party BaaS guesses when they conflict:
+- Docs home / overview: https://kolaybase.com/docs
+- API reference (REST, auth, headers, projects): https://kolaybase.com/docs/api
+- JavaScript/TypeScript SDK: https://kolaybase.com/docs/sdk
+- CLI (kb login, link, projects): https://kolaybase.com/docs/cli
+
+The user's live base URL, keys, and PROJECT_ID still come **only** from the env block in this prompt — docs explain *how* to use them, not replacement values.
+
+## 6) CORS / CSP
 If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the Kolaybase URLs to unrelated domains.
 
-## 6) Do not
+## 7) Do not
 Echo full secrets in your reply, invent fake values, or commit .env to git.`;
 }
 
@@ -235,6 +251,7 @@ export function ConnectionStringsView({
   const [rawEditorFormat, setRawEditorFormat] = useState<RawEditorFormat>('env');
   const [nextPassword, setNextPassword] = useState('');
   const [rotatingPassword, setRotatingPassword] = useState(false);
+  const [showKeycloakDetails, setShowKeycloakDetails] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -652,16 +669,43 @@ datasource db {
           <Shield className="h-5 w-5" />
           Authentication
         </h2>
-        <CopyBlock
-          label="Keycloak Realm"
-          value={conn.keycloakRealm}
-          icon={Shield}
-        />
-        <CopyBlock
-          label="Keycloak URL"
-          value={conn.keycloakUrl}
-          icon={Link2}
-        />
+        <p className="text-sm text-muted-foreground">
+          Sign-in for this project is handled by Kolaybase (hosted auth behind the REST URL and keys
+          above). You do not run Keycloak in your own repo for normal integration.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowKeycloakDetails((open) => !open)}
+          className="flex w-full items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-muted/50"
+          aria-expanded={showKeycloakDetails}
+        >
+          <span className="min-w-0">
+            Keycloak realm and URL <span className="font-normal text-muted-foreground">(optional)</span>
+          </span>
+          {showKeycloakDetails ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          )}
+        </button>
+        {showKeycloakDetails ? (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Internal Kolaybase identifiers for this project&apos;s realm. Expand only if you need
+              them for support or advanced debugging — not required for app login wiring.
+            </p>
+            <CopyBlock
+              label="Keycloak Realm"
+              value={conn.keycloakRealm}
+              icon={Shield}
+            />
+            <CopyBlock
+              label="Keycloak URL"
+              value={conn.keycloakUrl}
+              icon={Link2}
+            />
+          </div>
+        ) : null}
       </section>
 
       {/* API Keys */}
@@ -714,9 +758,9 @@ datasource db {
                   AI prompt for quick connect
                 </h3>
                 <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                  Copy into your AI assistant. It embeds the same env as the Raw Editor (for the
-                  framework selected above), tells the model to apply it verbatim, run
-                  migration push when asked, and handle REST headers, CORS/CSP, and secrets safely.
+                  Copy into your AI assistant. Same env as the Raw Editor (framework preset above),
+                  plus links to kolaybase.com/docs (API, SDK, CLI), auth rules, migrations, REST
+                  headers, CORS/CSP, and safe handling of secrets.
                 </p>
               </div>
             </div>

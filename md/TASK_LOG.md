@@ -1,5 +1,13 @@
 # Task Log
 
+## 2026-04-17 (AI quick connect prompt — official doc URLs)
+
+**Done:** `buildAiQuickConnectPrompt` includes a documentation section with `https://kolaybase.com/docs`, `/docs/api`, `/docs/sdk`, `/docs/cli` so assistants can align with published API/SDK/CLI material; section numbering adjusted. Card blurb updated.
+
+## 2026-04-15 (Connection page — Keycloak collapsible + AI quick-connect auth wording)
+
+**Done:** Kolaybase Details → Authentication: Keycloak realm/URL behind a disclosure (collapsed by default) with short copy that app auth uses Kolaybase, not local Keycloak. `buildAiQuickConnectPrompt` adds section **0) Authentication** telling the model not to docker-compose Keycloak and to use Kolaybase as the auth surface only.
+
 ## 2026-04-15 (projects trash — 24h hard delete + Deleted Projects info)
 
 **Problem:** Soft-deleted projects used `updatedAt` for retention and ran cleanup **once per day at midnight**, so items could exceed 24h in trash; UI showed "Expires soon" while rows lingered.
