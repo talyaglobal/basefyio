@@ -82,6 +82,11 @@ function getHostnameFromUrl(value: string): string | null {
   }
 }
 
+/** Dotenv-style line without wrapping the value in quotes (clean copy-paste for .env). */
+function formatDotenvLine(key: string, value: string): string {
+  return `${key}=${value}`;
+}
+
 /** When API returns localhost DB but publicBaseUrl is a real host, rewrite URIs for remote dev. */
 function rewriteLocalhostInPgUri(uri: string, replacementHost: string | null): string {
   if (!replacementHost) return uri;
@@ -125,7 +130,7 @@ function buildAiQuickConnectPrompt(
 - **Kolaybase is the auth surface**: sign-in and API access go through Kolaybase (the base URL and anon/service keys in the env block). Implement login and protected calls using Kolaybase as the backend auth provider — the same hosted Keycloak that powers Kolaybase is already behind that service; the app should consume Kolaybase APIs/keys, not stand up a separate IdP.
 - Do **not** tell the user to "provision Keycloak", import realms, or mirror Kolaybase's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
 
-## 1) Put this in .env or .env.local (verbatim — one line per variable)
+## 1) Append to .env or .env.local (copy exactly — each line is KEY=value with no quotes around values)
 ${envBlockOneLinePerVar}
 
 ## 2) Stack preset
@@ -361,7 +366,7 @@ datasource db {
 
   const selectedVars = frameworkVars[framework];
   const rawEnvContent = Object.entries(selectedVars)
-    .map(([key, value]) => `${key}="${value}"`)
+    .map(([key, value]) => formatDotenvLine(key, value))
     .join('\n');
   const rawJsonContent = JSON.stringify(selectedVars, null, 2);
   const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
@@ -432,7 +437,10 @@ datasource db {
           <div>
             <h2 className="text-lg font-semibold">Raw Editor</h2>
             <p className="text-sm text-muted-foreground">
-              Add, edit, or copy your project variables in ENV or JSON format.
+              Add, edit, or copy your project variables in ENV or JSON format. In ENV mode each
+              line is <code className="rounded bg-muted px-1 py-0.5 text-xs">KEY=value</code> with
+              no quotes around values so you can paste straight into{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>.
             </p>
             <p className="text-sm text-muted-foreground mt-2">
               <code className="rounded bg-muted px-1 py-0.5 text-xs">DATABASE_URL</code> uses the

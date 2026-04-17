@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-17 (Connection Raw Editor / AI prompt — ENV without value quotes)
+
+**Done:** Raw Editor ENV lines and the embedded AI prompt block use `KEY=value` (no wrapping `"..."` around values) for simpler copy-paste. Prompt section 1 wording updated; Raw Editor help text notes the format.
+
 ## 2026-04-17 (AI quick connect prompt — official doc URLs)
 
 **Done:** `buildAiQuickConnectPrompt` includes a documentation section with `https://kolaybase.com/docs`, `/docs/api`, `/docs/sdk`, `/docs/cli` so assistants can align with published API/SDK/CLI material; section numbering adjusted. Card blurb updated.
