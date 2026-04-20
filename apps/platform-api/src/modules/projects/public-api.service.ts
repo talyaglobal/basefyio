@@ -4,12 +4,20 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 
 interface ParsedFilter {
   clause: string;
   values: unknown[];
+}
+
+export type PgDbRole = 'anon' | 'authenticated' | 'service_role';
+
+export interface RlsContext {
+  role: PgDbRole;
+  /** Decoded JWT payload (claims) — will be exposed to policies via auth.jwt(). */
+  jwtClaims?: Record<string, unknown>;
 }
 
 const OPERATOR_MAP: Record<string, string> = {
@@ -29,6 +37,12 @@ const RESERVED_PARAMS = new Set([
   'select', 'order', 'limit', 'offset', 'on_conflict',
 ]);
 
+const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
+  'anon',
+  'authenticated',
+  'service_role',
+]);
+
 @Injectable()
 export class PublicApiService {
   constructor(
@@ -40,11 +54,11 @@ export class PublicApiService {
     projectId: string,
     table: string,
     query: Record<string, string | string[]>,
+    ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const pool = await this.getPool(projectId);
 
-    try {
+    return this.withRls(projectId, ctx, async (client) => {
       const columns = this.parseSelect(query.select as string);
       const { where, params } = this.parseFilters(query);
       const orderBy = this.parseOrder(query.order as string);
@@ -61,17 +75,15 @@ export class PublicApiService {
 
       const countSql = `SELECT COUNT(*)::int AS total FROM "${table}"${where ? ` WHERE ${where}` : ''}`;
       const [dataResult, countResult] = await Promise.all([
-        pool.query(sql, allParams),
-        pool.query(countSql, params),
+        client.query(sql, allParams),
+        client.query(countSql, params),
       ]);
 
       return {
         data: dataResult.rows,
         count: countResult.rows[0]?.total ?? 0,
       };
-    } finally {
-      await pool.end();
-    }
+    });
   }
 
   async insert(
@@ -79,11 +91,11 @@ export class PublicApiService {
     table: string,
     body: Record<string, unknown> | Record<string, unknown>[],
     returnRepresentation: boolean,
+    ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const pool = await this.getPool(projectId);
 
-    try {
+    return this.withRls(projectId, ctx, async (client) => {
       const rows = Array.isArray(body) ? body : [body];
       if (!rows.length) throw new BadRequestException('Empty body');
 
@@ -107,11 +119,9 @@ export class PublicApiService {
       const returning = returnRepresentation ? ' RETURNING *' : '';
       const sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')}${returning}`;
 
-      const result = await pool.query(sql, allValues);
+      const result = await client.query(sql, allValues);
       return returnRepresentation ? result.rows : { count: result.rowCount };
-    } finally {
-      await pool.end();
-    }
+    });
   }
 
   async update(
@@ -120,11 +130,11 @@ export class PublicApiService {
     query: Record<string, string | string[]>,
     body: Record<string, unknown>,
     returnRepresentation: boolean,
+    ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const pool = await this.getPool(projectId);
 
-    try {
+    return this.withRls(projectId, ctx, async (client) => {
       const { where, params } = this.parseFilters(query);
       if (!where) {
         throw new BadRequestException('PATCH requires at least one filter to prevent full-table updates');
@@ -145,11 +155,9 @@ export class PublicApiService {
       const returning = returnRepresentation ? ' RETURNING *' : '';
       const sql = `UPDATE "${table}" SET ${setClause} WHERE ${where}${returning}`;
 
-      const result = await pool.query(sql, [...params, ...setValues]);
+      const result = await client.query(sql, [...params, ...setValues]);
       return returnRepresentation ? result.rows : { count: result.rowCount };
-    } finally {
-      await pool.end();
-    }
+    });
   }
 
   async delete(
@@ -157,11 +165,11 @@ export class PublicApiService {
     table: string,
     query: Record<string, string | string[]>,
     returnRepresentation: boolean,
+    ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const pool = await this.getPool(projectId);
 
-    try {
+    return this.withRls(projectId, ctx, async (client) => {
       const { where, params } = this.parseFilters(query);
       if (!where) {
         throw new BadRequestException('DELETE requires at least one filter to prevent full-table deletes');
@@ -170,9 +178,61 @@ export class PublicApiService {
       const returning = returnRepresentation ? ' RETURNING *' : '';
       const sql = `DELETE FROM "${table}" WHERE ${where}${returning}`;
 
-      const result = await pool.query(sql, params);
+      const result = await client.query(sql, params);
       return returnRepresentation ? result.rows : { count: result.rowCount };
+    });
+  }
+
+  /* ────────────────────────────── RLS core ────────────────────────────── */
+
+  /**
+   * Runs `fn` inside a transaction with SET LOCAL role and
+   * request.jwt.claims populated. Any failure rolls back.
+   *
+   * This is what enforces RLS: the project's DB owner role (`kb_user_<slug>`)
+   * owns the tables, but we drop down to anon / authenticated / service_role
+   * before running the user's query so policies apply.
+   */
+  private async withRls<T>(
+    projectId: string,
+    ctx: RlsContext,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    if (!ALLOWED_ROLES.has(ctx.role)) {
+      throw new ForbiddenException(`Invalid DB role: ${ctx.role}`);
+    }
+
+    const pool = await this.getPool(projectId);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // SET LOCAL survives only until COMMIT / ROLLBACK.
+      await client.query(`SET LOCAL ROLE "${ctx.role}"`);
+
+      const claimsJson = ctx.jwtClaims
+        ? JSON.stringify(ctx.jwtClaims)
+        : '{}';
+      await client.query(
+        `SELECT set_config('request.jwt.claims', $1, true)`,
+        [claimsJson],
+      );
+      await client.query(
+        `SELECT set_config('request.jwt.role', $1, true)`,
+        [ctx.role],
+      );
+
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* noop */
+      }
+      throw e;
     } finally {
+      client.release();
       await pool.end();
     }
   }

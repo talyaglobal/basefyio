@@ -16,6 +16,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "rls:backfill": "ts-node --transpile-only scripts/backfill-rls.ts",
+    "rls:backfill:dry": "ts-node --transpile-only scripts/backfill-rls.ts --dry",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix"
   },
   "dependencies": {

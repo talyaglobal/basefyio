@@ -10,6 +10,8 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Pool } from 'pg';
 import { randomBytes, randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
@@ -103,9 +105,11 @@ export class ProjectsService {
     if (actualAdminUser && actualAdminPassword) {
       await this.createDatabaseOnHost(dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
       await this.createDatabaseUserOnHost(dbUser, dbPassword, dbName, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
+      await this.applyRlsBootstrapOnHost(dbName, dbUser, actualDbHost, actualDbPort, actualAdminUser, actualAdminPassword);
     } else {
       await this.createDatabase(dbName);
       await this.createDatabaseUser(dbUser, dbPassword, dbName);
+      await this.applyRlsBootstrap(dbName, dbUser);
     }
 
     let anonKey: string;
@@ -142,6 +146,8 @@ export class ProjectsService {
         teamId: dto.teamId,
         createdBy: userId,
         importSource,
+        // Requires `prisma generate` after pulling this change.
+        ...({ rlsBootstrappedAt: new Date() } as any),
       },
     });
 
@@ -1145,6 +1151,136 @@ export class ProjectsService {
       password: this.config.get('database.password'),
       database: 'postgres',
     });
+  }
+
+  /* ─────────────────────────── RLS bootstrap ─────────────────────────── */
+
+  private _rlsBootstrapSqlCache: string | null = null;
+
+  private loadRlsBootstrapSql(): string {
+    if (this._rlsBootstrapSqlCache) return this._rlsBootstrapSqlCache;
+    // At runtime (after `nest build`) this file lives next to the compiled
+    // projects.service.js under sql/rls-bootstrap.sql. During `start:dev`
+    // (ts-node) __dirname is the ts source folder. Both paths work.
+    const candidate = join(__dirname, 'sql', 'rls-bootstrap.sql');
+    const sql = readFileSync(candidate, 'utf8');
+    this._rlsBootstrapSqlCache = sql;
+    return sql;
+  }
+
+  /**
+   * Install anon/authenticated/service_role roles, the `auth` schema and
+   * helper functions into a project DB on the shared/control-plane Postgres.
+   * Idempotent — safe to call on existing databases.
+   */
+  async applyRlsBootstrap(dbName: string, dbUser: string): Promise<void> {
+    const sanitizedDb = dbName.replace(/[^a-z0-9_]/g, '');
+    const sanitizedUser = dbUser.replace(/[^a-z0-9_]/g, '');
+
+    const pool = new Pool({
+      host: this.config.get('database.host'),
+      port: this.config.get('database.port'),
+      user: this.config.get('database.user'),
+      password: this.config.get('database.password'),
+      database: sanitizedDb,
+    });
+    try {
+      await this.runRlsBootstrap(pool, sanitizedUser);
+      this.logger.log(`RLS bootstrap applied to "${sanitizedDb}"`);
+    } catch (err: any) {
+      this.logger.error(
+        `RLS bootstrap failed for "${sanitizedDb}": ${err.message}`,
+        err.stack,
+      );
+      throw new InternalServerErrorException(
+        `Failed to apply RLS bootstrap: ${err.message}`,
+      );
+    } finally {
+      await pool.end();
+    }
+  }
+
+  /** Same as applyRlsBootstrap but targets a dedicated-host DB. */
+  async applyRlsBootstrapOnHost(
+    dbName: string,
+    dbUser: string,
+    host: string,
+    port: number,
+    adminUser: string,
+    adminPassword: string,
+  ): Promise<void> {
+    const sanitizedDb = dbName.replace(/[^a-z0-9_]/g, '');
+    const sanitizedUser = dbUser.replace(/[^a-z0-9_]/g, '');
+
+    const pool = new Pool({
+      host,
+      port,
+      user: adminUser,
+      password: adminPassword,
+      database: sanitizedDb,
+    });
+    try {
+      await this.runRlsBootstrap(pool, sanitizedUser);
+      this.logger.log(`RLS bootstrap applied to "${sanitizedDb}" on ${host}`);
+    } catch (err: any) {
+      this.logger.error(
+        `RLS bootstrap failed for "${sanitizedDb}" on ${host}: ${err.message}`,
+        err.stack,
+      );
+      throw new InternalServerErrorException(
+        `Failed to apply RLS bootstrap: ${err.message}`,
+      );
+    } finally {
+      await pool.end();
+    }
+  }
+
+  /**
+   * Idempotent re-application triggered by the admin UI / backfill script.
+   * Looks up the project, runs the bootstrap, stamps `rlsBootstrappedAt`.
+   */
+  async ensureRlsBootstrap(projectId: string): Promise<{ bootstrappedAt: Date }> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: { id: true, dbName: true, dbHost: true, dbPort: true, dbUser: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const cfgHost = this.config.get<string>('database.host');
+    const cfgPort = Number(this.config.get<number>('database.port'));
+
+    if (project.dbHost === cfgHost && Number(project.dbPort) === cfgPort) {
+      await this.applyRlsBootstrap(project.dbName, project.dbUser);
+    } else {
+      // Dedicated host — we don't have cached admin creds here.
+      // The infra service owns those; for now we just refuse and log.
+      throw new InternalServerErrorException(
+        'RLS bootstrap for dedicated-host projects must be invoked via the provisioning flow',
+      );
+    }
+
+    // Stamp rls_bootstrapped_at via raw SQL so this file type-checks even
+    // before `prisma generate` is re-run post-pull.
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "projects" SET "rls_bootstrapped_at" = NOW() WHERE "id" = $1`,
+      project.id,
+    );
+    return { bootstrappedAt: new Date() };
+  }
+
+  private async runRlsBootstrap(pool: Pool, sanitizedUser: string): Promise<void> {
+    const template = this.loadRlsBootstrapSql();
+    if (!/^[a-z0-9_]+$/.test(sanitizedUser)) {
+      throw new BadRequestException('Invalid project owner identifier');
+    }
+    const sql = template.replace(/%KB_PROJECT_OWNER%/g, sanitizedUser);
+
+    const client = await pool.connect();
+    try {
+      await client.query(sql);
+    } finally {
+      client.release();
+    }
   }
 
   private toSlug(name: string): string {

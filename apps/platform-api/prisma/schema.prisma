@@ -189,6 +189,9 @@ model Project {
   updatedAt     DateTime      @updatedAt @map("updated_at")
   /// When the project was moved to trash; used for 24h retention (not `updatedAt`).
   deletedAt     DateTime?     @map("deleted_at")
+  /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
+  /// were installed into the project DB. Null = not yet bootstrapped.
+  rlsBootstrappedAt DateTime? @map("rls_bootstrapped_at")
 
   // Folder
   folderId      String?  @map("folder_id")

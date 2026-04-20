@@ -12,7 +12,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { PublicApiService } from './public-api.service';
+import { PublicApiService, RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 
 @Controller('rest/v1')
@@ -25,8 +25,13 @@ export class PublicApiController {
     @Param('table') table: string,
     @Req() req: Request,
   ) {
-    const { projectId } = this.getPayload(req);
-    return this.publicApi.select(projectId, table, req.query as Record<string, string>);
+    const payload = this.getPayload(req);
+    return this.publicApi.select(
+      payload.projectId,
+      table,
+      req.query as Record<string, string>,
+      this.buildCtx(payload),
+    );
   }
 
   @Post(':table')
@@ -36,11 +41,15 @@ export class PublicApiController {
     @Req() req: Request,
     @Headers('prefer') prefer?: string,
   ) {
-    const { projectId, role } = this.getPayload(req);
-    this.requireService(role);
-
+    const payload = this.getPayload(req);
     const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.insert(projectId, table, body, returnRep);
+    return this.publicApi.insert(
+      payload.projectId,
+      table,
+      body,
+      returnRep,
+      this.buildCtx(payload),
+    );
   }
 
   @Patch(':table')
@@ -50,11 +59,16 @@ export class PublicApiController {
     @Req() req: Request,
     @Headers('prefer') prefer?: string,
   ) {
-    const { projectId, role } = this.getPayload(req);
-    this.requireService(role);
-
+    const payload = this.getPayload(req);
     const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.update(projectId, table, req.query as Record<string, string>, body, returnRep);
+    return this.publicApi.update(
+      payload.projectId,
+      table,
+      req.query as Record<string, string>,
+      body,
+      returnRep,
+      this.buildCtx(payload),
+    );
   }
 
   @Delete(':table')
@@ -63,11 +77,15 @@ export class PublicApiController {
     @Req() req: Request,
     @Headers('prefer') prefer?: string,
   ) {
-    const { projectId, role } = this.getPayload(req);
-    this.requireService(role);
-
+    const payload = this.getPayload(req);
     const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.delete(projectId, table, req.query as Record<string, string>, returnRep);
+    return this.publicApi.delete(
+      payload.projectId,
+      table,
+      req.query as Record<string, string>,
+      returnRep,
+      this.buildCtx(payload),
+    );
   }
 
   private getPayload(req: Request): ApiKeyPayload {
@@ -76,9 +94,7 @@ export class PublicApiController {
     return payload;
   }
 
-  private requireService(role: 'anon' | 'service') {
-    if (role !== 'service') {
-      throw new ForbiddenException('This operation requires a service key');
-    }
+  private buildCtx(payload: ApiKeyPayload): RlsContext {
+    return { role: payload.dbRole, jwtClaims: payload.jwtClaims };
   }
 }
