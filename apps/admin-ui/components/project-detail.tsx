@@ -266,7 +266,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               autoComplete="off"
             />
           ) : (
-            <div className="group relative inline-block max-w-full align-top">
+            <div className="group relative w-full min-w-0">
               <button
                 type="button"
                 onClick={() => {
@@ -274,8 +274,8 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
                   setNameEditing(true);
                 }}
                 className={cn(
-                  'relative max-w-full truncate text-left text-2xl font-bold tracking-tight',
-                  'rounded-md px-0.5 -mx-0.5',
+                  'block w-full min-w-0 truncate text-left text-2xl font-bold tracking-tight',
+                  'rounded-md px-1 -mx-1 py-0.5',
                   'transition-colors hover:bg-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 )}
                 title="Rename"

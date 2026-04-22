@@ -10,7 +10,7 @@
 
 ## 2026-04-22 (Project overview — inline rename on title)
 
-**Done:** On project detail Overview, the title is a hoverable control: **Rename** chip above on hover; click switches to an **Input** for editing. **Enter** or **blur** saves via `PATCH /projects/:id` and `refreshProject()`; **Escape** cancels. Validation: non-empty, max 200 chars. English toasts.
+**Done:** On project detail Overview, the title is a hoverable control: **Rename** chip above on hover; click switches to an **Input** for editing. **Enter** or **blur** saves via `PATCH /projects/:id` and `refreshProject()`; **Escape** cancels. Validation: non-empty, max 200 chars. English toasts. The title is a **block w-full** button so the hover/click target uses the full title row width; long names still **truncate** on one line.
 
 ## 2026-04-15 (Dashboard header — expandable project name search)
 
