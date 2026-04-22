@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-15 (Header project search — UX: visible bar + scope copy)
+
+**Done:** Admin header **center** is always a real **search field** on `md+` (icon, border, clear button, `title`/placeholder explaining **project names across all teams**). Dropdown opens on focus or when the query is non-empty; a short **info strip** states scope (all teams, project names only, not team names). Result rows use `onMouseDown` preventDefault so choosing a result does not break focus. **Mobile:** `md:hidden` **search-bar–styled** full-width control in the center row opens a sheet with the same copy + examples placeholder; light backdrop dismisses; `headerProjectSearchExpanded` removed in favor of `headerMobileSearchOpen` + `headerSearchFocused`. `closeHeaderProjectSearch` is `useCallback`; global mousedown reset uses the new state.
+
 ## 2026-04-22 (Header search — all teams + search label)
 
 **Done:** Navbar project search loads `api.projects.list` for **every** team in `useDashboard().teams` (Promise.all) and filters by name across the merged set; result rows show **team** subtitle. Open control shows lowercase **search** and a very small (h-6 w-6) icon button; enabled when the user has at least one team. Active-team projects dropdown unchanged.

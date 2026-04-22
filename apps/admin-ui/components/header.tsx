@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -89,8 +89,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [teamSearch, setTeamSearch] = useState('');
   const [projectSearch, setProjectSearch] = useState('');
-  const [headerProjectSearchExpanded, setHeaderProjectSearchExpanded] = useState(false);
   const [headerProjectQuery, setHeaderProjectQuery] = useState('');
+  const [headerSearchFocused, setHeaderSearchFocused] = useState(false);
+  const [headerMobileSearchOpen, setHeaderMobileSearchOpen] = useState(false);
   const [allTeamsHeaderProjects, setAllTeamsHeaderProjects] = useState<ProjectForHeaderSearch[]>([]);
   const [allTeamsHeaderSearchLoading, setAllTeamsHeaderSearchLoading] = useState(false);
 
@@ -104,7 +105,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       setProjectsMenuOpen(false);
       setDocsMenuOpen(false);
       setUserMenuOpen(false);
-      setHeaderProjectSearchExpanded(false);
+      setHeaderMobileSearchOpen(false);
+      setHeaderSearchFocused(false);
       setHeaderProjectQuery('');
     };
     document.addEventListener('mousedown', onGlobalPointerDown);
@@ -257,40 +259,42 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [headerSearchBasePool, headerProjectQuery]);
 
-  const closeHeaderProjectSearch = () => {
-    setHeaderProjectSearchExpanded(false);
+  const closeHeaderProjectSearch = useCallback(() => {
     setHeaderProjectQuery('');
-  };
+    setHeaderSearchFocused(false);
+    setHeaderMobileSearchOpen(false);
+    headerSearchInputDesktopRef.current?.blur();
+    headerSearchInputMobileRef.current?.blur();
+  }, []);
 
-  const openHeaderProjectSearch = () => {
+  const openHeaderMobileSearch = () => {
     setDropdownOpen(false);
     setProjectsMenuOpen(false);
     setDocsMenuOpen(false);
     setUserMenuOpen(false);
-    setHeaderProjectSearchExpanded(true);
+    setHeaderMobileSearchOpen(true);
   };
 
+  const showHeaderSearchDropdown =
+    teams.length > 0 && (headerSearchFocused || headerProjectQuery.trim().length > 0);
+
   useEffect(() => {
-    if (!headerProjectSearchExpanded) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setHeaderProjectSearchExpanded(false);
-        setHeaderProjectQuery('');
-      }
+      if (e.key !== 'Escape') return;
+      if (!headerSearchFocused && !headerMobileSearchOpen && !headerProjectQuery.trim()) return;
+      e.preventDefault();
+      closeHeaderProjectSearch();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [headerProjectSearchExpanded]);
+  }, [headerSearchFocused, headerMobileSearchOpen, headerProjectQuery, closeHeaderProjectSearch]);
 
   useLayoutEffect(() => {
-    if (!headerProjectSearchExpanded) return;
-    if (typeof window === 'undefined') return;
-    const m = window.matchMedia('(min-width: 768px)');
-    const r = m.matches ? headerSearchInputDesktopRef : headerSearchInputMobileRef;
+    if (!headerMobileSearchOpen) return;
     window.requestAnimationFrame(() => {
-      r.current?.focus();
+      headerSearchInputMobileRef.current?.focus();
     });
-  }, [headerProjectSearchExpanded]);
+  }, [headerMobileSearchOpen]);
 
   async function switchTeam(teamId: string) {
     try {
@@ -421,49 +425,78 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         </div>
       </div>
 
-      {/* ── Center: expandable project search (name only) ────────── */}
+      {/* ── Center: project search (all teams, project name only) ── */}
       <div
-        className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 md:flex"
+        className="flex min-w-0 flex-1 items-center justify-center px-1 sm:px-2"
         data-header-project-search="true"
       >
-        {!headerProjectSearchExpanded ? (
-          <div className="flex items-center gap-0.5">
-            <span className="pr-0.5 text-[11px] font-medium lowercase tracking-tight text-muted-foreground">
-              search
-            </span>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              onClick={() => teams.length > 0 && openHeaderProjectSearch()}
-              disabled={!teams.length}
-              className="h-6 w-6 shrink-0 rounded border border-border"
-              title={teams.length ? 'Open search' : 'No teams yet'}
-              aria-label="Open project search"
-            >
-              <Search className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        ) : (
-          <div className="relative w-full min-w-0 max-w-md transition-all duration-200 ease-out">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              ref={headerSearchInputDesktopRef}
-              value={headerProjectQuery}
-              onChange={(e) => setHeaderProjectQuery(e.target.value)}
-              placeholder="Search projects by name..."
-              autoComplete="off"
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-background pl-8 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
+        <button
+          type="button"
+          className="relative flex w-full min-w-0 max-w-sm items-center gap-2 rounded-lg border border-input bg-muted/30 py-2 pl-3 pr-3 text-left text-sm text-muted-foreground shadow-sm transition-[box-shadow,background-color] hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring/30 md:hidden"
+          onClick={() => teams.length > 0 && openHeaderMobileSearch()}
+          disabled={!teams.length}
+          title={
+            teams.length
+              ? 'Search project names in all teams you belong to'
+              : 'Create a team to search projects'
+          }
+        >
+          <Search className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">Search projects by name…</span>
+        </button>
+
+        <div className="relative hidden w-full min-w-0 max-w-md md:block">
+          <label htmlFor="header-project-search-desktop" className="sr-only">
+            Search projects by name across all your teams
+          </label>
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            id="header-project-search-desktop"
+            ref={headerSearchInputDesktopRef}
+            type="search"
+            value={headerProjectQuery}
+            onChange={(e) => setHeaderProjectQuery(e.target.value)}
+            onFocus={() => setHeaderSearchFocused(true)}
+            onBlur={() => {
+              window.setTimeout(() => setHeaderSearchFocused(false), 150);
+            }}
+            placeholder="Search projects by name…"
+            title="Searches project names in every team you belong to (not team names or descriptions)"
+            autoComplete="off"
+            autoCorrect="off"
+            disabled={!teams.length}
+            className={cn(
+              'h-10 w-full min-w-0 rounded-lg border border-input bg-background pl-10 pr-10 text-sm shadow-sm',
+              'placeholder:text-muted-foreground/85',
+              'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
+              !teams.length && 'cursor-not-allowed opacity-50',
+            )}
+          />
+          {headerProjectQuery ? (
             <button
               type="button"
-              onClick={closeHeaderProjectSearch}
-              className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-              aria-label="Close search"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setHeaderProjectQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
             >
               <X className="h-4 w-4" />
             </button>
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg">
+          ) : null}
+          {showHeaderSearchDropdown && (
+            <div
+              className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-[min(70vh,22rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card shadow-md"
+              role="listbox"
+              aria-label="Project search results"
+            >
+              <p className="border-b border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">All your teams</span> — matches{' '}
+                <span className="font-medium text-foreground">project names</span> only. Team names
+                and descriptions are not included.
+              </p>
               {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
               ) : headerSearchResults.length === 0 ? (
@@ -475,9 +508,10 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               ) : (
                 <ul className="p-0.5">
                   {headerSearchResults.map((project) => (
-                    <li key={project.id}>
+                    <li key={project.id} role="option">
                       <button
                         type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           closeHeaderProjectSearch();
                           router.push(`/dashboard/projects/${project.id}`);
@@ -506,104 +540,105 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 </ul>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── Right: team switcher + invites + user ────────────────── */}
       <div className="flex items-center gap-2 md:gap-3">
-        {headerProjectSearchExpanded && (
-          <div
-            className="fixed left-0 right-0 top-14 z-[55] max-h-[min(70vh,22rem)] flex flex-col border-b border-border bg-card shadow-lg md:hidden"
-            data-header-project-search="true"
-          >
-            <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
-              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <input
-                ref={headerSearchInputMobileRef}
-                value={headerProjectQuery}
-                onChange={(e) => setHeaderProjectQuery(e.target.value)}
-                placeholder="Search by project name..."
-                autoComplete="off"
-                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={closeHeaderProjectSearch}
-                aria-label="Close search"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1">
-              {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
-                <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
-              ) : headerSearchResults.length === 0 ? (
-                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {headerProjectQuery.trim()
-                    ? 'No projects match that name.'
-                    : 'No projects in your teams yet.'}
+        {headerMobileSearchOpen && (
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-[54] bg-background/60 backdrop-blur-[1px] md:hidden"
+              aria-label="Dismiss search"
+              onClick={closeHeaderProjectSearch}
+            />
+            <div
+              className="fixed left-0 right-0 top-14 z-[55] flex max-h-[min(70vh,22rem)] flex-col border-b border-border bg-card shadow-lg md:hidden"
+              data-header-project-search="true"
+            >
+              <div className="shrink-0 border-b border-border px-3 pb-2 pt-3">
+                <p className="text-sm font-semibold text-foreground">Search projects</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  Type a <span className="font-medium text-foreground">project name</span>. We search
+                  across <span className="font-medium text-foreground">all teams</span> you belong to
+                  (team names are not searched).
                 </p>
-              ) : (
-                <ul>
-                  {headerSearchResults.map((project) => (
-                    <li key={project.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          closeHeaderProjectSearch();
-                          router.push(`/dashboard/projects/${project.id}`);
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
-                          project.id === currentProjectIdFromPath
-                            ? 'bg-primary/10 font-medium text-primary'
-                            : 'active:bg-accent',
-                        )}
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
-                          {project.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1 text-left">
-                          <p className="truncate font-medium" title={project.name}>
-                            {project.name}
-                          </p>
-                          <p className="truncate text-xs text-muted-foreground" title={project.teamName}>
-                            {project.teamName}
-                          </p>
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
+                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <input
+                  ref={headerSearchInputMobileRef}
+                  value={headerProjectQuery}
+                  onChange={(e) => setHeaderProjectQuery(e.target.value)}
+                  placeholder="e.g. billing, api, website…"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={closeHeaderProjectSearch}
+                  aria-label="Close search"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
+                ) : headerSearchResults.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                    {headerProjectQuery.trim()
+                      ? 'No projects match that name.'
+                      : 'No projects in your teams yet.'}
+                  </p>
+                ) : (
+                  <ul>
+                    {headerSearchResults.map((project) => (
+                      <li key={project.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            closeHeaderProjectSearch();
+                            router.push(`/dashboard/projects/${project.id}`);
+                          }}
+                          className={cn(
+                            'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
+                            project.id === currentProjectIdFromPath
+                              ? 'bg-primary/10 font-medium text-primary'
+                              : 'active:bg-accent',
+                          )}
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                            {project.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="truncate font-medium" title={project.name}>
+                              {project.name}
+                            </p>
+                            <p
+                              className="truncate text-xs text-muted-foreground"
+                              title={project.teamName}
+                            >
+                              {project.teamName}
+                            </p>
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
 
-        <div
-          className={cn(
-            'flex items-center gap-0.5 md:hidden',
-            headerProjectSearchExpanded && 'max-md:hidden',
-          )}
-        >
-          <span className="text-[11px] font-medium lowercase text-muted-foreground">search</span>
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            onClick={() => teams.length > 0 && openHeaderProjectSearch()}
-            disabled={!teams.length}
-            className="h-6 w-6 shrink-0 rounded border border-border"
-            title={teams.length ? 'Open search' : 'No teams yet'}
-            aria-label="Open project search"
-          >
-            <Search className="h-3.5 w-3.5" />
-          </Button>
-        </div>
         <button
           onClick={() => { closeHeaderProjectSearch(); setMobileMenuOpen(!mobileMenuOpen); }}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"
