@@ -20,6 +20,7 @@ import {
   Key,
   Link2,
   Plug,
+  Settings,
   Shield,
   ScrollText,
   Table2,
@@ -108,6 +109,7 @@ const navItems = [
   { label: 'Connection', href: '/connect', icon: Link2 },
   { label: 'Backup & Export', href: '/backup', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
+  { label: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export default function ProjectLayout({
@@ -214,6 +216,16 @@ export default function ProjectLayout({
     [sidebarExpanded, sidebarWidth],
   );
 
+  const refreshProject = useCallback(async () => {
+    if (!id) return;
+    try {
+      const proj = await api.projects.get(id);
+      setProject(proj);
+    } catch {
+      toast.error('Failed to refresh project');
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -270,7 +282,7 @@ export default function ProjectLayout({
   const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
 
   return (
-    <ProjectProvider project={project} loading={false}>
+    <ProjectProvider project={project} loading={false} refreshProject={refreshProject}>
       <div
       className={cn(
         'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6',

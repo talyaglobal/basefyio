@@ -1,5 +1,21 @@
 # Task Log
 
+## 2026-04-22 (New projects — random Postgres db name and db user)
+
+**Done:** `ProjectsService.create` no longer sets `dbName` / `dbUser` from the project slug. New projects get `kb_<16 hex>` and `kb_user_<16 hex>` via `uniqueDatabaseNameAndUser()` with collision checks against existing `projects` rows. Slug, Keycloak realm (`kb-<slug>`), and infra container names (slug-based) unchanged. Existing DB rows not migrated.
+
+## 2026-04-22 (Project overview — inline rename on title)
+
+**Done:** On project detail Overview, the title is a hoverable control: **Rename** chip above on hover; click switches to an **Input** for editing. **Enter** or **blur** saves via `PATCH /projects/:id` and `refreshProject()`; **Escape** cancels. Validation: non-empty, max 200 chars. English toasts.
+
+## 2026-04-15 (Dashboard header — expandable project name search)
+
+**Done:** Center area (md+): search icon expands to a search field with a dropdown. Results filter **by project name only**; empty query shows up to 8 team projects. Click navigates to `/dashboard/projects/:id`, Escape or outside click closes. Mobile: same behavior via top bar search icon + full-width panel under the header. Opening team/projects/docs/user menus or Feedback closes the search. English UI; `data-header-project-search` excluded from the generic nav mousedown so the panel is not auto-closed by that handler.
+
+## 2026-04-15 (Project detail — Settings page)
+
+**Done:** Added `/dashboard/projects/[id]/settings` with project name, description, folder select, and team tags; read-only id/slug/created. Sidebar nav item **Settings** (after Integrations). `GET /projects/:id` (platform-api `findOne`) now includes `folder` and `tags` like the list view. `Project` type + `api.projects.update` allow `description: null`. `ProjectProvider` exposes `refreshProject` after save. Back button on settings page; English UI.
+
 ## 2026-04-15 (AI quick connect prompt — kolaybase-js for auth)
 
 **Done:** `buildAiQuickConnectPrompt` §0 now tells JS/TS apps to use **kolaybase-js** (`createClient` + `kb.auth`) for Kolaybase auth and not `@supabase/supabase-js` against Kolaybase URLs unless explicitly requested. §4 prefers the SDK for data + auth; raw `fetch` with `apikey` / `x-project-id` is documented as fallback. Violet card blurb mentions kolaybase-js (`kb.auth`).

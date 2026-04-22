@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -32,6 +32,8 @@ import {
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
+import { useProject } from '@/contexts/project-context';
+import { cn } from '@/lib/utils';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -74,6 +76,7 @@ const DELETE_REASONS = [
 
 export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
+  const { refreshProject } = useProject();
   const [deleting, setDeleting] = useState(false);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
@@ -88,10 +91,59 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [deleteReasonCode, setDeleteReasonCode] = useState<string>('none');
   const [deleteDetails, setDeleteDetails] = useState('');
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(project.name);
+  const [nameSaving, setNameSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const ignoreNameBlurRef = useRef(false);
+
+  useEffect(() => {
+    if (!nameEditing) {
+      setNameDraft(project.name);
+    }
+  }, [project.name, nameEditing]);
+
+  useLayoutEffect(() => {
+    if (nameEditing && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [nameEditing]);
 
   useEffect(() => {
     api.teams.list().then(setTeams).catch(() => {});
   }, []);
+
+  async function saveProjectName() {
+    if (nameSaving) return;
+    const next = nameDraft.trim();
+    if (!next) {
+      toast.error('Name is required');
+      setNameDraft(project.name);
+      return;
+    }
+    if (next.length > 200) {
+      toast.error('Name is too long (max 200 characters)');
+      return;
+    }
+    if (next === project.name) {
+      setNameEditing(false);
+      return;
+    }
+    setNameSaving(true);
+    try {
+      await api.projects.update(project.id, { name: next });
+      toast.success('Project renamed');
+      setNameEditing(false);
+      await refreshProject?.();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to rename project';
+      toast.error(message);
+      setNameDraft(project.name);
+    } finally {
+      setNameSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (project.github?.connected) {
@@ -184,12 +236,60 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h1
-            className="truncate text-2xl font-bold tracking-tight"
-            title={project.name}
-          >
-            {project.name}
-          </h1>
+          {nameEditing ? (
+            <Input
+              ref={nameInputRef}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              disabled={nameSaving}
+              onBlur={() => {
+                if (ignoreNameBlurRef.current) {
+                  ignoreNameBlurRef.current = false;
+                  return;
+                }
+                void saveProjectName();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void saveProjectName();
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  ignoreNameBlurRef.current = true;
+                  setNameDraft(project.name);
+                  setNameEditing(false);
+                }
+              }}
+              className="h-10 max-w-xl text-2xl font-bold tracking-tight"
+              aria-label="Project name"
+              autoComplete="off"
+            />
+          ) : (
+            <div className="group relative inline-block max-w-full align-top">
+              <button
+                type="button"
+                onClick={() => {
+                  setNameDraft(project.name);
+                  setNameEditing(true);
+                }}
+                className={cn(
+                  'relative max-w-full truncate text-left text-2xl font-bold tracking-tight',
+                  'rounded-md px-0.5 -mx-0.5',
+                  'transition-colors hover:bg-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                )}
+                title="Rename"
+              >
+                {project.name}
+              </button>
+              <span
+                className="pointer-events-none absolute -top-7 left-0 whitespace-nowrap rounded-md border border-border bg-muted/95 px-2 py-0.5 text-[11px] font-medium text-muted-foreground opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100"
+                aria-hidden
+              >
+                Rename
+              </span>
+            </div>
+          )}
           {project.description && (
             <p className="mt-1 text-muted-foreground">{project.description}</p>
           )}

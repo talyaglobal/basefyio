@@ -72,8 +72,7 @@ export class ProjectsService {
 
     const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));
-    const dbName = `kb_${slug}`;
-    const dbUser = `kb_user_${slug}`;
+    const { dbName, dbUser } = await this.uniqueDatabaseNameAndUser();
     const dbPassword = randomBytes(24).toString('base64url');
     const realmName = `kb-${slug}`;
     const dbHost = this.config.get<string>('database.host')!;
@@ -400,6 +399,10 @@ export class ProjectsService {
   async findOne(id: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id, status: { not: 'DELETED' } },
+      include: {
+        folder: { select: { id: true, name: true, color: true } },
+        tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+      },
     });
 
     if (!project) throw new NotFoundException('Project not found');
@@ -408,13 +411,15 @@ export class ProjectsService {
       await this.assertTeamMember(project.teamId, userId);
     }
 
-    const { githubToken, vercelToken, ...safe } = project;
+    const { githubToken, vercelToken, folder, tags, ...safe } = project;
 
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
 
     return {
       ...safe,
+      folder,
+      tags,
       dbHost: externalHost,
       dbPort: externalPort,
       github: project.githubOwner && project.githubRepo
@@ -1281,6 +1286,28 @@ export class ProjectsService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Allocate stable Postgres identifiers for a new project. They are not derived from the
+   * project name/slug so renaming the project has no effect on connection strings. Existing
+   * projects (created with slug-based names) are not migrated.
+   */
+  private async uniqueDatabaseNameAndUser(): Promise<{ dbName: string; dbUser: string }> {
+    for (let attempt = 0; attempt < 64; attempt += 1) {
+      const nameToken = randomBytes(8).toString('hex');
+      const userToken = randomBytes(8).toString('hex');
+      const dbName = `kb_${nameToken}`;
+      const dbUser = `kb_user_${userToken}`;
+      const clash = await this.prisma.project.findFirst({
+        where: { OR: [{ dbName }, { dbUser }] },
+        select: { id: true },
+      });
+      if (!clash) {
+        return { dbName, dbUser };
+      }
+    }
+    throw new InternalServerErrorException('Could not allocate unique database name and user');
   }
 
   private toSlug(name: string): string {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -31,6 +31,7 @@ import {
   Users,
   Menu,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -38,6 +39,7 @@ import { NotificationsBell } from '@/components/notifications-bell';
 import type { UserProfile } from '@/lib/types';
 import { useDashboard } from '@/app/dashboard/layout';
 import { useProject } from '@/contexts/project-context';
+import { cn } from '@/lib/utils';
 
 interface HeaderProps {
   user: UserInfo;
@@ -65,6 +67,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const pathname = usePathname();
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
+  const headerSearchInputDesktopRef = useRef<HTMLInputElement | null>(null);
+  const headerSearchInputMobileRef = useRef<HTMLInputElement | null>(null);
 
   const { teams, inviteCount } = useDashboard();
   // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
@@ -82,16 +86,21 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [teamSearch, setTeamSearch] = useState('');
   const [projectSearch, setProjectSearch] = useState('');
+  const [headerProjectSearchExpanded, setHeaderProjectSearchExpanded] = useState(false);
+  const [headerProjectQuery, setHeaderProjectQuery] = useState('');
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-nav-dropdown-root="true"]')) return;
+      if (target.closest('[data-header-project-search="true"]')) return;
       setDropdownOpen(false);
       setProjectsMenuOpen(false);
       setDocsMenuOpen(false);
       setUserMenuOpen(false);
+      setHeaderProjectSearchExpanded(false);
+      setHeaderProjectQuery('');
     };
     document.addEventListener('mousedown', onGlobalPointerDown);
     return () => {
@@ -175,6 +184,48 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       return name.includes(q) || slug.includes(q);
     });
   }, [menuProjects, projectSearch]);
+
+  /** Header search: project name only */
+  const headerSearchResults = useMemo(() => {
+    const q = headerProjectQuery.trim().toLowerCase();
+    if (!q) return menuProjects.slice(0, 8);
+    return menuProjects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [menuProjects, headerProjectQuery]);
+
+  const closeHeaderProjectSearch = () => {
+    setHeaderProjectSearchExpanded(false);
+    setHeaderProjectQuery('');
+  };
+
+  const openHeaderProjectSearch = () => {
+    setDropdownOpen(false);
+    setProjectsMenuOpen(false);
+    setDocsMenuOpen(false);
+    setUserMenuOpen(false);
+    setHeaderProjectSearchExpanded(true);
+  };
+
+  useEffect(() => {
+    if (!headerProjectSearchExpanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setHeaderProjectSearchExpanded(false);
+        setHeaderProjectQuery('');
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [headerProjectSearchExpanded]);
+
+  useLayoutEffect(() => {
+    if (!headerProjectSearchExpanded) return;
+    if (typeof window === 'undefined') return;
+    const m = window.matchMedia('(min-width: 768px)');
+    const r = m.matches ? headerSearchInputDesktopRef : headerSearchInputMobileRef;
+    window.requestAnimationFrame(() => {
+      r.current?.focus();
+    });
+  }, [headerProjectSearchExpanded]);
 
   async function switchTeam(teamId: string) {
     try {
@@ -284,7 +335,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           variant="ghost"
           size="sm"
           className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground sm:inline-flex"
-          onClick={() => setFeedbackOpen(true)}
+          onClick={() => { closeHeaderProjectSearch(); setFeedbackOpen(true); }}
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
@@ -298,16 +349,169 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 setDropdownOpen(false);
                 setProjectsMenuOpen(false);
                 setUserMenuOpen(false);
+                closeHeaderProjectSearch();
               }
             }}
           />
         </div>
       </div>
 
+      {/* ── Center: expandable project search (name only) ────────── */}
+      <div
+        className="hidden min-w-0 flex-1 items-center justify-center md:flex"
+        data-header-project-search="true"
+      >
+        {!headerProjectSearchExpanded ? (
+          <button
+            type="button"
+            onClick={() => (activeTeamId || routeProject) && openHeaderProjectSearch()}
+            disabled={!activeTeamId && !routeProject}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-all duration-200 ease-out hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            aria-label="Search projects by name"
+            title={!activeTeamId && !routeProject ? 'Select a team' : 'Search projects by name'}
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="relative w-full min-w-0 max-w-md transition-all duration-200 ease-out">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={headerSearchInputDesktopRef}
+              value={headerProjectQuery}
+              onChange={(e) => setHeaderProjectQuery(e.target.value)}
+              placeholder="Search projects by name..."
+              autoComplete="off"
+              className="h-9 w-full min-w-0 rounded-md border border-input bg-background pl-8 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              type="button"
+              onClick={closeHeaderProjectSearch}
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg">
+              {projectsLoading && menuProjects.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
+              ) : headerSearchResults.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  {headerProjectQuery.trim() ? 'No projects match that name.' : 'No projects in this team.'}
+                </p>
+              ) : (
+                <ul className="p-0.5">
+                  {headerSearchResults.map((project) => (
+                    <li key={project.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeHeaderProjectSearch();
+                          router.push(`/dashboard/projects/${project.id}`);
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                          project.id === currentProjectIdFromPath
+                            ? 'bg-primary/10 font-medium text-primary'
+                            : 'hover:bg-accent',
+                        )}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                          {project.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="min-w-0 flex-1 truncate" title={project.name}>
+                          {project.name}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── Right: team switcher + invites + user ────────────────── */}
       <div className="flex items-center gap-2 md:gap-3">
+        {headerProjectSearchExpanded && (
+          <div
+            className="fixed left-0 right-0 top-14 z-[55] max-h-[min(70vh,22rem)] flex flex-col border-b border-border bg-card shadow-lg md:hidden"
+            data-header-project-search="true"
+          >
+            <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
+              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <input
+                ref={headerSearchInputMobileRef}
+                value={headerProjectQuery}
+                onChange={(e) => setHeaderProjectQuery(e.target.value)}
+                placeholder="Search by project name..."
+                autoComplete="off"
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={closeHeaderProjectSearch}
+                aria-label="Close search"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+              {projectsLoading && menuProjects.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
+              ) : headerSearchResults.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  {headerProjectQuery.trim() ? 'No projects match that name.' : 'No projects in this team.'}
+                </p>
+              ) : (
+                <ul>
+                  {headerSearchResults.map((project) => (
+                    <li key={project.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeHeaderProjectSearch();
+                          router.push(`/dashboard/projects/${project.id}`);
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
+                          project.id === currentProjectIdFromPath
+                            ? 'bg-primary/10 font-medium text-primary'
+                            : 'active:bg-accent',
+                        )}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                          {project.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="min-w-0 flex-1 truncate font-medium" title={project.name}>
+                          {project.name}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
         <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          type="button"
+          onClick={() => (activeTeamId || routeProject) && openHeaderProjectSearch()}
+          disabled={!activeTeamId && !routeProject}
+          className={cn(
+            'inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40 md:hidden',
+            headerProjectSearchExpanded && 'max-md:hidden',
+          )}
+          aria-label="Search projects by name"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => { closeHeaderProjectSearch(); setMobileMenuOpen(!mobileMenuOpen); }}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"
           aria-label="Open menu"
         >
@@ -317,6 +521,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             onClick={() => {
+              closeHeaderProjectSearch();
               setProjectsMenuOpen(false);
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
@@ -445,6 +650,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <button
             type="button"
             onClick={() => {
+              closeHeaderProjectSearch();
               setDropdownOpen(false);
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
@@ -568,6 +774,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           onOpenChange={(next) => {
             setUserMenuOpen(next);
             if (next) {
+              closeHeaderProjectSearch();
               setDropdownOpen(false);
               setProjectsMenuOpen(false);
               setDocsMenuOpen(false);

@@ -80,6 +80,9 @@ export interface Project {
   slug: string;
   description: string | null;
   teamId: string;
+  folderId: string | null;
+  folder?: { id: string; name: string; color: string } | null;
+  tags?: { tag: { id: string; name: string; color: string } }[];
   dbName: string;
   dbHost: string;
   dbPort: number;
