@@ -62,6 +62,9 @@ function projectToListItem(p: Project): ProjectListItem {
   };
 }
 
+/** Project row for global header search (all teams) */
+type ProjectForHeaderSearch = ProjectListItem & { teamId: string; teamName: string };
+
 export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profile }: HeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -88,6 +91,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [projectSearch, setProjectSearch] = useState('');
   const [headerProjectSearchExpanded, setHeaderProjectSearchExpanded] = useState(false);
   const [headerProjectQuery, setHeaderProjectQuery] = useState('');
+  const [allTeamsHeaderProjects, setAllTeamsHeaderProjects] = useState<ProjectForHeaderSearch[]>([]);
+  const [allTeamsHeaderSearchLoading, setAllTeamsHeaderSearchLoading] = useState(false);
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {
@@ -122,6 +127,44 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       .catch(() => setTeamProjects([]))
       .finally(() => setProjectsLoading(false));
   }, [activeTeamId, refreshKey]);
+
+  /** Load active projects from every team the user belongs to (navbar search). */
+  useEffect(() => {
+    if (!teams.length) {
+      setAllTeamsHeaderProjects([]);
+      return;
+    }
+    let cancelled = false;
+    setAllTeamsHeaderSearchLoading(true);
+    void Promise.all(
+      teams.map((team) =>
+        api.projects
+          .list(team.id)
+          .then((list) =>
+            list
+              .filter((p) => p.status === 'ACTIVE')
+              .map(
+                (p): ProjectForHeaderSearch => ({
+                  ...p,
+                  teamId: team.id,
+                  teamName: team.name,
+                }),
+              ),
+          )
+          .catch(() => [] as ProjectForHeaderSearch[]),
+      ),
+    )
+      .then((chunks) => {
+        if (cancelled) return;
+        setAllTeamsHeaderProjects(chunks.flat());
+      })
+      .finally(() => {
+        if (!cancelled) setAllTeamsHeaderSearchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [teams, refreshKey]);
 
   const currentProjectIdFromPath = pathname.startsWith('/dashboard/projects/')
     ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
@@ -185,12 +228,34 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     });
   }, [menuProjects, projectSearch]);
 
-  /** Header search: project name only */
+  /** Merged list for global search; route project added if not already listed */
+  const headerSearchBasePool = useMemo(() => {
+    const byId = new Map<string, ProjectForHeaderSearch>();
+    for (const p of allTeamsHeaderProjects) {
+      byId.set(p.id, p);
+    }
+    if (routeProject?.id === currentProjectIdFromPath && !byId.has(routeProject.id)) {
+      const t = teams.find((x) => x.id === routeProject.teamId);
+      byId.set(routeProject.id, {
+        ...projectToListItem(routeProject),
+        teamId: routeProject.teamId,
+        teamName: t?.name ?? 'Team',
+      });
+    }
+    return Array.from(byId.values());
+  }, [allTeamsHeaderProjects, routeProject, currentProjectIdFromPath, teams]);
+
+  /** Header search: project name only, all teams */
   const headerSearchResults = useMemo(() => {
     const q = headerProjectQuery.trim().toLowerCase();
-    if (!q) return menuProjects.slice(0, 8);
-    return menuProjects.filter((p) => p.name.toLowerCase().includes(q));
-  }, [menuProjects, headerProjectQuery]);
+    const list = headerSearchBasePool;
+    if (!q) {
+      return [...list].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 12);
+    }
+    return list
+      .filter((p) => p.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [headerSearchBasePool, headerProjectQuery]);
 
   const closeHeaderProjectSearch = () => {
     setHeaderProjectSearchExpanded(false);
@@ -358,20 +423,27 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
       {/* ── Center: expandable project search (name only) ────────── */}
       <div
-        className="hidden min-w-0 flex-1 items-center justify-center md:flex"
+        className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 md:flex"
         data-header-project-search="true"
       >
         {!headerProjectSearchExpanded ? (
-          <button
-            type="button"
-            onClick={() => (activeTeamId || routeProject) && openHeaderProjectSearch()}
-            disabled={!activeTeamId && !routeProject}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-all duration-200 ease-out hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-            aria-label="Search projects by name"
-            title={!activeTeamId && !routeProject ? 'Select a team' : 'Search projects by name'}
-          >
-            <Search className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <span className="pr-0.5 text-[11px] font-medium lowercase tracking-tight text-muted-foreground">
+              search
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              onClick={() => teams.length > 0 && openHeaderProjectSearch()}
+              disabled={!teams.length}
+              className="h-6 w-6 shrink-0 rounded border border-border"
+              title={teams.length ? 'Open search' : 'No teams yet'}
+              aria-label="Open project search"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         ) : (
           <div className="relative w-full min-w-0 max-w-md transition-all duration-200 ease-out">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -392,11 +464,13 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               <X className="h-4 w-4" />
             </button>
             <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg">
-              {projectsLoading && menuProjects.length === 0 ? (
+              {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
               ) : headerSearchResults.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {headerProjectQuery.trim() ? 'No projects match that name.' : 'No projects in this team.'}
+                  {headerProjectQuery.trim()
+                    ? 'No projects match that name.'
+                    : 'No projects in your teams yet.'}
                 </p>
               ) : (
                 <ul className="p-0.5">
@@ -418,9 +492,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
                           {project.name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="min-w-0 flex-1 truncate" title={project.name}>
-                          {project.name}
-                        </span>
+                        <div className="min-w-0 flex-1 text-left">
+                          <p className="truncate font-medium" title={project.name}>
+                            {project.name}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground" title={project.teamName}>
+                            {project.teamName}
+                          </p>
+                        </div>
                       </button>
                     </li>
                   ))}
@@ -460,11 +539,13 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               </Button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-1">
-              {projectsLoading && menuProjects.length === 0 ? (
+              {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
               ) : headerSearchResults.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {headerProjectQuery.trim() ? 'No projects match that name.' : 'No projects in this team.'}
+                  {headerProjectQuery.trim()
+                    ? 'No projects match that name.'
+                    : 'No projects in your teams yet.'}
                 </p>
               ) : (
                 <ul>
@@ -486,9 +567,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
                           {project.name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="min-w-0 flex-1 truncate font-medium" title={project.name}>
-                          {project.name}
-                        </span>
+                        <div className="min-w-0 flex-1 text-left">
+                          <p className="truncate font-medium" title={project.name}>
+                            {project.name}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground" title={project.teamName}>
+                            {project.teamName}
+                          </p>
+                        </div>
                       </button>
                     </li>
                   ))}
@@ -498,18 +584,26 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => (activeTeamId || routeProject) && openHeaderProjectSearch()}
-          disabled={!activeTeamId && !routeProject}
+        <div
           className={cn(
-            'inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40 md:hidden',
+            'flex items-center gap-0.5 md:hidden',
             headerProjectSearchExpanded && 'max-md:hidden',
           )}
-          aria-label="Search projects by name"
         >
-          <Search className="h-4 w-4" />
-        </button>
+          <span className="text-[11px] font-medium lowercase text-muted-foreground">search</span>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            onClick={() => teams.length > 0 && openHeaderProjectSearch()}
+            disabled={!teams.length}
+            className="h-6 w-6 shrink-0 rounded border border-border"
+            title={teams.length ? 'Open search' : 'No teams yet'}
+            aria-label="Open project search"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </Button>
+        </div>
         <button
           onClick={() => { closeHeaderProjectSearch(); setMobileMenuOpen(!mobileMenuOpen); }}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"

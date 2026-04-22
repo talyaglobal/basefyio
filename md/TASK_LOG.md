@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-04-22 (Header search — all teams + search label)
+
+**Done:** Navbar project search loads `api.projects.list` for **every** team in `useDashboard().teams` (Promise.all) and filters by name across the merged set; result rows show **team** subtitle. Open control shows lowercase **search** and a very small (h-6 w-6) icon button; enabled when the user has at least one team. Active-team projects dropdown unchanged.
+
 ## 2026-04-22 (New projects — random Postgres db name and db user)
 
 **Done:** `ProjectsService.create` no longer sets `dbName` / `dbUser` from the project slug. New projects get `kb_<16 hex>` and `kb_user_<16 hex>` via `uniqueDatabaseNameAndUser()` with collision checks against existing `projects` rows. Slug, Keycloak realm (`kb-<slug>`), and infra container names (slug-based) unchanged. Existing DB rows not migrated.
