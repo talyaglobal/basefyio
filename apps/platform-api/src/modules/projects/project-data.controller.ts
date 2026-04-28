@@ -49,9 +49,10 @@ export class ProjectDataController {
   async getColumns(
     @Param('projectId') projectId: string,
     @Param('tableName') tableName: string,
+    @Query('schema') schema?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.dataService.getColumns(projectId, user?.sub, tableName);
+    return this.dataService.getColumns(projectId, user?.sub, tableName, schema);
   }
 
   @Get('tables/:tableName/rows')
@@ -61,8 +62,9 @@ export class ProjectDataController {
     @CurrentUser() user: JwtPayload | undefined,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+    @Query('schema') schema?: string,
   ) {
-    return this.dataService.getRows(projectId, user?.sub, tableName, page, limit);
+    return this.dataService.getRows(projectId, user?.sub, tableName, page, limit, schema);
   }
 
   @Post('tables')
@@ -89,9 +91,10 @@ export class ProjectDataController {
     @Param('projectId') projectId: string,
     @Param('tableName') tableName: string,
     @Body() body: Record<string, unknown>,
+    @Query('schema') schema?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const row = await this.dataService.insertRow(projectId, user?.sub, tableName, body);
+    const row = await this.dataService.insertRow(projectId, user?.sub, tableName, body, schema);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_ROW_INSERTED,
@@ -106,9 +109,10 @@ export class ProjectDataController {
     @Param('projectId') projectId: string,
     @Param('tableName') tableName: string,
     @Body() body: { pkWhere: Record<string, unknown>; data: Record<string, unknown> },
+    @Query('schema') schema?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const row = await this.dataService.updateRow(projectId, user?.sub, tableName, body.pkWhere, body.data);
+    const row = await this.dataService.updateRow(projectId, user?.sub, tableName, body.pkWhere, body.data, schema);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_ROW_UPDATED,
@@ -123,9 +127,10 @@ export class ProjectDataController {
     @Param('projectId') projectId: string,
     @Param('tableName') tableName: string,
     @Body() body: { pkWhere: Record<string, unknown> },
+    @Query('schema') schema?: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    const result = await this.dataService.deleteRow(projectId, user?.sub, tableName, body.pkWhere);
+    const result = await this.dataService.deleteRow(projectId, user?.sub, tableName, body.pkWhere, schema);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_ROW_DELETED,

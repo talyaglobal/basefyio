@@ -796,11 +796,13 @@ export const api = {
     tables(projectId: string) {
       return request<TableInfo[]>(`/projects/${projectId}/tables`);
     },
-    columns(projectId: string, tableName: string) {
-      return request<ColumnInfo[]>(`/projects/${projectId}/tables/${tableName}/columns`);
+    columns(projectId: string, tableName: string, schema?: string) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<ColumnInfo[]>(`/projects/${projectId}/tables/${tableName}/columns${qs}`);
     },
-    rows(projectId: string, tableName: string, page = 1, limit = 50) {
-      return request<TableRows>(`/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}`);
+    rows(projectId: string, tableName: string, page = 1, limit = 50, schema?: string) {
+      const schemaQs = schema ? `&schema=${encodeURIComponent(schema)}` : '';
+      return request<TableRows>(`/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}${schemaQs}`);
     },
     createTable(projectId: string, data: {
       name: string;
@@ -816,20 +818,23 @@ export const api = {
         method: 'DELETE',
       });
     },
-    insertRow(projectId: string, tableName: string, data: Record<string, unknown>) {
-      return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows`, {
+    insertRow(projectId: string, tableName: string, data: Record<string, unknown>, schema?: string) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows${qs}`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
-    updateRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>, data: Record<string, unknown>) {
-      return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows`, {
+    updateRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>, data: Record<string, unknown>, schema?: string) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows${qs}`, {
         method: 'PUT',
         body: JSON.stringify({ pkWhere, data }),
       });
     },
-    deleteRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>) {
-      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/rows`, {
+    deleteRow(projectId: string, tableName: string, pkWhere: Record<string, unknown>, schema?: string) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/rows${qs}`, {
         method: 'DELETE',
         body: JSON.stringify({ pkWhere }),
       });

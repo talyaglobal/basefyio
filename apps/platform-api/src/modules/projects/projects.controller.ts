@@ -278,6 +278,22 @@ export class ProjectsController {
     return this.projectsService.rotateDatabasePassword(id, user.sub, body.password);
   }
 
+  /**
+   * (Re)apply the RLS bootstrap (anon/authenticated/service_role roles, auth.*
+   * helpers, default-privilege grants) to this project's database. Idempotent;
+   * use to recover legacy projects whose data API returns
+   * "permission denied to set role anon" / "service_role".
+   */
+  @Post(':id/ensure-rls-bootstrap')
+  async ensureRlsBootstrap(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    // Authorize via the standard project-membership check before touching the DB.
+    await this.projectsService.findOne(id, user.sub);
+    return this.projectsService.ensureRlsBootstrap(id);
+  }
+
   @Post(':id/restore')
   async restore(
     @Param('id') id: string,

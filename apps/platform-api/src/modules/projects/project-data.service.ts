@@ -87,11 +87,17 @@ export class ProjectDataService {
     }
   }
 
-  async getColumns(projectId: string, ownerId: string | undefined, tableName: string): Promise<ColumnInfo[]> {
+  async getColumns(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    schemaName?: string,
+  ): Promise<ColumnInfo[]> {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
     try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
       const result = await client.query(
         `
         SELECT
@@ -110,10 +116,10 @@ export class ProjectDataService {
           AND tc.table_schema = kcu.table_schema
           AND tc.constraint_type = 'PRIMARY KEY'
         WHERE c.table_name = $1
-          AND c.table_schema NOT IN ('pg_catalog', 'information_schema')
+          AND c.table_schema = $2
         ORDER BY c.ordinal_position
         `,
-        [tableName],
+        [tableName, schema],
       );
       return result.rows;
     } finally {
@@ -128,23 +134,22 @@ export class ProjectDataService {
     tableName: string,
     page = 1,
     limit = 50,
+    schemaName?: string,
   ) {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-      throw new BadRequestException('Invalid table name');
-    }
-
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
     const offset = (page - 1) * limit;
 
     try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const qualified = `"${schema}"."${tableName}"`;
       const countResult = await client.query(
-        `SELECT COUNT(*)::int AS total FROM "${tableName}"`,
+        `SELECT COUNT(*)::int AS total FROM ${qualified}`,
       );
       const total = countResult.rows[0].total;
 
       const dataResult = await client.query(
-        `SELECT * FROM "${tableName}" LIMIT $1 OFFSET $2`,
+        `SELECT * FROM ${qualified} LIMIT $1 OFFSET $2`,
         [limit, offset],
       );
 
@@ -256,12 +261,14 @@ export class ProjectDataService {
     ownerId: string | undefined,
     tableName: string,
     data: Record<string, unknown>,
+    schemaName?: string,
   ) {
-    this.validateTableName(tableName);
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
     try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const qualified = `"${schema}"."${tableName}"`;
       const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== '');
       if (!keys.length) throw new BadRequestException('No data provided');
 
@@ -270,7 +277,7 @@ export class ProjectDataService {
       const values = keys.map((k) => data[k] === null || data[k] === 'NULL' ? null : data[k]);
 
       const result = await client.query(
-        `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders}) RETURNING *`,
+        `INSERT INTO ${qualified} (${cols}) VALUES (${placeholders}) RETURNING *`,
         values,
       );
       return result.rows[0];
@@ -288,12 +295,14 @@ export class ProjectDataService {
     tableName: string,
     pkWhere: Record<string, unknown>,
     data: Record<string, unknown>,
+    schemaName?: string,
   ) {
-    this.validateTableName(tableName);
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
     try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const qualified = `"${schema}"."${tableName}"`;
       const setCols = Object.keys(data);
       const whereCols = Object.keys(pkWhere);
       if (!setCols.length) throw new BadRequestException('No data to update');
@@ -313,7 +322,7 @@ export class ProjectDataService {
       ];
 
       const result = await client.query(
-        `UPDATE "${tableName}" SET ${setClause} WHERE ${whereClause} RETURNING *`,
+        `UPDATE ${qualified} SET ${setClause} WHERE ${whereClause} RETURNING *`,
         values,
       );
 
@@ -333,12 +342,14 @@ export class ProjectDataService {
     ownerId: string | undefined,
     tableName: string,
     pkWhere: Record<string, unknown>,
+    schemaName?: string,
   ) {
-    this.validateTableName(tableName);
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
     try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const qualified = `"${schema}"."${tableName}"`;
       const whereCols = Object.keys(pkWhere);
       if (!whereCols.length) throw new BadRequestException('No primary key provided');
 
@@ -348,7 +359,7 @@ export class ProjectDataService {
       const values = whereCols.map((k) => pkWhere[k]);
 
       const result = await client.query(
-        `DELETE FROM "${tableName}" WHERE ${whereClause}`,
+        `DELETE FROM ${qualified} WHERE ${whereClause}`,
         values,
       );
 
@@ -358,6 +369,60 @@ export class ProjectDataService {
       client.release();
       await pool.end();
     }
+  }
+
+  /**
+   * Resolves the schema a table lives in. Required because listTables() surfaces
+   * tables across every non-system schema (public, auth, …) but the row/column
+   * endpoints used to issue unqualified `"<table>"` queries that only resolve
+   * against the connection's search_path. The Table Editor would then list a
+   * table successfully and 500 with `relation does not exist` on click.
+   *
+   * If `schemaName` is provided, validates and returns it (after confirming the
+   * table exists there). Otherwise, looks up pg_tables for the unique schema
+   * containing this table — throws if zero or multiple matches.
+   */
+  private async resolveSchema(
+    client: import('pg').PoolClient,
+    tableName: string,
+    schemaName?: string,
+  ): Promise<string> {
+    this.validateTableName(tableName);
+
+    if (schemaName !== undefined && schemaName !== null && schemaName !== '') {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schemaName)) {
+        throw new BadRequestException('Invalid schema name');
+      }
+      if (['pg_catalog', 'information_schema'].includes(schemaName)) {
+        throw new BadRequestException('System schemas are not addressable');
+      }
+      const exists = await client.query(
+        `SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2`,
+        [schemaName, tableName],
+      );
+      if (exists.rowCount === 0) {
+        throw new NotFoundException(`Table "${schemaName}"."${tableName}" not found`);
+      }
+      return schemaName;
+    }
+
+    const lookup = await client.query(
+      `SELECT schemaname FROM pg_catalog.pg_tables
+       WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+         AND tablename = $1`,
+      [tableName],
+    );
+    if (lookup.rowCount === 0) {
+      throw new NotFoundException(`Table "${tableName}" not found`);
+    }
+    if ((lookup.rowCount ?? 0) > 1) {
+      const schemas = lookup.rows.map((r) => r.schemaname).join(', ');
+      throw new BadRequestException(
+        `Table "${tableName}" exists in multiple schemas (${schemas}). ` +
+          `Pass ?schema= to disambiguate.`,
+      );
+    }
+    return lookup.rows[0].schemaname;
   }
 
   private validateTableName(name: string) {

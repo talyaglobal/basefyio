@@ -661,6 +661,11 @@ function AddForeignKeyDialog({
 
 export function TableEditor({ projectId }: TableEditorProps) {
   const [tables, setTables] = useState<TableInfo[]>([]);
+
+  // Look up schema for a given table name from the listTables result so the
+  // backend resolves "public.users" vs "auth.users" unambiguously.
+  const schemaFor = (name: string | null): string | undefined =>
+    name ? tables.find((t) => t.name === name)?.schema : undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
@@ -806,8 +811,8 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
     try {
       const [cols, rows] = await Promise.all([
-        api.projects.columns(projectId, name),
-        api.projects.rows(projectId, name, 1),
+        api.projects.columns(projectId, name, schemaFor(name)),
+        api.projects.rows(projectId, name, 1, 50, schemaFor(name)),
       ]);
       setColumns(cols);
       setData(rows);
@@ -823,8 +828,8 @@ export function TableEditor({ projectId }: TableEditorProps) {
     setDataLoading(true);
     try {
       const [cols, rows] = await Promise.all([
-        api.projects.columns(projectId, selected),
-        api.projects.rows(projectId, selected, page),
+        api.projects.columns(projectId, selected, schemaFor(selected)),
+        api.projects.rows(projectId, selected, page, 50, schemaFor(selected)),
       ]);
       setColumns(cols);
       setData(rows);
@@ -839,7 +844,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     if (!selected) return;
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, page);
+      const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected));
       setData(rows);
     } catch (err: any) {
       toast.error(err.message);
@@ -855,7 +860,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     setSelectedRows(new Set());
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, p);
+      const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected));
       setData(rows);
     } catch (err: any) {
       toast.error(err.message);
@@ -914,7 +919,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       await api.projects.updateRow(projectId, selected, pkWhere, {
         [editingCell.field]: newVal,
-      });
+      }, schemaFor(selected));
       toast.success('Cell updated');
       setEditingCell(null);
       reloadRows();
@@ -951,7 +956,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     }
 
     try {
-      await api.projects.insertRow(projectId, selected, payload);
+      await api.projects.insertRow(projectId, selected, payload, schemaFor(selected));
       toast.success('Row inserted');
       setAddingRow(false);
       setNewRow({});
@@ -972,7 +977,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     if (!confirm('Delete this row?')) return;
 
     try {
-      await api.projects.deleteRow(projectId, selected, pkWhere);
+      await api.projects.deleteRow(projectId, selected, pkWhere, schemaFor(selected));
       toast.success('Row deleted');
       reloadRows();
       loadTables();
@@ -1011,7 +1016,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
       const row = filteredRows[idx];
       if (!row) continue;
       try {
-        await api.projects.deleteRow(projectId, selected, getPkWhere(row));
+        await api.projects.deleteRow(projectId, selected, getPkWhere(row), schemaFor(selected));
         deleted++;
       } catch {}
     }

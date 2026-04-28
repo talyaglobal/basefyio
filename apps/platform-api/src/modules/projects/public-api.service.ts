@@ -2,10 +2,13 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProjectsService } from './projects.service';
 
 interface ParsedFilter {
   clause: string;
@@ -43,11 +46,22 @@ const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
   'service_role',
 ]);
 
+/** Postgres "insufficient_privilege" — emitted by SET LOCAL ROLE when the
+ *  connecting user lacks GRANTed membership in the target role. */
+const PG_INSUFFICIENT_PRIVILEGE = '42501';
+
 @Injectable()
 export class PublicApiService {
+  private readonly logger = new Logger(PublicApiService.name);
+
+  /** Tracks projects we've already attempted to auto-heal in this process so
+   *  a misconfigured project DB doesn't trigger a bootstrap on every request. */
+  private readonly autoHealAttempted = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly projectsService: ProjectsService,
   ) {}
 
   async select(
@@ -192,6 +206,12 @@ export class PublicApiService {
    * This is what enforces RLS: the project's DB owner role (e.g. `kb_user_<random>`)
    * owns the tables, but we drop down to anon / authenticated / service_role
    * before running the user's query so policies apply.
+   *
+   * If SET LOCAL ROLE fails with insufficient_privilege (42501), we treat it
+   * as "this project DB was provisioned before the RLS bootstrap landed" and
+   * try to self-heal once via `ProjectsService.ensureRlsBootstrap()` before
+   * retrying the original query. This makes the data API resilient against
+   * legacy projects that the operator forgot to backfill.
    */
   private async withRls<T>(
     projectId: string,
@@ -202,6 +222,46 @@ export class PublicApiService {
       throw new ForbiddenException(`Invalid DB role: ${ctx.role}`);
     }
 
+    try {
+      return await this.runRlsTransaction(projectId, ctx, fn);
+    } catch (e: any) {
+      if (
+        e?.code === PG_INSUFFICIENT_PRIVILEGE &&
+        !this.autoHealAttempted.has(projectId)
+      ) {
+        this.autoHealAttempted.add(projectId);
+        this.logger.warn(
+          `withRls: SET LOCAL ROLE "${ctx.role}" denied for project ${projectId} ` +
+            `(${e.message}). Attempting RLS bootstrap auto-heal.`,
+        );
+        try {
+          await this.projectsService.ensureRlsBootstrap(projectId);
+          this.logger.log(
+            `withRls: auto-heal succeeded for project ${projectId}, retrying request.`,
+          );
+        } catch (healErr: any) {
+          this.logger.error(
+            `withRls: auto-heal failed for project ${projectId}: ${healErr.message}`,
+          );
+          throw new InternalServerErrorException(
+            `Project's RLS roles are not bootstrapped and auto-heal failed: ` +
+              `${healErr.message}. Run POST /projects/${projectId}/ensure-rls-bootstrap ` +
+              `or apps/platform-api/scripts/backfill-rls.ts.`,
+          );
+        }
+        // One retry post-heal. If this also fails, surface the original code path.
+        return this.runRlsTransaction(projectId, ctx, fn);
+      }
+      throw e;
+    }
+  }
+
+  /** Inner transaction body — extracted so withRls can retry it after auto-heal. */
+  private async runRlsTransaction<T>(
+    projectId: string,
+    ctx: RlsContext,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
     const pool = await this.getPool(projectId);
     const client = await pool.connect();
     try {
