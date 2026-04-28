@@ -103,3 +103,43 @@ $$;
 
 GRANT EXECUTE ON FUNCTION auth.jwt(), auth.uid(), auth.role(), auth.email()
   TO anon, authenticated, service_role;
+-- ─────────────────────────────────────────────────────────────
+-- 4. Sentinel — verify the project owner can actually SET ROLE
+--    to each of anon/authenticated/service_role. If any switch
+--    fails, the entire bootstrap aborts instead of being marked
+--    "applied" silently. Without this, GRANT failures (e.g. caused
+--    by a stale role definition or pre-existing membership conflict)
+--    leave the data API permanently 500-ing on
+--    "permission denied to set role <X>".
+-- ─────────────────────────────────────────────────────────────
+DO $sentinel$
+DECLARE
+  target text;
+  failed text[] := ARRAY[]::text[];
+BEGIN
+  -- Run inside a sub-block so we always RESET ROLE before exiting.
+  BEGIN
+    SET LOCAL ROLE "%KB_PROJECT_OWNER%";
+    FOREACH target IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+      BEGIN
+        EXECUTE format('SET LOCAL ROLE %I', target);
+        EXECUTE format('SET LOCAL ROLE %I', '%KB_PROJECT_OWNER%');
+      EXCEPTION WHEN insufficient_privilege OR undefined_object THEN
+        failed := failed || target;
+      END;
+    END LOOP;
+    RESET ROLE;
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    RAISE;
+  END;
+
+  IF array_length(failed, 1) IS NOT NULL THEN
+    RAISE EXCEPTION
+      'rls-bootstrap sentinel failed: project owner "%" cannot SET ROLE to: %. '
+      'Check that the roles exist (pg_roles) and that GRANT membership succeeded.',
+      '%KB_PROJECT_OWNER%', array_to_string(failed, ', ')
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END$sentinel$;
+

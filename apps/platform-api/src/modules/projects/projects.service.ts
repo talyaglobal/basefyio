@@ -24,6 +24,29 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 
+
+export interface RlsBootstrapResult {
+  bootstrappedAt: Date;
+  sentinelPassed: boolean;
+  rolesPresent: string[];
+  failedRoles: string[];
+  currentUser: string | null;
+}
+
+export interface RlsDiagnostic {
+  projectId: string;
+  onSharedHost: boolean;
+  currentUser: string | null;
+  connectingUser: string;
+  rolesPresent: string[];
+  /** member rolname → array of granted role rolnames. */
+  memberships: Record<string, string[]>;
+  /** target role → SET ROLE attempt result. */
+  setRoleResults: Record<string, { ok: boolean; error?: string }>;
+  failedRoles: string[];
+  sentinelPassed: boolean;
+}
+
 @Injectable()
 export class ProjectsService {
   private readonly logger = new Logger(ProjectsService.name);
@@ -1242,21 +1265,25 @@ export class ProjectsService {
 
   /**
    * Idempotent re-application triggered by the admin UI / backfill script.
-   * Looks up the project, runs the bootstrap, stamps `rlsBootstrappedAt`.
+   * Looks up the project, runs the bootstrap (whose SQL ends in a sentinel
+   * SET ROLE round-trip — so silent failure is impossible), stamps
+   * `rlsBootstrappedAt`, then runs `diagnoseRls` for an independent post-flight
+   * check. The structured return surfaces enough state for callers to decide
+   * whether to retry the original request or escalate to a human.
    */
-  async ensureRlsBootstrap(projectId: string): Promise<{ bootstrappedAt: Date }> {
+  async ensureRlsBootstrap(
+    projectId: string,
+  ): Promise<RlsBootstrapResult> {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: { not: 'DELETED' } },
-      select: { id: true, dbName: true, dbHost: true, dbPort: true, dbUser: true },
+      select: { id: true, dbName: true, dbHost: true, dbPort: true, dbUser: true, dbPassword: true },
     });
     if (!project) throw new NotFoundException('Project not found');
 
     const cfgHost = this.config.get<string>('database.host');
     const cfgPort = Number(this.config.get<number>('database.port'));
 
-    if (project.dbHost === cfgHost && Number(project.dbPort) === cfgPort) {
-      await this.applyRlsBootstrap(project.dbName, project.dbUser);
-    } else {
+    if (!(project.dbHost === cfgHost && Number(project.dbPort) === cfgPort)) {
       // Dedicated host — we don't have cached admin creds here.
       // The infra service owns those; for now we just refuse and log.
       throw new InternalServerErrorException(
@@ -1264,13 +1291,171 @@ export class ProjectsService {
       );
     }
 
-    // Stamp rls_bootstrapped_at via raw SQL so this file type-checks even
-    // before `prisma generate` is re-run post-pull.
-    await this.prisma.$executeRawUnsafe(
-      `UPDATE "projects" SET "rls_bootstrapped_at" = NOW() WHERE "id" = $1`,
-      project.id,
-    );
-    return { bootstrappedAt: new Date() };
+    // The SQL itself contains the sentinel; if grants are missing it raises
+    // SQLSTATE 42501 with a detailed message. We let that bubble up so callers
+    // see the real reason instead of a generic "bootstrap failed".
+    await this.applyRlsBootstrap(project.dbName, project.dbUser);
+
+    // Independent post-flight: connect AS the project owner and try SET ROLE
+    // for each of anon/authenticated/service_role. Mirrors what the data API
+    // does at request time.
+    const diagnose = await this.diagnoseRls(projectId);
+
+    if (diagnose.sentinelPassed) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "projects" SET "rls_bootstrapped_at" = NOW() WHERE "id" = $1`,
+        project.id,
+      );
+    } else {
+      // Don't stamp rls_bootstrapped_at when the sentinel says we're broken —
+      // that mark is what the backfill script and the data API treat as
+      // "this project is healthy", and stamping it on a failed run is exactly
+      // how legacy projects ended up wedged.
+      this.logger.error(
+        `ensureRlsBootstrap: sentinel failed for project ${projectId} after ` +
+          `apply succeeded. Roles missing: ${diagnose.failedRoles.join(', ') || 'n/a'}.`,
+      );
+    }
+
+    return {
+      bootstrappedAt: new Date(),
+      sentinelPassed: diagnose.sentinelPassed,
+      rolesPresent: diagnose.rolesPresent,
+      failedRoles: diagnose.failedRoles,
+      currentUser: diagnose.currentUser,
+    };
+  }
+
+  /**
+   * Read-only diagnostic. Connects to the project DB twice:
+   *   1. As the control-plane admin, to read pg_roles + pg_auth_members.
+   *   2. As the project's connecting user (the same one the data API uses),
+   *      to try SET ROLE for each of anon/authenticated/service_role.
+   * Returned shape is intended to be exposed via GET /projects/:id/rls-diagnose
+   * so support can answer "why is this project's data API 500-ing" in one call
+   * without shelling into the DB.
+   */
+  async diagnoseRls(projectId: string): Promise<RlsDiagnostic> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: { id: true, dbName: true, dbHost: true, dbPort: true, dbUser: true, dbPassword: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const cfgHost = this.config.get<string>('database.host');
+    const cfgPort = Number(this.config.get<number>('database.port'));
+    const onSharedHost = project.dbHost === cfgHost && Number(project.dbPort) === cfgPort;
+
+    const sanitizedDb = project.dbName.replace(/[^a-z0-9_]/g, '');
+    const sanitizedUser = project.dbUser.replace(/[^a-z0-9_]/g, '');
+
+    // Step 1: admin pool — only available on shared host.
+    const targetRoles = ['anon', 'authenticated', 'service_role'] as const;
+    const rolesPresent: string[] = [];
+    const memberships: Record<string, string[]> = {};
+    if (onSharedHost) {
+      const adminPool = new Pool({
+        host: cfgHost,
+        port: cfgPort,
+        user: this.config.get('database.user'),
+        password: this.config.get('database.password'),
+        database: sanitizedDb,
+      });
+      try {
+        const adminClient = await adminPool.connect();
+        try {
+          const rolesQ = await adminClient.query<{ rolname: string }>(
+            `SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[])`,
+            [[...targetRoles, sanitizedUser]],
+          );
+          for (const row of rolesQ.rows) rolesPresent.push(row.rolname);
+
+          const memQ = await adminClient.query<{ member: string; role: string }>(
+            `SELECT m.rolname AS member, r.rolname AS role
+             FROM pg_auth_members am
+             JOIN pg_roles m ON m.oid = am.member
+             JOIN pg_roles r ON r.oid = am.roleid
+             WHERE m.rolname = $1 OR r.rolname = ANY($2::text[])`,
+            [sanitizedUser, [...targetRoles]],
+          );
+          for (const row of memQ.rows) {
+            (memberships[row.member] ||= []).push(row.role);
+          }
+        } finally {
+          adminClient.release();
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `diagnoseRls: admin probe failed for project ${projectId}: ${err.message}`,
+        );
+      } finally {
+        await adminPool.end();
+      }
+    }
+
+    // Step 2: connect AS the project owner and try SET ROLE for each target.
+    const setRoleResults: Record<string, { ok: boolean; error?: string }> = {};
+    let currentUser: string | null = null;
+    const failedRoles: string[] = [];
+    const projectPool = new Pool({
+      host: project.dbHost,
+      port: project.dbPort,
+      user: project.dbUser,
+      password: project.dbPassword,
+      database: project.dbName,
+      statement_timeout: 5_000,
+    });
+    try {
+      const c = await projectPool.connect();
+      try {
+        const cu = await c.query<{ current_user: string }>(`SELECT current_user`);
+        currentUser = cu.rows[0]?.current_user ?? null;
+
+        for (const role of targetRoles) {
+          await c.query('BEGIN');
+          try {
+            await c.query(`SET LOCAL ROLE "${role}"`);
+            await c.query(`SELECT 1`);
+            setRoleResults[role] = { ok: true };
+          } catch (err: any) {
+            setRoleResults[role] = {
+              ok: false,
+              error: `${err.code ?? '?'}: ${err.message}`,
+            };
+            failedRoles.push(role);
+          } finally {
+            try { await c.query('ROLLBACK'); } catch { /* noop */ }
+          }
+        }
+      } finally {
+        c.release();
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `diagnoseRls: project-owner probe failed for ${projectId}: ${err.message}`,
+      );
+      // Mark all roles as failed if we couldn't even connect.
+      for (const role of targetRoles) {
+        if (!(role in setRoleResults)) {
+          setRoleResults[role] = { ok: false, error: `connect failed: ${err.message}` };
+          failedRoles.push(role);
+        }
+      }
+    } finally {
+      await projectPool.end();
+    }
+
+    return {
+      projectId,
+      onSharedHost,
+      currentUser,
+      connectingUser: project.dbUser,
+      rolesPresent,
+      memberships,
+      setRoleResults,
+      failedRoles,
+      sentinelPassed: failedRoles.length === 0,
+    };
   }
 
   private async runRlsBootstrap(pool: Pool, sanitizedUser: string): Promise<void> {

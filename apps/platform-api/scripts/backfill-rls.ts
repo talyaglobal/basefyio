@@ -106,6 +106,72 @@ async function main() {
     const client = await pool.connect();
     try {
       await client.query(sql);
+    } catch (err: any) {
+      failed++;
+      console.error(`  [fail] ${p.slug} (apply): ${err.message}`);
+      client.release();
+      await pool.end();
+      continue;
+    }
+
+    // Post-flight: connect AS the project owner and verify SET ROLE for each
+    // of anon/authenticated/service_role actually works. A bootstrap that
+    // "succeeded" but leaves the data API 500-ing is exactly the failure mode
+    // we're trying to detect — the SQL sentinel covers most cases but a fresh
+    // project-owner connection is the most authentic test.
+    let postOk = true;
+    const failedRoles: string[] = [];
+    try {
+      const projectPool = new Pool({
+        host: cfgHost,
+        port: cfgPort,
+        user: p.db_user,
+        password: '',
+        database: p.db_name,
+        statement_timeout: 5_000,
+      });
+      // We don't have the project's password here in cleartext; the admin
+      // pool's existing connection is fine for the sentinel because the SQL
+      // already does SET LOCAL ROLE %KB_PROJECT_OWNER% then nested SET ROLE.
+      // Skip the second-pool round-trip if we can't auth.
+      try {
+        const c = await projectPool.connect();
+        try {
+          for (const role of ['anon', 'authenticated', 'service_role']) {
+            await c.query('BEGIN');
+            try {
+              await c.query(`SET LOCAL ROLE "${role}"`);
+              await c.query('SELECT 1');
+            } catch (err: any) {
+              postOk = false;
+              failedRoles.push(`${role}(${err.code ?? '?'})`);
+            } finally {
+              try { await c.query('ROLLBACK'); } catch { /* noop */ }
+            }
+          }
+        } finally {
+          c.release();
+        }
+      } catch {
+        // Couldn't connect as project owner (no password available in this
+        // script). Trust the SQL sentinel that already ran inside `client`.
+      } finally {
+        await projectPool.end();
+      }
+    } catch { /* noop */ }
+
+    if (!postOk) {
+      failed++;
+      console.error(
+        `  [fail] ${p.slug} (post-flight): SET ROLE failed for ${failedRoles.join(', ')}. ` +
+          `Bootstrap not stamped — investigate before re-running.`,
+      );
+      client.release();
+      await pool.end();
+      continue;
+    }
+
+    try {
       await prisma.$executeRawUnsafe(
         `UPDATE "projects" SET "rls_bootstrapped_at" = NOW() WHERE "id" = $1`,
         p.id,
@@ -114,7 +180,7 @@ async function main() {
       console.log(`  [ ok ] ${p.slug}`);
     } catch (err: any) {
       failed++;
-      console.error(`  [fail] ${p.slug}: ${err.message}`);
+      console.error(`  [fail] ${p.slug} (stamp): ${err.message}`);
     } finally {
       client.release();
       await pool.end();

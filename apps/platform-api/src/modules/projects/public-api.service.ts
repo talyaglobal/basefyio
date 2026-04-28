@@ -54,9 +54,16 @@ const PG_INSUFFICIENT_PRIVILEGE = '42501';
 export class PublicApiService {
   private readonly logger = new Logger(PublicApiService.name);
 
-  /** Tracks projects we've already attempted to auto-heal in this process so
-   *  a misconfigured project DB doesn't trigger a bootstrap on every request. */
-  private readonly autoHealAttempted = new Set<string>();
+  /**
+   * Tracks the last time we attempted auto-heal for a project. Used to throttle
+   * repeated bootstrap calls when a project is permanently broken (e.g. dedicated
+   * host, missing roles) without locking it out forever — the previous Set-based
+   * implementation never cleared, so a transient failure permanently blocked
+   * recovery for the lifetime of the process. With a TTL we'll retry after a
+   * cooldown, giving operators a chance to fix the underlying issue.
+   */
+  private readonly autoHealLastAttemptMs = new Map<string, number>();
+  private static readonly AUTO_HEAL_COOLDOWN_MS = 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -225,34 +232,62 @@ export class PublicApiService {
     try {
       return await this.runRlsTransaction(projectId, ctx, fn);
     } catch (e: any) {
-      if (
-        e?.code === PG_INSUFFICIENT_PRIVILEGE &&
-        !this.autoHealAttempted.has(projectId)
-      ) {
-        this.autoHealAttempted.add(projectId);
-        this.logger.warn(
-          `withRls: SET LOCAL ROLE "${ctx.role}" denied for project ${projectId} ` +
-            `(${e.message}). Attempting RLS bootstrap auto-heal.`,
-        );
-        try {
-          await this.projectsService.ensureRlsBootstrap(projectId);
-          this.logger.log(
-            `withRls: auto-heal succeeded for project ${projectId}, retrying request.`,
-          );
-        } catch (healErr: any) {
-          this.logger.error(
-            `withRls: auto-heal failed for project ${projectId}: ${healErr.message}`,
-          );
-          throw new InternalServerErrorException(
-            `Project's RLS roles are not bootstrapped and auto-heal failed: ` +
-              `${healErr.message}. Run POST /projects/${projectId}/ensure-rls-bootstrap ` +
-              `or apps/platform-api/scripts/backfill-rls.ts.`,
-          );
-        }
-        // One retry post-heal. If this also fails, surface the original code path.
-        return this.runRlsTransaction(projectId, ctx, fn);
+      if (e?.code !== PG_INSUFFICIENT_PRIVILEGE) {
+        throw e;
       }
-      throw e;
+
+      const lastAttempt = this.autoHealLastAttemptMs.get(projectId) ?? 0;
+      const sinceMs = Date.now() - lastAttempt;
+      if (sinceMs < PublicApiService.AUTO_HEAL_COOLDOWN_MS) {
+        // Recently tried and failed. Surface the underlying error with an
+        // actionable message instead of silently looping bootstrap.
+        throw new InternalServerErrorException(
+          `Project ${projectId} is missing RLS role membership and a recent ` +
+            `auto-heal attempt failed ${Math.round(sinceMs / 1000)}s ago. ` +
+            `Inspect GET /projects/${projectId}/rls-diagnose, then re-run ` +
+            `POST /projects/${projectId}/ensure-rls-bootstrap or ` +
+            `apps/platform-api/scripts/backfill-rls.ts.`,
+        );
+      }
+
+      this.autoHealLastAttemptMs.set(projectId, Date.now());
+      this.logger.warn(
+        `withRls: SET LOCAL ROLE "${ctx.role}" denied for project ${projectId} ` +
+          `(${e.message}). Attempting RLS bootstrap auto-heal.`,
+      );
+
+      let healResult: { bootstrappedAt: Date; sentinelPassed: boolean } | null = null;
+      try {
+        healResult = await this.projectsService.ensureRlsBootstrap(projectId);
+      } catch (healErr: any) {
+        this.logger.error(
+          `withRls: auto-heal failed for project ${projectId}: ${healErr.message}`,
+        );
+        throw new InternalServerErrorException(
+          `Project's RLS roles are not bootstrapped and auto-heal failed: ` +
+            `${healErr.message}. Inspect GET /projects/${projectId}/rls-diagnose ` +
+            `then re-run POST /projects/${projectId}/ensure-rls-bootstrap.`,
+        );
+      }
+
+      if (!healResult.sentinelPassed) {
+        // Bootstrap "succeeded" but sentinel still reports the role grants
+        // are missing. Don't retry the query — would loop on the same 42501.
+        throw new InternalServerErrorException(
+          `RLS bootstrap completed for project ${projectId} but the SET ROLE ` +
+            `sentinel failed; the connecting user is still not a member of ` +
+            `anon/authenticated/service_role. ` +
+            `Inspect GET /projects/${projectId}/rls-diagnose.`,
+        );
+      }
+
+      this.logger.log(
+        `withRls: auto-heal succeeded for project ${projectId}, retrying request.`,
+      );
+      // Clear the cooldown marker so a healthy project doesn't carry stale state.
+      this.autoHealLastAttemptMs.delete(projectId);
+      // One retry post-heal. If this also fails, surface the original code path.
+      return this.runRlsTransaction(projectId, ctx, fn);
     }
   }
 

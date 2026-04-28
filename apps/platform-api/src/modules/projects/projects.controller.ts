@@ -294,6 +294,23 @@ export class ProjectsController {
     return this.projectsService.ensureRlsBootstrap(id);
   }
 
+  /**
+   * Read-only diagnostic for the data API's RLS plumbing. Returns:
+   *   - which of anon/authenticated/service_role exist in the project DB
+   *   - the project owner's role memberships (pg_auth_members)
+   *   - a live SET ROLE round-trip for each target role
+   * Use this when the data API returns 500 "permission denied to set role <X>"
+   * to figure out which step is broken before triggering a re-bootstrap.
+   */
+  @Get(':id/rls-diagnose')
+  async diagnoseRls(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.projectsService.findOne(id, user.sub);
+    return this.projectsService.diagnoseRls(id);
+  }
+
   @Post(':id/restore')
   async restore(
     @Param('id') id: string,
