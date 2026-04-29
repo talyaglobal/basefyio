@@ -64,45 +64,95 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO authenticated, 
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────
--- 3. auth helpers
+-- 3. auth helpers — create only if absent.
+--
+-- IMPORTANT: we deliberately do NOT use CREATE OR REPLACE here.
+-- Supabase-imported projects already have auth.uid() RETURNING uuid
+-- (Supabase's signature) along with RLS policies that depend on that
+-- exact return type. If we tried to redefine auth.uid() RETURNS text,
+-- Postgres rejects with "cannot change return type of existing
+-- function" and the bootstrap aborts. Skipping when present keeps
+-- existing policies intact and treats Kolaybase's helpers as a safe
+-- default for fresh projects only.
 --
 -- These read the JWT claims that PublicApiService injects with
 --   SELECT set_config('request.jwt.claims', '<json>', true);
 -- inside each transaction.
 -- ─────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb
-LANGUAGE sql STABLE
-AS $$
-  SELECT COALESCE(
-    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb,
-    '{}'::jsonb
-  );
-$$;
+-- Helper to test whether an auth.<name> function already exists at all
+-- (any signature). We match on name only so that a Supabase-style uuid
+-- auth.uid() is preserved — its existence proves the project's policies
+-- depend on that exact signature.
+DO $auth_jwt$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth' AND p.proname = 'jwt'
+  ) THEN
+    CREATE FUNCTION auth.jwt() RETURNS jsonb
+    LANGUAGE sql STABLE
+    AS $body$
+      SELECT COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true), '')::jsonb,
+        '{}'::jsonb
+      );
+    $body$;
+  END IF;
+END$auth_jwt$;
 
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS text
-LANGUAGE sql STABLE
-AS $$
-  SELECT (auth.jwt() ->> 'sub');
-$$;
+DO $auth_uid$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth' AND p.proname = 'uid'
+  ) THEN
+    CREATE FUNCTION auth.uid() RETURNS text
+    LANGUAGE sql STABLE
+    AS $body$
+      SELECT (auth.jwt() ->> 'sub');
+    $body$;
+  END IF;
+END$auth_uid$;
 
-CREATE OR REPLACE FUNCTION auth.role() RETURNS text
-LANGUAGE sql STABLE
-AS $$
-  SELECT COALESCE(
-    NULLIF(current_setting('request.jwt.role', true), ''),
-    auth.jwt() ->> 'role',
-    'anon'
-  );
-$$;
+DO $auth_role$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth' AND p.proname = 'role'
+  ) THEN
+    CREATE FUNCTION auth.role() RETURNS text
+    LANGUAGE sql STABLE
+    AS $body$
+      SELECT COALESCE(
+        NULLIF(current_setting('request.jwt.role', true), ''),
+        auth.jwt() ->> 'role',
+        'anon'
+      );
+    $body$;
+  END IF;
+END$auth_role$;
 
-CREATE OR REPLACE FUNCTION auth.email() RETURNS text
-LANGUAGE sql STABLE
-AS $$
-  SELECT (auth.jwt() ->> 'email');
-$$;
+DO $auth_email$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth' AND p.proname = 'email'
+  ) THEN
+    CREATE FUNCTION auth.email() RETURNS text
+    LANGUAGE sql STABLE
+    AS $body$
+      SELECT (auth.jwt() ->> 'email');
+    $body$;
+  END IF;
+END$auth_email$;
 
-GRANT EXECUTE ON FUNCTION auth.jwt(), auth.uid(), auth.role(), auth.email()
+-- Schema-wide grant: covers any signature (ours OR Supabase's), so we
+-- don't need to enumerate (jwt(), uid(), role(), email()) — which would
+-- itself fail on signature mismatch.
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth
   TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 -- ─────────────────────────────────────────────────────────────
 -- 4. Sentinel — verify the project owner can actually SET ROLE
 --    to each of anon/authenticated/service_role. If any switch
