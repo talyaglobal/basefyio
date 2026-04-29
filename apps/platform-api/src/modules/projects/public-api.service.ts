@@ -123,7 +123,7 @@ export class PublicApiService {
       const keys = Object.keys(rows[0]);
       if (!keys.length) throw new BadRequestException('No columns provided');
 
-      const cols = keys.map((k) => `"${this.sanitizeIdentifier(k)}"`).join(', ');
+      const cols = keys.map((k) => this.quoteIdent(k, 'insert column')).join(', ');
 
       const allValues: unknown[] = [];
       const valueGroups: string[] = [];
@@ -168,7 +168,7 @@ export class PublicApiService {
       const setClause = setCols
         .map((k) => {
           idx++;
-          return `"${this.sanitizeIdentifier(k)}" = $${idx}`;
+          return `${this.quoteIdent(k, 'update column')} = $${idx}`;
         })
         .join(', ');
 
@@ -338,8 +338,19 @@ export class PublicApiService {
     const cols = selectParam.split(',').map((c) => c.trim()).filter(Boolean);
     if (!cols.length) return '*';
 
+    // PostgREST-compatible: `?select=*` (or `*` mixed with explicit columns)
+    // means "all columns". Without this, sanitizeIdentifier strips the star
+    // and we emit `SELECT "" FROM ...` → Postgres "zero-length delimited
+    // identifier" 500.
     return cols
-      .map((c) => `"${this.sanitizeIdentifier(c)}"`)
+      .map((c) => {
+        if (c === '*') return '*';
+        const safe = this.sanitizeIdentifier(c);
+        if (!safe) {
+          throw new BadRequestException(`Invalid column in select: "${c}"`);
+        }
+        return `"${safe}"`;
+      })
       .join(', ');
   }
 
@@ -384,7 +395,7 @@ export class PublicApiService {
 
     if (!sqlOp) return null;
 
-    const col = `"${this.sanitizeIdentifier(column)}"`;
+    const col = this.quoteIdent(column, 'filter column');
 
     if (op === 'is') {
       if (val === 'null') return { clause: `${col} IS NULL`, values: [] };
@@ -434,7 +445,7 @@ export class PublicApiService {
       .split(',')
       .map((part) => {
         const [col, dir] = part.trim().split('.');
-        const safeCol = `"${this.sanitizeIdentifier(col)}"`;
+        const safeCol = this.quoteIdent(col, 'order column');
         const safeDir = dir?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         const nulls = safeDir === 'DESC' ? 'NULLS LAST' : 'NULLS FIRST';
         return `${safeCol} ${safeDir} ${nulls}`;
@@ -475,6 +486,19 @@ export class PublicApiService {
 
   private sanitizeIdentifier(name: string): string {
     return name.replace(/[^a-zA-Z0-9_]/g, '');
+  }
+
+  /**
+   * Strict quoter — guarantees we never emit a zero-length delimited
+   * identifier (which Postgres rejects with `zero-length delimited identifier`,
+   * a generic 500 that's hard to triage from the client side).
+   */
+  private quoteIdent(name: string, context = 'identifier'): string {
+    const safe = this.sanitizeIdentifier(name);
+    if (!safe) {
+      throw new BadRequestException(`Invalid ${context}: "${name}"`);
+    }
+    return `"${safe}"`;
   }
 
   private async getPool(projectId: string): Promise<Pool> {
