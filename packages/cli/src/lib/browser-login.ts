@@ -21,10 +21,45 @@ const LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Kolaybase CLI</title></head>
-<body style="font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center">
-  <h2 style="color:#10b981">Authentication complete</h2>
-  <p>You are now logged in. You may close this tab and return to your terminal.</p>
+<head>
+  <meta charset="UTF-8">
+  <title>Kolaybase CLI</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px;
+           margin: 80px auto; text-align: center; color: #1f2937; }
+    h2 { color: #10b981; margin-bottom: 8px; }
+    .hint { color: #6b7280; font-size: 13px; margin-top: 32px; line-height: 1.55; }
+    .hint code { background:#f3f4f6; padding:1px 6px; border-radius:4px; font-size:12px; }
+    #countdown { color: #6b7280; font-size: 14px; margin-top: 18px; }
+    button { background:#10b981; color:#fff; border:0; padding:10px 18px;
+             border-radius:8px; font-size:14px; cursor:pointer; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <h2>Authentication complete</h2>
+  <p>You are now logged in. Return to your terminal to continue.</p>
+  <div id="countdown">This tab will try to close in <b id="t">3</b>s…</div>
+  <button onclick="window.close()">Close tab</button>
+  <p class="hint">
+    The <code>127.0.0.1</code> URL is normal — the Kolaybase CLI runs a
+    short-lived local server to receive the auth code from Keycloak.
+    This is the OAuth 2.0 loopback flow (RFC 8252) used by every native CLI.
+  </p>
+  <script>
+    var n = 3;
+    var el = document.getElementById('t');
+    var iv = setInterval(function () {
+      n -= 1;
+      if (el) el.textContent = String(Math.max(n, 0));
+      if (n <= 0) {
+        clearInterval(iv);
+        // window.close() only succeeds when the tab was opened via
+        // window.open from the same origin — usually a no-op here, but
+        // harmless. The user can click the button as fallback.
+        window.close();
+      }
+    }, 1000);
+  </script>
 </body>
 </html>`;
 

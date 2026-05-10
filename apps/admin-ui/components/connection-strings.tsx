@@ -527,6 +527,49 @@ datasource db {
               </code>
             </pre>
           </div>
+
+          <div className="rounded-lg border border-violet-200/80 bg-violet-50/50 dark:border-violet-900/60 dark:bg-violet-950/25">
+            <div className="flex flex-col gap-1 border-b border-violet-200/80 px-4 py-3 dark:border-violet-900/50 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="flex gap-3 min-w-0">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/50">
+                  <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-violet-950 dark:text-violet-100">
+                    AI prompt for quick connect
+                  </h3>
+                  <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
+                    Copy into your AI assistant. Wraps the exact ENV block above (byte-identical
+                    values) plus instructions on auth via kolaybase-js, migrations, REST/fetch
+                    fallback, CORS/CSP, and safe handling of secrets.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="shrink-0 border-violet-200 bg-white hover:bg-violet-50 dark:border-violet-800 dark:bg-violet-950 dark:hover:bg-violet-900"
+                onClick={() => {
+                  navigator.clipboard.writeText(aiQuickConnectPrompt);
+                  toast.success('AI prompt copied');
+                }}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                Copy prompt
+              </Button>
+            </div>
+            <div className="relative">
+              <pre className="max-h-[min(320px,45vh)] overflow-auto px-4 py-3 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+                <code className="font-mono whitespace-pre-wrap break-words">
+                  {aiQuickConnectPrompt}
+                </code>
+              </pre>
+            </div>
+            <p className="border-t border-violet-200/60 px-4 py-2 text-[11px] text-violet-800/80 dark:border-violet-900/50 dark:text-violet-300/80">
+              This text includes database passwords and API keys. Only paste into tools you
+              trust; do not share in public channels.
+            </p>
+          </div>
         </section>
       )}
 
@@ -757,48 +800,6 @@ datasource db {
         </p>
         <CopyBlock label="Direct URI" value={conn.uri} icon={Link2} />
 
-        <div className="rounded-lg border border-violet-200/80 bg-violet-50/50 dark:border-violet-900/60 dark:bg-violet-950/25">
-          <div className="flex flex-col gap-1 border-b border-violet-200/80 px-4 py-3 dark:border-violet-900/50 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <div className="flex gap-3 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/50">
-                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-violet-950 dark:text-violet-100">
-                  AI prompt for quick connect
-                </h3>
-                <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
-                  Copy into your AI assistant. Same env as the Raw Editor (framework preset above),
-                  plus kolaybase.com/docs (API, SDK, CLI), Kolaybase auth via kolaybase-js (kb.auth),
-                  migrations, REST/fetch fallback, CORS/CSP, and safe handling of secrets.
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="shrink-0 border-violet-200 bg-white hover:bg-violet-50 dark:border-violet-800 dark:bg-violet-950 dark:hover:bg-violet-900"
-              onClick={() => {
-                navigator.clipboard.writeText(aiQuickConnectPrompt);
-                toast.success('AI prompt copied');
-              }}
-            >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              Copy prompt
-            </Button>
-          </div>
-          <div className="relative">
-            <pre className="max-h-[min(320px,45vh)] overflow-auto px-4 py-3 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-              <code className="font-mono whitespace-pre-wrap break-words">
-                {aiQuickConnectPrompt}
-              </code>
-            </pre>
-          </div>
-          <p className="border-t border-violet-200/60 px-4 py-2 text-[11px] text-violet-800/80 dark:border-violet-900/50 dark:text-violet-300/80">
-            This text includes database passwords and API keys. Only paste into tools you
-            trust; do not share in public channels.
-          </p>
-        </div>
       </section>
       </>
       )}
