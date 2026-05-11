@@ -23,6 +23,7 @@ import { InfrastructureModule } from './modules/infrastructure/infrastructure.mo
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { MarketingInsightsModule } from './modules/marketing-insights/marketing-insights.module';
+import { DataImportModule } from './modules/data-import/data-import.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -54,6 +55,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     ObservabilityModule,
     RealtimeModule,
     MarketingInsightsModule,
+    DataImportModule,
   ],
 })
 export class AppModule implements NestModule {

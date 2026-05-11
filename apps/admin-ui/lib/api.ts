@@ -30,6 +30,11 @@ import type {
   SupabaseValidateResult,
   TableInfo,
   TableRows,
+  DataImportInspectResult,
+  DataImportPlan,
+  DataImportProgress,
+  DataImportResult,
+  DataImportJobStatus,
   Team,
   TeamGitHubStatus,
   TeamInvite,
@@ -927,6 +932,86 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       });
+    },
+
+    /**
+     * Generic CSV/XLSX → table import. Wizard flow:
+     *   1. inspectDataImport(file)      — upload + preview + auto-detect schema
+     *   2. startDataImport(plan)        — kicks off the background job
+     *   3. streamDataImportEvents()     — SSE progress (preferred) OR
+     *      getDataImportStatus()        — poll
+     *   4. downloadDataImportErrors()   — URL for bad-rows CSV after completion
+     */
+    async inspectDataImport(projectId: string, file: File): Promise<DataImportInspectResult> {
+      const token = getAccessToken();
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/proxy/projects/${projectId}/data-imports/inspect`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || `Import inspect failed: ${res.status}`);
+      }
+      return res.json();
+    },
+    startDataImport(projectId: string, plan: DataImportPlan) {
+      return request<{ jobId: string }>(`/projects/${projectId}/data-imports/jobs`, {
+        method: 'POST',
+        body: JSON.stringify(plan),
+      });
+    },
+    getDataImportStatus(projectId: string, jobId: string) {
+      return request<DataImportJobStatus>(
+        `/projects/${projectId}/data-imports/jobs/${jobId}/status`,
+      );
+    },
+    streamDataImportEvents(
+      projectId: string,
+      jobId: string,
+      callbacks: {
+        onProgress: (data: DataImportProgress) => void;
+        onCompleted: (data: DataImportResult) => void;
+        onFailed: (error: string) => void;
+        onState?: (state: string) => void;
+        onError?: (event: Event) => void;
+      },
+    ): EventSource {
+      const token = getAccessToken();
+      const url = `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const es = new EventSource(url);
+      es.addEventListener('state', (e) => {
+        try { callbacks.onState?.(JSON.parse((e as MessageEvent).data).state); } catch {}
+      });
+      es.addEventListener('progress', (e) => {
+        try { callbacks.onProgress(JSON.parse((e as MessageEvent).data)); } catch {}
+      });
+      es.addEventListener('completed', (e) => {
+        try { callbacks.onCompleted(JSON.parse((e as MessageEvent).data)); } catch {
+          callbacks.onFailed('Import completed, response parse failed');
+        }
+        es.close();
+      });
+      es.addEventListener('failed', (e) => {
+        try { callbacks.onFailed(JSON.parse((e as MessageEvent).data).error || 'Import failed'); } catch {
+          callbacks.onFailed('Import failed');
+        }
+        es.close();
+      });
+      es.onerror = (e) => callbacks.onError?.(e);
+      return es;
+    },
+    cancelDataImport(projectId: string, jobId: string) {
+      return request<{ ok: boolean }>(
+        `/projects/${projectId}/data-imports/jobs/${jobId}/cancel`,
+        { method: 'POST' },
+      );
+    },
+    /** URL for the bad-rows CSV; hand it to <a download>. */
+    downloadDataImportErrors(projectId: string, jobId: string): string {
+      return `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`;
     },
   },
 

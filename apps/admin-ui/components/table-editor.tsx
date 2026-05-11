@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { CreateTableDialog } from '@/components/create-table-dialog';
+import { ImportDataDialog } from '@/components/import-data-dialog';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
   Table2,
   Trash2,
   X,
+  Upload as ImportIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -674,6 +676,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [dataLoading, setDataLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -1051,6 +1054,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={loadTables}>
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <ImportIcon className="mr-2 h-4 w-4" />
+            Import Data
           </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -1547,6 +1554,17 @@ export function TableEditor({ projectId }: TableEditorProps) {
           if (createdTableName) {
             setTimeout(() => openTable(createdTableName), 0);
           }
+        }}
+      />
+      <ImportDataDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        tables={tables}
+        defaultTargetTable={selected}
+        onCompleted={() => {
+          loadTables();
+          if (selected) reloadTableData();
         }}
       />
 

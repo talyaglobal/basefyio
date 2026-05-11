@@ -6,6 +6,9 @@ export const IMPORT_QUEUE = 'import';
 export const EMAIL_QUEUE = 'email';
 export const EXPORT_QUEUE = 'export';
 export const BILLING_QUEUE = 'billing';
+/** Generic CSV/XLSX → table import (distinct from supabase-import, which is a
+ *  whole-project Supabase migration). */
+export const DATA_IMPORT_QUEUE = 'data-import';
 
 @Global()
 @Module({
@@ -43,6 +46,7 @@ export const BILLING_QUEUE = 'billing';
       { name: EMAIL_QUEUE },
       { name: EXPORT_QUEUE },
       { name: BILLING_QUEUE },
+      { name: DATA_IMPORT_QUEUE },
     ),
   ],
   exports: [BullModule],

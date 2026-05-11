@@ -667,3 +667,80 @@ export interface SupabaseValidateResult {
   projectName: string;
   tableCount: number;
 }
+/* ─────────────────── Data Import wizard types ─────────────────── */
+
+export type DataImportColumnType =
+  | 'boolean'
+  | 'integer'
+  | 'bigint'
+  | 'numeric'
+  | 'uuid'
+  | 'date'
+  | 'timestamptz'
+  | 'jsonb'
+  | 'text';
+
+export interface DataImportInferredColumn {
+  name: string;
+  originalName: string;
+  type: DataImportColumnType;
+  nullable: boolean;
+  sampleValues: string[];
+}
+
+export interface DataImportInspectResult {
+  sourceKey: string;
+  filename: string;
+  format: 'csv' | 'xlsx';
+  totalRowsApprox: number;
+  headers: string[];
+  inferredColumns: DataImportInferredColumn[];
+  sampleRows: unknown[][];
+  existingTables: Array<{ schema: string; name: string }>;
+}
+
+export interface DataImportColumnMapping {
+  source: string;
+  target: string;
+  type: DataImportColumnType;
+  nullable?: boolean;
+}
+
+export interface DataImportPlan {
+  sourceKey: string;
+  filename: string;
+  format: 'csv' | 'xlsx';
+  targetMode: 'existing' | 'new';
+  tableName: string;
+  schemaName?: string;
+  conflictMode: 'skip' | 'update' | 'fail';
+  conflictColumns?: string[];
+  columns: DataImportColumnMapping[];
+}
+
+export interface DataImportProgress {
+  step: 'parse' | 'insert' | 'done';
+  detail: string;
+  rowsRead?: number;
+  rowsInserted?: number;
+  rowsSkipped?: number;
+  rowsBad?: number;
+  percent?: number;
+}
+
+export interface DataImportResult {
+  rowsRead: number;
+  rowsInserted: number;
+  rowsSkippedConflict: number;
+  rowsBad: number;
+  errorKey?: string;
+  durationMs: number;
+}
+
+export interface DataImportJobStatus {
+  id: string;
+  state: string;
+  progress: DataImportProgress | Record<string, unknown> | number | null;
+  result?: DataImportResult;
+  failedReason?: string;
+}
