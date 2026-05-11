@@ -135,20 +135,41 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
   }, [open, defaultTargetTable]);
 
   // When the user picks an existing table, fetch its columns so the mapping
-  // selector knows what targets are available.
+  // selector knows what targets are available. We surface fetch errors via a
+  // toast (the previous silent `.catch(() => undefined)` left the user staring
+  // at empty target dropdowns with no clue why — the mapping is "use the
+  // existing table's columns" so the dropdowns being empty makes the wizard
+  // unusable). When the load truly fails the dialog falls back to free-text
+  // target column input below.
+  const [columnsLoadFailed, setColumnsLoadFailed] = useState(false);
   useEffect(() => {
     if (targetMode !== 'existing' || !targetTable) {
       setExistingColumns([]);
+      setColumnsLoadFailed(false);
       return;
     }
     let cancelled = false;
+    setColumnsLoadFailed(false);
     api.projects
       .columns(projectId, targetTable)
       .then((cols) => {
         if (cancelled) return;
         setExistingColumns(cols.map((c) => ({ name: c.name, type: c.type })));
+        if (cols.length === 0) {
+          // Endpoint succeeded but returned no columns — surface so user
+          // doesn't think the wizard is broken.
+          toast.error(
+            `"${targetTable}" reports 0 columns. Use free-text target column input.`,
+          );
+          setColumnsLoadFailed(true);
+        }
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        if (cancelled) return;
+        const msg = err?.message || 'Could not load table columns';
+        toast.error(`Columns lookup failed: ${msg}`);
+        setColumnsLoadFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -619,11 +640,11 @@ function ConfigureStep(props: {
                 </div>
                 <div className="col-span-3 truncate" title={m.source}>{m.source}</div>
                 <div className="col-span-3">
-                  {props.targetMode === 'existing' ? (
+                  {props.targetMode === 'existing' && props.existingColumns.length > 0 ? (
                     <Select
                       value={m.target}
                       onValueChange={(v) => updateMapping(i, { target: v })}
-                      disabled={!m.include || props.existingColumns.length === 0}
+                      disabled={!m.include}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="—" />
@@ -637,10 +658,22 @@ function ConfigureStep(props: {
                       </SelectContent>
                     </Select>
                   ) : (
+                    // Fallback to free-text input when:
+                    //   * targetMode === 'new' (no existing table)
+                    //   * existing columns lookup failed / returned empty / is
+                    //     still loading. Without this fallback the dropdown
+                    //     would be disabled and the user would have no way to
+                    //     advance — which is exactly the "Map at least one
+                    //     column" deadlock we're fixing.
                     <Input
                       value={m.target}
                       onChange={(e) => updateMapping(i, { target: sanitize(e.target.value) })}
                       disabled={!m.include}
+                      placeholder={
+                        props.targetMode === 'existing'
+                          ? 'type column name…'
+                          : 'new_column_name'
+                      }
                     />
                   )}
                 </div>
@@ -809,7 +842,5 @@ function Checkbox(props: {
   );
 }
 
-// keep a referenced symbol to silence "imported but unused" if any of the
-// icon imports ever become conditional in future edits.
 void X;
 void useMemo;
