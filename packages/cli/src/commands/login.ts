@@ -29,31 +29,60 @@ export async function loginCommand(options: LoginOptions) {
   }
 
   // Start the loopback server and get the nonce + port
-  const { nonce, port: portPromise, result: loginResult } = startBrowserLogin();
-  const port = await portPromise;
+  const handle = startBrowserLogin();
+  const port = await handle.port;
 
   // Build the CLI-login URL that the backend will handle
-  const loginUrl = `${getApiUrl()}/api/auth/cli-login?port=${port}&nonce=${nonce}`;
+  const loginUrl = `${getApiUrl()}/api/auth/cli-login?port=${port}&nonce=${nonce(handle)}`;
 
-  // Try to open the URL in the default browser; fall back to printing it
+  // Always show the URL so users can paste it manually if `open` lies about
+  // success (it returns as soon as the spawn fires; the browser may never
+  // actually appear on locked-down machines / wsl / ssh-x sessions). The
+  // earlier behaviour only showed the URL when `open` THREW, which never
+  // happens on Windows even when the browser fails to launch.
+  printBox(
+    `If your browser does not open, paste this URL manually:\n\n${chalk.cyan(loginUrl)}`,
+    { title: 'Browser Login', borderColor: 'cyan' },
+  );
+
   try {
     await open(loginUrl);
     console.log(chalk.gray('Opening your browser for authentication…'));
   } catch {
-    printBox(
-      `Open this URL in your browser to continue:\n\n${chalk.cyan(loginUrl)}`,
-      { title: 'Browser Login', borderColor: 'cyan' },
-    );
+    console.log(chalk.yellow('Could not auto-open browser — use the URL above.'));
   }
 
   const spinner = createSpinner('Waiting for authentication in your browser…');
 
+  // Heartbeat hints — silent waiting feels broken. Surface progressively
+  // better diagnostics so the user knows what to check.
+  const hint20 = setTimeout(() => {
+    spinner.text = 'Still waiting… click "Allow access" in the browser if you haven\'t already.';
+  }, 20_000);
+  hint20.unref();
+  const hint60 = setTimeout(() => {
+    spinner.text =
+      'Still waiting… if the browser shows "Authentication complete" but this stays here, ' +
+      'a firewall may be blocking the loopback callback. Try cancelling (Ctrl+C) and re-running.';
+  }, 60_000);
+  hint60.unref();
+
   try {
-    const { exchangeCode } = await loginResult;
+    const { exchangeCode } = await handle.result;
+    clearTimeout(hint20);
+    clearTimeout(hint60);
     spinner.text = 'Completing authentication…';
 
-    // Exchange the one-time code for real tokens
-    const tokens = await apiClient.cliExchange(exchangeCode, nonce);
+    // Exchange the one-time code for real tokens. Wrap with our own timeout
+    // distinct from the loopback timeout: if the platform API doesn't reply
+    // here, the loopback has already done its job and we want to surface the
+    // server-side failure quickly rather than sitting on axios' default.
+    const tokens = await withTimeout(
+      apiClient.cliExchange(exchangeCode, nonce(handle)),
+      30_000,
+      'Token exchange with the Kolaybase API timed out. The login callback succeeded ' +
+        'but the platform API did not respond. Try again or check your network.',
+    );
     setAccessToken(tokens.accessToken);
     setRefreshToken(tokens.refreshToken);
 
@@ -66,7 +95,9 @@ export async function loginCommand(options: LoginOptions) {
       console.log();
       success(`Welcome, ${chalk.cyan(emailFromJwt)}`);
     } else {
-      // Fall back to fetching /me if the JWT decode fails
+      // Fall back to fetching /me if the JWT decode fails. With a brand-new
+      // token this should always succeed; if it doesn't, surface the real
+      // error rather than swallowing it.
       const me = await apiClient.getMe();
       setUserConfig({ email: me.email });
       spinner.succeed('Logged in');
@@ -76,17 +107,41 @@ export async function loginCommand(options: LoginOptions) {
 
     console.log(chalk.gray('  Run  kb init  to create a project or  kb link  to connect to one'));
   } catch (err: any) {
+    clearTimeout(hint20);
+    clearTimeout(hint60);
     spinner.fail('Authentication failed');
     const msg = err?.message || String(err);
-    if (msg.includes('timed out')) {
-      console.error(chalk.red('Login timed out. Please run  kb login  again.'));
+    if (msg.toLowerCase().includes('timed out')) {
+      console.error(chalk.red(msg));
+      console.error(chalk.yellow('Run  kb login  again to retry.'));
       process.exit(1);
     }
     if (msg.includes('cancelled')) {
       process.exit(1);
     }
     handleApiError(err);
+  } finally {
+    handle.dispose();
   }
+}
+
+function nonce(handle: { nonce: string }): string {
+  return handle.nonce;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+    if (typeof (timer as any).unref === 'function') (timer as any).unref();
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 /** Decode a JWT payload without verifying the signature (verification is done server-side). */

@@ -1,6 +1,24 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import chalk from 'chalk';
-import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken } from './config.js';
+import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken, clearAuthTokens } from './config.js';
+
+
+/**
+ * Carried out of the response interceptor so the calling command can decide
+ * how to surface authentication failures (instead of the interceptor calling
+ * process.exit(1) and giving the user no actionable diagnostics).
+ */
+export class AuthError extends Error {
+  readonly kind: 'NOT_LOGGED_IN' | 'SESSION_EXPIRED' | 'REFRESH_TRANSIENT';
+  constructor(
+    kind: 'NOT_LOGGED_IN' | 'SESSION_EXPIRED' | 'REFRESH_TRANSIENT',
+    message: string,
+  ) {
+    super(message);
+    this.kind = kind;
+    this.name = 'AuthError';
+  }
+}
 
 export class ApiClient {
   private client: AxiosInstance;
@@ -23,38 +41,97 @@ export class ApiClient {
       return config;
     });
 
-    // Handle token refresh
+    // Handle token refresh.
+    //
+    // Subtle pitfalls we are guarding against (see "kb status re-login loop"
+    // incident report):
+    //   * Don't call process.exit(1) from inside an interceptor — it kills
+    //     the process before the calling command can present a coherent
+    //     message and prevents tests from observing the failure. Throw an
+    //     AuthError instead and let the command handler surface it.
+    //   * Don't clear tokens on a transient refresh failure (e.g. network
+    //     blip, 5xx). Only clear them when Keycloak/the platform-api has
+    //     authoritatively rejected the refresh token (4xx).
+    //   * Don't overwrite tokens with `undefined`. setAccessToken /
+    //     setRefreshToken in config.ts now refuse non-string values so a
+    //     malformed refresh response can't wipe the saved session.
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
         const originalRequest = error.config;
-        
-        if (error.response?.status === 401 && originalRequest && !(originalRequest as any)._retry) {
-          (originalRequest as any)._retry = true;
-          
-          try {
-            const refreshToken = getRefreshToken();
-            if (!refreshToken) {
-              throw new Error('No refresh token available');
-            }
+        if (
+          error.response?.status !== 401 ||
+          !originalRequest ||
+          (originalRequest as any)._retry
+        ) {
+          return Promise.reject(error);
+        }
+        (originalRequest as any)._retry = true;
 
-            const { data } = await axios.post(`${getApiUrl()}/api/auth/refresh`, {
-              refreshToken,
-            });
-
-            setAccessToken(data.accessToken);
-            setRefreshToken(data.refreshToken);
-
-            originalRequest.headers!.Authorization = `Bearer ${data.accessToken}`;
-            return this.client(originalRequest);
-          } catch (refreshError) {
-            console.error(chalk.red('Session expired. Please login again with: kb login'));
-            process.exit(1);
-          }
+        const refreshToken = getRefreshToken();
+        if (!refreshToken) {
+          // No refresh token saved → user really must log in.
+          return Promise.reject(
+            new AuthError('NOT_LOGGED_IN', 'Not logged in. Run: kb login'),
+          );
         }
 
-        return Promise.reject(error);
-      }
+        let refreshed: { accessToken?: string; refreshToken?: string } | null = null;
+        let refreshFailure: AxiosError | Error | null = null;
+        try {
+          const { data } = await axios.post(`${getApiUrl()}/api/auth/refresh`, {
+            refreshToken,
+          });
+          refreshed = data;
+        } catch (err) {
+          refreshFailure = err as AxiosError | Error;
+        }
+
+        if (refreshed?.accessToken) {
+          setAccessToken(refreshed.accessToken);
+          // Keycloak rotates refresh tokens by default but some configs reuse
+          // the same value or omit it. Only persist if the server gave us a
+          // new one; setRefreshToken in config.ts ignores undefined anyway.
+          if (refreshed.refreshToken) setRefreshToken(refreshed.refreshToken);
+
+          originalRequest.headers!.Authorization = `Bearer ${refreshed.accessToken}`;
+          return this.client(originalRequest);
+        }
+
+        // Refresh failed. Distinguish authoritative rejection (token revoked /
+        // expired) from transient failures (network, 5xx). Only the former
+        // should wipe credentials.
+        const refreshAxiosErr =
+          refreshFailure && axios.isAxiosError(refreshFailure)
+            ? (refreshFailure as AxiosError)
+            : null;
+        const refreshStatus = refreshAxiosErr?.response?.status;
+        const refreshBody = refreshAxiosErr?.response?.data as any;
+        const refreshMessage =
+          refreshBody?.message ||
+          refreshBody?.error ||
+          refreshAxiosErr?.message ||
+          (refreshFailure as Error | null)?.message ||
+          'Refresh failed';
+
+        if (refreshStatus && refreshStatus >= 400 && refreshStatus < 500) {
+          clearAuthTokens();
+          return Promise.reject(
+            new AuthError(
+              'SESSION_EXPIRED',
+              `Session expired (${refreshStatus}: ${refreshMessage}). Run: kb login`,
+            ),
+          );
+        }
+
+        // Transient — don't wipe tokens, let the user retry.
+        return Promise.reject(
+          new AuthError(
+            'REFRESH_TRANSIENT',
+            `Could not refresh session (${refreshMessage}). Check your network and try again; if the problem persists, run: kb login`,
+          ),
+        );
+      },
     );
   }
 
@@ -182,13 +259,23 @@ export class ApiClient {
 export const apiClient = new ApiClient();
 
 export function handleApiError(error: any) {
+  if (error instanceof AuthError) {
+    // AuthError already has the precise actionable message — print it once,
+    // no need for "API Error:" framing or duplicated "kb login" hint.
+    console.error(chalk.red(error.message));
+    process.exit(1);
+  }
+
   if (axios.isAxiosError(error)) {
     if (error.response) {
-      const message = error.response.data?.message || error.response.data?.error || error.message;
+      const message =
+        error.response.data?.message || error.response.data?.error || error.message;
       console.error(chalk.red(`API Error: ${message}`));
-      
+
       if (error.response.status === 401) {
-        console.error(chalk.yellow('Please login first with: kb login'));
+        // We only reach here if the interceptor didn't already throw AuthError
+        // (i.e. the request was already a _retry). Surface the same hint.
+        console.error(chalk.yellow('Please run: kb login'));
       }
     } else if (error.request) {
       console.error(chalk.red('Network error: Could not connect to Kolaybase API'));
@@ -199,6 +286,6 @@ export function handleApiError(error: any) {
   } else {
     console.error(chalk.red(`Error: ${error.message || error}`));
   }
-  
+
   process.exit(1);
 }

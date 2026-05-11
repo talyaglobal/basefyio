@@ -17,7 +17,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 
-const LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Auth must complete within this window. 5 minutes was generous but made
+ * "stuck" sessions feel terminal — users would CTRL-C and re-try, racing
+ * the same loopback port with an old still-listening server. 2 minutes is
+ * enough for real browser auth and short enough that timeouts surface fast.
+ */
+const LOGIN_TIMEOUT_MS = 2 * 60 * 1000;
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -90,15 +96,25 @@ export interface BrowserLoginResult {
   port: number;
 }
 
+export interface BrowserLoginHandle {
+  nonce: string;
+  port: Promise<number>;
+  result: Promise<BrowserLoginResult>;
+  /**
+   * Callers MUST invoke this once the loopback callback has fired and the
+   * follow-up exchange has either succeeded or failed. Without it, the
+   * 2-minute timeout keeps firing later, the SIGINT handler stays attached,
+   * and the listening server may linger holding the port — which causes the
+   * next `kb login` to fail with EADDRINUSE on the OS-assigned port.
+   */
+  dispose: () => void;
+}
+
 /**
  * Starts the loopback server, returns the nonce/port needed to build the
  * CLI-login URL, and a promise that resolves once the exchange code arrives.
  */
-export function startBrowserLogin(): {
-  nonce: string;
-  port: Promise<number>;
-  result: Promise<BrowserLoginResult>;
-} {
+export function startBrowserLogin(): BrowserLoginHandle {
   const nonce = randomBytes(32).toString('hex');
   let resolvePort!: (port: number) => void;
   const portPromise = new Promise<number>((res) => { resolvePort = res; });
@@ -163,10 +179,20 @@ export function startBrowserLogin(): {
     resolvePort(actualPort);
   });
 
-  // 5-minute hard timeout so the CLI never hangs forever
+  // Hard timeout so the CLI never hangs forever waiting on a browser that
+  // already crashed / was closed / never opened. The reject message includes
+  // the loopback URL so the user can see what was being waited on.
   const timeout = setTimeout(() => {
+    const actualPort = (server.address() as any)?.port as number;
     server.close();
-    rejectResult(new Error('Authentication timed out after 5 minutes'));
+    rejectResult(
+      new Error(
+        `Authentication timed out after ${Math.round(LOGIN_TIMEOUT_MS / 60_000)} minutes. ` +
+          `The loopback server at http://127.0.0.1:${actualPort}/callback never received ` +
+          `the redirect. Check that the browser tab finished loading and that ` +
+          `nothing is blocking 127.0.0.1 (corporate firewall, host-overriding extension).`,
+      ),
+    );
   }, LOGIN_TIMEOUT_MS);
   timeout.unref(); // don't keep the process alive just for the timeout
 
@@ -180,5 +206,16 @@ export function startBrowserLogin(): {
   process.once('SIGINT', cleanup);
   process.once('SIGTERM', cleanup);
 
-  return { nonce, port: portPromise, result: resultPromise };
+  const dispose = () => {
+    clearTimeout(timeout);
+    process.removeListener('SIGINT', cleanup);
+    process.removeListener('SIGTERM', cleanup);
+    // server.close() already called from inside the request handler in the
+    // success path; this guard makes dispose safe to call even if the caller
+    // somehow gets here before the request handler fired (e.g. on cliExchange
+    // failure between callback receipt and token persistence).
+    try { server.close(); } catch { /* noop */ }
+  };
+
+  return { nonce, port: portPromise, result: resultPromise, dispose };
 }

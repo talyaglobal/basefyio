@@ -88,7 +88,15 @@ export function getAccessToken(): string | undefined {
   return userConfig.get('accessToken');
 }
 
-export function setAccessToken(token: string): void {
+/**
+ * Persist the access token. Refuses empty/undefined values so a malformed
+ * refresh response can't silently delete the user's session — the previous
+ * behaviour ("setAccessToken(undefined)" via conf.set) erased the stored
+ * token and forced an immediate re-login on the next command. See the
+ * `kb status` re-login loop incident.
+ */
+export function setAccessToken(token: string | undefined | null): void {
+  if (!token || typeof token !== 'string') return;
   userConfig.set('accessToken', token);
 }
 
@@ -96,8 +104,17 @@ export function getRefreshToken(): string | undefined {
   return userConfig.get('refreshToken');
 }
 
-export function setRefreshToken(token: string): void {
+/** Same guard as setAccessToken — see comment there. */
+export function setRefreshToken(token: string | undefined | null): void {
+  if (!token || typeof token !== 'string') return;
   userConfig.set('refreshToken', token);
+}
+
+/** Clear both tokens — used when refresh has definitively failed and we
+ *  truly need the user to log in again. Never clear from anywhere else. */
+export function clearAuthTokens(): void {
+  userConfig.delete('accessToken');
+  userConfig.delete('refreshToken');
 }
 
 export function isLoggedIn(): boolean {
