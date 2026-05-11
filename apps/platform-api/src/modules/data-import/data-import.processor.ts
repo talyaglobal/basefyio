@@ -23,6 +23,8 @@ interface JobData {
   projectId: string;
   userId?: string;
   sourceKey: string;
+  /** Extra staged files to process under the same plan (multi-file import). */
+  additionalSourceKeys?: string[];
   filename: string;
   format: FileFormat;
   firstRowIsHeader?: boolean;
@@ -128,6 +130,33 @@ export class DataImportProcessor extends WorkerHost {
         data.conflictColumns || [],
       );
 
+      // Iterate every staged file under the same plan. Schema is taken from
+      // the first file; all others must match column-by-column or rows will
+      // land in the bad-row report. Progress events carry a file index so the
+      // wizard can show "file 3 of 12".
+      const allSources = [data.sourceKey, ...(data.additionalSourceKeys ?? [])];
+      const totalFiles = allSources.length;
+      for (let fileIdx = 0; fileIdx < totalFiles; fileIdx++) {
+        const sourceKey = allSources[fileIdx];
+        const fileLabel = `${fileIdx + 1}/${totalFiles}`;
+
+        await job.updateProgress({
+          step: 'parse',
+          detail: `Streaming file ${fileLabel}`,
+          rowsRead,
+          rowsInserted,
+          fileIndex: fileIdx + 1,
+          totalFiles,
+          percent: Math.min(95, Math.round(((fileIdx) / totalFiles) * 90) + 5),
+        });
+
+        // Re-fetch the buffer per file. For the FIRST file we already loaded
+        // it above; we could keep it cached but the simpler shape is one
+        // path per file.
+        const fileBuffer = fileIdx === 0
+          ? buffer
+          : await this.fetchSource(sourceKey);
+
       // Stream rows in WORKER_CHUNK_ROWS-sized batches. Each batch:
       // 1. validate every cell via castValue → split into good rows + bad rows.
       // 2. INSERT good rows in a single parameterized query.
@@ -135,7 +164,7 @@ export class DataImportProcessor extends WorkerHost {
       // Note: if the request was cancelled, the queue marks data._cancelled = true.
       // We re-read job data each chunk and bail early.
       await streamRows(
-        buffer,
+        fileBuffer,
         data.format,
         async (headers, chunk) => {
         // Refresh cancellation flag.
@@ -243,14 +272,21 @@ export class DataImportProcessor extends WorkerHost {
 
         await job.updateProgress({
           step: 'insert',
-          detail: `Processed ${rowsRead.toLocaleString()} rows`,
+          detail: `File ${fileLabel}: processed ${rowsRead.toLocaleString()} rows`,
           rowsRead,
           rowsInserted,
           rowsSkipped: rowsSkippedConflict,
           rowsBad: badRows.length,
-          percent: 5 + Math.min(90, Math.floor((rowsRead / Math.max(rowsRead + 1, 100)) * 90)),
+          fileIndex: fileIdx + 1,
+          totalFiles,
+          percent: Math.min(
+            95,
+            Math.round(((fileIdx) / totalFiles) * 90) + 5 +
+              Math.floor((rowsRead / Math.max(rowsRead + 1, 100)) * (90 / totalFiles)),
+          ),
         });
       }, { firstRowIsHeader: data.firstRowIsHeader ?? true });
+      } // end per-file loop
 
       let errorKey: string | undefined;
       if (badRows.length > 0) {
@@ -267,9 +303,11 @@ export class DataImportProcessor extends WorkerHost {
         durationMs,
       };
 
-      // Best-effort cleanup of the source file in MinIO. Don't fail the job
-      // if cleanup errors — the file expires by lifecycle anyway.
-      this.minio.removeObject(STAGING_BUCKET, data.sourceKey).catch(() => undefined);
+      // Best-effort cleanup of every staged source file. Failures are
+      // tolerated — staging objects expire via MinIO lifecycle anyway.
+      for (const key of [data.sourceKey, ...(data.additionalSourceKeys ?? [])]) {
+        this.minio.removeObject(STAGING_BUCKET, key).catch(() => undefined);
+      }
 
       await this.activity
         .append(data.projectId, {

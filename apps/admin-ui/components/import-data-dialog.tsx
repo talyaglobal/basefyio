@@ -111,6 +111,21 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
    *  so the user doesn't have to re-upload after picking the wrong default. */
   const [firstRowIsHeader, setFirstRowIsHeader] = useState<boolean>(true);
   const [reinspecting, setReinspecting] = useState(false);
+  /**
+   * Multi-file batch state. When the user drops N files, the FIRST file's
+   * inspect drives the schema/preview/mapping; the rest are staged silently
+   * in MinIO and forwarded as `additionalSourceKeys` on Start. Per-file
+   * upload status keeps the UI honest while big batches are being staged.
+   */
+  const [batchFiles, setBatchFiles] = useState<
+    Array<{
+      name: string;
+      size: number;
+      status: 'pending' | 'uploading' | 'ready' | 'error';
+      sourceKey?: string;
+      error?: string;
+    }>
+  >([]);
 
   // Reset state when dialog reopens.
   useEffect(() => {
@@ -132,6 +147,7 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     setError(null);
     setFirstRowIsHeader(true);
     setReinspecting(false);
+    setBatchFiles([]);
   }, [open, defaultTargetTable]);
 
   // When the user picks an existing table, fetch its columns so the mapping
@@ -231,18 +247,66 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     );
   }, [inspect, targetMode, existingColumns]);
 
-  async function handleFileUpload(f: File) {
+  /**
+   * Multi-file upload. The first file's /inspect drives schema detection; all
+   * other files are staged via /inspect too (we need the sourceKey from
+   * MinIO) but their schema results are discarded. We process them
+   * sequentially rather than in parallel to keep memory + connection use
+   * predictable when the user drops 50 files at once.
+   */
+  async function handleFileUpload(files: File[]) {
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
+
+    type BatchEntry = {
+      name: string;
+      size: number;
+      status: 'pending' | 'uploading' | 'ready' | 'error';
+      sourceKey?: string;
+      error?: string;
+    };
+    const initial: BatchEntry[] = files.map((f) => ({
+      name: f.name,
+      size: f.size,
+      status: 'pending',
+    }));
+    setBatchFiles(initial);
+
+    const updateFile = (i: number, patch: Partial<BatchEntry>) =>
+      setBatchFiles((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+
     try {
-      const insp = await api.projects.inspectDataImport(projectId, f, {
+      // First file: drive the wizard.
+      updateFile(0, { status: 'uploading' });
+      const firstInspect = await api.projects.inspectDataImport(projectId, files[0], {
         firstRowIsHeader,
       });
-      setFile(f);
-      setInspect(insp);
-      setFirstRowIsHeader(insp.firstRowIsHeader);
+      updateFile(0, { status: 'ready', sourceKey: firstInspect.sourceKey });
+      setFile(files[0]);
+      setInspect(firstInspect);
+      setFirstRowIsHeader(firstInspect.firstRowIsHeader);
       setStep('configure');
+
+      // Remaining files: stage in the background so the wizard remains
+      // interactive while uploads continue. The Start button checks
+      // batchFiles for any remaining "uploading" entries and waits.
+      for (let i = 1; i < files.length; i++) {
+        updateFile(i, { status: 'uploading' });
+        try {
+          const r = await api.projects.inspectDataImport(projectId, files[i], {
+            firstRowIsHeader: firstInspect.firstRowIsHeader,
+          });
+          updateFile(i, { status: 'ready', sourceKey: r.sourceKey });
+        } catch (err: any) {
+          updateFile(i, {
+            status: 'error',
+            error: err?.message || 'Inspect failed',
+          });
+        }
+      }
     } catch (e: any) {
+      updateFile(0, { status: 'error', error: e?.message || 'Inspect failed' });
       setError(e?.message || 'Inspect failed');
       toast.error(e?.message || 'Inspect failed');
     } finally {
@@ -292,8 +356,23 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     setError(null);
     try {
       const tableName = targetMode === 'new' ? newTableName : targetTable;
+      // Collect every successfully-staged file beyond the primary one.
+      // Files still uploading are awaited via the validation below; files
+      // that errored out are skipped (user already saw their toast).
+      const stillUploading = batchFiles.some((b) => b.status === 'uploading');
+      if (stillUploading) {
+        toast.error('Some files are still uploading; please wait a moment.');
+        setBusy(false);
+        return;
+      }
+      const additionalSourceKeys = batchFiles
+        .slice(1)
+        .filter((b) => b.status === 'ready' && b.sourceKey)
+        .map((b) => b.sourceKey as string);
+
       const { jobId: id } = await api.projects.startDataImport(projectId, {
         sourceKey: inspect.sourceKey,
+        additionalSourceKeys: additionalSourceKeys.length ? additionalSourceKeys : undefined,
         filename: inspect.filename,
         format: inspect.format,
         firstRowIsHeader,
@@ -356,7 +435,7 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
         </DialogHeader>
 
         {step === 'upload' && (
-          <UploadStep busy={busy} onFile={handleFileUpload} error={error} />
+          <UploadStep busy={busy} onFile={handleFileUpload} error={error} batchFiles={batchFiles} />
         )}
 
         {step === 'configure' && inspect && (
@@ -439,17 +518,22 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
 
 /* ──────────────────────── step components ──────────────────────── */
 
-function UploadStep(props: { busy: boolean; onFile: (f: File) => void; error: string | null }) {
+function UploadStep(props: {
+  busy: boolean;
+  onFile: (files: File[]) => void;
+  error: string | null;
+  batchFiles: Array<{ name: string; size: number; status: string; error?: string }>;
+}) {
   const [drag, setDrag] = useState(false);
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) props.onFile(f);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) props.onFile(files);
   }
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDrag(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) props.onFile(f);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length > 0) props.onFile(files);
   }
   return (
     <div
@@ -469,14 +553,16 @@ function UploadStep(props: { busy: boolean; onFile: (f: File) => void; error: st
         <Upload className="h-10 w-10 text-muted-foreground" />
       )}
       <div>
-        <div className="font-medium">Drop a CSV or XLSX file here</div>
+        <div className="font-medium">Drop CSV or XLSX file(s) here</div>
         <div className="text-sm text-muted-foreground">
-          We&apos;ll parse the first 1,000 rows to suggest column types.
+          Multiple files allowed when they share the same schema. The first
+          file drives column detection; the rest are queued under the same plan.
         </div>
       </div>
       <label className="cursor-pointer">
         <input
           type="file"
+          multiple
           className="sr-only"
           accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm"
           onChange={onPick}
@@ -484,9 +570,34 @@ function UploadStep(props: { busy: boolean; onFile: (f: File) => void; error: st
         />
         <span className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted">
           <FileSpreadsheet className="h-4 w-4" />
-          Choose file
+          Choose file(s)
         </span>
       </label>
+      {props.batchFiles.length > 0 && (
+        <div className="mt-2 w-full max-w-md space-y-1 text-left text-xs">
+          {props.batchFiles.map((b, i) => (
+            <div
+              key={`${b.name}-${i}`}
+              className="flex items-center justify-between gap-2 rounded border bg-muted/20 px-2 py-1"
+            >
+              <span className="truncate" title={b.name}>
+                {b.name} <span className="text-muted-foreground">({(b.size / 1024 / 1024).toFixed(1)} MB)</span>
+              </span>
+              <span
+                className={
+                  b.status === 'error'
+                    ? 'text-destructive'
+                    : b.status === 'ready'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-muted-foreground'
+                }
+              >
+                {b.status === 'uploading' ? 'uploading…' : b.status === 'ready' ? '✓ staged' : b.status === 'error' ? (b.error || 'error') : 'queued'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {props.error && (
         <div className="mt-2 text-sm text-destructive">
           <AlertTriangle className="mr-1 inline h-4 w-4" />

@@ -711,6 +711,9 @@ export interface DataImportColumnMapping {
 
 export interface DataImportPlan {
   sourceKey: string;
+  /** Extra staged source keys when the user uploaded multiple files in one
+   *  wizard session. All files share the schema from `sourceKey`. */
+  additionalSourceKeys?: string[];
   filename: string;
   format: 'csv' | 'xlsx';
   firstRowIsHeader?: boolean;

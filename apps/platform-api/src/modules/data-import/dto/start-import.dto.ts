@@ -45,10 +45,19 @@ export class ColumnMappingDto {
 }
 
 export class StartImportDto {
-  /** MinIO object key returned by /inspect. The worker fetches the file by
-   *  this key — no second upload. */
+  /** MinIO object key returned by /inspect for the FIRST file. The worker
+   *  fetches the file by this key — no second upload. */
   @IsString()
   sourceKey!: string;
+
+  /** Additional MinIO source keys when the user uploaded multiple files in
+   *  the same wizard session. All files are assumed to share the schema
+   *  detected from `sourceKey`. The worker processes them sequentially,
+   *  applying the same column map / conflict mode / type rules. */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  additionalSourceKeys?: string[];
 
   /** Original filename (for activity log / error report only). */
   @IsString()

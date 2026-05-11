@@ -140,6 +140,18 @@ export class DataImportService {
       );
     }
 
+    // Validate every additional source key the same way — it must belong to
+    // the project's staging prefix. Without this we'd happily import another
+    // tenant's staged file into this project's table.
+    const extra = (dto.additionalSourceKeys ?? []).filter((k) => k !== dto.sourceKey);
+    for (const k of extra) {
+      if (!k || !k.startsWith(`${projectId}/`)) {
+        throw new BadRequestException(
+          `Invalid additionalSourceKey "${k}" — must belong to the same project.`,
+        );
+      }
+    }
+
     if (!dto.columns.length) {
       throw new BadRequestException('At least one column mapping is required');
     }
@@ -154,12 +166,20 @@ export class DataImportService {
       );
     }
 
-    // Verify the file is still in MinIO (could have been TTL'd or cancelled).
-    try {
-      await this.minio.statObject(STAGING_BUCKET, dto.sourceKey);
-    } catch {
+    // Verify every staged file is still in MinIO (could have been TTL'd or
+    // cancelled). Done in one pass so the first-file error doesn't hide a
+    // later-file error from a multi-upload session.
+    const missing: string[] = [];
+    for (const key of [dto.sourceKey, ...extra]) {
+      try {
+        await this.minio.statObject(STAGING_BUCKET, key);
+      } catch {
+        missing.push(key);
+      }
+    }
+    if (missing.length > 0) {
       throw new BadRequestException(
-        'Source file no longer exists in staging. Re-upload via /inspect.',
+        `Source file(s) no longer exist in staging: ${missing.join(', ')}. Re-upload via /inspect.`,
       );
     }
 
@@ -169,6 +189,7 @@ export class DataImportService {
         projectId,
         userId,
         sourceKey: dto.sourceKey,
+        additionalSourceKeys: extra,
         filename: dto.filename,
         format: dto.format,
         firstRowIsHeader: dto.firstRowIsHeader ?? true,
