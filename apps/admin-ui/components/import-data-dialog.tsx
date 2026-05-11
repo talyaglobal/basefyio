@@ -504,6 +504,27 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
                 Start import <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             )}
+            {step === 'done' && error && (
+              // Failure path: let the user fix the plan (e.g. wrong conflict
+              // columns, missing UNIQUE constraint, wrong table) without
+              // re-uploading. Inspect result, mappings, staged sourceKeys,
+              // and target picks are all preserved in component state — the
+              // only thing the user needs to change is whatever caused the
+              // error. Once they hit Start again, a fresh job is enqueued
+              // against the same staged files.
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setJobId(null);
+                  setProgress(null);
+                  setResult(null);
+                  setStep('configure');
+                }}
+              >
+                Back to configure
+              </Button>
+            )}
             {(step === 'running' || step === 'done') && (
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Close
