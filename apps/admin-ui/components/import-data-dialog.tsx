@@ -101,7 +101,7 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
   const [conflictMode, setConflictMode] = useState<'skip' | 'update' | 'fail'>('skip');
   const [conflictColumns, setConflictColumns] = useState<string[]>([]);
   const [mappings, setMappings] = useState<MappingRow[]>([]);
-  const [existingColumns, setExistingColumns] = useState<{ name: string; type: string }[]>([]);
+  const [existingColumns, setExistingColumns] = useState<{ name: string; type: string; nullable: boolean }[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<DataImportProgress | null>(null);
   const [result, setResult] = useState<DataImportResult | null>(null);
@@ -154,7 +154,13 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
       .columns(projectId, targetTable)
       .then((cols) => {
         if (cancelled) return;
-        setExistingColumns(cols.map((c) => ({ name: c.name, type: c.type })));
+        // Carry through `nullable` from the DB so auto-map can flag NOT NULL
+        // columns. Without this the wizard would default each mapping to
+        // nullable=true and a single empty cell would crash the entire batch
+        // INSERT with "violates not-null constraint".
+        setExistingColumns(
+          cols.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable })),
+        );
         if (cols.length === 0) {
           // Endpoint succeeded but returned no columns — surface so user
           // doesn't think the wizard is broken.
@@ -187,21 +193,31 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     if (!inspect) return;
     const targetByName =
       targetMode === 'existing' && existingColumns.length > 0
-        ? new Map(existingColumns.map((c) => [c.name.toLowerCase(), c.name]))
+        ? new Map(existingColumns.map((c) => [c.name.toLowerCase(), c]))
         : null;
     setMappings(
       inspect.inferredColumns.map((c) => {
-        const defaultTarget = targetByName
-          ? // Existing table + columns loaded: auto-match by name; else blank
-            //   so the user picks from the dropdown.
-            targetByName.get(c.name.toLowerCase()) ?? ''
-          : targetMode === 'new'
-            ? // New table mode: use the sanitized source name as the target.
-              c.name
-            : // Existing-mode but columns not yet loaded: leave target empty;
-              //   the dropdown will populate once the fetch resolves.
-              '';
-        return buildMappingRow(c, defaultTarget);
+        // Always seed the target field with SOMETHING the user can either
+        // accept or correct — never leave it blank just because we couldn't
+        // find a perfect match. Order of preference:
+        //   1. Exact DB column match (case-insensitive) → use DB's casing.
+        //   2. Sanitized source name (`c.name`) regardless of mode — it's the
+        //      file's first row turned into a Postgres-safe identifier. If
+        //      the user has a matching DB column they accept the default; if
+        //      not, they see what we'd send and can edit / uncheck the row.
+        //      The previous behaviour ("no DB match → blank") forced the user
+        //      to manually fill 23 rows when the source headers were already
+        //      perfectly valid identifiers — pointless friction.
+        const matched = targetByName?.get(c.name.toLowerCase()) ?? null;
+        const defaultTarget = matched?.name ?? c.name;
+        const row = buildMappingRow(c, defaultTarget);
+        // Inherit nullability from the DB column when we matched one; this
+        // makes castValue() in the worker reject NULL cells whose target
+        // column is NOT NULL before the row reaches Postgres, turning a
+        // batch-killing constraint violation into a single bad row in the
+        // error report.
+        if (matched) row.nullable = matched.nullable;
+        return row;
       }),
     );
   }, [inspect, targetMode, existingColumns]);
@@ -490,7 +506,7 @@ function ConfigureStep(props: {
   setConflictColumns: (c: string[]) => void;
   mappings: MappingRow[];
   setMappings: (rows: MappingRow[] | ((prev: MappingRow[]) => MappingRow[])) => void;
-  existingColumns: { name: string; type: string }[];
+  existingColumns: { name: string; type: string; nullable: boolean }[];
 }) {
   const targetableColumns = useMemo(() => {
     if (props.targetMode === 'existing') return props.existingColumns.map((c) => c.name);
@@ -619,7 +635,42 @@ function ConfigureStep(props: {
 
       {/* Column mapping */}
       <div className="space-y-2">
-        <Label>Columns ({props.mappings.filter((m) => m.include).length} of {props.mappings.length} included)</Label>
+        <div className="flex items-center justify-between">
+          <Label>
+            Columns ({props.mappings.filter((m) => m.include).length} of{' '}
+            {props.mappings.length} included)
+          </Label>
+          {props.targetMode === 'existing' && props.existingColumns.length > 0 && (
+            // Quick action: align each source row with the existing column at
+            // the same index. Skips auto-incrementing primary key columns
+            // (anything starting with "id" that's serial/integer) because the
+            // file's row 0 is almost never an id column. Saves the user from
+            // clicking 23 dropdowns when source headers are garbled (e.g.
+            // header-less CSV imported with firstRowIsHeader=true) but the
+            // file's column order matches the table's column order.
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Build the candidate target list — existing columns minus
+                // the auto-PK if present.
+                const autoPkRe = /^id$/i;
+                const candidates = props.existingColumns.filter(
+                  (c) => !(autoPkRe.test(c.name) && /^(integer|bigint|uuid|serial)/i.test(c.type)),
+                );
+                props.setMappings((prev) =>
+                  prev.map((m, i) => ({
+                    ...m,
+                    target: candidates[i]?.name ?? m.target,
+                  })),
+                );
+              }}
+            >
+              Auto-map by position
+            </Button>
+          )}
+        </div>
         <div className="rounded-md border">
           <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
             <div className="col-span-1">Use</div>
@@ -803,8 +854,6 @@ function Stat(props: { label: string; value: number; tone?: 'ok' | 'warn' }) {
     </div>
   );
 }
-
-/* ──────────────────────── helpers ──────────────────────── */
 
 function buildMappingRow(
   c: DataImportInferredColumn,

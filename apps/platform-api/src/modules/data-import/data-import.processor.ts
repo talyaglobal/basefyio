@@ -177,14 +177,59 @@ export class DataImportProcessor extends WorkerHost {
         }
 
         if (goodRows.length > 0) {
-          const inserted = await this.insertBatch(pool, insertSql, data.columns.length, goodRows);
+          // The fast path: one parameterized INSERT for the whole chunk. When
+          // Postgres rejects the batch (NOT NULL, FK, CHECK, …) the entire
+          // transaction is rolled back and we lose all 500 rows. Catch that
+          // here and fall back to a per-row retry so a single offending row
+          // is isolated as a bad-row instead of killing the import.
+          //
+          // We only fall back on data-integrity errors (Postgres "class 23"
+          // SQLSTATE codes: 23502/NOT NULL, 23503/FK, 23505/UNIQUE that we
+          // didn't already handle via ON CONFLICT, 23514/CHECK). Other
+          // categories (connection loss, syntax errors) still propagate.
+          let inserted = 0;
+          let attemptedFallback = false;
+          try {
+            inserted = await this.insertBatch(pool, insertSql, data.columns.length, goodRows);
+          } catch (err: any) {
+            const sqlState: string | undefined = err?.code;
+            const isIntegrityViolation = typeof sqlState === 'string' && sqlState.startsWith('23');
+            if (!isIntegrityViolation) throw err;
+            attemptedFallback = true;
+            this.logger.warn(
+              `Batch insert failed with SQLSTATE ${sqlState} (${err.message}). ` +
+                `Retrying ${goodRows.length} rows individually to isolate the bad row(s).`,
+            );
+
+            // The row indices in `goodRows` are NOT the same as `rowsRead` —
+            // `rowsRead` was incremented for ALL chunk rows, including those
+            // we filtered out as bad earlier. We approximate the source row
+            // number for the report as (rowsRead - goodRows.length + i + 1).
+            const batchStartRowNumber = rowsRead - goodRows.length + 1;
+            for (let i = 0; i < goodRows.length; i++) {
+              const single = goodRows[i];
+              try {
+                const ins = await this.insertBatch(pool, insertSql, data.columns.length, [single]);
+                inserted += ins;
+              } catch (rowErr: any) {
+                if (badRows.length < MAX_BAD_ROWS_CAPTURED) {
+                  badRows.push({
+                    row: batchStartRowNumber + i,
+                    reason: `DB ${rowErr?.code ?? '?'}: ${rowErr?.message ?? 'insert failed'}`,
+                    raw: single,
+                  });
+                }
+              }
+            }
+          }
           rowsInserted += inserted;
           // Anything we tried to insert but didn't end up in the table must
           // have been a conflict (in skip mode) or an updated row (we count it
           // as inserted for update mode). The difference is meaningful only
           // for skip mode.
           if (data.conflictMode === 'skip') {
-            rowsSkippedConflict += goodRows.length - inserted;
+            const accountedFor = inserted + (attemptedFallback ? badRows.length : 0);
+            rowsSkippedConflict += Math.max(0, goodRows.length - accountedFor);
           }
         }
 
@@ -443,5 +488,4 @@ function csvCell(v: string): string {
   return `"${String(v).replace(/"/g, '""')}"`;
 }
 
-// Suppress unused-import warning while keeping the lint hint for future code.
 void WORKER_CHUNK_ROWS;
