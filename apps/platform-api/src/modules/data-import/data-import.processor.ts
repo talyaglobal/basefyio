@@ -178,23 +178,31 @@ export class DataImportProcessor extends WorkerHost {
 
         if (goodRows.length > 0) {
           // The fast path: one parameterized INSERT for the whole chunk. When
-          // Postgres rejects the batch (NOT NULL, FK, CHECK, …) the entire
-          // transaction is rolled back and we lose all 500 rows. Catch that
-          // here and fall back to a per-row retry so a single offending row
-          // is isolated as a bad-row instead of killing the import.
+          // Postgres rejects the batch the entire transaction is rolled back
+          // and we lose all 500 rows. Catch that here and fall back to a
+          // per-row retry so a single offending row is isolated as a bad-row
+          // instead of killing the import.
           //
-          // We only fall back on data-integrity errors (Postgres "class 23"
-          // SQLSTATE codes: 23502/NOT NULL, 23503/FK, 23505/UNIQUE that we
-          // didn't already handle via ON CONFLICT, 23514/CHECK). Other
-          // categories (connection loss, syntax errors) still propagate.
+          // We fall back for any error class where a single row is plausibly
+          // to blame:
+          //   * class 22 (data_exception) — invalid syntax for type, out of
+          //     range, division by zero, … Typically one cell that doesn't fit
+          //     the column's type.
+          //   * class 23 (integrity_constraint_violation) — NOT NULL, FK,
+          //     UNIQUE we didn't pre-empt via ON CONFLICT, CHECK.
+          // Other categories (connection loss, undefined column, permission
+          // denied — class 08/42/2…) still propagate; they reflect a broken
+          // plan, not a single bad row.
           let inserted = 0;
           let attemptedFallback = false;
           try {
             inserted = await this.insertBatch(pool, insertSql, data.columns.length, goodRows);
           } catch (err: any) {
             const sqlState: string | undefined = err?.code;
-            const isIntegrityViolation = typeof sqlState === 'string' && sqlState.startsWith('23');
-            if (!isIntegrityViolation) throw err;
+            const isRowLocal =
+              typeof sqlState === 'string' &&
+              (sqlState.startsWith('22') || sqlState.startsWith('23'));
+            if (!isRowLocal) throw err;
             attemptedFallback = true;
             this.logger.warn(
               `Batch insert failed with SQLSTATE ${sqlState} (${err.message}). ` +

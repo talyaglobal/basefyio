@@ -211,12 +211,21 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
         const matched = targetByName?.get(c.name.toLowerCase()) ?? null;
         const defaultTarget = matched?.name ?? c.name;
         const row = buildMappingRow(c, defaultTarget);
-        // Inherit nullability from the DB column when we matched one; this
-        // makes castValue() in the worker reject NULL cells whose target
-        // column is NOT NULL before the row reaches Postgres, turning a
-        // batch-killing constraint violation into a single bad row in the
-        // error report.
-        if (matched) row.nullable = matched.nullable;
+        // When we matched a DB column, the AUTHORITATIVE schema is the DB's,
+        // not what we inferred from the CSV. Override both type and nullable.
+        //
+        // Why this matters: a "true"/"false" CSV column makes inferSchema()
+        // pick `boolean`, but the same column on the DB side might be
+        // `integer` (e.g. dropship flag stored as 0/1). The previous code
+        // shipped the wizard's boolean type to the worker, castValue cast
+        // "false" → JS false, pg sent that to an integer column, Postgres
+        // rejected with "invalid input syntax for type integer: false".
+        // Inheriting the DB type makes castValue refuse the bad cell up
+        // front (bad-row report) instead of crashing the batch at insert time.
+        if (matched) {
+          row.type = pgTypeToImportType(matched.type);
+          row.nullable = matched.nullable;
+        }
         return row;
       }),
     );
@@ -873,6 +882,40 @@ function sanitize(s: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Map Postgres' information_schema.data_type strings to our wizard's
+ * DataImportColumnType enum. Falls back to `text` so unknown/composite types
+ * don't crash the wizard — the worker can still treat the value as a string
+ * and Postgres will coerce on insert where possible.
+ */
+function pgTypeToImportType(pgType: string): DataImportColumnType {
+  const t = pgType.toLowerCase();
+  if (t === 'boolean' || t === 'bool') return 'boolean';
+  if (t === 'smallint' || t === 'integer' || t === 'int' || t === 'int2' || t === 'int4')
+    return 'integer';
+  if (t === 'bigint' || t === 'int8') return 'bigint';
+  if (
+    t === 'numeric' ||
+    t === 'decimal' ||
+    t === 'real' ||
+    t === 'float4' ||
+    t === 'float8' ||
+    t === 'double precision'
+  )
+    return 'numeric';
+  if (t === 'uuid') return 'uuid';
+  if (t === 'date') return 'date';
+  if (
+    t === 'timestamptz' ||
+    t === 'timestamp with time zone' ||
+    t === 'timestamp' ||
+    t === 'timestamp without time zone'
+  )
+    return 'timestamptz';
+  if (t === 'json' || t === 'jsonb') return 'jsonb';
+  return 'text';
 }
 
 function Checkbox(props: {
