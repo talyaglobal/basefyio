@@ -14,7 +14,15 @@
  * source format.
  */
 
-import Papa from 'papaparse';
+// Use a namespace import (not `import Papa from 'papaparse'`) because the
+// platform-api tsconfig has `esModuleInterop: false`. With the default-import
+// form, TypeScript compiles to `require('papaparse').default`, but Papaparse
+// is a CommonJS module whose `module.exports` is the namespace itself — there
+// is no `.default`. The result is `Papa === undefined` at runtime and the
+// /inspect endpoint 500s with "Cannot read properties of undefined (reading
+// 'parse')". The namespace form compiles to `require('papaparse')` which is
+// the actual module and gives us `Papa.parse(...)` as expected.
+import * as Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { Readable } from 'node:stream';
 
