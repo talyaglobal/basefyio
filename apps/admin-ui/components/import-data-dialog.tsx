@@ -106,6 +106,11 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
   const [progress, setProgress] = useState<DataImportProgress | null>(null);
   const [result, setResult] = useState<DataImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Drives the wizard's "First row is a header" checkbox. We keep it in sync
+   *  with the inspect result; toggling triggers a re-inspect of the same file
+   *  so the user doesn't have to re-upload after picking the wrong default. */
+  const [firstRowIsHeader, setFirstRowIsHeader] = useState<boolean>(true);
+  const [reinspecting, setReinspecting] = useState(false);
 
   // Reset state when dialog reopens.
   useEffect(() => {
@@ -125,6 +130,8 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     setProgress(null);
     setResult(null);
     setError(null);
+    setFirstRowIsHeader(true);
+    setReinspecting(false);
   }, [open, defaultTargetTable]);
 
   // When the user picks an existing table, fetch its columns so the mapping
@@ -147,36 +154,75 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     };
   }, [targetMode, targetTable, projectId]);
 
-  // Auto-map inferred → target columns on existing-table mode.
+  // Build mapping rows whenever the inspect result, target mode, or fetched
+  // existingColumns change. We ALWAYS populate from inspect.inferredColumns so
+  // that the source list is visible even when:
+  //   * the user hasn't picked a target table yet (existing-mode, no columns loaded)
+  //   * the columns fetch is still in-flight
+  //   * the table exists but the columns endpoint returned an empty list
+  // The previous implementation silently rendered "0 of 0 included" in these
+  // cases — there was no way to even start mapping until columns arrived.
   useEffect(() => {
     if (!inspect) return;
-    if (targetMode === 'existing' && existingColumns.length > 0) {
-      const targetByName = new Map(existingColumns.map((c) => [c.name.toLowerCase(), c.name]));
-      setMappings(
-        inspect.inferredColumns.map((c) =>
-          buildMappingRow(c, targetByName.get(c.name.toLowerCase()) ?? ''),
-        ),
-      );
-    } else if (targetMode === 'new') {
-      setMappings(
-        inspect.inferredColumns.map((c) => buildMappingRow(c, c.name)),
-      );
-    }
+    const targetByName =
+      targetMode === 'existing' && existingColumns.length > 0
+        ? new Map(existingColumns.map((c) => [c.name.toLowerCase(), c.name]))
+        : null;
+    setMappings(
+      inspect.inferredColumns.map((c) => {
+        const defaultTarget = targetByName
+          ? // Existing table + columns loaded: auto-match by name; else blank
+            //   so the user picks from the dropdown.
+            targetByName.get(c.name.toLowerCase()) ?? ''
+          : targetMode === 'new'
+            ? // New table mode: use the sanitized source name as the target.
+              c.name
+            : // Existing-mode but columns not yet loaded: leave target empty;
+              //   the dropdown will populate once the fetch resolves.
+              '';
+        return buildMappingRow(c, defaultTarget);
+      }),
+    );
   }, [inspect, targetMode, existingColumns]);
 
   async function handleFileUpload(f: File) {
     setBusy(true);
     setError(null);
     try {
-      const insp = await api.projects.inspectDataImport(projectId, f);
+      const insp = await api.projects.inspectDataImport(projectId, f, {
+        firstRowIsHeader,
+      });
       setFile(f);
       setInspect(insp);
+      setFirstRowIsHeader(insp.firstRowIsHeader);
       setStep('configure');
     } catch (e: any) {
       setError(e?.message || 'Inspect failed');
       toast.error(e?.message || 'Inspect failed');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleHeaderToggle(next: boolean) {
+    if (!file) {
+      // No file in memory — just flip the flag; the user re-uploads anyway.
+      setFirstRowIsHeader(next);
+      return;
+    }
+    setReinspecting(true);
+    setError(null);
+    try {
+      const insp = await api.projects.inspectDataImport(projectId, file, {
+        firstRowIsHeader: next,
+      });
+      setInspect(insp);
+      setFirstRowIsHeader(insp.firstRowIsHeader);
+      setMappings([]); // clear mappings; auto-map effect will re-run
+    } catch (e: any) {
+      toast.error(e?.message || 'Re-inspect failed');
+    } finally {
+      setReinspecting(false);
     }
   }
 
@@ -204,6 +250,7 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
         sourceKey: inspect.sourceKey,
         filename: inspect.filename,
         format: inspect.format,
+        firstRowIsHeader,
         targetMode,
         tableName,
         conflictMode,
@@ -270,6 +317,9 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
           <ConfigureStep
             inspect={inspect}
             tables={tables}
+            firstRowIsHeader={firstRowIsHeader}
+            onFirstRowIsHeaderChange={handleHeaderToggle}
+            reinspecting={reinspecting}
             targetMode={targetMode}
             setTargetMode={setTargetMode}
             targetTable={targetTable}
@@ -404,6 +454,9 @@ function UploadStep(props: { busy: boolean; onFile: (f: File) => void; error: st
 function ConfigureStep(props: {
   inspect: DataImportInspectResult;
   tables: TableInfo[];
+  firstRowIsHeader: boolean;
+  onFirstRowIsHeaderChange: (next: boolean) => void;
+  reinspecting: boolean;
   targetMode: 'existing' | 'new';
   setTargetMode: (m: 'existing' | 'new') => void;
   targetTable: string;
@@ -440,6 +493,28 @@ function ConfigureStep(props: {
 
   return (
     <div className="space-y-5">
+      {/* CSV header toggle — surfaces here because legacy / dumped CSVs often
+          ship without a header row, and the user needs an obvious lever to
+          tell the wizard so. Toggling re-runs /inspect with the same file. */}
+      <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+        <Checkbox
+          checked={props.firstRowIsHeader}
+          onCheckedChange={(v: boolean) => props.onFirstRowIsHeaderChange(v)}
+          disabled={props.reinspecting}
+        />
+        <Label className="cursor-pointer select-none">
+          First row is a header
+        </Label>
+        {props.reinspecting && (
+          <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> re-detecting…
+          </span>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Uncheck if the file has no header row.
+        </span>
+      </div>
+
       {/* Target picker */}
       <div className="space-y-2">
         <Label>Target table</Label>
@@ -718,7 +793,6 @@ function sanitize(s: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-
 function Checkbox(props: {
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
@@ -738,3 +812,4 @@ function Checkbox(props: {
 // keep a referenced symbol to silence "imported but unused" if any of the
 // icon imports ever become conditional in future edits.
 void X;
+void useMemo;

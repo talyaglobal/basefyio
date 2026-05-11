@@ -942,11 +942,17 @@ export const api = {
      *      getDataImportStatus()        — poll
      *   4. downloadDataImportErrors()   — URL for bad-rows CSV after completion
      */
-    async inspectDataImport(projectId: string, file: File): Promise<DataImportInspectResult> {
+    async inspectDataImport(
+      projectId: string,
+      file: File,
+      opts: { firstRowIsHeader?: boolean } = {},
+    ): Promise<DataImportInspectResult> {
       const token = getAccessToken();
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`/api/proxy/projects/${projectId}/data-imports/inspect`, {
+      const qs =
+        opts.firstRowIsHeader === false ? '?firstRowIsHeader=false' : '';
+      const res = await fetch(`/api/proxy/projects/${projectId}/data-imports/inspect${qs}`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,

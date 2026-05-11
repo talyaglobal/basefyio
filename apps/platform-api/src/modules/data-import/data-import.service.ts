@@ -60,6 +60,12 @@ export class DataImportService {
     projectId: string,
     userId: string | undefined,
     file: { buffer: Buffer; originalname: string; mimetype?: string },
+    /**
+     * When false, the parser treats row 0 as data and synthesizes
+     * `column_1`, `column_2`, … as header names. Surface this in the wizard
+     * for CSVs that come out of legacy exports with no header line.
+     */
+    firstRowIsHeader: boolean = true,
   ): Promise<InspectImportResultDto> {
     await this.assertProjectAccess(projectId, userId);
 
@@ -84,7 +90,7 @@ export class DataImportService {
       );
     }
 
-    const preview = samplePreview(file.buffer, format, DEFAULT_PREVIEW_ROWS);
+    const preview = samplePreview(file.buffer, format, DEFAULT_PREVIEW_ROWS, firstRowIsHeader);
     if (preview.headers.length === 0) {
       throw new BadRequestException('File has no header row');
     }
@@ -113,6 +119,7 @@ export class DataImportService {
       inferredColumns: inferred,
       sampleRows: preview.rows.slice(0, 25),
       existingTables,
+      firstRowIsHeader,
     };
   }
 
@@ -164,6 +171,7 @@ export class DataImportService {
         sourceKey: dto.sourceKey,
         filename: dto.filename,
         format: dto.format,
+        firstRowIsHeader: dto.firstRowIsHeader ?? true,
         targetMode: dto.targetMode,
         tableName: dto.tableName,
         schemaName: dto.schemaName,

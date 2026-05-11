@@ -58,6 +58,11 @@ export class StartImportDto {
   @IsIn(['csv', 'xlsx'])
   format!: 'csv' | 'xlsx';
 
+  /** When false, the worker treats row 0 as data and matches the synthetic
+   *  column_1..N names emitted by /inspect with firstRowIsHeader=false. */
+  @IsOptional()
+  firstRowIsHeader?: boolean;
+
   /** existing = insert into an existing table; new = CREATE TABLE then insert. */
   @IsIn(['existing', 'new'])
   targetMode!: 'existing' | 'new';
@@ -110,4 +115,6 @@ export class InspectImportResultDto {
   sampleRows!: unknown[][];
   /** Existing tables in the project so the wizard can offer "import into…". */
   existingTables!: Array<{ schema: string; name: string }>;
+  /** Echo of the flag the inspect ran with so the UI can keep the toggle in sync. */
+  firstRowIsHeader!: boolean;
 }

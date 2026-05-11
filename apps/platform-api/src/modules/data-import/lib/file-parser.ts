@@ -64,13 +64,13 @@ export function detectFormat(
   return null;
 }
 
-function estimateCsvRowCount(buf: Buffer): number {
-  // Count \n in the buffer; subtract 1 for the header.
+function estimateCsvRowCount(buf: Buffer, subtractHeader: boolean = true): number {
+  // Count \n in the buffer; optionally subtract 1 for the header.
   let n = 0;
   for (let i = 0; i < buf.length; i++) {
     if (buf[i] === 0x0a) n++;
   }
-  return Math.max(0, n - 1);
+  return Math.max(0, subtractHeader ? n - 1 : n);
 }
 
 /**
@@ -81,14 +81,30 @@ export function samplePreview(
   buffer: Buffer,
   format: FileFormat,
   maxRows: number = DEFAULT_PREVIEW_ROWS,
+  /**
+   * When false, row 0 is treated as data and synthetic column names
+   * (`column_1`, `column_2`, …) are generated. Use this for CSVs that come
+   * out of legacy exports / fixed-width dumps with no header line.
+   */
+  firstRowIsHeader: boolean = true,
 ): ParsePreview {
   if (format === 'csv') {
-    return previewCsv(buffer, maxRows);
+    return previewCsv(buffer, maxRows, firstRowIsHeader);
   }
-  return previewXlsx(buffer, maxRows);
+  return previewXlsx(buffer, maxRows, firstRowIsHeader);
 }
 
-function previewCsv(buffer: Buffer, maxRows: number): ParsePreview {
+function syntheticHeaders(count: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) out.push(`column_${i + 1}`);
+  return out;
+}
+
+function previewCsv(
+  buffer: Buffer,
+  maxRows: number,
+  firstRowIsHeader: boolean,
+): ParsePreview {
   // Strip BOM if present; Papaparse handles it but it's cheap to be safe.
   const text = stripBom(buffer.toString('utf8'));
   // `preview: maxRows + 1` so we include the header in the parser's accounting.
@@ -103,17 +119,34 @@ function previewCsv(buffer: Buffer, maxRows: number): ParsePreview {
   if (allRows.length === 0) {
     return { headers: [], rows: [], totalRowsApprox: 0, format: 'csv' };
   }
-  const headers = (allRows[0] as string[]).map((h) => String(h ?? ''));
-  const rows = allRows.slice(1, maxRows + 1);
+  if (firstRowIsHeader) {
+    const headers = (allRows[0] as string[]).map((h) => String(h ?? ''));
+    const rows = allRows.slice(1, maxRows + 1);
+    return {
+      headers,
+      rows,
+      totalRowsApprox: estimateCsvRowCount(buffer, true),
+      format: 'csv',
+    };
+  }
+  // No header: every parsed row is data. Synthesize column_1.. column_N from
+  // the widest row's length so trailing-empty cells don't truncate the schema.
+  const widest = allRows.reduce((m, r) => Math.max(m, (r as unknown[]).length), 0);
+  const headers = syntheticHeaders(widest);
+  const rows = allRows.slice(0, maxRows) as unknown[][];
   return {
     headers,
     rows,
-    totalRowsApprox: estimateCsvRowCount(buffer),
+    totalRowsApprox: estimateCsvRowCount(buffer, false),
     format: 'csv',
   };
 }
 
-function previewXlsx(buffer: Buffer, maxRows: number): ParsePreview {
+function previewXlsx(
+  buffer: Buffer,
+  maxRows: number,
+  firstRowIsHeader: boolean,
+): ParsePreview {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true, sheetRows: maxRows + 1 });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) return { headers: [], rows: [], totalRowsApprox: 0, format: 'xlsx' };
@@ -130,8 +163,16 @@ function previewXlsx(buffer: Buffer, maxRows: number): ParsePreview {
   if (aoa.length === 0) {
     return { headers: [], rows: [], totalRowsApprox: 0, format: 'xlsx' };
   }
-  const headers = (aoa[0] as unknown[]).map((h) => String(h ?? ''));
-  const rows = aoa.slice(1, maxRows + 1);
+  let headers: string[];
+  let rows: unknown[][];
+  if (firstRowIsHeader) {
+    headers = (aoa[0] as unknown[]).map((h) => String(h ?? ''));
+    rows = aoa.slice(1, maxRows + 1);
+  } else {
+    const widest = aoa.reduce((m, r) => Math.max(m, (r as unknown[]).length), 0);
+    headers = syntheticHeaders(widest);
+    rows = aoa.slice(0, maxRows);
+  }
 
   // Re-read just the range to count total rows accurately. sheetRows above
   // limited what was materialized; the range header still reflects total.
@@ -165,25 +206,29 @@ export async function streamRows(
   buffer: Buffer,
   format: FileFormat,
   onChunk: (headers: string[], rows: unknown[][]) => Promise<void>,
-  opts: { chunkSize?: number } = {},
+  opts: { chunkSize?: number; firstRowIsHeader?: boolean } = {},
 ): Promise<{ totalRows: number }> {
   const chunkSize = opts.chunkSize ?? WORKER_CHUNK_ROWS;
+  const firstRowIsHeader = opts.firstRowIsHeader ?? true;
   if (format === 'csv') {
-    return streamRowsCsv(buffer, onChunk, chunkSize);
+    return streamRowsCsv(buffer, onChunk, chunkSize, firstRowIsHeader);
   }
-  return streamRowsXlsx(buffer, onChunk, chunkSize);
+  return streamRowsXlsx(buffer, onChunk, chunkSize, firstRowIsHeader);
 }
 
 async function streamRowsCsv(
   buffer: Buffer,
   onChunk: (headers: string[], rows: unknown[][]) => Promise<void>,
   chunkSize: number,
+  firstRowIsHeader: boolean,
 ): Promise<{ totalRows: number }> {
   // Papaparse's Node stream mode wants a Readable. We adapt the buffer.
   const text = stripBom(buffer.toString('utf8'));
   const stream = Readable.from([text]);
 
-  let headers: string[] | null = null;
+  // When the file has no header row we synthesize column_1..N from the FIRST
+  // observed row's length. Set after we see row 0 below.
+  let headers: string[] | null = firstRowIsHeader ? null : [];
   let batch: unknown[][] = [];
   let totalRows = 0;
   // Collect errors but don't abort — the worker validates and reports per-row.
@@ -196,16 +241,24 @@ async function streamRowsCsv(
       step: async (result, parser) => {
         const row = result.data as unknown[];
         if (!Array.isArray(row)) return;
-        if (headers === null) {
+        if (firstRowIsHeader && headers === null) {
           headers = row.map((h) => String(h ?? ''));
           return;
         }
+        if (!firstRowIsHeader && headers !== null && headers.length === 0) {
+          // Lazy-init synthetic headers from the first observed data row.
+          headers = syntheticHeaders(row.length);
+        }
         batch.push(row);
         totalRows++;
-        if (batch.length >= chunkSize) {
+        if (batch.length >= chunkSize && headers !== null) {
+          // headers is guaranteed non-null here: either the file had a header
+          // and we set it on row 0, or no-header mode lazy-set it from the
+          // first data row above. The null-check keeps TS happy.
+          const safeHeaders = headers;
           parser.pause();
           try {
-            await onChunk(headers, batch);
+            await onChunk(safeHeaders, batch);
             batch = [];
             parser.resume();
           } catch (e) {
@@ -236,6 +289,7 @@ async function streamRowsXlsx(
   buffer: Buffer,
   onChunk: (headers: string[], rows: unknown[][]) => Promise<void>,
   chunkSize: number,
+  firstRowIsHeader: boolean,
 ): Promise<{ totalRows: number }> {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = wb.SheetNames[0];
@@ -249,9 +303,18 @@ async function streamRowsXlsx(
   });
   if (aoa.length === 0) return { totalRows: 0 };
 
-  const headers = (aoa[0] as unknown[]).map((h) => String(h ?? ''));
+  let headers: string[];
+  let firstDataRow: number;
+  if (firstRowIsHeader) {
+    headers = (aoa[0] as unknown[]).map((h) => String(h ?? ''));
+    firstDataRow = 1;
+  } else {
+    const widest = aoa.reduce((m, r) => Math.max(m, (r as unknown[]).length), 0);
+    headers = syntheticHeaders(widest);
+    firstDataRow = 0;
+  }
   let total = 0;
-  for (let i = 1; i < aoa.length; i += chunkSize) {
+  for (let i = firstDataRow; i < aoa.length; i += chunkSize) {
     const batch = aoa.slice(i, i + chunkSize);
     total += batch.length;
     await onChunk(headers, batch as unknown[][]);

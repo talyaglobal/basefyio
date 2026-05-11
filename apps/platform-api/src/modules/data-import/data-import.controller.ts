@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Query,
   Body,
   Controller,
   Get,
@@ -44,14 +45,26 @@ export class DataImportController {
   async inspect(
     @Param('projectId') projectId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('firstRowIsHeader') firstRowIsHeader: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
     if (!file) throw new BadRequestException('Missing file');
-    return this.service.inspect(projectId, user.sub, {
-      buffer: file.buffer,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-    });
+    // Default true; only explicit "false" / "0" turns it off so a stray
+    // query param doesn't silently change behaviour.
+    const hasHeader =
+      firstRowIsHeader === undefined
+        ? true
+        : !['false', '0', 'no'].includes(firstRowIsHeader.toLowerCase());
+    return this.service.inspect(
+      projectId,
+      user.sub,
+      {
+        buffer: file.buffer,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+      },
+      hasHeader,
+    );
   }
 
   @Post('jobs')

@@ -25,6 +25,7 @@ interface JobData {
   sourceKey: string;
   filename: string;
   format: FileFormat;
+  firstRowIsHeader?: boolean;
   targetMode: 'existing' | 'new';
   tableName: string;
   schemaName?: string;
@@ -133,7 +134,10 @@ export class DataImportProcessor extends WorkerHost {
       // 3. update progress.
       // Note: if the request was cancelled, the queue marks data._cancelled = true.
       // We re-read job data each chunk and bail early.
-      await streamRows(buffer, data.format, async (headers, chunk) => {
+      await streamRows(
+        buffer,
+        data.format,
+        async (headers, chunk) => {
         // Refresh cancellation flag.
         const fresh = await job.getState();
         if (fresh === 'failed') throw new Error('Job cancelled');
@@ -193,7 +197,7 @@ export class DataImportProcessor extends WorkerHost {
           rowsBad: badRows.length,
           percent: 5 + Math.min(90, Math.floor((rowsRead / Math.max(rowsRead + 1, 100)) * 90)),
         });
-      });
+      }, { firstRowIsHeader: data.firstRowIsHeader ?? true });
 
       let errorKey: string | undefined;
       if (badRows.length > 0) {

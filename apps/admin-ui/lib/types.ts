@@ -697,6 +697,9 @@ export interface DataImportInspectResult {
   inferredColumns: DataImportInferredColumn[];
   sampleRows: unknown[][];
   existingTables: Array<{ schema: string; name: string }>;
+  /** Echo of the firstRowIsHeader flag the inspect used. UI surfaces it as a
+   *  checkbox; toggling re-runs inspect. */
+  firstRowIsHeader: boolean;
 }
 
 export interface DataImportColumnMapping {
@@ -710,6 +713,7 @@ export interface DataImportPlan {
   sourceKey: string;
   filename: string;
   format: 'csv' | 'xlsx';
+  firstRowIsHeader?: boolean;
   targetMode: 'existing' | 'new';
   tableName: string;
   schemaName?: string;
