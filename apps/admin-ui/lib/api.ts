@@ -811,9 +811,24 @@ export const api = {
       const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
       return request<ColumnInfo[]>(`/projects/${projectId}/tables/${tableName}/columns${qs}`);
     },
-    rows(projectId: string, tableName: string, page = 1, limit = 50, schema?: string) {
+    rows(
+      projectId: string,
+      tableName: string,
+      page = 1,
+      limit = 50,
+      schema?: string,
+      search?: string,
+      orderBy?: string,
+      orderDir?: 'asc' | 'desc',
+    ) {
       const schemaQs = schema ? `&schema=${encodeURIComponent(schema)}` : '';
-      return request<TableRows>(`/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}${schemaQs}`);
+      const searchQs = search?.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
+      const sortQs = orderBy
+        ? `&orderBy=${encodeURIComponent(orderBy)}&orderDir=${orderDir === 'desc' ? 'desc' : 'asc'}`
+        : '';
+      return request<TableRows>(
+        `/projects/${projectId}/tables/${tableName}/rows?page=${page}&limit=${limit}${schemaQs}${searchQs}${sortQs}`,
+      );
     },
     createTable(projectId: string, data: {
       name: string;
@@ -1606,17 +1621,6 @@ export const api = {
     update(id: string, data: { name?: string; color?: string }) {
       return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify(data),
-      });
-    },
-    delete(id: string) {
-      return request<{ success: boolean }>(`/project-tags/${id}`, {
-        method: 'DELETE',
-      });
-    },
-  },
-};
-: 'PATCH',
         body: JSON.stringify(data),
       });
     },

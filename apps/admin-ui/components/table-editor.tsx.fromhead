@@ -730,24 +730,8 @@ export function TableEditor({ projectId }: TableEditorProps) {
   });
 
   const [filterText, setFilterText] = useState('');
-  // `appliedFilter` is the debounced version of `filterText` that actually
-  // hits the API. Decoupling these lets the user type without firing a query
-  // on every keystroke — we only refetch ~350ms after they stop typing, and
-  // a server-side search runs across ALL rows (not just the current page).
-  const [appliedFilter, setAppliedFilter] = useState('');
-  // Sort state for the active table. `sortBy` is the column name (null for no
-  // sort = DB-native order); clicking a column cycles asc → desc → off.
-  // Sorting happens server-side so it covers the full table, not just the
-  // current page.
-  const [sortBy, setSortBy] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [tableSearch, setTableSearch] = useState('');
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-
-  useEffect(() => {
-    const handle = setTimeout(() => setAppliedFilter(filterText.trim()), 350);
-    return () => clearTimeout(handle);
-  }, [filterText]);
 
   const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
   const tableSearchLower = tableSearch.trim().toLowerCase();
@@ -825,19 +809,25 @@ export function TableEditor({ projectId }: TableEditorProps) {
     setEditingCell(null);
     setAddingRow(false);
     setFilterText('');
-    setAppliedFilter('');
-    setSortBy(null);
-    setSortDir('asc');
     setSelectedRows(new Set());
+    setDataLoading(true);
 
-    // Only load columns here — rows are fetched by the `[appliedFilter, selected]`
-    // effect below, which is the single source of truth for the data set.
-    // Loading both here would cause a redundant fetch when the effect fires.
     try {
-      const cols = await api.projects.columns(projectId, name, schemaFor(name));
+      const [cols, rows] = await Promise.all([
+        api.projects.columns(projectId, name, schemaFor(name)),
+        api.projects.rows(projectId, name, 1, 50, schemaFor(name)),
+      ]);
       setColumns(cols);
+      setData(rows);
+      // listTables uses n_live_tup for tables > 200k rows because exact COUNT
+      // on every table would be slow. getRows just did an exact COUNT for the
+      // active table — sync the sidebar badge so the two numbers always
+      // agree once the user has actually opened the table.
+      syncSidebarCount(name, rows.total);
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setDataLoading(false);
     }
   }
 
@@ -847,11 +837,11 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       const [cols, rows] = await Promise.all([
         api.projects.columns(projectId, selected, schemaFor(selected)),
-        api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir),
+        api.projects.rows(projectId, selected, page, 50, schemaFor(selected)),
       ]);
       setColumns(cols);
       setData(rows);
-      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -866,43 +856,13 @@ export function TableEditor({ projectId }: TableEditorProps) {
     );
   }
 
-  // When the debounced filter changes (or the user opens a different table),
-  // reset to page 1 and refetch with the new search term. This is the single
-  // place that handles rows fetching when the filter changes; everything else
-  // delegates to it.
-  useEffect(() => {
-    if (!selected) return;
-    setSelectedRows(new Set());
-    setEditingCell(null);
-    setPage(1);
-    let cancelled = false;
-    setDataLoading(true);
-    api.projects
-      .rows(projectId, selected, 1, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir)
-      .then((rows) => {
-        if (cancelled) return;
-        setData(rows);
-        if (!appliedFilter) syncSidebarCount(selected, rows.total);
-      })
-      .catch((err: any) => {
-        if (!cancelled) toast.error(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setDataLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedFilter, selected, sortBy, sortDir]);
-
   async function reloadRows() {
     if (!selected) return;
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected));
       setData(rows);
-      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -917,9 +877,9 @@ export function TableEditor({ projectId }: TableEditorProps) {
     setSelectedRows(new Set());
     setDataLoading(true);
     try {
-      const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected));
       setData(rows);
-      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -1085,28 +1045,13 @@ export function TableEditor({ projectId }: TableEditorProps) {
     loadTables();
   }
 
-  /**
-   * Cycle sort state for a column: off → asc → desc → off.
-   * Triggers a fresh fetch via the existing useEffect on [sortBy, sortDir].
-   */
-  function toggleSort(colName: string) {
-    if (sortBy !== colName) {
-      setSortBy(colName);
-      setSortDir('asc');
-      return;
-    }
-    if (sortDir === 'asc') {
-      setSortDir('desc');
-      return;
-    }
-    setSortBy(null);
-    setSortDir('asc');
-  }
-
-  // Server already filtered by `appliedFilter`, so we just pass through.
-  // The variable is kept named `filteredRows` because lots of JSX below
-  // references it; renaming would touch many lines for no gain.
-  const filteredRows = data?.rows;
+  const filteredRows = data?.rows?.filter((row) => {
+    if (!filterText) return true;
+    const lower = filterText.toLowerCase();
+    return Object.values(row).some((v) =>
+      v !== null && String(v).toLowerCase().includes(lower),
+    );
+  });
 
   if (loading) {
     return (
@@ -1294,9 +1239,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="font-mono text-sm font-semibold truncate">{selected}</span>
                     <Badge variant="secondary" className="text-xs shrink-0">
-                      {formatCount(data?.total)}
-                      {data?.totalIsApprox ? '+' : ''} rows
-                      {appliedFilter ? ' match' : ''}
+                      {formatCount(data?.total)} rows
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1382,28 +1325,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                                       {pkColumns.includes(f.name) && (
                                         <Key className="h-3 w-3 text-amber-500" />
                                       )}
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleSort(f.name)}
-                                        className={cn(
-                                          'inline-flex items-center gap-0.5 rounded px-0.5 hover:bg-accent transition-colors',
-                                          sortBy === f.name && 'text-primary',
-                                        )}
-                                        title={
-                                          sortBy === f.name
-                                            ? sortDir === 'asc'
-                                              ? `Sorted A→Z. Click to flip.`
-                                              : `Sorted Z→A. Click to clear.`
-                                            : 'Click to sort A→Z'
-                                        }
-                                      >
-                                        {f.name}
-                                        {sortBy === f.name && (
-                                          <span aria-hidden className="text-[10px] leading-none">
-                                            {sortDir === 'asc' ? '↑' : '↓'}
-                                          </span>
-                                        )}
-                                      </button>
+                                      {f.name}
                                       <span className="text-[10px] text-muted-foreground font-normal ml-1">
                                         {col?.type}
                                       </span>
@@ -1588,10 +1510,8 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     {data && data.totalPages > 1 && (
                       <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
                         <span>
-                          {formatCount(data.total)}
-                          {data.totalIsApprox ? '+' : ''} rows
-                          {appliedFilter ? ` matching "${appliedFilter}"` : ''} — page{' '}
-                          {formatCount(data.page)}/{formatCount(data.totalPages)}
+                          {formatCount(data.total)} rows — page {formatCount(data.page)}/
+                          {formatCount(data.totalPages)}
                         </span>
                         <div className="flex gap-1">
                           <Button
@@ -1646,6 +1566,37 @@ export function TableEditor({ projectId }: TableEditorProps) {
         onOpenChange={setCreateOpen}
         projectId={projectId}
         onCreated={(createdTableName) => {
+          loadTables();
+          if (createdTableName) {
+            setTimeout(() => openTable(createdTableName), 0);
+          }
+        }}
+      />
+      <ImportDataDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        tables={tables}
+        defaultTargetTable={selected}
+        onCompleted={() => {
+          loadTables();
+          if (selected) reloadTableData();
+        }}
+      />
+
+      {selected && (
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          projectId={projectId}
+          tableName={selected}
+          onAdded={reloadTableData}
+        />
+      )}
+    </div>
+  );
+}
+ {
           loadTables();
           if (createdTableName) {
             setTimeout(() => openTable(createdTableName), 0);

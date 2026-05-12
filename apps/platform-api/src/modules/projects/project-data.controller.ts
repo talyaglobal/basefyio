@@ -63,8 +63,21 @@ export class ProjectDataController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
     @Query('schema') schema?: string,
+    @Query('search') search?: string,
+    @Query('orderBy') orderBy?: string,
+    @Query('orderDir') orderDir?: 'asc' | 'desc',
   ) {
-    return this.dataService.getRows(projectId, user?.sub, tableName, page, limit, schema);
+    return this.dataService.getRows(
+      projectId,
+      user?.sub,
+      tableName,
+      page,
+      limit,
+      schema,
+      search,
+      orderBy,
+      orderDir === 'desc' ? 'desc' : orderDir === 'asc' ? 'asc' : undefined,
+    );
   }
 
   @Post('tables')

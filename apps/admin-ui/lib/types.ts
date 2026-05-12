@@ -417,6 +417,8 @@ export interface TableRows {
   rows: Record<string, unknown>[];
   fields: { name: string; dataTypeId: number }[];
   total: number;
+  /** When searching, total is capped at 10k; this flag tells the UI to render "10.000+". */
+  totalIsApprox?: boolean;
   page: number;
   limit: number;
   totalPages: number;
@@ -748,6 +750,10 @@ export interface DataImportJobStatus {
   id: string;
   state: string;
   progress: DataImportProgress | Record<string, unknown> | number | null;
+  result?: DataImportResult;
+  failedReason?: string;
+}
+DataImportProgress | Record<string, unknown> | number | null;
   result?: DataImportResult;
   failedReason?: string;
 }

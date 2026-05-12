@@ -167,6 +167,9 @@ export class ProjectDataService {
     page = 1,
     limit = 50,
     schemaName?: string,
+    search?: string,
+    orderBy?: string,
+    orderDir?: 'asc' | 'desc',
   ) {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
@@ -175,14 +178,70 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const countResult = await client.query(
-        `SELECT COUNT(*)::int AS total FROM ${qualified}`,
-      );
-      const total = countResult.rows[0].total;
 
+      const trimmedSearch = (search ?? '').trim();
+      // The filter input in the Table Editor used to slice the already-loaded
+      // page client-side, which on a 1.5M-row table meant 99.99% of rows were
+      // never even considered. Now we push the query to Postgres so it scans
+      // the whole table.
+      //
+      // Trick: cast each row to jsonb (`to_jsonb(t)`) and iterate its values
+      // as text via `jsonb_each_text`. This lets us search across every
+      // column — text, numeric, dates, bools, even jsonb — without enumerating
+      // column names per-request. The downside is a full table scan; for huge
+      // tables the user should add column-level indexes (pg_trgm gin) but a
+      // 1.5M-row scan still completes in seconds, which is way better than
+      // silently dropping rows because they happen not to be on page 4/363.
+      let where = '';
+      const params: any[] = [];
+      if (trimmedSearch) {
+        params.push(`%${trimmedSearch}%`);
+        where = `WHERE EXISTS (SELECT 1 FROM jsonb_each_text(to_jsonb(t)) AS kv(k, v) WHERE v ILIKE $${params.length})`;
+      }
+
+      const fromClause = `FROM ${qualified} t`;
+
+      // When searching we cap COUNT(*) at 10k to keep response time bounded.
+      // Without the cap, counting filtered rows on a 50M-row table can take
+      // longer than the user is willing to wait. The frontend treats totals
+      // >= 10000 as approximate ("10.000+ rows match").
+      let countSql: string;
+      if (trimmedSearch) {
+        countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 ${fromClause} ${where} LIMIT 10001) sub`;
+      } else {
+        countSql = `SELECT COUNT(*)::int AS total ${fromClause}`;
+      }
+
+      const countResult = await client.query(countSql, params);
+      const rawTotal = countResult.rows[0].total as number;
+      const totalIsApprox = trimmedSearch ? rawTotal > 10000 : false;
+      const total = totalIsApprox ? 10000 : rawTotal;
+
+      // Sort: if the caller requested a column-level sort, validate the
+      // column name against the actual table columns (to block injection)
+      // and append ORDER BY. We resolve columns via information_schema once
+      // per request — cheap, and we already opened a client.
+      let orderClause = '';
+      if (orderBy) {
+        const colCheck = await client.query(
+          `SELECT column_name FROM information_schema.columns
+             WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+             LIMIT 1`,
+          [schema, tableName, orderBy],
+        );
+        if (colCheck.rowCount && colCheck.rowCount > 0) {
+          const dir = orderDir === 'desc' ? 'DESC' : 'ASC';
+          // NULLS LAST keeps the same intent for both directions: real values
+          // first, empties at the end. Postgres defaults differ per direction.
+          orderClause = `ORDER BY t."${orderBy}" ${dir} NULLS LAST`;
+        }
+      }
+
+      const limitParamIdx = params.length + 1;
+      const offsetParamIdx = params.length + 2;
       const dataResult = await client.query(
-        `SELECT * FROM ${qualified} LIMIT $1 OFFSET $2`,
-        [limit, offset],
+        `SELECT t.* ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+        [...params, limit, offset],
       );
 
       return {
@@ -192,9 +251,10 @@ export class ProjectDataService {
           dataTypeId: f.dataTypeID,
         })),
         total,
+        totalIsApprox,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.max(1, Math.ceil(total / limit)),
       };
     } finally {
       client.release();
