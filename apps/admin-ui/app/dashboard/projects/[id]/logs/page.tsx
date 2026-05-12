@@ -18,6 +18,8 @@ import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { ProjectActivityTimeline } from '@/components/project-activity-timeline';
 import { ScrollText } from 'lucide-react';
 
+const PAGE_SIZE = 50;
+
 export default function ProjectLogsPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -25,18 +27,27 @@ export default function ProjectLogsPage() {
   const [activity, setActivity] = useState<ProjectActivityItem[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalActivity, setTotalActivity] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [reimportOpen, setReimportOpen] = useState(false);
-  const PAGE_SIZE = 20;
 
+  // Initial: project + first page of activity in parallel.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([api.projects.get(id), api.projects.listActivity(id)])
+    Promise.all([
+      api.projects.get(id),
+      api.projects.listActivity(id, { page: 1, limit: PAGE_SIZE }),
+    ])
       .then(([p, a]) => {
         if (!cancelled) {
           setProject(p);
           setActivity(a.items);
+          setTotalPages(a.totalPages);
+          setTotalActivity(a.total);
+          setPage(a.page);
         }
       })
       .catch((err) => {
@@ -52,6 +63,34 @@ export default function ProjectLogsPage() {
       cancelled = true;
     };
   }, [id, router]);
+
+  // Whenever the page number changes (after initial load), fetch that page.
+  // Skip the very first render so we don't double-fetch alongside the initial
+  // load above. Activity is already populated from the initial bundle.
+  useEffect(() => {
+    if (loading) return; // initial load handles page 1
+    let cancelled = false;
+    setActivityLoading(true);
+    api.projects
+      .listActivity(id, { page, limit: PAGE_SIZE })
+      .then((a) => {
+        if (cancelled) return;
+        setActivity(a.items);
+        setTotalPages(a.totalPages);
+        setTotalActivity(a.total);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setActivityLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally exclude `loading` — we only want page changes to refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, page]);
 
   if (loading || !project) {
     return (
@@ -69,8 +108,11 @@ export default function ProjectLogsPage() {
     (project.supabaseImportLog === null || project.supabaseImportLog === undefined) &&
     importLog !== null;
   const showImportLog = importLog && shouldShowSupabaseImportLog(importLog);
+  // Search filters only the current page client-side. With server-side paging
+  // we no longer have the full history in memory; that's the tradeoff for
+  // being able to scroll to the very first event in a project with 10k+ logs.
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredActivity = activity.filter((item) => {
+  const pagedActivity = activity.filter((item) => {
     if (!normalizedSearch) return true;
     const haystack = [
       item.kind,
@@ -83,10 +125,7 @@ export default function ProjectLogsPage() {
       .toLowerCase();
     return haystack.includes(normalizedSearch);
   });
-  const totalPages = Math.max(1, Math.ceil(filteredActivity.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * PAGE_SIZE;
-  const pagedActivity = filteredActivity.slice(start, start + PAGE_SIZE);
 
   return (
     <div className="flex w-full max-w-full min-w-0 flex-col gap-8 overflow-x-hidden pb-8">
@@ -112,25 +151,89 @@ export default function ProjectLogsPage() {
       <section className="rounded-lg border bg-card p-5">
         <h2 className="text-sm font-semibold text-foreground">Activity</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Newest first. Only actions performed after this feature was deployed
-          appear here.
+          Newest first. {totalActivity.toLocaleString('tr-TR')}{' '}
+          {totalActivity === 1 ? 'event' : 'events'} recorded. Use the page
+          controls below to scroll back through the project&apos;s full history.
         </p>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <Input
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            placeholder="Search activity title, detail, type..."
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter this page (title, detail, type)..."
             className="max-w-sm"
           />
           <p className="text-xs text-muted-foreground">
-            {filteredActivity.length} result{filteredActivity.length !== 1 ? 's' : ''}
+            Showing {pagedActivity.length} of {activity.length} on this page
+            {' · '}
+            {totalActivity.toLocaleString('tr-TR')} total
           </p>
         </div>
-        <div className="mt-4">
+        <div className="relative mt-4">
+          {activityLoading && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-card/60">
+              <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          )}
           <ProjectActivityTimeline items={pagedActivity} />
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            Page {safePage} / {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {showImportLog ? (
+        <section className="flex min-h-0 min-w-0 flex-col gap-2">
+          <h2 className="text-sm font-semibold text-foreground">
+            Supabase import detail
+          </h2>
+          <ProjectImportLogCard
+            importLog={importLog}
+            importLogFromBrowser={importLogFromBrowser}
+            onReimport={() => setReimportOpen(true)}
+            projectId={project.id}
+            projectName={project.name}
+            expandedLayout
+            fillParentHeight
+            className="min-h-[320px]"
+          />
+        </section>
+      ) : null}
+
+      <CreateProjectDialog
+        open={reimportOpen}
+        onOpenChange={setReimportOpen}
+        onCreated={() => router.refresh()}
+        teamId={project.teamId}
+        reimportTarget={
+          reimportOpen ? { projectId: project.id, projectName: project.name } : null
+        }
+      />
+    </div>
+  );
+}
+jectActivityTimeline items={pagedActivity} />
         </div>
         <div className="mt-4 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">

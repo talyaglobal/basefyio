@@ -237,10 +237,12 @@ export class ProjectsController {
   async listProjectActivity(
     @Param('id') id: string,
     @Query('limit') limitRaw: string | undefined,
+    @Query('page') pageRaw: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
     const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
-    return this.projectActivity.listForProject(id, user.sub, limit);
+    const page = pageRaw ? parseInt(pageRaw, 10) : undefined;
+    return this.projectActivity.listForProject(id, user.sub, { limit, page });
   }
 
   @Get(':id')
@@ -486,6 +488,12 @@ export class ProjectsController {
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+    },
+  ) {
+    return this.projectExport.restoreCloudBackup(id, user.sub, body);
+  }
+}
+xistingProjectId?: string;
     },
   ) {
     return this.projectExport.restoreCloudBackup(id, user.sub, body);

@@ -39,6 +39,12 @@ const KIND_LABELS: Record<string, string> = {
   'auth.user_updated': 'Auth',
   'auth.user_password_reset': 'Auth',
   'auth.user_deleted': 'Auth',
+  'data_import.started': 'Data import',
+  'data_import.completed': 'Data import',
+  'data_import.failed': 'Data import',
+  'project_export.started': 'Export',
+  'project_backup_restore.started': 'Backup',
+  'project.rls_bootstrap': 'Project',
 };
 
 function categoryForKind(kind: string): string {

@@ -22,6 +22,10 @@ import type {
   StartImportDto,
   InspectImportResultDto,
 } from './dto/start-import.dto';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from '../projects/project-activity.service';
 
 /**
  * Platform-wide MinIO bucket for staging upload files between /inspect and the
@@ -49,6 +53,7 @@ export class DataImportService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     @InjectQueue(DATA_IMPORT_QUEUE) private readonly queue: Queue,
+    private readonly activity: ProjectActivityService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -355,6 +360,26 @@ export class DataImportService {
       },
     );
 
+    // Log that the import was kicked off — the processor also logs completion
+    // / failure, but without this entry the Project logs feed has a long gap
+    // for any job that takes minutes to finish.
+    const fileCount = 1 + extra.length;
+    await this.activity.append(projectId, {
+      userId: userId || undefined,
+      kind: ProjectActivityKind.DATA_IMPORT_STARTED,
+      title:
+        fileCount === 1
+          ? `Data import started → ${dto.tableName}`
+          : `Data import started (${fileCount} files) → ${dto.tableName}`,
+      detail: `${dto.format.toUpperCase()} · ${dto.filename} → ${dto.schemaName ?? 'public'}.${dto.tableName} (${dto.targetMode}, ${dto.conflictMode})`,
+      metadata: {
+        jobId: String(job.id),
+        targetMode: dto.targetMode,
+        conflictMode: dto.conflictMode,
+        fileCount,
+      },
+    });
+
     return { jobId: String(job.id) };
   }
 
@@ -478,4 +503,42 @@ function mimeForFormat(format: FileFormat): string {
   return format === 'csv'
     ? 'text/csv'
     : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+}
+N ('pg_catalog', 'information_schema')
+           ORDER BY schemaname, tablename`,
+        );
+        return r.rows as Array<{ schema: string; name: string }>;
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end();
+    }
+  }
+
+  private async ensureStagingBucket() {
+    try {
+      const exists = await this.minio.bucketExists(STAGING_BUCKET);
+      if (!exists) {
+        await this.minio.makeBucket(STAGING_BUCKET, '');
+        this.logger.log(`Created MinIO staging bucket: ${STAGING_BUCKET}`);
+      }
+    } catch (err: any) {
+      // BucketAlreadyOwnedByYou: another instance just created it — fine.
+      if (err?.code === 'BucketAlreadyOwnedByYou') return;
+      throw err;
+    }
+  }
+}
+
+function safeBasename(name: string): string {
+  return name.replace(/[^A-Za-z0-9._-]/g, '_').slice(-128);
+}
+
+function mimeForFormat(format: FileFormat): string {
+  return format === 'csv'
+    ? 'text/csv'
+    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+}
+edocument.spreadsheetml.sheet';
 }

@@ -15,6 +15,10 @@ import type {
   ExportJobData,
   ExportJobResult,
 } from '../queue/export.processor';
+import {
+  ProjectActivityKind,
+  ProjectActivityService,
+} from './project-activity.service';
 
 const EXPORT_BUCKET = 'kb-platform-exports';
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -27,6 +31,7 @@ export class ProjectExportService {
     private readonly projectsService: ProjectsService,
     private readonly projectArchiveImport: ProjectArchiveImportService,
     @InjectQueue(EXPORT_QUEUE) private readonly exportQueue: Queue,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   async startExport(
@@ -73,6 +78,23 @@ export class ProjectExportService {
       removeOnComplete: { age: 24 * 60 * 60, count: 100 },
       removeOnFail: { age: 48 * 60 * 60, count: 100 },
       attempts: 1,
+    });
+
+    // Leave a trail for the Project logs page — the export.processor will
+    // append a completion entry when the job finishes, but without this the
+    // user sees nothing in between starting the export and (often minutes
+    // later) the completion arriving.
+    const parts: string[] = [];
+    if (data.includeDatabase) parts.push('database');
+    if (data.includeAuth) parts.push('auth');
+    if (data.includeStorage) parts.push('storage');
+    if (data.includeConfig) parts.push('config');
+    await this.activity.append(projectId, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_EXPORT_STARTED,
+      title: 'Project export started',
+      detail: `Including: ${parts.length ? parts.join(', ') : 'nothing'}`,
+      metadata: { jobId: String(job.id), ...data },
     });
 
     return { jobId: String(job.id) };
@@ -173,6 +195,36 @@ export class ProjectExportService {
     }
     const { stream } = await this.storage.getPlatformObject(EXPORT_BUCKET, objectKey);
     const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const zipBuffer = Buffer.concat(chunks);
+    return this.projectArchiveImport.importArchiveBuffer(zipBuffer, userId, {
+      teamId: body.teamId,
+      nameMode: body.nameMode || 'existing',
+      newProjectName: body.newProjectName,
+      existingProjectId: body.existingProjectId,
+    });
+  }
+
+  getExportBucketName(): string {
+    return EXPORT_BUCKET;
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredExports() {
+    await this.storage.ensurePlatformBucket(EXPORT_BUCKET);
+    const objects = await this.storage.listPlatformObjects(EXPORT_BUCKET);
+    const now = Date.now();
+
+    for (const object of objects) {
+      if (now - object.lastModified.getTime() > EXPORT_TTL_MS) {
+        await this.storage.removePlatformObject(EXPORT_BUCKET, object.name);
+      }
+    }
+  }
+}
+ks: Buffer[] = [];
     for await (const chunk of stream) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }

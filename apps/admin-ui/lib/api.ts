@@ -492,10 +492,16 @@ export const api = {
     get(id: string) {
       return request<Project>(`/projects/${id}`);
     },
-    listActivity(id: string, limit = 100) {
-      return request<{ items: ProjectActivityItem[] }>(
-        `/projects/${id}/activity?limit=${limit}`,
-      );
+    listActivity(id: string, opts: { page?: number; limit?: number } = {}) {
+      const limit = opts.limit ?? 50;
+      const page = opts.page ?? 1;
+      return request<{
+        items: ProjectActivityItem[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/projects/${id}/activity?limit=${limit}&page=${page}`);
     },
     create(data: { name: string; description?: string; teamId: string }) {
       return request<Project>('/projects', {
@@ -1600,6 +1606,17 @@ export const api = {
     update(id: string, data: { name?: string; color?: string }) {
       return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
         method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-tags/${id}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+};
+: 'PATCH',
         body: JSON.stringify(data),
       });
     },

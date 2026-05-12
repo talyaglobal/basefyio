@@ -79,6 +79,21 @@ export class SqlService {
         },
       });
 
+      // Log every successful SQL execution. The Project logs page lives or
+      // dies by this — previously only failures showed up, which made the
+      // feed look misleadingly empty during normal heavy SQL usage.
+      const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
+      await this.activity.append(projectId, {
+        userId: userId || undefined,
+        kind: ProjectActivityKind.SQL_EXECUTED,
+        title:
+          result.rowCount != null
+            ? `SQL executed (${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'}, ${duration}ms)`
+            : `SQL executed (${duration}ms)`,
+        detail: `${qPreview}${query.length > 240 ? '…' : ''}`,
+        metadata: { rowCount: result.rowCount ?? null, duration },
+      });
+
       return {
         rows: result.rows,
         fields: result.fields?.map((f) => ({
@@ -102,6 +117,33 @@ export class SqlService {
       });
 
       const qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
+      await this.activity.append(projectId, {
+        userId: userId || undefined,
+        kind: ProjectActivityKind.SQL_FAILED,
+        title: 'SQL execution failed',
+        detail: `${qPreview}${query.length > 240 ? '…' : ''} — ${err.message}`,
+      });
+
+      throw new BadRequestException(`SQL error: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  private validateQuery(query: string) {
+    const upper = query.toUpperCase().trim();
+
+    for (const pattern of FORBIDDEN_PATTERNS) {
+      if (upper.includes(pattern)) {
+        throw new BadRequestException(
+          `Forbidden SQL operation: ${pattern}`,
+        );
+      }
+    }
+  }
+}
+t qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
       await this.activity.append(projectId, {
         userId: userId || undefined,
         kind: ProjectActivityKind.SQL_FAILED,

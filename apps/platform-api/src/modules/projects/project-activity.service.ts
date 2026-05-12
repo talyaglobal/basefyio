@@ -31,6 +31,12 @@ export const ProjectActivityKind = {
   TABLE_COLUMN_DELETED: 'table.column_deleted',
   TABLE_FK_ADDED: 'table.foreign_key_added',
   TABLE_FK_DELETED: 'table.foreign_key_deleted',
+  DATA_IMPORT_STARTED: 'data_import.started',
+  DATA_IMPORT_COMPLETED: 'data_import.completed',
+  DATA_IMPORT_FAILED: 'data_import.failed',
+  PROJECT_EXPORT_STARTED: 'project_export.started',
+  PROJECT_BACKUP_RESTORE_STARTED: 'project_backup_restore.started',
+  PROJECT_RLS_BOOTSTRAP: 'project.rls_bootstrap',
   STORAGE_BUCKET_CREATED: 'storage.bucket_created',
   STORAGE_BUCKET_UPDATED: 'storage.bucket_updated',
   STORAGE_BUCKET_DELETED: 'storage.bucket_deleted',
@@ -105,7 +111,18 @@ export class ProjectActivityService {
     }
   }
 
-  async listForProject(projectId: string, userId: string, limit = 80) {
+  /**
+   * Paginated activity feed for a single project. The DB happily holds tens of
+   * thousands of rows per project (every table edit, every SQL exec, every
+   * auth tweak) and the Project Logs page must be able to scroll back to the
+   * very first event — so we accept `page`/`limit` instead of a hard cap and
+   * return `total` so the UI can render real pagination.
+   */
+  async listForProject(
+    projectId: string,
+    userId: string,
+    opts: { page?: number; limit?: number } = {},
+  ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: { not: 'DELETED' } },
     });
@@ -116,21 +133,29 @@ export class ProjectActivityService {
     });
     if (!member) throw new NotFoundException('Project not found');
 
-    const take = Math.min(Math.max(limit, 1), 200);
-    const items = await this.prisma.projectActivityLog.findMany({
-      where: { projectId },
-      orderBy: { createdAt: 'desc' },
-      take,
-      select: {
-        id: true,
-        kind: true,
-        title: true,
-        detail: true,
-        metadata: true,
-        createdAt: true,
-        userId: true,
-      },
-    });
+    // Clamp to sane bounds. 500 is generous — anyone wanting more uses paging.
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+    const page = Math.max(opts.page ?? 1, 1);
+    const skip = (page - 1) * limit;
+
+    const [total, items] = await Promise.all([
+      this.prisma.projectActivityLog.count({ where: { projectId } }),
+      this.prisma.projectActivityLog.findMany({
+        where: { projectId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          detail: true,
+          metadata: true,
+          createdAt: true,
+          userId: true,
+        },
+      }),
+    ]);
 
     const userIds = Array.from(
       new Set(items.map((item) => item.userId).filter((v): v is string => !!v)),
@@ -159,6 +184,10 @@ export class ProjectActivityService {
         ...item,
         actorName: item.userId ? userMap.get(item.userId) || item.userId : 'System',
       })),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     };
   }
 }
