@@ -143,30 +143,3 @@ export class SqlService {
     }
   }
 }
-t qPreview = query.replace(/\s+/g, ' ').trim().slice(0, 240);
-      await this.activity.append(projectId, {
-        userId: userId || undefined,
-        kind: ProjectActivityKind.SQL_FAILED,
-        title: 'SQL execution failed',
-        detail: `${qPreview}${query.length > 240 ? '…' : ''} — ${err.message}`,
-      });
-
-      throw new BadRequestException(`SQL error: ${err.message}`);
-    } finally {
-      client.release();
-      await pool.end();
-    }
-  }
-
-  private validateQuery(query: string) {
-    const upper = query.toUpperCase().trim();
-
-    for (const pattern of FORBIDDEN_PATTERNS) {
-      if (upper.includes(pattern)) {
-        throw new BadRequestException(
-          `Forbidden SQL operation: ${pattern}`,
-        );
-      }
-    }
-  }
-}

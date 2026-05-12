@@ -224,33 +224,3 @@ export class ProjectExportService {
     }
   }
 }
-ks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const zipBuffer = Buffer.concat(chunks);
-    return this.projectArchiveImport.importArchiveBuffer(zipBuffer, userId, {
-      teamId: body.teamId,
-      nameMode: body.nameMode || 'existing',
-      newProjectName: body.newProjectName,
-      existingProjectId: body.existingProjectId,
-    });
-  }
-
-  getExportBucketName(): string {
-    return EXPORT_BUCKET;
-  }
-
-  @Cron(CronExpression.EVERY_HOUR)
-  async cleanupExpiredExports() {
-    await this.storage.ensurePlatformBucket(EXPORT_BUCKET);
-    const objects = await this.storage.listPlatformObjects(EXPORT_BUCKET);
-    const now = Date.now();
-
-    for (const object of objects) {
-      if (now - object.lastModified.getTime() > EXPORT_TTL_MS) {
-        await this.storage.removePlatformObject(EXPORT_BUCKET, object.name);
-      }
-    }
-  }
-}

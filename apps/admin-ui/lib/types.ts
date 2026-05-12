@@ -753,7 +753,3 @@ export interface DataImportJobStatus {
   result?: DataImportResult;
   failedReason?: string;
 }
-DataImportProgress | Record<string, unknown> | number | null;
-  result?: DataImportResult;
-  failedReason?: string;
-}

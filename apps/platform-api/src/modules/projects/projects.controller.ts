@@ -493,9 +493,3 @@ export class ProjectsController {
     return this.projectExport.restoreCloudBackup(id, user.sub, body);
   }
 }
-xistingProjectId?: string;
-    },
-  ) {
-    return this.projectExport.restoreCloudBackup(id, user.sub, body);
-  }
-}
