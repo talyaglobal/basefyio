@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-05-12 (Table Editor — duplicate row cleaner)
+
+**Done:** **Clean duplicates** button next to **Import Data** opens a dialog: pick key columns (defaults to PK columns), **Preview count** of rows that would be deleted, then **Remove duplicates** with confirm. Backend `POST /projects/:id/tables/:tableName/deduplicate-rows?schema=` with `{ keyColumns, preview }` — Postgres self-join on `ctid` + `IS NOT DISTINCT FROM` (no PK required); delete transaction uses `SET LOCAL statement_timeout = 120s`. Activity kind `table.rows_deduplicated`. Admin `api.projects.deduplicateTableRows`, component `duplicate-cleaner-dialog.tsx`.
+
 ## 2026-04-15 (Header project search — UX: visible bar + scope copy)
 
 **Done:** Admin header **center** is always a real **search field** on `md+` (icon, border, clear button, `title`/placeholder explaining **project names across all teams**). Dropdown opens on focus or when the query is non-empty; a short **info strip** states scope (all teams, project names only, not team names). Result rows use `onMouseDown` preventDefault so choosing a result does not break focus. **Mobile:** `md:hidden` **search-bar–styled** full-width control in the center row opens a sheet with the same copy + examples placeholder; light backdrop dismisses; `headerProjectSearchExpanded` removed in favor of `headerMobileSearchOpen` + `headerSearchFocused`. `closeHeaderProjectSearch` is `useCallback`; global mousedown reset uses the new state.

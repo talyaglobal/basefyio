@@ -26,6 +26,7 @@ export const ProjectActivityKind = {
   TABLE_ROW_INSERTED: 'table.row_inserted',
   TABLE_ROW_UPDATED: 'table.row_updated',
   TABLE_ROW_DELETED: 'table.row_deleted',
+  TABLE_ROWS_DEDUPLICATED: 'table.rows_deduplicated',
   TABLE_COLUMN_ADDED: 'table.column_added',
   TABLE_COLUMN_UPDATED: 'table.column_updated',
   TABLE_COLUMN_DELETED: 'table.column_deleted',

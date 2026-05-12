@@ -464,6 +464,90 @@ export class ProjectDataService {
   }
 
   /**
+   * Removes duplicate rows by a user-chosen key (same values on all key columns
+   * = duplicate). Uses ctid so a primary key is not required. Keeps one row per
+   * duplicate group (the one with the lexicographically largest ctid).
+   */
+  async deduplicateTableRows(
+    projectId: string,
+    ownerId: string | undefined,
+    tableName: string,
+    keyColumns: string[],
+    schemaName: string | undefined,
+    previewOnly: boolean,
+  ): Promise<{ preview: boolean; rowsToDelete?: number; deleted?: number }> {
+    if (!Array.isArray(keyColumns) || keyColumns.length === 0) {
+      throw new BadRequestException('Provide at least one key column');
+    }
+    if (keyColumns.length > 24) {
+      throw new BadRequestException('At most 24 key columns');
+    }
+    if (new Set(keyColumns).size !== keyColumns.length) {
+      throw new BadRequestException('Duplicate column names in key set');
+    }
+    for (const c of keyColumns) {
+      this.validateColumnName(c);
+    }
+    this.validateTableName(tableName);
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+
+    try {
+      const schema = await this.resolveSchema(client, tableName, schemaName);
+      const qualified = `"${schema}"."${tableName}"`;
+      const joinConds = keyColumns
+        .map((k) => `t1."${k}" IS NOT DISTINCT FROM t2."${k}"`)
+        .join(' AND ');
+
+      if (previewOnly) {
+        const countSql = `
+          SELECT COUNT(*)::bigint AS c
+          FROM ${qualified} AS t1
+          WHERE EXISTS (
+            SELECT 1 FROM ${qualified} AS t2
+            WHERE t2.ctid > t1.ctid
+              AND ${joinConds}
+          )
+        `;
+        const r = await client.query(countSql);
+        const rowsToDelete = Number(r.rows[0]?.c ?? 0);
+        return { preview: true, rowsToDelete };
+      }
+
+      const deleteSql = `
+        DELETE FROM ${qualified} AS t1
+        USING ${qualified} AS t2
+        WHERE t1.ctid < t2.ctid
+          AND ${joinConds}
+      `;
+
+      await client.query('BEGIN');
+      try {
+        await client.query(`SET LOCAL statement_timeout = '120s'`);
+        const result = await client.query(deleteSql);
+        await client.query('COMMIT');
+        return { preview: false, deleted: result.rowCount ?? 0 };
+      } catch (err) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          // ignore rollback errors
+        }
+        throw err;
+      }
+    } catch (err: any) {
+      if (err instanceof BadRequestException || err instanceof NotFoundException) {
+        throw err;
+      }
+      throw new BadRequestException(`Deduplicate failed: ${err.message}`);
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  /**
    * Resolves the schema a table lives in. Required because listTables() surfaces
    * tables across every non-system schema (public, auth, …) but the row/column
    * endpoints used to issue unqualified `"<table>"` queries that only resolve

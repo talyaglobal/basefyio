@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { cn, formatCount } from '@/lib/utils';
 import { CreateTableDialog } from '@/components/create-table-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
+import { DuplicateCleanerDialog } from '@/components/duplicate-cleaner-dialog';
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,7 @@ import {
   Trash2,
   X,
   Upload as ImportIcon,
+  CopyMinus,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -677,6 +679,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [dedupeOpen, setDedupeOpen] = useState(false);
 
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -1128,6 +1131,19 @@ export function TableEditor({ projectId }: TableEditorProps) {
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <ImportIcon className="mr-2 h-4 w-4" />
             Import Data
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setDedupeOpen(true)}
+            disabled={!selected || tables.length === 0}
+            title={
+              !selected || tables.length === 0
+                ? 'Select a table in the sidebar first'
+                : 'Remove rows that match on chosen columns'
+            }
+          >
+            <CopyMinus className="mr-2 h-4 w-4" />
+            Clean duplicates
           </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -1663,6 +1679,22 @@ export function TableEditor({ projectId }: TableEditorProps) {
           if (selected) reloadTableData();
         }}
       />
+
+      {selected && columns.length > 0 ? (
+        <DuplicateCleanerDialog
+          key={selected}
+          open={dedupeOpen}
+          onOpenChange={setDedupeOpen}
+          projectId={projectId}
+          tableName={selected}
+          schema={schemaFor(selected)}
+          columns={columns}
+          onCompleted={() => {
+            loadTables();
+            reloadTableData();
+          }}
+        />
+      ) : null}
 
       {selected && (
         <AddColumnDialog

@@ -865,6 +865,21 @@ export const api = {
         body: JSON.stringify({ pkWhere }),
       });
     },
+    deduplicateTableRows(
+      projectId: string,
+      tableName: string,
+      body: { keyColumns: string[]; preview?: boolean },
+      schema?: string,
+    ) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<{ preview: boolean; rowsToDelete?: number; deleted?: number }>(
+        `/projects/${projectId}/tables/${tableName}/deduplicate-rows${qs}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+      );
+    },
     addColumn(projectId: string, tableName: string, column: { name: string; type: string; nullable: boolean; defaultValue?: string; isUnique?: boolean }) {
       return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}/columns`, {
         method: 'POST',

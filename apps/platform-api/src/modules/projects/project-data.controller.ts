@@ -153,6 +153,35 @@ export class ProjectDataController {
     return result;
   }
 
+  @Post('tables/:tableName/deduplicate-rows')
+  async deduplicateRows(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Body() body: { keyColumns: string[]; preview?: boolean },
+    @Query('schema') schema?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const keyColumns = body?.keyColumns;
+    const preview = Boolean(body?.preview);
+    const result = await this.dataService.deduplicateTableRows(
+      projectId,
+      user?.sub,
+      tableName,
+      keyColumns,
+      schema,
+      preview,
+    );
+    if (!preview && (result.deleted ?? 0) > 0) {
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.TABLE_ROWS_DEDUPLICATED,
+        title: `Duplicates removed: ${tableName}`,
+        detail: `${result.deleted} row(s) deleted · keys: ${keyColumns.join(', ')}`,
+      });
+    }
+    return result;
+  }
+
   @Delete('tables/:tableName')
   async dropTable(
     @Param('projectId') projectId: string,

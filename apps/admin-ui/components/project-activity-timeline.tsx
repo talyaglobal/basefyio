@@ -25,6 +25,7 @@ const KIND_LABELS: Record<string, string> = {
   'table.row_inserted': 'Database',
   'table.row_updated': 'Database',
   'table.row_deleted': 'Database',
+  'table.rows_deduplicated': 'Database',
   'table.column_added': 'Database',
   'table.column_updated': 'Database',
   'table.column_deleted': 'Database',
