@@ -942,6 +942,30 @@ export const api = {
      *      getDataImportStatus()        — poll
      *   4. downloadDataImportErrors()   — URL for bad-rows CSV after completion
      */
+    /**
+     * Request a presigned PUT URL for direct-to-MinIO upload. Use this for
+     * large files (>~50MB) that would otherwise hit reverse-proxy body limits
+     * when going through the platform-api multipart endpoint.
+     */
+    presignDataImportUpload(projectId: string, filename: string) {
+      return request<{ sourceKey: string; uploadUrl: string; expiresInSeconds: number }>(
+        `/projects/${projectId}/data-imports/presign`,
+        { method: 'POST', body: JSON.stringify({ filename }) },
+      );
+    },
+    /**
+     * Run inspect against a file already staged in MinIO via presigned upload.
+     * Returns the same shape as inspectDataImport.
+     */
+    inspectStagedDataImport(
+      projectId: string,
+      args: { sourceKey: string; filename: string; firstRowIsHeader?: boolean },
+    ) {
+      return request<DataImportInspectResult>(
+        `/projects/${projectId}/data-imports/inspect-staged`,
+        { method: 'POST', body: JSON.stringify(args) },
+      );
+    },
     async inspectDataImport(
       projectId: string,
       file: File,

@@ -67,6 +67,47 @@ export class DataImportController {
     );
   }
 
+  /**
+   * Mint a presigned PUT URL so the browser can upload large CSV/XLSX files
+   * directly to MinIO. Avoids hitting reverse-proxy body limits and Multer's
+   * memory buffering when the upload is multi-hundred-MB.
+   */
+  @Post('presign')
+  async presign(
+    @Param('projectId') projectId: string,
+    @Body() body: { filename: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!body?.filename) {
+      throw new BadRequestException('filename is required');
+    }
+    return this.service.presignUpload(projectId, user.sub, body.filename);
+  }
+
+  /**
+   * Run inspect against a file that was already uploaded to MinIO via the
+   * /presign flow. Body shape mirrors /inspect's response so the wizard can
+   * use either code path interchangeably.
+   */
+  @Post('inspect-staged')
+  async inspectStaged(
+    @Param('projectId') projectId: string,
+    @Body()
+    body: { sourceKey: string; filename: string; firstRowIsHeader?: boolean },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!body?.sourceKey || !body?.filename) {
+      throw new BadRequestException('sourceKey and filename are required');
+    }
+    return this.service.inspectStaged(
+      projectId,
+      user.sub,
+      body.sourceKey,
+      body.filename,
+      body.firstRowIsHeader ?? true,
+    );
+  }
+
   @Post('jobs')
   async start(
     @Param('projectId') projectId: string,

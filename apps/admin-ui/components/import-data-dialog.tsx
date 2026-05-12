@@ -276,12 +276,53 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
     const updateFile = (i: number, patch: Partial<BatchEntry>) =>
       setBatchFiles((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
 
+    /**
+     * Files above this size bypass the platform-api proxy entirely and go
+     * straight to MinIO via presigned PUT URL. Anything smaller takes the
+     * familiar multipart path because it's slightly less complex and the
+     * proxy can stream it without trouble. The threshold is intentionally
+     * generous — large enough to keep the wizard simple in normal usage,
+     * small enough to side-step CloudFlare's 100 MB free-plan cap.
+     */
+    const PRESIGN_THRESHOLD_BYTES = 50 * 1024 * 1024;
+
+    /**
+     * Upload one file, choosing the best transport for its size.
+     * Returns the InspectImportResultDto so the caller can drive the wizard.
+     */
+    const uploadOne = async (
+      f: File,
+      forFirstFile: boolean,
+    ): Promise<DataImportInspectResult> => {
+      if (f.size <= PRESIGN_THRESHOLD_BYTES) {
+        return api.projects.inspectDataImport(projectId, f, {
+          firstRowIsHeader: forFirstFile ? firstRowIsHeader : firstRowIsHeader,
+        });
+      }
+      // Large file: presign → direct PUT → inspect-staged.
+      const presign = await api.projects.presignDataImportUpload(projectId, f.name);
+      // The browser uploads directly to MinIO. This bypasses Cloudflare,
+      // the admin-ui Next route, and the platform-api Multer — none of
+      // which see the bytes. MinIO does, and that's exactly its job.
+      const putRes = await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        body: f,
+        headers: { 'Content-Type': f.type || 'application/octet-stream' },
+      });
+      if (!putRes.ok) {
+        throw new Error(`MinIO upload failed: ${putRes.status} ${putRes.statusText}`);
+      }
+      return api.projects.inspectStagedDataImport(projectId, {
+        sourceKey: presign.sourceKey,
+        filename: f.name,
+        firstRowIsHeader,
+      });
+    };
+
     try {
       // First file: drive the wizard.
       updateFile(0, { status: 'uploading' });
-      const firstInspect = await api.projects.inspectDataImport(projectId, files[0], {
-        firstRowIsHeader,
-      });
+      const firstInspect = await uploadOne(files[0], true);
       updateFile(0, { status: 'ready', sourceKey: firstInspect.sourceKey });
       setFile(files[0]);
       setInspect(firstInspect);
@@ -294,21 +335,19 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
       for (let i = 1; i < files.length; i++) {
         updateFile(i, { status: 'uploading' });
         try {
-          const r = await api.projects.inspectDataImport(projectId, files[i], {
-            firstRowIsHeader: firstInspect.firstRowIsHeader,
-          });
+          const r = await uploadOne(files[i], false);
           updateFile(i, { status: 'ready', sourceKey: r.sourceKey });
         } catch (err: any) {
           updateFile(i, {
             status: 'error',
-            error: err?.message || 'Inspect failed',
+            error: err?.message || 'Upload failed',
           });
         }
       }
     } catch (e: any) {
-      updateFile(0, { status: 'error', error: e?.message || 'Inspect failed' });
-      setError(e?.message || 'Inspect failed');
-      toast.error(e?.message || 'Inspect failed');
+      updateFile(0, { status: 'error', error: e?.message || 'Upload failed' });
+      setError(e?.message || 'Upload failed');
+      toast.error(e?.message || 'Upload failed');
     } finally {
       setBusy(false);
     }

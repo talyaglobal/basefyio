@@ -34,19 +34,164 @@ const STAGING_BUCKET = 'kb-platform-data-imports';
 @Injectable()
 export class DataImportService {
   private readonly logger = new Logger(DataImportService.name);
+  /** Internal client — used for staging objects from inside the platform API. */
   private readonly minio: Minio.Client;
+  /**
+   * Public client — used ONLY for generating presigned URLs. Configured with
+   * the browser-reachable hostname so the URL it stamps in the signature
+   * points where the browser can actually reach (NAT-aware deploys often
+   * have an internal `minio:9000` for service-to-service plus an external
+   * `cdn.example.com` for browsers).
+   */
+  private readonly minioPublic: Minio.Client;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     @InjectQueue(DATA_IMPORT_QUEUE) private readonly queue: Queue,
   ) {
+    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
     this.minio = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,
       useSSL: this.config.get<boolean>('minio.useSsl') || false,
-      accessKey: this.config.get<string>('minio.accessKey') || 'kolaybase',
-      secretKey: this.config.get<string>('minio.secretKey') || 'kolaybase_secret',
+      accessKey,
+      secretKey,
+    });
+    this.minioPublic = new Minio.Client({
+      endPoint: this.config.get<string>('minio.publicEndpoint') || 'localhost',
+      port: this.config.get<number>('minio.publicPort') || 9000,
+      useSSL: this.config.get<string>('minio.publicSsl') === 'true',
+      accessKey,
+      secretKey,
+    });
+  }
+
+  /**
+   * Mint a short-lived presigned PUT URL the browser can use to upload the
+   * source file DIRECTLY to MinIO, bypassing the platform-api and any
+   * reverse-proxy body-size limits in between. Used for files > ~50MB that
+   * would otherwise 502 through the streaming inspect proxy.
+   *
+   * The returned `sourceKey` is the same shape /inspect would have generated
+   * — `<projectId>/<ts>-<random>/<safe-filename>` — so all the downstream
+   * code (validation, start, worker) treats presigned uploads identically.
+   */
+  async presignUpload(
+    projectId: string,
+    userId: string | undefined,
+    filename: string,
+  ): Promise<{ sourceKey: string; uploadUrl: string; expiresInSeconds: number }> {
+    await this.assertProjectAccess(projectId, userId);
+
+    const format = detectFormat(filename);
+    if (!format) {
+      throw new BadRequestException(
+        `Unsupported file type: ${filename}. Use .csv, .tsv, or .xlsx.`,
+      );
+    }
+
+    await this.ensureStagingBucket();
+
+    const sourceKey = `${projectId}/${Date.now()}-${randomBytes(8).toString('hex')}/${safeBasename(filename)}`;
+    const expiresInSeconds = 60 * 30; // 30 minutes
+    const uploadUrl = await this.minioPublic.presignedPutObject(
+      STAGING_BUCKET,
+      sourceKey,
+      expiresInSeconds,
+    );
+    return { sourceKey, uploadUrl, expiresInSeconds };
+  }
+
+  /**
+   * Run /inspect against a file the browser already PUT to MinIO via the
+   * presigned URL flow. Fetches the FIRST ~16 MB of the object (range
+   * request) — more than enough for a 1000-row preview on any sane CSV /
+   * XLSX shape — keeping the wizard responsive even on multi-GB sources.
+   */
+  async inspectStaged(
+    projectId: string,
+    userId: string | undefined,
+    sourceKey: string,
+    filename: string,
+    firstRowIsHeader: boolean = true,
+  ): Promise<InspectImportResultDto> {
+    await this.assertProjectAccess(projectId, userId);
+
+    if (!sourceKey.startsWith(`${projectId}/`)) {
+      throw new BadRequestException(
+        'sourceKey must belong to the requesting project.',
+      );
+    }
+
+    const format = detectFormat(filename);
+    if (!format) {
+      throw new BadRequestException(
+        `Unsupported file type: ${filename}. Use .csv, .tsv, or .xlsx.`,
+      );
+    }
+
+    // Verify the object actually exists and capture its true size for the
+    // approximate row count display.
+    let totalSize = 0;
+    try {
+      const stat = await this.minio.statObject(STAGING_BUCKET, sourceKey);
+      totalSize = stat.size;
+    } catch {
+      throw new BadRequestException(
+        'Staged file not found. Did the presigned upload complete?',
+      );
+    }
+
+    // CSV: range-fetch the first 16 MB — enough for 1000 preview rows on
+    // any reasonable schema. XLSX: needs the whole workbook to be parsed
+    // (zipped) so we fetch the full object even when large. The worker only
+    // does this on /inspect, not on every chunk, so the cost is bounded.
+    const previewSlice = format === 'csv' ? 16 * 1024 * 1024 : totalSize;
+    const buffer = await this.fetchObjectRange(sourceKey, 0, previewSlice);
+
+    const preview = samplePreview(buffer, format, DEFAULT_PREVIEW_ROWS, firstRowIsHeader);
+    if (preview.headers.length === 0) {
+      throw new BadRequestException('File has no header row');
+    }
+    const inferred = inferSchema(preview.headers, preview.rows);
+
+    const existingTables = await this.listExistingTables(projectId);
+
+    return {
+      sourceKey,
+      filename,
+      format,
+      // Approximate based on object size when only the slice was read.
+      totalRowsApprox:
+        format === 'csv' && totalSize > previewSlice
+          ? Math.round(preview.totalRowsApprox * (totalSize / previewSlice))
+          : preview.totalRowsApprox,
+      headers: preview.headers,
+      inferredColumns: inferred,
+      sampleRows: preview.rows.slice(0, 25),
+      existingTables,
+      firstRowIsHeader,
+    };
+  }
+
+  private async fetchObjectRange(
+    key: string,
+    offset: number,
+    length: number,
+  ): Promise<Buffer> {
+    const stream = await this.minio.getPartialObject(
+      STAGING_BUCKET,
+      key,
+      offset,
+      length,
+    );
+    const chunks: Buffer[] = [];
+    return new Promise<Buffer>((resolve, reject) => {
+      stream.on('data', (c: Buffer) => chunks.push(c));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
     });
   }
 
