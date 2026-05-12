@@ -819,6 +819,11 @@ export function TableEditor({ projectId }: TableEditorProps) {
       ]);
       setColumns(cols);
       setData(rows);
+      // listTables uses n_live_tup for tables > 200k rows because exact COUNT
+      // on every table would be slow. getRows just did an exact COUNT for the
+      // active table — sync the sidebar badge so the two numbers always
+      // agree once the user has actually opened the table.
+      syncSidebarCount(name, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -836,11 +841,19 @@ export function TableEditor({ projectId }: TableEditorProps) {
       ]);
       setColumns(cols);
       setData(rows);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setDataLoading(false);
     }
+  }
+
+  /** Update the cached table list with the exact row count we just observed. */
+  function syncSidebarCount(name: string, total: number) {
+    setTables((prev) =>
+      prev.map((t) => (t.name === name ? { ...t, rowCount: total } : t)),
+    );
   }
 
   async function reloadRows() {
@@ -849,6 +862,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected));
       setData(rows);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -865,6 +879,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected));
       setData(rows);
+      syncSidebarCount(selected, rows.total);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -1551,6 +1566,37 @@ export function TableEditor({ projectId }: TableEditorProps) {
         onOpenChange={setCreateOpen}
         projectId={projectId}
         onCreated={(createdTableName) => {
+          loadTables();
+          if (createdTableName) {
+            setTimeout(() => openTable(createdTableName), 0);
+          }
+        }}
+      />
+      <ImportDataDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        tables={tables}
+        defaultTargetTable={selected}
+        onCompleted={() => {
+          loadTables();
+          if (selected) reloadTableData();
+        }}
+      />
+
+      {selected && (
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          projectId={projectId}
+          tableName={selected}
+          onAdded={reloadTableData}
+        />
+      )}
+    </div>
+  );
+}
+ {
           loadTables();
           if (createdTableName) {
             setTimeout(() => openTable(createdTableName), 0);
