@@ -69,6 +69,8 @@ export class ProjectDataService {
     const client = await pool.connect();
 
     try {
+      // First pass: cheap n_live_tup read for every table. This populates the
+      // sidebar instantly even on schemas with hundreds of tables.
       const result = await client.query(`
         SELECT
           t.tablename AS name,
@@ -80,7 +82,37 @@ export class ProjectDataService {
         WHERE t.schemaname NOT IN ('pg_catalog', 'information_schema')
         ORDER BY t.schemaname, t.tablename
       `);
-      return result.rows;
+      const rows = result.rows as TableInfo[];
+
+      // Second pass: refine with an exact COUNT(*) for small-to-medium
+      // tables (<200k rows). n_live_tup is an autovacuum-maintained estimate
+      // that lags real inserts, which made the sidebar disagree with the
+      // header (header runs its own COUNT). Doing COUNT(*) on every table
+      // would be expensive for million-row tables, so we cap it.
+      //
+      // Why 200k: a parallel seq scan on a million-row table takes ~100ms
+      // typically; 200k tables resolve in tens of ms. With ~30 small tables
+      // in a project the total overhead is well under 500ms and the sidebar
+      // numbers match the header for everything that's reasonably sized.
+      const COUNT_THRESHOLD = 200_000;
+      const refinements = await Promise.all(
+        rows.map(async (r) => {
+          if (r.rowCount > COUNT_THRESHOLD) return r;
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.schema) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.name)) {
+            return r;
+          }
+          try {
+            const c = await client.query(
+              `SELECT COUNT(*)::int AS total FROM "${r.schema}"."${r.name}"`,
+            );
+            return { ...r, rowCount: c.rows[0].total as number };
+          } catch {
+            // Permission errors or other quirks — fall back to the estimate.
+            return r;
+          }
+        }),
+      );
+      return refinements;
     } finally {
       client.release();
       await pool.end();
@@ -654,10 +686,10 @@ export class ProjectDataService {
     const client = await pool.connect();
 
     try {
-      await client.query(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
-      return { message: 'Foreign key removed' };
-    } catch (err: any) {
-      throw new BadRequestException(`Failed to remove foreign key: ${err.message}`);
+      await client.query(
+        `ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName.replace(/"/g, '""')}"`,
+      );
+      return { message: `Foreign key "${constraintName}" dropped` };
     } finally {
       client.release();
       await pool.end();

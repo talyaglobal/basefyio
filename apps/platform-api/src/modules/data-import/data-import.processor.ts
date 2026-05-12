@@ -288,6 +288,30 @@ export class DataImportProcessor extends WorkerHost {
       }, { firstRowIsHeader: data.firstRowIsHeader ?? true });
       } // end per-file loop
 
+      // Refresh table statistics so the admin-ui sidebar (which reads
+      // pg_stat_user_tables.n_live_tup for speed) stops showing a stale
+      // pre-import row count. Without this the user sees mismatched numbers:
+      // header runs SELECT COUNT(*) and shows the truth (e.g. 1.582.405);
+      // sidebar reads n_live_tup and shows whatever autovacuum last sampled
+      // (e.g. 1.576.109). ANALYZE is cheap relative to a multi-million row
+      // INSERT and runs in O(sample) time, not O(table).
+      try {
+        const analyzeClient = await pool.connect();
+        try {
+          await analyzeClient.query(
+            `ANALYZE ${quoteIdent(resolvedSchema)}.${quoteIdent(data.tableName)}`,
+          );
+        } finally {
+          analyzeClient.release();
+        }
+      } catch (err: any) {
+        // Non-fatal — n_live_tup will catch up on the next autovacuum cycle
+        // anyway, just a bit later.
+        this.logger.warn(
+          `ANALYZE after import failed for "${resolvedSchema}"."${data.tableName}": ${err.message}`,
+        );
+      }
+
       let errorKey: string | undefined;
       if (badRows.length > 0) {
         errorKey = await this.uploadErrorReport(job, data, badRows);

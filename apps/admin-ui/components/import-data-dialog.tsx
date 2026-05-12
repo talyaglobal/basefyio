@@ -519,6 +519,10 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
             rowsInserted={rowsInserted}
             rowsBad={rowsBad}
             error={error}
+            targetTable={targetMode === 'new' ? newTableName : targetTable}
+            targetMode={targetMode}
+            conflictMode={conflictMode}
+            fileCount={batchFiles.length || 1}
           />
         )}
 
@@ -1012,47 +1016,168 @@ function DoneStep(props: {
   rowsInserted: number;
   rowsBad: number;
   error: string | null;
+  targetTable: string;
+  targetMode: 'existing' | 'new';
+  conflictMode: 'skip' | 'update' | 'fail';
+  fileCount: number;
 }) {
   const failed = !!props.error;
+  const r = props.result;
+  const rowsSkipped = r?.rowsSkippedConflict ?? 0;
+  const durationMs = r?.durationMs ?? 0;
+  // Throughput is a useful sanity check: imports that look fast in absolute
+  // numbers are sometimes choke-pointed on validation; rows/sec surfaces it.
+  const throughput = durationMs > 0
+    ? Math.round((props.rowsInserted / durationMs) * 1000)
+    : 0;
+  const successRate = props.rowsRead > 0
+    ? Math.round((props.rowsInserted / props.rowsRead) * 1000) / 10  // one decimal
+    : 0;
+
   return (
-    <div className="space-y-4 py-6 text-center">
-      {failed ? (
-        <AlertTriangle className="mx-auto h-10 w-10 text-destructive" />
-      ) : (
-        <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
-      )}
-      <div className="font-medium">
-        {failed ? 'Import failed' : 'Import complete'}
+    <div className="space-y-5 py-4">
+      {/* Header */}
+      <div className="flex flex-col items-center gap-2 text-center">
+        {failed ? (
+          <AlertTriangle className="h-12 w-12 text-destructive" />
+        ) : (
+          <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+        )}
+        <div className="text-lg font-semibold">
+          {failed ? 'Import failed' : 'Import complete'}
+        </div>
+        {props.error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive max-w-md">
+            {props.error}
+          </div>
+        )}
       </div>
-      {props.error && <div className="text-sm text-destructive">{props.error}</div>}
-      <div className="grid grid-cols-3 gap-2 text-center text-sm">
+
+      {/* Target + plan summary — what the user just did, at a glance. */}
+      <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+          <div className="text-muted-foreground">Target table</div>
+          <div className="font-mono text-right">
+            {props.targetTable}
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({props.targetMode === 'new' ? 'created' : 'existing'})
+            </span>
+          </div>
+          <div className="text-muted-foreground">Source files</div>
+          <div className="text-right">{props.fileCount.toLocaleString('tr-TR')}</div>
+          <div className="text-muted-foreground">Conflict mode</div>
+          <div className="text-right">{conflictModeLabel(props.conflictMode)}</div>
+          <div className="text-muted-foreground">Duration</div>
+          <div className="text-right">{formatDuration(durationMs)}</div>
+          {throughput > 0 && (
+            <>
+              <div className="text-muted-foreground">Throughput</div>
+              <div className="text-right">
+                {throughput.toLocaleString('tr-TR')} rows/sec
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Counters — primary KPIs. */}
+      <div className="grid grid-cols-4 gap-2 text-center text-sm">
         <Stat label="Read" value={props.rowsRead} />
-        <Stat label="Inserted" value={props.rowsInserted} />
-        <Stat label="Errors" value={props.rowsBad} tone={props.rowsBad > 0 ? 'warn' : 'ok'} />
+        <Stat
+          label="Inserted"
+          value={props.rowsInserted}
+          tone={!failed && props.rowsInserted > 0 ? 'ok' : undefined}
+        />
+        <Stat
+          label="Skipped (dup)"
+          value={rowsSkipped}
+          tone={rowsSkipped > 0 ? 'info' : undefined}
+        />
+        <Stat
+          label="Errors"
+          value={props.rowsBad}
+          tone={props.rowsBad > 0 ? 'warn' : 'ok'}
+        />
       </div>
-      {props.result?.errorKey && props.jobId && (
-        <a
-          href={api.projects.downloadDataImportErrors(props.projectId, props.jobId)}
-          download
-          className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
-        >
-          <Download className="h-4 w-4" />
-          Download error report ({props.rowsBad.toLocaleString()} rows)
-        </a>
+
+      {/* Success rate bar — visual at a glance. */}
+      {props.rowsRead > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Inserted vs. read</span>
+            <span>{successRate.toLocaleString('tr-TR')}%</span>
+          </div>
+          <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${(props.rowsInserted / props.rowsRead) * 100}%` }}
+            />
+            {rowsSkipped > 0 && (
+              <div
+                className="h-full bg-amber-300/70"
+                style={{ width: `${(rowsSkipped / props.rowsRead) * 100}%` }}
+              />
+            )}
+            {props.rowsBad > 0 && (
+              <div
+                className="h-full bg-destructive/70"
+                style={{ width: `${(props.rowsBad / props.rowsRead) * 100}%` }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Error report download — only when the worker captured bad rows. */}
+      {r?.errorKey && props.jobId && props.rowsBad > 0 && (
+        <div className="flex items-center justify-center">
+          <a
+            href={api.projects.downloadDataImportErrors(props.projectId, props.jobId)}
+            download
+            className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            <Download className="h-4 w-4" />
+            Download error report ({props.rowsBad.toLocaleString('tr-TR')} rows)
+          </a>
+        </div>
       )}
     </div>
   );
 }
 
-function Stat(props: { label: string; value: number; tone?: 'ok' | 'warn' }) {
+function conflictModeLabel(mode: 'skip' | 'update' | 'fail'): string {
+  switch (mode) {
+    case 'skip':
+      return 'Skip duplicates';
+    case 'update':
+      return 'Update on conflict';
+    case 'fail':
+      return 'Fail on conflict';
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
+}
+
+function Stat(props: { label: string; value: number; tone?: 'ok' | 'warn' | 'info' }) {
+  const toneClass =
+    props.tone === 'warn'
+      ? 'text-amber-600 dark:text-amber-400'
+      : props.tone === 'ok'
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : props.tone === 'info'
+          ? 'text-sky-600 dark:text-sky-400'
+          : '';
   return (
     <div className="rounded-md border bg-muted/30 px-3 py-2">
-      <div
-        className={`text-base font-semibold ${
-          props.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : ''
-        }`}
-      >
-        {props.value.toLocaleString()}
+      <div className={`text-base font-semibold ${toneClass}`}>
+        {props.value.toLocaleString('tr-TR')}
       </div>
       <div className="text-xs text-muted-foreground">{props.label}</div>
     </div>
@@ -1079,12 +1204,6 @@ function sanitize(s: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-/**
- * Map Postgres' information_schema.data_type strings to our wizard's
- * DataImportColumnType enum. Falls back to `text` so unknown/composite types
- * don't crash the wizard — the worker can still treat the value as a string
- * and Postgres will coerce on insert where possible.
- */
 function pgTypeToImportType(pgType: string): DataImportColumnType {
   const t = pgType.toLowerCase();
   if (t === 'boolean' || t === 'bool') return 'boolean';
