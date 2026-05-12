@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
+import { cn, formatCount } from '@/lib/utils';
 import { CreateTableDialog } from '@/components/create-table-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
 import {
@@ -1139,7 +1139,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                         <span className="truncate">{t.name}</span>
                       </span>
                       <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
-                        {t.rowCount}
+                        {formatCount(t.rowCount)}
                       </Badge>
                     </button>
                     <DropdownMenu>
@@ -1224,7 +1224,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="font-mono text-sm font-semibold truncate">{selected}</span>
                     <Badge variant="secondary" className="text-xs shrink-0">
-                      {data?.total ?? 0} rows
+                      {formatCount(data?.total)} rows
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1495,7 +1495,8 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     {data && data.totalPages > 1 && (
                       <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
                         <span>
-                          {data.total} rows — page {data.page}/{data.totalPages}
+                          {formatCount(data.total)} rows — page {formatCount(data.page)}/
+                          {formatCount(data.totalPages)}
                         </span>
                         <div className="flex gap-1">
                           <Button

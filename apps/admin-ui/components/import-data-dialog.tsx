@@ -526,8 +526,32 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
           <div className="text-xs text-muted-foreground">
             {inspect && (
               <>
-                {inspect.filename} · {inspect.format.toUpperCase()} ·{' '}
-                {inspect.totalRowsApprox.toLocaleString()} rows
+                {/* Multi-file batch: surface the actual scope of the job
+                    (file count, aggregate size, approximate total rows)
+                    instead of just the first file's name. The first file's
+                    approximation is extrapolated to the rest assuming equal
+                    size — close enough for a status line. */}
+                {batchFiles.length > 1
+                  ? (() => {
+                      const totalBytes = batchFiles.reduce((sum, b) => sum + b.size, 0);
+                      const firstBytes = batchFiles[0]?.size || 1;
+                      const approxTotalRows = Math.round(
+                        inspect.totalRowsApprox * (totalBytes / firstBytes),
+                      );
+                      const sizeMb = (totalBytes / 1024 / 1024).toFixed(1);
+                      return (
+                        <>
+                          {batchFiles.length} files · {inspect.format.toUpperCase()} · ~
+                          {approxTotalRows.toLocaleString()} rows · {sizeMb} MB
+                        </>
+                      );
+                    })()
+                  : (
+                      <>
+                        {inspect.filename} · {inspect.format.toUpperCase()} ·{' '}
+                        {inspect.totalRowsApprox.toLocaleString()} rows
+                      </>
+                    )}
               </>
             )}
           </div>
