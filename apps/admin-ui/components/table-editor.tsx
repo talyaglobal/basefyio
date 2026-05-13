@@ -1708,3 +1708,52 @@ export function TableEditor({ projectId }: TableEditorProps) {
     </div>
   );
 }
+bleName), 0);
+          }
+        }}
+      />
+      <ImportDataDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        tables={tables}
+        defaultTargetTable={selected}
+        onCompleted={() => {
+          loadTables();
+          if (selected) reloadTableData();
+        }}
+      />
+
+      {selected && (
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          projectId={projectId}
+          tableName={selected}
+          onAdded={reloadTableData}
+        />
+      )}
+    </div>
+  );
+}
+cted)}
+          columns={columns}
+          onCompleted={() => {
+            setDedupeOpen(false);
+            reloadTableData();
+          }}
+        />
+      )}
+
+      {selected && (
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          projectId={projectId}
+          tableName={selected}
+          onAdded={reloadTableData}
+        />
+      )}
+    </div>
+  );
+}

@@ -872,7 +872,14 @@ export const api = {
       schema?: string,
     ) {
       const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
-      return request<{ preview: boolean; rowsToDelete?: number; deleted?: number }>(
+      return request<{
+        preview: boolean;
+        rowsToDelete?: number;
+        previewCapped?: boolean;
+        deleted?: number;
+        partial?: boolean;
+        batchesRun?: number;
+      }>(
         `/projects/${projectId}/tables/${tableName}/deduplicate-rows${qs}`,
         {
           method: 'POST',
@@ -1626,6 +1633,27 @@ export const api = {
   tags: {
     list(teamId: string) {
       return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);
+    },
+    create(teamId: string, name: string, color?: string) {
+      return request<import('./types').ProjectTag>('/project-tags', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, name, color }),
+      });
+    },
+    update(id: string, data: { name?: string; color?: string }) {
+      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-tags/${id}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+};
+gs?teamId=${teamId}`);
     },
     create(teamId: string, name: string, color?: string) {
       return request<import('./types').ProjectTag>('/project-tags', {

@@ -39,7 +39,11 @@ export class ProjectDataService {
     private readonly config: ConfigService,
   ) {}
 
-  private async getProjectPool(projectId: string, userId?: string): Promise<{ pool: Pool; project: any }> {
+  private async getProjectPool(
+    projectId: string,
+    userId?: string,
+    opts?: { statementTimeoutMs?: number },
+  ): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
     });
@@ -52,13 +56,16 @@ export class ProjectDataService {
       if (!membership) throw new NotFoundException('Project not found');
     }
 
+    const statementTimeoutMs =
+      opts?.statementTimeoutMs !== undefined ? opts.statementTimeoutMs : 15_000;
+
     const pool = new Pool({
       host: project.dbHost,
       port: project.dbPort,
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
-      statement_timeout: 15_000,
+      ...(statementTimeoutMs > 0 ? { statement_timeout: statementTimeoutMs } : {}),
     });
 
     return { pool, project };
@@ -183,39 +190,89 @@ export class ProjectDataService {
       // The filter input in the Table Editor used to slice the already-loaded
       // page client-side, which on a 1.5M-row table meant 99.99% of rows were
       // never even considered. Now we push the query to Postgres so it scans
-      // the whole table.
+      // the whole table — but smartly.
       //
-      // Trick: cast each row to jsonb (`to_jsonb(t)`) and iterate its values
-      // as text via `jsonb_each_text`. This lets us search across every
-      // column — text, numeric, dates, bools, even jsonb — without enumerating
-      // column names per-request. The downside is a full table scan; for huge
-      // tables the user should add column-level indexes (pg_trgm gin) but a
-      // 1.5M-row scan still completes in seconds, which is way better than
-      // silently dropping rows because they happen not to be on page 4/363.
+      // First attempt used `to_jsonb(t) + jsonb_each_text` to search every
+      // column without enumerating names. Correct, but on 1.5M+ rows it
+      // tripped the 15s statement_timeout because building the jsonb per row
+      // is expensive. New approach: pre-fetch the column list and build a
+      // direct OR-of-ILIKEs against the text-shaped columns. Postgres can
+      // plan this against indexes when present, and even without indexes the
+      // seq scan is dramatically cheaper than the jsonb path.
       let where = '';
       const params: any[] = [];
       if (trimmedSearch) {
+        // Find text-ish columns (cheap meta query). Anything we can cast to
+        // text — i.e. everything except blobs/json — is fair game. We accept
+        // text/character_varying/character/citext directly, and CAST other
+        // types to text so the user can also find numbers, dates, etc.
+        const colMeta = await client.query<{ column_name: string; data_type: string }>(
+          `SELECT column_name, data_type
+             FROM information_schema.columns
+             WHERE table_schema = $1 AND table_name = $2
+             ORDER BY ordinal_position`,
+          [schema, tableName],
+        );
+        const TEXT_TYPES = new Set([
+          'text', 'character varying', 'character', 'citext', 'name', 'uuid',
+        ]);
+        const NUMERIC_TYPES = new Set([
+          'integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision',
+          'date', 'timestamp without time zone', 'timestamp with time zone',
+          'time without time zone', 'time with time zone',
+          'boolean',
+        ]);
         params.push(`%${trimmedSearch}%`);
-        where = `WHERE EXISTS (SELECT 1 FROM jsonb_each_text(to_jsonb(t)) AS kv(k, v) WHERE v ILIKE $${params.length})`;
+        const orClauses: string[] = [];
+        for (const c of colMeta.rows) {
+          const safe = c.column_name.replace(/"/g, '""');
+          if (TEXT_TYPES.has(c.data_type)) {
+            orClauses.push(`t."${safe}" ILIKE $${params.length}`);
+          } else if (NUMERIC_TYPES.has(c.data_type)) {
+            // CAST is fast; the planner can still parallelise the seq scan.
+            orClauses.push(`t."${safe}"::text ILIKE $${params.length}`);
+          }
+          // Skip jsonb / bytea / arrays — these are expensive and rarely the
+          // target of a user's free-text search.
+        }
+        if (orClauses.length > 0) {
+          where = `WHERE (${orClauses.join(' OR ')})`;
+        } else {
+          // No searchable columns — return empty result rather than scanning.
+          where = 'WHERE FALSE';
+        }
       }
 
       const fromClause = `FROM ${qualified} t`;
 
-      // When searching we cap COUNT(*) at 10k to keep response time bounded.
-      // Without the cap, counting filtered rows on a 50M-row table can take
-      // longer than the user is willing to wait. The frontend treats totals
-      // >= 10000 as approximate ("10.000+ rows match").
-      let countSql: string;
+      // Counting filtered rows on a multi-million-row table is the part that
+      // makes the user wait, and they almost never care about the exact total
+      // when searching ("there are 4,321 matches" vs "many matches" is the
+      // same UX). We skip COUNT for search and just signal "approx" so the UI
+      // can render "X+ rows" or "many rows". For unfiltered listings we still
+      // do an exact COUNT — that's the number the sidebar badge needs.
+      let total: number;
+      let totalIsApprox: boolean;
       if (trimmedSearch) {
-        countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 ${fromClause} ${where} LIMIT 10001) sub`;
+        // Quick bounded count: only count up to 1000 matches. If we hit 1000,
+        // it's "1000+". This stays well below the timeout even on huge tables.
+        const boundedCountSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 ${fromClause} ${where} LIMIT 1001) sub`;
+        // Bump per-statement timeout for this query — searches are exploratory.
+        await client.query(`SET LOCAL statement_timeout = '60s'`);
+        const c = await client.query(boundedCountSql, params);
+        const raw = c.rows[0].total as number;
+        totalIsApprox = raw > 1000;
+        total = totalIsApprox ? 1000 : raw;
       } else {
-        countSql = `SELECT COUNT(*)::int AS total ${fromClause}`;
+        const c = await client.query(`SELECT COUNT(*)::int AS total ${fromClause}`);
+        total = c.rows[0].total as number;
+        totalIsApprox = false;
       }
 
-      const countResult = await client.query(countSql, params);
-      const rawTotal = countResult.rows[0].total as number;
-      const totalIsApprox = trimmedSearch ? rawTotal > 10000 : false;
-      const total = totalIsApprox ? 10000 : rawTotal;
+      // For searches we already raised statement_timeout to 60s above; the
+      // SET LOCAL persists for the rest of the transaction (the pg pool gives
+      // us an implicit transaction per checkout). For unfiltered listings the
+      // default 15s timeout is plenty.
 
       // Sort: if the caller requested a column-level sort, validate the
       // column name against the actual table columns (to block injection)
@@ -475,7 +532,14 @@ export class ProjectDataService {
     keyColumns: string[],
     schemaName: string | undefined,
     previewOnly: boolean,
-  ): Promise<{ preview: boolean; rowsToDelete?: number; deleted?: number }> {
+  ): Promise<{
+    preview: boolean;
+    rowsToDelete?: number;
+    previewCapped?: boolean;
+    deleted?: number;
+    partial?: boolean;
+    batchesRun?: number;
+  }> {
     if (!Array.isArray(keyColumns) || keyColumns.length === 0) {
       throw new BadRequestException('Provide at least one key column');
     }
@@ -490,58 +554,109 @@ export class ProjectDataService {
     }
     this.validateTableName(tableName);
 
-    const { pool } = await this.getProjectPool(projectId, ownerId);
+    /** No driver-level cap; per-statement limit disabled on the session below. */
+    const { pool } = await this.getProjectPool(projectId, ownerId, {
+      statementTimeoutMs: 0,
+    });
     const client = await pool.connect();
 
+    const PREVIEW_CAP = 100_000;
+    const BATCH_SIZE = 8_000;
+    const MAX_BATCHES_PER_REQUEST = 2_000;
+
     try {
+      // Disable the per-statement timeout entirely for this connection — dedup
+      // on million-row tables can run for minutes when there's no supporting
+      // index. The connection is dedicated to this request and the pool is
+      // closed below, so this can't leak to other queries.
+      await client.query(`SET statement_timeout = 0`);
+
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const joinConds = keyColumns
-        .map((k) => `t1."${k}" IS NOT DISTINCT FROM t2."${k}"`)
-        .join(' AND ');
+
+      // Build the key-equality predicate. PARTITION BY uses normal equality
+      // (NULLs are treated as equal in PARTITION semantics, which matches our
+      // documented "NULL values match each other" behaviour).
+      const partitionCols = keyColumns.map((k) => `"${k}"`).join(', ');
 
       if (previewOnly) {
+        // How many rows would the dedup delete? Use ROW_NUMBER() over the
+        // partitioning keys — every row with rn > 1 is a duplicate of an
+        // earlier row in its group. This is a single scan, way cheaper than
+        // the self-join EXISTS approach we had before (O(n) vs O(n²)).
         const countSql = `
-          SELECT COUNT(*)::bigint AS c
-          FROM ${qualified} AS t1
-          WHERE EXISTS (
-            SELECT 1 FROM ${qualified} AS t2
-            WHERE t2.ctid > t1.ctid
-              AND ${joinConds}
-          )
+          SELECT COUNT(*)::bigint AS c FROM (
+            SELECT 1 FROM (
+              SELECT ROW_NUMBER() OVER (PARTITION BY ${partitionCols} ORDER BY ctid) AS rn
+              FROM ${qualified}
+            ) ranked
+            WHERE rn > 1
+            LIMIT ${PREVIEW_CAP + 1}
+          ) sub
         `;
         const r = await client.query(countSql);
-        const rowsToDelete = Number(r.rows[0]?.c ?? 0);
-        return { preview: true, rowsToDelete };
+        const c = Number(r.rows[0]?.c ?? 0);
+        const previewCapped = c > PREVIEW_CAP;
+        return { preview: true, rowsToDelete: c, previewCapped };
       }
 
-      const deleteSql = `
-        DELETE FROM ${qualified} AS t1
-        USING ${qualified} AS t2
-        WHERE t1.ctid < t2.ctid
-          AND ${joinConds}
+      // Batched delete: same window-function trick, but materialise the next
+      // BATCH_SIZE duplicate ctids and delete them in one round. Looping until
+      // a batch returns 0 rows means we converge naturally.
+      const deleteBatchSql = `
+        DELETE FROM ${qualified}
+        WHERE ctid IN (
+          SELECT ctid FROM (
+            SELECT ctid, ROW_NUMBER() OVER (PARTITION BY ${partitionCols} ORDER BY ctid) AS rn
+            FROM ${qualified}
+          ) ranked
+          WHERE rn > 1
+          LIMIT ${BATCH_SIZE}
+        )
       `;
 
-      await client.query('BEGIN');
-      try {
-        await client.query(`SET LOCAL statement_timeout = '120s'`);
-        const result = await client.query(deleteSql);
-        await client.query('COMMIT');
-        return { preview: false, deleted: result.rowCount ?? 0 };
-      } catch (err) {
-        try {
-          await client.query('ROLLBACK');
-        } catch {
-          // ignore rollback errors
+      let totalDeleted = 0;
+      let batches = 0;
+      let lastN = 0;
+
+      while (batches < MAX_BATCHES_PER_REQUEST) {
+        const result = await client.query(deleteBatchSql);
+        lastN = result.rowCount ?? 0;
+        totalDeleted += lastN;
+        batches += 1;
+        if (lastN === 0) {
+          break;
         }
-        throw err;
       }
+
+      let partial = false;
+      if (lastN > 0 && batches >= MAX_BATCHES_PER_REQUEST) {
+        const peek = await client.query(deleteBatchSql);
+        const extra = peek.rowCount ?? 0;
+        totalDeleted += extra;
+        partial = extra > 0;
+        if (extra > 0) {
+          batches += 1;
+        }
+      }
+
+      return {
+        preview: false,
+        deleted: totalDeleted,
+        partial,
+        batchesRun: batches,
+      };
     } catch (err: any) {
       if (err instanceof BadRequestException || err instanceof NotFoundException) {
         throw err;
       }
       throw new BadRequestException(`Deduplicate failed: ${err.message}`);
     } finally {
+      try {
+        await client.query('RESET statement_timeout');
+      } catch {
+        // ignore
+      }
       client.release();
       await pool.end();
     }

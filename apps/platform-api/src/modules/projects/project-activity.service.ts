@@ -192,3 +192,7 @@ export class ProjectActivityService {
     };
   }
 }
+ath.max(1, Math.ceil(total / limit)),
+    };
+  }
+}

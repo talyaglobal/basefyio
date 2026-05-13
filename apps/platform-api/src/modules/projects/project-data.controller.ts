@@ -176,7 +176,7 @@ export class ProjectDataController {
         userId: user?.sub,
         kind: ProjectActivityKind.TABLE_ROWS_DEDUPLICATED,
         title: `Duplicates removed: ${tableName}`,
-        detail: `${result.deleted} row(s) deleted · keys: ${keyColumns.join(', ')}`,
+        detail: `${result.deleted} row(s) deleted · keys: ${keyColumns.join(', ')}${result.partial ? ' · more may remain (run again)' : ''}`,
       });
     }
     return result;
@@ -281,6 +281,36 @@ export class ProjectDataController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const result = await this.dataService.deleteForeignKey(projectId, user?.sub, tableName, constraintName);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_FK_DELETED,
+      title: `Foreign key removed: ${tableName}`,
+      detail: constraintName,
+    });
+    return result;
+  }
+
+  @Get('connect')
+  async getConnectionStrings(
+    @Param('projectId') projectId: string,
+    @Req() req: Request & { apiKeyPayload?: { projectId: string; role: string } },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const api = req.apiKeyPayload;
+    const allowRepairWithServiceKey =
+      Boolean(!user?.sub && api?.role === 'service' && api.projectId === projectId);
+
+    if (user?.sub || allowRepairWithServiceKey) {
+      await this.projectsService.ensureProjectMigrationGrants(projectId, user?.sub, {
+        skipTeamAssert: allowRepairWithServiceKey,
+      });
+    }
+
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    return this.dataService.getConnectionStrings(project);
+  }
+}
+onstraintName);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_FK_DELETED,

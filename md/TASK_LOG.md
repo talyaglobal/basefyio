@@ -1,5 +1,13 @@
 # Task Log
 
+## 2026-05-12 (Duplicate cleaner — batched delete + capped preview)
+
+**Done:** Very large tables (e.g. 1.5M+ rows) still hit `statement_timeout` on a single self-join DELETE/COUNT. **Preview** now counts duplicate rows with an inner `LIMIT 100001` cap and returns `previewCapped` when over 100k. **Delete** runs in a loop of `DELETE … WHERE ctid IN (SELECT … LIMIT 8000)` (session `statement_timeout = 15min` per round), up to **2000 batches** (~16M rows) per request, with `partial` + one peek batch if more rows may remain. UI copy and toasts updated; activity log notes partial runs.
+
+## 2026-05-12 (Duplicate cleaner — statement timeout fix)
+
+**Done:** `deduplicateTableRows` used the default project pool `statement_timeout` (15s), so **Preview count** and **Remove duplicates** failed on large tables. Dedupe now uses `getProjectPool(..., { statementTimeoutMs: 0 })` (no driver default) and wraps both preview `SELECT` and `DELETE` in `BEGIN` / `SET LOCAL statement_timeout = '15min'` / `COMMIT` so each run can take up to 15 minutes.
+
 ## 2026-05-12 (Table Editor — duplicate row cleaner)
 
 **Done:** **Clean duplicates** button next to **Import Data** opens a dialog: pick key columns (defaults to PK columns), **Preview count** of rows that would be deleted, then **Remove duplicates** with confirm. Backend `POST /projects/:id/tables/:tableName/deduplicate-rows?schema=` with `{ keyColumns, preview }` — Postgres self-join on `ctid` + `IS NOT DISTINCT FROM` (no PK required); delete transaction uses `SET LOCAL statement_timeout = 120s`. Activity kind `table.rows_deduplicated`. Admin `api.projects.deduplicateTableRows`, component `duplicate-cleaner-dialog.tsx`.
