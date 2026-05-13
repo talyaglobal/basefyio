@@ -378,7 +378,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             never overlap the center search; the search itself is layered
             above this row via z-index. We hide the scrollbar to keep the
             chrome clean but the row stays swipeable / wheel-scrollable. */}
-        <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-none">
+        <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin">
           <div className="flex items-center gap-1 whitespace-nowrap">
             {/* Primary nav links */}
             <nav className="hidden md:flex items-center gap-1">
@@ -454,7 +454,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <span className="min-w-0 flex-1 truncate">Search projects by name…</span>
         </button>
 
-        <div className="relative hidden w-full min-w-0 max-w-md lg:block">
+        <div className="relative hidden w-full min-w-0 max-w-xl lg:block">
           <label htmlFor="header-project-search-desktop" className="sr-only">
             Search projects by name across all your teams
           </label>

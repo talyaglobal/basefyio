@@ -147,14 +147,24 @@
 
   /* ── Tag pill ───────────────────────────────────────────── */
   .tag-pill {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border;
-  }
+    @apply inline-flex items-cen
 
-  /* ── Grid list hover (card / tile grids) ───────────────── */
-  .kb-grid-row-hover > * {
-    @apply transition-colors duration-200;
-  }
-  .kb-grid-row-hover > *:hover {
-    @apply bg-accent/55 dark:bg-accent/30;
-  }
+/* Slim 4px scrollbar — used on the header nav row at tight viewports so
+   end users can SEE that horizontal scrolling is available. */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.35);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.6);
 }
