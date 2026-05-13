@@ -78,3 +78,13 @@ export default function PublicChangelogPage() {
     </main>
   );
 }
+ </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
+}
+
+  );
+}

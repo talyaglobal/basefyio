@@ -71,3 +71,10 @@ export default function DashboardChangelogPage() {
     </div>
   );
 }
+       </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

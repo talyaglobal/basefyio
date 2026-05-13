@@ -90,3 +90,8 @@ export default async function DashboardChangelogEntryPage({
     </div>
   );
 }
+round: hsl(var(--muted) / 0.5); font-weight: 600; }`}
+      </style>
+    </div>
+  );
+}

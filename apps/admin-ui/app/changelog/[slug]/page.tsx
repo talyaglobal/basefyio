@@ -91,3 +91,8 @@ export default async function ChangelogEntryPage({
     </main>
   );
 }
+round: hsl(var(--muted) / 0.5); font-weight: 600; }`}
+      </style>
+    </main>
+  );
+}
