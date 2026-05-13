@@ -10,7 +10,7 @@ export const dynamic = 'force-static';
 export const revalidate = 60;
 
 export const metadata = {
-  title: 'Changelog — Kolaybase',
+  title: 'Changelog - Kolaybase',
 };
 
 export default function DashboardChangelogPage() {
@@ -26,12 +26,12 @@ export default function DashboardChangelogPage() {
           </h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          Yeni ozellikler, hata duzeltmeleri ve iyilestirmeler.
+          New features, bug fixes and improvements.
         </p>
       </header>
 
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Henuz girdi yok.</p>
+        <p className="text-sm text-muted-foreground">No entries yet.</p>
       ) : (
         <ul className="space-y-4">
           {entries.map((entry) => (
@@ -46,7 +46,7 @@ export default function DashboardChangelogPage() {
                   {KIND_LABEL[entry.kind]}
                 </span>
                 <time dateTime={entry.date} className="text-xs text-muted-foreground">
-                  {new Date(entry.date).toLocaleDateString('tr-TR', {
+                  {new Date(entry.date).toLocaleDateString('en-GB', {
                     day: '2-digit',
                     month: 'long',
                     year: 'numeric',

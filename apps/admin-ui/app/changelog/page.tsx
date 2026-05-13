@@ -6,12 +6,12 @@ import {
 } from '@/lib/changelog';
 
 export const dynamic = 'force-static';
-export const revalidate = 60; // 1 minute — entries change rarely.
+export const revalidate = 60;
 
 export const metadata = {
-  title: 'Changelog — Kolaybase',
+  title: 'Changelog - Kolaybase',
   description:
-    'Surum notlari. Yeni ozellikler, hata duzeltmeleri ve iyilestirmeler.',
+    'Release notes. New features, bug fixes and improvements.',
 };
 
 export default function PublicChangelogPage() {
@@ -22,13 +22,12 @@ export default function PublicChangelogPage() {
       <header className="mb-10 space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Changelog</h1>
         <p className="text-muted-foreground">
-          Yeni ozellikler, hata duzeltmeleri ve iyilestirmeler. Yeniden eskiye dogru
-          siralanir.
+          New features, bug fixes and improvements. Newest first.
         </p>
       </header>
 
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Henuz girdi yok.</p>
+        <p className="text-sm text-muted-foreground">No entries yet.</p>
       ) : (
         <ul className="space-y-6">
           {entries.map((entry) => (
@@ -46,7 +45,7 @@ export default function PublicChangelogPage() {
                   dateTime={entry.date}
                   className="text-xs text-muted-foreground"
                 >
-                  {new Date(entry.date).toLocaleDateString('tr-TR', {
+                  {new Date(entry.date).toLocaleDateString('en-GB', {
                     day: '2-digit',
                     month: 'long',
                     year: 'numeric',
@@ -69,7 +68,7 @@ export default function PublicChangelogPage() {
                   href={`/changelog/${entry.slug}`}
                   className="text-sm font-medium text-primary hover:underline"
                 >
-                  Detaylari oku &rarr;
+                  Read more &rarr;
                 </Link>
               </div>
             </li>

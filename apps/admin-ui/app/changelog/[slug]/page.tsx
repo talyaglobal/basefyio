@@ -22,9 +22,9 @@ export async function generateMetadata({
 }) {
   const { slug } = await params;
   const entry = getChangelogEntry(slug);
-  if (!entry) return { title: 'Changelog — Kolaybase' };
+  if (!entry) return { title: 'Changelog - Kolaybase' };
   return {
-    title: `${entry.title} — Kolaybase Changelog`,
+    title: `${entry.title} - Kolaybase Changelog`,
     description: entry.summary,
   };
 }
@@ -42,7 +42,7 @@ export default async function ChangelogEntryPage({
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
       <nav className="mb-6 text-sm">
         <Link href="/changelog" className="text-muted-foreground hover:text-foreground">
-          &larr; Tum girdiler
+          &larr; All entries
         </Link>
       </nav>
 
@@ -54,7 +54,7 @@ export default async function ChangelogEntryPage({
             {KIND_LABEL[entry.kind]}
           </span>
           <time dateTime={entry.date} className="text-xs text-muted-foreground">
-            {new Date(entry.date).toLocaleDateString('tr-TR', {
+            {new Date(entry.date).toLocaleDateString('en-GB', {
               day: '2-digit',
               month: 'long',
               year: 'numeric',
@@ -67,11 +67,6 @@ export default async function ChangelogEntryPage({
         ) : null}
       </header>
 
-      {/*
-        The prose / typography classes apply readable spacing to the rendered
-        markdown without pulling in @tailwindcss/typography. If you have the
-        plugin enabled you can swap the body wrapper for `prose dark:prose-invert`.
-      */}
       <article
         className="changelog-body space-y-4 text-sm leading-relaxed text-foreground"
         dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.body) }}

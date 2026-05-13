@@ -69,7 +69,7 @@ export function ChangelogWidget() {
       href="/dashboard/changelog"
       onClick={markSeen}
       className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      title={hasUnseen ? 'Yeni surum notlari var' : 'Changelog'}
+      title={hasUnseen ? 'New release notes available' : 'Changelog'}
       aria-label="Changelog"
     >
       <Sparkles className="h-4 w-4" />
@@ -81,4 +81,6 @@ export function ChangelogWidget() {
       ) : null}
     </Link>
   );
+}
+);
 }

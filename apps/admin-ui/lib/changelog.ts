@@ -250,3 +250,14 @@ export const KIND_LABEL: Record<ChangelogKind, string> = {
   improvement: 'Improvement',
   breaking: 'Breaking change',
 };
+ing: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-200',
+};
+
+export const KIND_LABEL: Record<ChangelogKind, string> = {
+  feature: 'New feature',
+  bugfix: 'Bug fix',
+  improvement: 'Improvement',
+  breaking: 'Breaking change',
+};
+e',
+};

@@ -22,7 +22,7 @@ export async function generateMetadata({
 }) {
   const { slug } = await params;
   const entry = getChangelogEntry(slug);
-  return entry ? { title: `${entry.title} — Changelog` } : { title: 'Changelog' };
+  return entry ? { title: `${entry.title} - Changelog` } : { title: 'Changelog' };
 }
 
 export default async function DashboardChangelogEntryPage({
@@ -41,7 +41,7 @@ export default async function DashboardChangelogEntryPage({
           href="/dashboard/changelog"
           className="text-muted-foreground hover:text-foreground"
         >
-          &larr; Tum girdiler
+          &larr; All entries
         </Link>
       </nav>
 
@@ -53,7 +53,7 @@ export default async function DashboardChangelogEntryPage({
             {KIND_LABEL[entry.kind]}
           </span>
           <time dateTime={entry.date} className="text-xs text-muted-foreground">
-            {new Date(entry.date).toLocaleDateString('tr-TR', {
+            {new Date(entry.date).toLocaleDateString('en-GB', {
               day: '2-digit',
               month: 'long',
               year: 'numeric',
