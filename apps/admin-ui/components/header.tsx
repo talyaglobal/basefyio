@@ -248,16 +248,27 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     return Array.from(byId.values());
   }, [allTeamsHeaderProjects, routeProject, currentProjectIdFromPath, teams]);
 
-  /** Header search: project name only, all teams */
+  /**
+   * Header search: project name only, across all teams. Order: most recently
+   * updated first, so the project you just touched is at the top — matches
+   * the user's mental model of "what was I working on?". Alphabetical sort
+   * was confusing when you had 47 projects and the one you needed lived
+   * halfway down. Falls back to createdAt then name when updatedAt ties.
+   */
+  const byRecency = (a: ProjectForHeaderSearch, b: ProjectForHeaderSearch) => {
+    const au = a.updatedAt || a.createdAt || '';
+    const bu = b.updatedAt || b.createdAt || '';
+    if (au !== bu) return au < bu ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  };
   const headerSearchResults = useMemo(() => {
     const q = headerProjectQuery.trim().toLowerCase();
     const list = headerSearchBasePool;
     if (!q) {
-      return [...list].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 12);
+      return [...list].sort(byRecency).slice(0, 12);
     }
-    return list
-      .filter((p) => p.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return list.filter((p) => p.name.toLowerCase().includes(q)).sort(byRecency);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerSearchBasePool, headerProjectQuery]);
 
   const closeHeaderProjectSearch = useCallback(() => {
@@ -1113,6 +1124,25 @@ function UserMenu({
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
               >
                 <KeyRound className="h-3.5 w-3.5" />
+                Account Settings
+              </button>
+            </div>
+            <div className="border-t p-1">
+              <button
+                onClick={() => { onOpenChange(false); onLogout(); }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+ <KeyRound className="h-3.5 w-3.5" />
                 Account Settings
               </button>
             </div>

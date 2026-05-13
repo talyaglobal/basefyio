@@ -29,9 +29,7 @@ function parseFrontmatter(raw: string): { data: Record<string, string>; body: st
 }
 
 function validateKind(value: string | undefined): ChangelogKind {
-  if (value === 'feature' || value === 'bugfix' || value === 'improvement' || value === 'breaking') {
-    return value;
-  }
+  if (value === 'feature' || value === 'bugfix' || value === 'improvement' || value === 'breaking') return value;
   return 'improvement';
 }
 
@@ -44,14 +42,7 @@ export function listChangelogEntries(): ChangelogEntry[] {
       const raw = fs.readFileSync(path.join(CHANGELOG_DIR, file), 'utf8');
       const { data, body } = parseFrontmatter(raw);
       if (!data.slug || !data.title || !data.date) continue;
-      entries.push({
-        slug: data.slug,
-        date: data.date,
-        title: data.title,
-        kind: validateKind(data.kind),
-        summary: data.summary || '',
-        body,
-      });
+      entries.push({ slug: data.slug, date: data.date, title: data.title, kind: validateKind(data.kind), summary: data.summary || '', body });
     } catch {}
   }
   return entries.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -70,7 +61,6 @@ export function renderMarkdown(md: string): string {
     let s = esc(t);
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => '<a href="' + href.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer">' + label + '</a>');
     return s;
   }
   while (i < lines.length) {

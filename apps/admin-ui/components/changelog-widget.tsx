@@ -38,15 +38,9 @@ export function ChangelogWidget() {
   }
 
   return (
-    <Link
-      href="/dashboard/changelog"
-      onClick={markSeen}
-      className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      title="Changelog"
-      aria-label="Changelog"
-    >
+    <Link href="/dashboard/changelog" onClick={markSeen} className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent" title="Changelog" aria-label="Changelog">
       <Sparkles className="h-4 w-4" />
-      {hasUnseen ? <span aria-hidden className="absolute right-1.5 top-1.5 inline-block h-2 w-2 rounded-full bg-red-500 ring-2 ring-background" /> : null}
+      {hasUnseen ? <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" /> : null}
     </Link>
   );
 }
