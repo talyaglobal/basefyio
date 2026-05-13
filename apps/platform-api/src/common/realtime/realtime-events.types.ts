@@ -35,6 +35,3 @@ export interface RealtimeEventEnvelope {
   userIds?: string[];
   payload?: Record<string, unknown>;
 }
-
-unknown>;
-}

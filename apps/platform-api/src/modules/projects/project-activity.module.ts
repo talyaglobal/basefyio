@@ -10,4 +10,3 @@ import { RealtimeStreamService } from '../../common/realtime/realtime-stream.ser
   exports: [ProjectActivityService, RealtimeEventsService],
 })
 export class ProjectActivityModule {}
-jectActivityModule {}
