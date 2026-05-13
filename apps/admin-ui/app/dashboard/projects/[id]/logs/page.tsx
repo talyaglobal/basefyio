@@ -17,6 +17,8 @@ import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { ProjectActivityTimeline } from '@/components/project-activity-timeline';
 import { ScrollText } from 'lucide-react';
+import { subscribeKbRealtime } from '@/lib/kb-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 const PAGE_SIZE = 50;
 
@@ -63,6 +65,47 @@ export default function ProjectLogsPage() {
       cancelled = true;
     };
   }, [id, router]);
+
+  // Live updates: subscribe to the project channel and prepend new activity
+  // events as they happen. We only mutate the list on page 1 — on deeper
+  // pages the user is reading historical events and a live insert would push
+  // their cursor around. Total + totalPages get bumped regardless so the
+  // pagination header stays accurate.
+  useEffect(() => {
+    if (loading || !project) return;
+    const unsubscribe = subscribeKbRealtime(
+      `project:${id}`,
+      (event: RealtimeEventEnvelope) => {
+        if (event.entityType !== 'project_activity') return;
+        if (event.action !== 'activity_appended') return;
+        const payload = (event.payload || {}) as {
+          kind?: string;
+          title?: string;
+          detail?: string | null;
+        };
+        const newItem: ProjectActivityItem = {
+          id: event.entityId,
+          kind: payload.kind || 'unknown',
+          title: payload.title || '(no title)',
+          detail: payload.detail ?? null,
+          metadata: null,
+          createdAt: event.emittedAt,
+          userId: event.actorUserId ?? null,
+          actorName: undefined,
+        };
+        setTotalActivity((t) => t + 1);
+        setTotalPages((p) => Math.max(p, Math.ceil((totalActivity + 1) / PAGE_SIZE)));
+        if (page !== 1) return;
+        setActivity((prev) => {
+          if (prev.some((p) => p.id === newItem.id)) return prev;
+          return [newItem, ...prev].slice(0, PAGE_SIZE);
+        });
+      },
+    );
+    return () => {
+      unsubscribe?.();
+    };
+  }, [id, loading, project, page, totalActivity]);
 
   // Whenever the page number changes (after initial load), fetch that page.
   // Skip the very first render so we don't double-fetch alongside the initial

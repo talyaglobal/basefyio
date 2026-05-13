@@ -1,8 +1,15 @@
 import type { RealtimeEventEnvelope } from './realtime-types';
 import { getAccessToken } from './auth';
 
+/**
+ * Realtime is on by default. The legacy NEXT_PUBLIC_KB_REALTIME_PHASE1 opt-in
+ * is still recognised but ignored when the new NEXT_PUBLIC_KB_REALTIME_DISABLE
+ * kill switch is set. Set NEXT_PUBLIC_KB_REALTIME_DISABLE=1 to fall back to
+ * the polling notification path without a redeploy.
+ */
 export function isRealtimePhase1Enabled() {
-  return process.env.NEXT_PUBLIC_KB_REALTIME_PHASE1 === '1';
+  if (process.env.NEXT_PUBLIC_KB_REALTIME_DISABLE === '1') return false;
+  return true;
 }
 
 export function subscribeKbRealtime(

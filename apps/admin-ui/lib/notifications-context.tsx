@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import { subscribeKbRealtime } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 export const KB_NOTIFY_EVENT = 'kb-notify-event';
@@ -79,20 +79,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
   );
-  const lastFeedbackRef = useRef<
-    Record<
-      string,
-      {
-        status: string;
-        commentCount: number;
-        title: string;
-        description: string;
-        deletedAt: string;
-      }
-    >
-  >({});
-  const lastFeedbackEventRef = useRef<Record<string, string>>({});
-  const isFirstFeedbackScanRef = useRef(true);
   const { activeImport, modalShowingImport } = useImportProgress();
   const lastImportNotifiedRef = useRef<string | null>(null);
 
@@ -211,153 +197,85 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     void lastImportNotifiedRef;
   }, [activeImport, modalShowingImport]);
 
-  useEffect(() => {
-    if (!getAccessToken()) {
-      return;
-    }
-    if (isRealtimePhase1Enabled()) {
-      return;
-    }
-    if (!feedbackNotificationsEnabled) {
-      return;
-    }
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const list = await api.feedback.list();
-        if (cancelled) return;
-
-        const current: Record<
-          string,
-          { status: string; commentCount: number; title: string; description: string; deletedAt: string }
-        > = {};
-        for (const item of list) {
-          current[item.id] = {
-            status: item.status,
-            commentCount: Array.isArray(item.comments) ? item.comments.length : 0,
-            title: item.title || '',
-            description: item.description || '',
-            deletedAt: item.deletedAt || '',
-          };
-        }
-
-        if (!isFirstFeedbackScanRef.current) {
-          for (const item of list) {
-            const prev = lastFeedbackRef.current[item.id];
-            if (!prev) continue;
-            if (prev.status !== item.status) {
-              let statusChangedByOther = true;
-              if (currentUserId) {
-                try {
-                  const history = await api.feedback.history(item.id);
-                  const latestStatus = history.find((h) => h.action === 'STATUS_CHANGED');
-                  statusChangedByOther = !!latestStatus && latestStatus.userId !== currentUserId;
-                } catch {
-                  statusChangedByOther = false;
-                }
-              }
-              if (statusChangedByOther) {
-                addNotification({
-                  type: 'feedback',
-                  title: 'Feedback status updated',
-                  message: `"${item.title}" is now ${item.status.replace('_', ' ').toLowerCase()}.`,
-                  href: `/dashboard/feedbacks#feedback-${item.id}`,
-                });
-              }
-            }
-
-            const hasOtherMutation =
-              prev.title !== (item.title || '') ||
-              prev.description !== (item.description || '') ||
-              prev.deletedAt !== (item.deletedAt || '');
-            if (hasOtherMutation && currentUserId) {
-              try {
-                const history = await api.feedback.history(item.id);
-                const latest = history[0];
-                if (latest && latest.id !== lastFeedbackEventRef.current[item.id]) {
-                  lastFeedbackEventRef.current[item.id] = latest.id;
-                  if (latest.userId !== currentUserId) {
-                    addNotification({
-                      type: 'feedback',
-                      title: 'Feedback updated by another user',
-                      message: `"${item.title}" was updated by ${latest.user?.email ?? latest.userId}.`,
-                      href: `/dashboard/feedbacks#feedback-${item.id}`,
-                    });
-                  }
-                }
-              } catch {
-                // ignore history fetch issues
-              }
-            }
-            const nextCount = Array.isArray(item.comments) ? item.comments.length : 0;
-            if (nextCount > prev.commentCount) {
-              const allComments = Array.isArray(item.comments) ? item.comments : [];
-              const newComments = allComments.slice(prev.commentCount);
-              const incomingComments = currentUserId
-                ? newComments.filter((c) => c.userId !== currentUserId)
-                : newComments;
-              if (incomingComments.length > 0) {
-                addNotification({
-                  type: 'feedback',
-                  title: 'New feedback comment',
-                  message: `${incomingComments.length} new comment on "${item.title}".`,
-                  href: `/dashboard/feedbacks#feedback-${item.id}`,
-                });
-              }
-            }
-          }
-        } else {
-          isFirstFeedbackScanRef.current = false;
-        }
-
-        lastFeedbackRef.current = current;
-      } catch {
-        // Keep polling quietly.
-      }
-    };
-
-    void poll();
-    const id = window.setInterval(() => void poll(), 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [addNotification, currentUserId, feedbackNotificationsEnabled]);
-
+  // Realtime notifications are the single source of truth now — the legacy
+  // 15-second polling loop that diffed /feedback list + attributed via
+  // /feedback/:id/history has been retired. The SSE payload from
+  // FeedbackService carries `actorName`, `actorUserId`, `commentPreview` and
+  // diff flags, which is everything the polling loop used to look up
+  // out-of-band. Set NEXT_PUBLIC_KB_REALTIME_DISABLE=1 to fall back to the
+  // server-side polling state (the subscribe call returns null and no
+  // notifications fire — better than waking up the browser unnecessarily).
   useEffect(() => {
     if (!currentUserId || !feedbackNotificationsEnabled) return;
-    if (!isRealtimePhase1Enabled()) return;
 
-    const unsubscribe = subscribeKbRealtime(`user:${currentUserId}`, (event: RealtimeEventEnvelope) => {
-      if (event.actorUserId && event.actorUserId === currentUserId) return;
-      if (event.entityType === 'feedback' && event.action === 'status_changed') {
-        addNotification({
-          type: 'feedback',
-          title: 'Feedback status updated',
-          message: `A feedback status was updated by another user.`,
-          href: event.payload?.feedbackId
-            ? `/dashboard/feedbacks#feedback-${String(event.payload.feedbackId)}`
-            : '/dashboard/feedbacks',
-        });
-      } else if (event.entityType === 'feedback_comment' && event.action === 'comment_added') {
-        const feedbackId = event.payload?.feedbackId;
-        const title = typeof event.payload?.feedbackTitle === 'string' ? event.payload.feedbackTitle : 'a feedback';
-        addNotification({
-          type: 'feedback',
-          title: 'New feedback comment',
-          message: `New comment on "${title}".`,
-          href: feedbackId ? `/dashboard/feedbacks#feedback-${String(feedbackId)}` : '/dashboard/feedbacks',
-        });
-      } else if (event.entityType === 'feedback') {
-        addNotification({
-          type: 'feedback',
-          title: 'Feedback updated by another user',
-          message: `A feedback item was changed.`,
-          href: '/dashboard/feedbacks',
-        });
-      }
-    });
+    const unsubscribe = subscribeKbRealtime(
+      `user:${currentUserId}`,
+      (event: RealtimeEventEnvelope) => {
+        // Self-edits never produce a toast; the actor already knows what they did.
+        if (event.actorUserId && event.actorUserId === currentUserId) return;
+
+        const actor =
+          (event.payload && typeof event.payload.actorName === 'string'
+            ? event.payload.actorName
+            : null) || 'Someone';
+
+        if (event.entityType === 'feedback' && event.action === 'status_changed') {
+          const title =
+            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
+          const to =
+            typeof event.payload?.to === 'string'
+              ? event.payload.to.replace('_', ' ').toLowerCase()
+              : 'updated';
+          addNotification({
+            type: 'feedback',
+            title: 'Feedback status updated',
+            message: `${actor} marked "${title}" as ${to}.`,
+            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
+          });
+        } else if (
+          event.entityType === 'feedback_comment' &&
+          event.action === 'comment_added'
+        ) {
+          const feedbackId = event.payload?.feedbackId;
+          const title =
+            typeof event.payload?.feedbackTitle === 'string'
+              ? event.payload.feedbackTitle
+              : 'a feedback';
+          const preview =
+            typeof event.payload?.commentPreview === 'string'
+              ? event.payload.commentPreview
+              : null;
+          addNotification({
+            type: 'feedback',
+            title: 'New feedback comment',
+            message: preview
+              ? `${actor} on "${title}": ${preview}`
+              : `${actor} commented on "${title}".`,
+            href: feedbackId
+              ? `/dashboard/feedbacks#feedback-${String(feedbackId)}`
+              : '/dashboard/feedbacks',
+          });
+        } else if (event.entityType === 'feedback' && event.action === 'updated') {
+          const title =
+            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
+          addNotification({
+            type: 'feedback',
+            title: 'Feedback updated',
+            message: `${actor} updated "${title}".`,
+            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
+          });
+        } else if (event.entityType === 'feedback' && event.action === 'deleted') {
+          const title =
+            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
+          addNotification({
+            type: 'feedback',
+            title: 'Feedback deleted',
+            message: `${actor} deleted "${title}".`,
+            href: '/dashboard/feedbacks',
+          });
+        }
+      },
+    );
 
     return () => {
       unsubscribe?.();

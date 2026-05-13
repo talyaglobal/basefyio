@@ -56,6 +56,25 @@ export class FeedbackService {
     return [feedbackOwnerId, ...roots.map((r) => r.id)];
   }
 
+  /**
+   * Look up "First Last" (or email fallback) for a user id. Embedded in
+   * Realtime payloads so the subscriber can attribute the event without a
+   * follow-up HTTP round-trip — that round-trip is what the legacy polling
+   * loop in notifications-context.tsx used to do via /feedback/:id/history.
+   * Returns null if the user can't be resolved; the subscriber falls back to
+   * "Someone" in that case.
+   */
+  private async resolveActorName(userId: string | undefined): Promise<string | null> {
+    if (!userId) return null;
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    if (!u) return null;
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return name || u.email || null;
+  }
+
   async uploadAttachment(userId: string, buffer: Buffer, mimetype: string) {
     return this.storageService.uploadFeedbackAttachment(
       userId,
@@ -209,6 +228,7 @@ export class FeedbackService {
       metadata: { from: feedback.status, to: status } as unknown as Prisma.InputJsonValue,
     });
     const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
       action: 'status_changed',
@@ -219,6 +239,7 @@ export class FeedbackService {
         title: updated.title,
         from: feedback.status,
         to: status,
+        actorName,
       },
     });
     return updated;
@@ -244,6 +265,7 @@ export class FeedbackService {
       } as unknown as Prisma.InputJsonValue,
     });
     const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
       action: 'updated',
@@ -252,6 +274,10 @@ export class FeedbackService {
       userIds: recipients,
       payload: {
         title: updated.title,
+        actorName,
+        titleChanged: dto.title !== undefined && dto.title !== feedback.title,
+        descriptionChanged:
+          dto.description !== undefined && dto.description !== (feedback.description || ''),
       },
     });
     return updated;
@@ -273,6 +299,7 @@ export class FeedbackService {
       detail: 'Feedback deleted',
     });
     const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
       action: 'deleted',
@@ -281,6 +308,7 @@ export class FeedbackService {
       userIds: recipients,
       payload: {
         title: feedback.title,
+        actorName,
       },
     });
     return { success: true };
@@ -340,6 +368,7 @@ export class FeedbackService {
         : undefined,
     });
     const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback_comment',
       action: 'comment_added',
@@ -350,6 +379,8 @@ export class FeedbackService {
         feedbackId,
         feedbackTitle: feedback.title,
         parentCommentId: dto.parentCommentId ?? null,
+        actorName,
+        commentPreview: dto.comment.slice(0, 200),
       },
     });
     return created;
