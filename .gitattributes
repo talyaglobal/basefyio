@@ -1,0 +1,31 @@
+# Force LF line endings for all text files. Without this, Windows checkouts
+# mix CRLF/LF and various editor/formatter quirks have produced
+# duplicate-tail corruption in CI builds. Locking everything to LF makes the
+# entire team / CI / Docker pipeline see byte-identical files.
+
+* text=auto eol=lf
+
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.xlsx binary
+*.docx binary

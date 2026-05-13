@@ -151,18 +151,12 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
   async function execute(page = 1, queryOverride?: string) {
     const q = queryOverride ?? query;
     if (!activeTab || !q.trim()) return;
-
     setRunningTabId(activeTab.id);
     if (page === 1) {
       updateActiveTab((t) => ({ ...t, error: null, result: null }));
     }
-
     try {
-      const data = await api.sql.execute(projectId, q, {
-        page,
-        limit: 100,
-        countTotal: page === 1,
-      });
+      const data = await api.sql.execute(projectId, q, { page, limit: 100, countTotal: page === 1 });
       updateActiveTab((t) => ({ ...t, result: data, executedQuery: q }));
     } catch (err: any) {
       updateActiveTab((t) => ({ ...t, error: err.message }));
@@ -349,24 +343,8 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
               <span>{result.duration}ms</span>
               {result.paginated && (
                 <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={runningTabId === activeTab?.id || (result.page ?? 1) <= 1}
-                    onClick={() => goToPage((result.page ?? 1) - 1)}
-                  >
-                    Prev
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={runningTabId === activeTab?.id || ((result.rows?.length ?? 0) < (result.limit ?? 100))}
-                    onClick={() => goToPage((result.page ?? 1) + 1)}
-                  >
-                    Next
-                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || (result.page ?? 1) <= 1} onClick={() => goToPage((result.page ?? 1) - 1)}>Prev</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || ((result.rows?.length ?? 0) < (result.limit ?? 100))} onClick={() => goToPage((result.page ?? 1) + 1)}>Next</Button>
                 </div>
               )}
             </div>

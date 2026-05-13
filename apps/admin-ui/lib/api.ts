@@ -844,6 +844,32 @@ export const api = {
         method: 'DELETE',
       });
     },
+    /**
+     * Remove duplicate rows. `keyColumns` defines what "duplicate" means —
+     * two rows are duplicates when ALL key columns match (NULL = NULL).
+     * `preview: true` runs a bounded COUNT (capped at 100k) without
+     * deleting anything; `preview: false` actually deletes, batched
+     * server-side. See backend service for ordering / FK handling notes.
+     */
+    deduplicateTableRows(
+      projectId: string,
+      tableName: string,
+      body: { keyColumns: string[]; preview?: boolean },
+      schema?: string,
+    ) {
+      const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
+      return request<{
+        preview: boolean;
+        rowsToDelete?: number;
+        previewCapped?: boolean;
+        deleted?: number;
+        partial?: boolean;
+        batchesRun?: number;
+      }>(`/projects/${projectId}/tables/${tableName}/deduplicate-rows${qs}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
     insertRow(projectId: string, tableName: string, data: Record<string, unknown>, schema?: string) {
       const qs = schema ? `?schema=${encodeURIComponent(schema)}` : '';
       return request<Record<string, unknown>>(`/projects/${projectId}/tables/${tableName}/rows${qs}`, {
@@ -1610,6 +1636,38 @@ export const api = {
       const qs =
         limit != null && Number.isFinite(limit) && limit > 0
           ? `?limit=${Math.floor(limit)}`
+          : '';
+      return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
+    },
+    getAuditLog(id: string) {
+      return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
+    },
+  },
+
+  tags: {
+    list(teamId: string) {
+      return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);
+    },
+    create(teamId: string, name: string, color?: string) {
+      return request<import('./types').ProjectTag>('/project-tags', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, name, color }),
+      });
+    },
+    update(id: string, data: { name?: string; color?: string }) {
+      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-tags/${id}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+};
+limit=${Math.floor(limit)}`
           : '';
       return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
     },

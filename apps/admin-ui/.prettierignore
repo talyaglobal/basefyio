@@ -1,0 +1,5 @@
+lib/changelog.ts
+components/changelog-widget.tsx
+app/changelog/**
+app/dashboard/changelog/**
+content/**
