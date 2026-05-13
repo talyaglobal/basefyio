@@ -1679,8 +1679,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
           if (selected) reloadTableData();
         }}
       />
-
-      {selected && columns.length > 0 ? (
+      {selected && (
         <DuplicateCleanerDialog
           key={selected}
           open={dedupeOpen}
@@ -1688,55 +1687,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
           projectId={projectId}
           tableName={selected}
           schema={schemaFor(selected)}
-          columns={columns}
-          onCompleted={() => {
-            loadTables();
-            reloadTableData();
-          }}
-        />
-      ) : null}
-
-      {selected && (
-        <AddColumnDialog
-          open={addColumnOpen}
-          onOpenChange={setAddColumnOpen}
-          projectId={projectId}
-          tableName={selected}
-          onAdded={reloadTableData}
-        />
-      )}
-    </div>
-  );
-}
-bleName), 0);
-          }
-        }}
-      />
-      <ImportDataDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        projectId={projectId}
-        tables={tables}
-        defaultTargetTable={selected}
-        onCompleted={() => {
-          loadTables();
-          if (selected) reloadTableData();
-        }}
-      />
-
-      {selected && (
-        <AddColumnDialog
-          open={addColumnOpen}
-          onOpenChange={setAddColumnOpen}
-          projectId={projectId}
-          tableName={selected}
-          onAdded={reloadTableData}
-        />
-      )}
-    </div>
-  );
-}
-cted)}
           columns={columns}
           onCompleted={() => {
             setDedupeOpen(false);

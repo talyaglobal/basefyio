@@ -310,33 +310,3 @@ export class ProjectDataController {
     return this.dataService.getConnectionStrings(project);
   }
 }
-onstraintName);
-    await this.activity.append(projectId, {
-      userId: user?.sub,
-      kind: ProjectActivityKind.TABLE_FK_DELETED,
-      title: `Foreign key removed: ${tableName}`,
-      detail: constraintName,
-    });
-    return result;
-  }
-
-  @Get('connect')
-  async getConnectionStrings(
-    @Param('projectId') projectId: string,
-    @Req() req: Request & { apiKeyPayload?: { projectId: string; role: string } },
-    @CurrentUser() user?: JwtPayload,
-  ) {
-    const api = req.apiKeyPayload;
-    const allowRepairWithServiceKey =
-      Boolean(!user?.sub && api?.role === 'service' && api.projectId === projectId);
-
-    if (user?.sub || allowRepairWithServiceKey) {
-      await this.projectsService.ensureProjectMigrationGrants(projectId, user?.sub, {
-        skipTeamAssert: allowRepairWithServiceKey,
-      });
-    }
-
-    const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.dataService.getConnectionStrings(project);
-  }
-}

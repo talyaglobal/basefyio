@@ -1653,24 +1653,3 @@ export const api = {
     },
   },
 };
-gs?teamId=${teamId}`);
-    },
-    create(teamId: string, name: string, color?: string) {
-      return request<import('./types').ProjectTag>('/project-tags', {
-        method: 'POST',
-        body: JSON.stringify({ teamId, name, color }),
-      });
-    },
-    update(id: string, data: { name?: string; color?: string }) {
-      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
-    },
-    delete(id: string) {
-      return request<{ success: boolean }>(`/project-tags/${id}`, {
-        method: 'DELETE',
-      });
-    },
-  },
-};

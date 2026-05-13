@@ -108,8 +108,3 @@ export function ProjectActivityTimeline({
     </ul>
   );
 }
-    </li>
-      ))}
-    </ul>
-  );
-}
