@@ -23,6 +23,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 
 export interface RlsBootstrapResult {
@@ -60,7 +61,36 @@ export class ProjectsService {
     private readonly quota: QuotaService,
     private readonly usageService: UsageService,
     private readonly infra: InfrastructureService,
+    private readonly realtime: RealtimeEventsService,
   ) {}
+
+  /**
+   * Returns the ids of every TeamMember in a given team — used as the
+   * Realtime `userIds` recipient list for project-scoped events. Everyone
+   * in the team sees "X created project Y", "X deleted project Z", etc.
+   * The actor is filtered out at the subscriber (own-action skip).
+   */
+  private async teamMemberUserIds(teamId: string): Promise<string[]> {
+    const members = await this.prisma.teamMember.findMany({
+      where: { teamId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
+
+  /**
+   * Resolve "First Last" (or email) for the Realtime payload so the toast
+   * can say "Alice created project X" without a follow-up HTTP call.
+   */
+  private async resolveActorName(userId: string): Promise<string | null> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    if (!u) return null;
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return name || u.email || null;
+  }
 
   async create(
     dto: CreateProjectDto & { teamId: string },
@@ -179,6 +209,26 @@ export class ProjectsService {
       userId,
       kind: ProjectActivityKind.PROJECT_CREATED,
       title: `Project created: ${project.name}`,
+    });
+
+    // Realtime: notify every team member. Normal users get the toast too —
+    // not only ROOT admins — because a new project in their team is
+    // relevant to them (they probably want to know which projects exist).
+    const memberIds = await this.teamMemberUserIds(dto.teamId);
+    const actorName = await this.resolveActorName(userId);
+    await this.realtime.publish({
+      entityType: 'project',
+      action: 'created',
+      entityId: project.id,
+      actorUserId: userId,
+      teamId: project.teamId,
+      userIds: memberIds,
+      payload: {
+        name: project.name,
+        slug: project.slug,
+        teamId: project.teamId,
+        actorName,
+      },
     });
 
     this.usageService.incrementProjectCount(dto.teamId).catch(() => {});
@@ -327,6 +377,25 @@ export class ProjectsService {
         title: 'Project updated',
         detail: `Changed: ${changes.join(', ')}`,
         metadata: { fields: changes },
+      });
+
+      // Realtime: tell the whole team about renames / folder moves / tag
+      // changes. Internal-edit-only fields can be filtered on the subscriber
+      // side if we ever want to throttle.
+      const memberIds = await this.teamMemberUserIds(project.teamId);
+      const actorName = await this.resolveActorName(userId);
+      await this.realtime.publish({
+        entityType: 'project',
+        action: 'updated',
+        entityId: id,
+        actorUserId: userId,
+        teamId: project.teamId,
+        userIds: memberIds,
+        payload: {
+          name: updatedProject.name,
+          changes,
+          actorName,
+        },
       });
     }
 
@@ -590,6 +659,25 @@ export class ProjectsService {
       },
     });
 
+    // Realtime: everyone in the team should know a project is gone so their
+    // sidebar / project picker can drop the entry without a refresh.
+    {
+      const memberIds = await this.teamMemberUserIds(project.teamId);
+      const actorName = await this.resolveActorName(userId);
+      await this.realtime.publish({
+        entityType: 'project',
+        action: 'deleted',
+        entityId: id,
+        actorUserId: userId,
+        teamId: project.teamId,
+        userIds: memberIds,
+        payload: {
+          name: project.name,
+          actorName,
+        },
+      });
+    }
+
     return { message: 'Project deleted' };
   }
 
@@ -797,6 +885,29 @@ export class ProjectsService {
       title: 'Project restored from trash',
       detail: originalName,
     });
+
+    {
+      const restoredProject = await this.prisma.project.findUnique({
+        where: { id },
+        select: { teamId: true, name: true },
+      });
+      if (restoredProject) {
+        const memberIds = await this.teamMemberUserIds(restoredProject.teamId);
+        const actorName = await this.resolveActorName(userId);
+        await this.realtime.publish({
+          entityType: 'project',
+          action: 'restored',
+          entityId: id,
+          actorUserId: userId,
+          teamId: restoredProject.teamId,
+          userIds: memberIds,
+          payload: {
+            name: restoredProject.name,
+            actorName,
+          },
+        });
+      }
+    }
 
     return { message: 'Project restored' };
   }

@@ -125,12 +125,50 @@ export class FeedbackService {
       detail: dto.title,
     });
 
-    this.logger.log(`Feedback created: "${dto.title}" by ${dto.email} (${feedback.id})`);
+    // Resolve sender identity from the DB record rather than trusting the
+    // JWT to carry `email`. Some Keycloak realm configs omit the email claim
+    // from the access token, which previously produced "FROM ()" in the
+    // notification email and empty actor info in the Realtime payload.
+    const senderRecord = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const senderEmail = senderRecord?.email || dto.email || '';
+    const senderName =
+      [senderRecord?.firstName, senderRecord?.lastName].filter(Boolean).join(' ').trim() ||
+      (senderEmail ? senderEmail.split('@')[0] : 'Anonymous');
+
+    this.logger.log(
+      `Feedback created: "${dto.title}" by ${senderEmail || dto.userId} (${feedback.id})`,
+    );
+
+    // Notify all ROOT admins via Realtime — they're the ones who triage new
+    // feedback, and waiting for an email round-trip means the bell stays
+    // silent until the next inbox refresh. Recipients exclude the creator
+    // (own-action skip happens at the subscriber too, but we may as well
+    // not waste their bandwidth).
+    const roots = await this.prisma.user.findMany({
+      where: { role: UserRole.ROOT, id: { not: dto.userId } },
+      select: { id: true },
+    });
+    await this.realtime.publish({
+      entityType: 'feedback',
+      action: 'created',
+      entityId: feedback.id,
+      actorUserId: dto.userId,
+      userIds: roots.map((r) => r.id),
+      payload: {
+        title: feedback.title,
+        type: feedback.type,
+        actorName: senderName,
+        actorEmail: senderEmail || null,
+      },
+    });
 
     for (const to of NOTIFY_EMAILS) {
       this.emailService.sendFeedbackNotification(to, {
-        displayName: dto.email.split('@')[0],
-        email: dto.email,
+        displayName: senderName,
+        email: senderEmail,
         url: dto.url,
         title: dto.title,
         description: dto.description,

@@ -7,6 +7,7 @@ import { RealtimeStreamService } from '../../common/realtime/realtime-stream.ser
 @Module({
   imports: [PrismaModule],
   providers: [ProjectActivityService, RealtimeEventsService, RealtimeStreamService],
-  exports: [ProjectActivityService],
+  exports: [ProjectActivityService, RealtimeEventsService],
 })
 export class ProjectActivityModule {}
+jectActivityModule {}

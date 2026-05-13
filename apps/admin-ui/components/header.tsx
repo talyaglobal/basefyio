@@ -36,6 +36,7 @@ import {
 import { FeedbackModal } from '@/components/feedback-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
+import { ChangelogWidget } from '@/components/changelog-widget';
 import type { UserProfile } from '@/lib/types';
 import { useDashboard } from '@/app/dashboard/layout';
 import { useProject } from '@/contexts/project-context';
@@ -366,15 +367,21 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-3 sm:px-4 md:px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
       <div className="flex min-w-0 items-center gap-2 sm:gap-3 md:gap-4">
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
           <span className="hidden text-lg font-bold gradient-text sm:inline">Kolaybase</span>
         </Link>
 
-        {/* Primary nav links */}
-        <nav className="hidden md:flex items-center gap-1">
+        {/* Nav items can be horizontally scrolled at tight widths so they
+            never overlap the center search; the search itself is layered
+            above this row via z-index. We hide the scrollbar to keep the
+            chrome clean but the row stays swipeable / wheel-scrollable. */}
+        <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-none">
+          <div className="flex items-center gap-1 whitespace-nowrap">
+            {/* Primary nav links */}
+            <nav className="hidden md:flex items-center gap-1">
           <Link
             href="/dashboard"
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -410,24 +417,26 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <span className="hidden sm:inline">Feedback</span>
         </Button>
         <div className="hidden md:block">
-          <DocsMenu
-            open={docsMenuOpen}
-            onOpenChange={(next) => {
-              setDocsMenuOpen(next);
-              if (next) {
-                setDropdownOpen(false);
-                setProjectsMenuOpen(false);
-                setUserMenuOpen(false);
-                closeHeaderProjectSearch();
-              }
-            }}
-          />
+              <DocsMenu
+                open={docsMenuOpen}
+                onOpenChange={(next) => {
+                  setDocsMenuOpen(next);
+                  if (next) {
+                    setDropdownOpen(false);
+                    setProjectsMenuOpen(false);
+                    setUserMenuOpen(false);
+                    closeHeaderProjectSearch();
+                  }
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ── Center: project search (all teams, project name only) ── */}
       <div
-        className="flex min-w-0 flex-1 items-center justify-center px-1 sm:px-2"
+        className="relative z-40 flex min-w-0 flex-1 items-center justify-center px-1 sm:px-2"
         data-header-project-search="true"
       >
         <button
@@ -889,6 +898,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           </Button>
         )}
 
+        <div className="hidden md:block">
+          <ChangelogWidget />
+        </div>
         <div className="hidden md:block">
           <ThemeToggle />
         </div>

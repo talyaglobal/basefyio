@@ -219,7 +219,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             ? event.payload.actorName
             : null) || 'Someone';
 
-        if (event.entityType === 'feedback' && event.action === 'status_changed') {
+        if (event.entityType === 'feedback' && event.action === 'created') {
+          const title =
+            typeof event.payload?.title === 'string' ? event.payload.title : 'a new feedback';
+          const actorEmail =
+            typeof event.payload?.actorEmail === 'string' ? event.payload.actorEmail : null;
+          addNotification({
+            type: 'feedback',
+            title: 'New feedback submitted',
+            message: `${actor}${actorEmail ? ` (${actorEmail})` : ''} submitted "${title}".`,
+            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
+          });
+        } else if (event.entityType === 'feedback' && event.action === 'status_changed') {
           const title =
             typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
           const to =
@@ -272,6 +283,43 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             title: 'Feedback deleted',
             message: `${actor} deleted "${title}".`,
             href: '/dashboard/feedbacks',
+          });
+        } else if (event.entityType === 'project' && event.action === 'created') {
+          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
+          addNotification({
+            type: 'feedback',
+            title: 'New project created',
+            message: `${actor} created "${name}".`,
+            href: `/dashboard/projects/${event.entityId}`,
+          });
+        } else if (event.entityType === 'project' && event.action === 'updated') {
+          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
+          const changes = Array.isArray(event.payload?.changes)
+            ? (event.payload.changes as string[]).join(', ')
+            : null;
+          addNotification({
+            type: 'feedback',
+            title: 'Project updated',
+            message: changes
+              ? `${actor} updated "${name}" (${changes}).`
+              : `${actor} updated "${name}".`,
+            href: `/dashboard/projects/${event.entityId}`,
+          });
+        } else if (event.entityType === 'project' && event.action === 'deleted') {
+          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
+          addNotification({
+            type: 'feedback',
+            title: 'Project deleted',
+            message: `${actor} moved "${name}" to trash.`,
+            href: '/dashboard/projects',
+          });
+        } else if (event.entityType === 'project' && event.action === 'restored') {
+          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
+          addNotification({
+            type: 'feedback',
+            title: 'Project restored',
+            message: `${actor} restored "${name}".`,
+            href: `/dashboard/projects/${event.entityId}`,
           });
         }
       },

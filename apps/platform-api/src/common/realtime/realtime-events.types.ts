@@ -18,6 +18,7 @@ export type RealtimeAction =
   | 'invite_declined'
   | 'member_removed'
   | 'moved'
+  | 'restored'
   | 'activity_appended';
 
 export interface RealtimeEventEnvelope {
@@ -35,3 +36,5 @@ export interface RealtimeEventEnvelope {
   payload?: Record<string, unknown>;
 }
 
+unknown>;
+}
