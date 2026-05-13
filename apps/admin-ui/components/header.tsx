@@ -248,13 +248,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     return Array.from(byId.values());
   }, [allTeamsHeaderProjects, routeProject, currentProjectIdFromPath, teams]);
 
-  /**
-   * Header search: project name only, across all teams. Order: most recently
-   * updated first, so the project you just touched is at the top — matches
-   * the user's mental model of "what was I working on?". Alphabetical sort
-   * was confusing when you had 47 projects and the one you needed lived
-   * halfway down. Falls back to createdAt then name when updatedAt ties.
-   */
+  /** Header search: project name only, all teams. Sort by recency. */
   const byRecency = (a: ProjectForHeaderSearch, b: ProjectForHeaderSearch) => {
     const au = a.updatedAt || a.createdAt || '';
     const bu = b.updatedAt || b.createdAt || '';
@@ -264,9 +258,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const headerSearchResults = useMemo(() => {
     const q = headerProjectQuery.trim().toLowerCase();
     const list = headerSearchBasePool;
-    if (!q) {
-      return [...list].sort(byRecency).slice(0, 12);
-    }
+    if (!q) return [...list].sort(byRecency).slice(0, 12);
     return list.filter((p) => p.name.toLowerCase().includes(q)).sort(byRecency);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerSearchBasePool, headerProjectQuery]);
@@ -378,21 +370,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-3 sm:px-4 md:px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
       <div className="flex min-w-0 items-center gap-2 sm:gap-3 md:gap-4">
-        <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
           <span className="hidden text-lg font-bold gradient-text sm:inline">Kolaybase</span>
         </Link>
 
-        {/* Nav items can be horizontally scrolled at tight widths so they
-            never overlap the center search; the search itself is layered
-            above this row via z-index. We hide the scrollbar to keep the
-            chrome clean but the row stays swipeable / wheel-scrollable. */}
-        <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin">
-          <div className="flex items-center gap-1 whitespace-nowrap">
-            {/* Primary nav links */}
-            <nav className="hidden md:flex items-center gap-1">
+        {/* Primary nav links */}
+        <nav className="hidden md:flex items-center gap-1">
           <Link
             href="/dashboard"
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -428,20 +414,18 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <span className="hidden sm:inline">Feedback</span>
         </Button>
         <div className="hidden md:block">
-              <DocsMenu
-                open={docsMenuOpen}
-                onOpenChange={(next) => {
-                  setDocsMenuOpen(next);
-                  if (next) {
-                    setDropdownOpen(false);
-                    setProjectsMenuOpen(false);
-                    setUserMenuOpen(false);
-                    closeHeaderProjectSearch();
-                  }
-                }}
-              />
-            </div>
-          </div>
+          <DocsMenu
+            open={docsMenuOpen}
+            onOpenChange={(next) => {
+              setDocsMenuOpen(next);
+              if (next) {
+                setDropdownOpen(false);
+                setProjectsMenuOpen(false);
+                setUserMenuOpen(false);
+                closeHeaderProjectSearch();
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -682,11 +666,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="hidden max-w-[140px] truncate xl:inline">
+            <span className="max-w-[140px] truncate">
               {activeTeam?.name || 'Select team'}
             </span>
             {activeTeam?.role === 'OWNER' && (
-              <span className="hidden xl:inline text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                 Owner
               </span>
             )}
@@ -812,7 +796,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="hidden max-w-[160px] truncate xl:inline" title={projectsMenuLabel}>
+            <span className="max-w-[160px] truncate" title={projectsMenuLabel}>
               {projectsMenuLabel}
             </span>
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1124,25 +1108,6 @@ function UserMenu({
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
               >
                 <KeyRound className="h-3.5 w-3.5" />
-                Account Settings
-              </button>
-            </div>
-            <div className="border-t p-1">
-              <button
-                onClick={() => { onOpenChange(false); onLogout(); }}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Sign out
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
- <KeyRound className="h-3.5 w-3.5" />
                 Account Settings
               </button>
             </div>

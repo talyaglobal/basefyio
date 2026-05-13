@@ -18,9 +18,6 @@ interface SqlTab {
   query: string;
   result: SqlResult | null;
   error: string | null;
-  /** The query that produced `result`. Paging re-runs THIS, not the
-   *  current `query` buffer, so the user can edit the editor without
-   *  affecting their loaded result set. */
   executedQuery?: string;
 }
 
@@ -157,8 +154,6 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
     setRunningTabId(activeTab.id);
     if (page === 1) {
-      // Fresh run — wipe out the previous result + error so the table
-      // doesn't show stale rows while the new query is in flight.
       updateActiveTab((t) => ({ ...t, error: null, result: null }));
     }
 
@@ -166,7 +161,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
       const data = await api.sql.execute(projectId, q, {
         page,
         limit: 100,
-        countTotal: page === 1, // bounded COUNT only on first page
+        countTotal: page === 1,
       });
       updateActiveTab((t) => ({ ...t, result: data, executedQuery: q }));
     } catch (err: any) {
@@ -358,11 +353,8 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={
-                      runningTabId === activeTab?.id || (result.page ?? 1) <= 1
-                    }
+                    disabled={runningTabId === activeTab?.id || (result.page ?? 1) <= 1}
                     onClick={() => goToPage((result.page ?? 1) - 1)}
-                    title="Previous page"
                   >
                     Prev
                   </Button>
@@ -370,13 +362,8 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={
-                      runningTabId === activeTab?.id ||
-                      // No total = unknown; allow next as long as we got a full page.
-                      ((result.rows?.length ?? 0) < (result.limit ?? 100))
-                    }
+                    disabled={runningTabId === activeTab?.id || ((result.rows?.length ?? 0) < (result.limit ?? 100))}
                     onClick={() => goToPage((result.page ?? 1) + 1)}
-                    title="Next page"
                   >
                     Next
                   </Button>
