@@ -432,7 +432,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       >
         <button
           type="button"
-          className="relative flex w-full min-w-0 max-w-sm items-center gap-2 rounded-lg border border-input bg-muted/30 py-2 pl-3 pr-3 text-left text-sm text-muted-foreground shadow-sm transition-[box-shadow,background-color] hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring/30 md:hidden"
+          className="relative flex w-full min-w-0 max-w-sm items-center gap-2 rounded-lg border border-input bg-muted/30 py-2 pl-3 pr-3 text-left text-sm text-muted-foreground shadow-sm transition-[box-shadow,background-color] hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring/30 lg:hidden"
           onClick={() => teams.length > 0 && openHeaderMobileSearch()}
           disabled={!teams.length}
           title={
@@ -445,7 +445,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <span className="min-w-0 flex-1 truncate">Search projects by name…</span>
         </button>
 
-        <div className="relative hidden w-full min-w-0 max-w-md md:block">
+        <div className="relative hidden w-full min-w-0 max-w-md lg:block">
           <label htmlFor="header-project-search-desktop" className="sr-only">
             Search projects by name across all your teams
           </label>
@@ -488,7 +488,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           ) : null}
           {showHeaderSearchDropdown && (
             <div
-              className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-[min(70vh,22rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card shadow-md"
+              className="absolute left-0 top-full z-50 mt-1.5 w-[max(100%,20rem)] max-h-[min(70vh,22rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card shadow-md"
               role="listbox"
               aria-label="Project search results"
             >
@@ -662,11 +662,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="max-w-[140px] truncate">
+            <span className="hidden max-w-[140px] truncate xl:inline">
               {activeTeam?.name || 'Select team'}
             </span>
             {activeTeam?.role === 'OWNER' && (
-              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+              <span className="hidden xl:inline text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                 Owner
               </span>
             )}
@@ -792,7 +792,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="max-w-[160px] truncate" title={projectsMenuLabel}>
+            <span className="hidden max-w-[160px] truncate xl:inline" title={projectsMenuLabel}>
               {projectsMenuLabel}
             </span>
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

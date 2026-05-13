@@ -759,6 +759,13 @@ export function TableEditor({ projectId }: TableEditorProps) {
       ? tables
       : tables.filter((t) => t.name.toLowerCase().includes(tableSearchLower));
 
+  /**
+   * localStorage key for the per-project Table Editor state (active table +
+   * open tabs). Keyed by projectId so opening Project A then switching to
+   * Project B doesn't bleed each other's tabs together.
+   */
+  const stateStorageKey = `kb_table_editor_state_${projectId}`;
+
   useEffect(() => {
     loadTables();
   }, [projectId]);
@@ -772,17 +779,71 @@ export function TableEditor({ projectId }: TableEditorProps) {
     localStorage.setItem('kb_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
   }, [columnPanelOpen]);
 
+  // Persist active table + tab strip whenever they change. Skip the initial
+  // "empty" state — writing `{selected: null, openTabs: []}` before tables
+  // have loaded would wipe out a perfectly good saved state on every refresh.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!selected && openTabs.length === 0) return;
+    try {
+      localStorage.setItem(
+        stateStorageKey,
+        JSON.stringify({ selected, openTabs }),
+      );
+    } catch {
+      // localStorage can throw in private mode or when quota is exceeded.
+      // Persistence is best-effort; refreshes just won't remember.
+    }
+  }, [selected, openTabs, stateStorageKey]);
+
   async function loadTables() {
     setLoading(true);
     try {
       const result = await api.projects.tables(projectId);
       setTables(result);
-      setOpenTabs((prev) => prev.filter((name) => result.some((t) => t.name === name)));
+
+      // Try to restore from localStorage on first load. Stale entries —
+      // tables that no longer exist — get filtered out so we don't try to
+      // open a phantom. If nothing in saved state survives validation, fall
+      // back to whatever's currently `selected` (in-memory) or the first
+      // available table.
+      let restoredSelected: string | null = null;
+      let restoredTabs: string[] = [];
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(stateStorageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw) as {
+              selected?: string | null;
+              openTabs?: string[];
+            };
+            if (Array.isArray(parsed.openTabs)) {
+              restoredTabs = parsed.openTabs.filter((name) =>
+                result.some((t) => t.name === name),
+              );
+            }
+            if (
+              typeof parsed.selected === 'string' &&
+              result.some((t) => t.name === parsed.selected)
+            ) {
+              restoredSelected = parsed.selected;
+            }
+          }
+        } catch {
+          // Corrupt JSON — drop and start fresh.
+        }
+      }
+
+      if (restoredTabs.length > 0) {
+        setOpenTabs(restoredTabs);
+      } else {
+        setOpenTabs((prev) => prev.filter((name) => result.some((t) => t.name === name)));
+      }
+
       if (result.length > 0) {
         const target =
-          selected && result.some((t) => t.name === selected)
-            ? selected
-            : result[0].name;
+          restoredSelected ??
+          (selected && result.some((t) => t.name === selected) ? selected : result[0].name);
         openTable(target);
       } else {
         setSelected(null);
