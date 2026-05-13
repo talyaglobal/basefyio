@@ -25,6 +25,10 @@ export class SqlController {
     @Body() dto: ExecuteSqlDto,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.sqlService.execute(dto.projectId, dto.query, user?.sub);
+    return this.sqlService.execute(dto.projectId, dto.query, user?.sub, {
+      page: dto.page,
+      limit: dto.limit,
+      countTotal: dto.countTotal,
+    });
   }
 }

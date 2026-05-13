@@ -1196,10 +1196,33 @@ export const api = {
   },
 
   sql: {
-    execute(projectId: string, query: string) {
+    /**
+     * Execute a SQL query against a project's database.
+     *
+     * For SELECT-shape queries the backend wraps the user's query in
+     * `SELECT * FROM (...) LIMIT n OFFSET m` so we never pull more than
+     * `limit` rows over the wire — protects the UI and the platform-api
+     * pod from OOM on `SELECT * FROM huge_table`. Non-SELECT statements
+     * (INSERT/UPDATE/DELETE/DDL) run unpaginated.
+     *
+     * Pass `countTotal: true` on the first page only — the bounded
+     * COUNT(*) costs a second scan and the UI doesn't need it again when
+     * the user clicks "Next".
+     */
+    execute(
+      projectId: string,
+      query: string,
+      opts?: { page?: number; limit?: number; countTotal?: boolean },
+    ) {
       return request<SqlResult>('/sql/execute', {
         method: 'POST',
-        body: JSON.stringify({ projectId, query }),
+        body: JSON.stringify({
+          projectId,
+          query,
+          page: opts?.page,
+          limit: opts?.limit,
+          countTotal: opts?.countTotal,
+        }),
       });
     },
   },
@@ -1626,6 +1649,34 @@ export const api = {
       return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
     },
     getAuditLog(id: string) {
+      return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
+    },
+  },
+
+  tags: {
+    list(teamId: string) {
+      return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);
+    },
+    create(teamId: string, name: string, color?: string) {
+      return request<import('./types').ProjectTag>('/project-tags', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, name, color }),
+      });
+    },
+    update(id: string, data: { name?: string; color?: string }) {
+      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    delete(id: string) {
+      return request<{ success: boolean }>(`/project-tags/${id}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+};
+tring) {
       return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
     },
   },

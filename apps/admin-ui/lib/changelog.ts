@@ -93,3 +93,10 @@ export const KIND_LABEL: Record<ChangelogKind, string> = {
   improvement: 'Improvement',
   breaking: 'Breaking change',
 };
+re',
+  bugfix: 'Bug fix',
+  improvement: 'Improvement',
+  breaking: 'Breaking change',
+};
+
+};

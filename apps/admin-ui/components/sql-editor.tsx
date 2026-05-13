@@ -18,6 +18,10 @@ interface SqlTab {
   query: string;
   result: SqlResult | null;
   error: string | null;
+  /** The query that produced `result`. Paging re-runs THIS, not the
+   *  current `query` buffer, so the user can edit the editor without
+   *  affecting their loaded result set. */
+  executedQuery?: string;
 }
 
 function createTab(index: number): SqlTab {
@@ -147,21 +151,35 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     setRenameValue('');
   }
 
-  async function execute() {
-    if (!activeTab || !query.trim()) return;
+  async function execute(page = 1, queryOverride?: string) {
+    const q = queryOverride ?? query;
+    if (!activeTab || !q.trim()) return;
 
     setRunningTabId(activeTab.id);
-    updateActiveTab((t) => ({ ...t, error: null, result: null }));
+    if (page === 1) {
+      // Fresh run — wipe out the previous result + error so the table
+      // doesn't show stale rows while the new query is in flight.
+      updateActiveTab((t) => ({ ...t, error: null, result: null }));
+    }
 
     try {
-      const data = await api.sql.execute(projectId, query);
-      updateActiveTab((t) => ({ ...t, result: data }));
+      const data = await api.sql.execute(projectId, q, {
+        page,
+        limit: 100,
+        countTotal: page === 1, // bounded COUNT only on first page
+      });
+      updateActiveTab((t) => ({ ...t, result: data, executedQuery: q }));
     } catch (err: any) {
       updateActiveTab((t) => ({ ...t, error: err.message }));
       toast.error(err.message);
     } finally {
       setRunningTabId(null);
     }
+  }
+
+  function goToPage(page: number) {
+    if (!activeTab?.executedQuery) return;
+    void execute(page, activeTab.executedQuery);
   }
 
   function copyResultAsMarkdown() {
@@ -327,9 +345,43 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
       {result && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-            <div className="flex items-center gap-4">
-              <span>{result.rowCount ?? 0} rows</span>
+            <div className="flex flex-wrap items-center gap-4">
+              <span>
+                {result.paginated && (result.total ?? null) !== null
+                  ? `${result.total}${result.totalIsApprox ? '+' : ''} total · page ${result.page ?? 1}`
+                  : `${result.rowCount ?? 0} rows${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}
+              </span>
               <span>{result.duration}ms</span>
+              {result.paginated && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      runningTabId === activeTab?.id || (result.page ?? 1) <= 1
+                    }
+                    onClick={() => goToPage((result.page ?? 1) - 1)}
+                    title="Previous page"
+                  >
+                    Prev
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      runningTabId === activeTab?.id ||
+                      // No total = unknown; allow next as long as we got a full page.
+                      ((result.rows?.length ?? 0) < (result.limit ?? 100))
+                    }
+                    onClick={() => goToPage((result.page ?? 1) + 1)}
+                    title="Next page"
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={copyResultAsMarkdown}>

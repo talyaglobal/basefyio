@@ -384,6 +384,14 @@ export interface SqlResult {
   fields: { name: string; dataTypeId: number }[];
   rowCount: number;
   duration: number;
+  /** Pagination metadata (only meaningful when `paginated` is true). */
+  page?: number;
+  limit?: number;
+  paginated?: boolean;
+  /** Bounded count of total rows; null when not requested or query failed. */
+  total?: number | null;
+  /** True when total was capped at 10k. */
+  totalIsApprox?: boolean;
 }
 
 export interface ApiError {
