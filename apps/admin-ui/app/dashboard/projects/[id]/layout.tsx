@@ -291,7 +291,13 @@ export default function ProjectLayout({
     >
       <aside
         className={cn(
-          'relative h-full shrink-0 border-r bg-card flex flex-col overflow-hidden',
+          // sticky inside the dashboard <main> scroller (top-0 of that scroll
+          // context) so the sidebar stays glued to the top of the viewport as
+          // the user scrolls long pages (Connection strings, Settings, etc.).
+          // `self-start` keeps it from stretching vertically with siblings,
+          // and the explicit height tucks it under the 56px header.
+          'sticky top-0 self-start h-[calc(100vh-3.5rem)] shrink-0',
+          'border-r bg-card flex flex-col overflow-hidden',
           'transition-[width] duration-200 ease-out motion-reduce:transition-none',
         )}
         style={{ width: asideWidthPx }}
@@ -488,6 +494,24 @@ export default function ProjectLayout({
             className={cn(
               'absolute right-0 top-0 z-20 h-full w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0',
               'hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+            )}
+          />
+        )}
+      </aside>
+
+      <main
+        className={cn(
+          'h-full min-h-0 min-w-0 flex-1 p-6',
+          isLogsRoute ? 'flex flex-col overflow-hidden' : '',
+        )}
+      >
+        {children}
+      </main>
+    </div>
+    </ProjectProvider>
+  );
+}
+'hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             )}
           />
         )}

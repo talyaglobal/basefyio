@@ -1,6 +1,25 @@
-export type RealtimeEntityType = 'feedback' | 'feedback_comment' | 'team' | 'team_invite' | 'team_member' | 'project' | 'project_activity';
+export type RealtimeEntityType =
+  | 'feedback'
+  | 'feedback_comment'
+  | 'team'
+  | 'team_invite'
+  | 'team_member'
+  | 'project'
+  | 'project_activity';
 
-export type RealtimeAction = 'created' | 'updated' | 'deleted' | 'status_changed' | 'comment_added' | 'invite_sent' | 'invite_accepted' | 'invite_declined' | 'member_removed' | 'moved' | 'restored' | 'activity_appended';
+export type RealtimeAction =
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'status_changed'
+  | 'comment_added'
+  | 'invite_sent'
+  | 'invite_accepted'
+  | 'invite_declined'
+  | 'member_removed'
+  | 'moved'
+  | 'restored'
+  | 'activity_appended';
 
 export interface RealtimeEventEnvelope {
   eventId: string;

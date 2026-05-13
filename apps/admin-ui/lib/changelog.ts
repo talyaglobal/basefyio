@@ -57,35 +57,34 @@ export function renderMarkdown(md: string): string {
   const lines = md.split(/\r?\n/);
   const out: string[] = [];
   let i = 0;
-  function inline(t: string): string {
-    let s = esc(t);
-    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    return s;
-  }
   while (i < lines.length) {
     const line = lines[i];
     const h = line.match(/^(#{1,4})\s+(.*)$/);
-    if (h) { out.push('<h' + h[1].length + '>' + inline(h[2]) + '</h' + h[1].length + '>'); i++; continue; }
+    if (h) { out.push('<h' + h[1].length + '>' + esc(h[2]) + '</h' + h[1].length + '>'); i++; continue; }
     if (/^[-*]\s+/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push('<li>' + inline(lines[i].replace(/^[-*]\s+/, '')) + '</li>'); i++; }
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push('<li>' + esc(lines[i].replace(/^[-*]\s+/, '')) + '</li>'); i++; }
       out.push('<ul>' + items.join('') + '</ul>');
       continue;
     }
     if (line.trim() === '') { i++; continue; }
     const p: string[] = [];
     while (i < lines.length && lines[i].trim() !== '' && !/^(#{1,4})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i])) { p.push(lines[i]); i++; }
-    if (p.length > 0) out.push('<p>' + inline(p.join(' ')) + '</p>');
+    if (p.length > 0) out.push('<p>' + esc(p.join(' ')) + '</p>');
   }
   return out.join('\n');
 }
 
+const EMERALD = 'bg-emerald-100 text-emerald-800';
+const AMBER = 'bg-amber-100 text-amber-800';
+const BLUE = 'bg-blue-100 text-blue-800';
+const RED = 'bg-red-100 text-red-800';
+
 export const KIND_BADGE_CLASS: Record<ChangelogKind, string> = {
-  feature: 'bg-emerald-100 text-emerald-800',
-  bugfix: 'bg-amber-100 text-amber-800',
-  improvement: 'bg-blue-100 text-blue-800',
-  breaking: 'bg-red-100 text-red-800',
+  feature: EMERALD,
+  bugfix: AMBER,
+  improvement: BLUE,
+  breaking: RED,
 };
 
 export const KIND_LABEL: Record<ChangelogKind, string> = {

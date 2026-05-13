@@ -37,10 +37,13 @@ export function ChangelogWidget() {
     setHasUnseen(false);
   }
 
+  const dotClass = 'absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500';
+  const linkClass = 'relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent';
+
   return (
-    <Link href="/dashboard/changelog" onClick={markSeen} className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent" title="Changelog" aria-label="Changelog">
+    <Link href="/dashboard/changelog" onClick={markSeen} className={linkClass} title="Changelog" aria-label="Changelog">
       <Sparkles className="h-4 w-4" />
-      {hasUnseen ? <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" /> : null}
+      {hasUnseen ? <span aria-hidden className={dotClass} /> : null}
     </Link>
   );
 }
