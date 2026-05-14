@@ -7,7 +7,8 @@
       "Bash(fi)",
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nFix force password change flow\n\n- Add UPDATE_PASSWORD to Keycloak requiredActions when forceChangeOnFirstLogin is true\n- Clear requiredActions when user completes forced password change\n- Ensures proper Keycloak integration for force password change feature\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

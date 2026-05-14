@@ -301,7 +301,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             <Trash2 className="mr-2 h-4 w-4" />
             Clear
           </Button>
-          <Button onClick={execute} disabled={running || !query.trim()} size="sm">
+          <Button onClick={() => execute()} disabled={running || !query.trim()} size="sm">
             {running ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

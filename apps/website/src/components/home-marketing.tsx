@@ -73,7 +73,6 @@ export function HomeMarketing() {
                 config.
               </CardDescription>
             </CardHeader>
-            <Separator />
             <CardFooter className="flex flex-wrap justify-center gap-2 py-6 md:gap-3">
               {audienceBadges.map((label) => (
                 <Badge key={label} variant="secondary" className="px-3 py-1">
