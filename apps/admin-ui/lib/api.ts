@@ -135,13 +135,17 @@ async function request<T>(
           });
           if (retry.ok) return parseOkJsonBody<T>(retry);
         }
-        // If refresh endpoint is reachable but rejects credentials, session is truly invalid.
+        // Refresh endpoint reached but rejected the credentials.
+        //
+        // By design we DO NOT auto-logout here. The user explicitly asked
+        // to stay logged in until they manually press Logout. Surface a
+        // typed error so callers can decide whether to show a banner or
+        // re-prompt, but keep both tokens in localStorage so the user can
+        // refresh the page and try the request again. If their refresh
+        // token really is invalid, they'll see auth errors on subsequent
+        // requests too — that's their cue to log out manually.
         if (refreshRes.status === 400 || refreshRes.status === 401) {
-          clearTokens();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
-          throw new Error('Session expired. Please sign in again.');
+          throw new Error('Session refresh rejected. Please log out and back in if errors persist.');
         }
         // Transient server-side refresh failures should not force logout.
         throw new Error('Session refresh temporarily unavailable. Please retry.');
@@ -154,10 +158,9 @@ async function request<T>(
       // Network/proxy intermittent issues should not immediately log user out.
       throw new Error('Connection issue while refreshing session. Please retry.');
     }
-    clearTokens();
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
-    }
+    // No refresh token at all — user state is genuinely empty. Don't auto-
+    // redirect; just throw so the caller surfaces the error. The user can
+    // navigate to /login themselves if they want to.
     throw new Error('Unauthorized');
   }
 
@@ -1636,38 +1639,6 @@ export const api = {
       const qs =
         limit != null && Number.isFinite(limit) && limit > 0
           ? `?limit=${Math.floor(limit)}`
-          : '';
-      return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
-    },
-    getAuditLog(id: string) {
-      return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
-    },
-  },
-
-  tags: {
-    list(teamId: string) {
-      return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);
-    },
-    create(teamId: string, name: string, color?: string) {
-      return request<import('./types').ProjectTag>('/project-tags', {
-        method: 'POST',
-        body: JSON.stringify({ teamId, name, color }),
-      });
-    },
-    update(id: string, data: { name?: string; color?: string }) {
-      return request<import('./types').ProjectTag>(`/project-tags/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
-    },
-    delete(id: string) {
-      return request<{ success: boolean }>(`/project-tags/${id}`, {
-        method: 'DELETE',
-      });
-    },
-  },
-};
-limit=${Math.floor(limit)}`
           : '';
       return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
     },
