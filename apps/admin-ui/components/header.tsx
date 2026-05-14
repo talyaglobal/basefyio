@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -63,16 +63,12 @@ function projectToListItem(p: Project): ProjectListItem {
   };
 }
 
-/** Project row for global header search (all teams) */
-type ProjectForHeaderSearch = ProjectListItem & { teamId: string; teamName: string };
-
 export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profile }: HeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
-  const headerSearchInputDesktopRef = useRef<HTMLInputElement | null>(null);
-  const headerSearchInputMobileRef = useRef<HTMLInputElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
 
   const { teams, inviteCount } = useDashboard();
   // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
@@ -90,25 +86,16 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [teamSearch, setTeamSearch] = useState('');
   const [projectSearch, setProjectSearch] = useState('');
-  const [headerProjectQuery, setHeaderProjectQuery] = useState('');
-  const [headerSearchFocused, setHeaderSearchFocused] = useState(false);
-  const [headerMobileSearchOpen, setHeaderMobileSearchOpen] = useState(false);
-  const [allTeamsHeaderProjects, setAllTeamsHeaderProjects] = useState<ProjectForHeaderSearch[]>([]);
-  const [allTeamsHeaderSearchLoading, setAllTeamsHeaderSearchLoading] = useState(false);
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-nav-dropdown-root="true"]')) return;
-      if (target.closest('[data-header-project-search="true"]')) return;
       setDropdownOpen(false);
       setProjectsMenuOpen(false);
       setDocsMenuOpen(false);
       setUserMenuOpen(false);
-      setHeaderMobileSearchOpen(false);
-      setHeaderSearchFocused(false);
-      setHeaderProjectQuery('');
     };
     document.addEventListener('mousedown', onGlobalPointerDown);
     return () => {
@@ -130,44 +117,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       .catch(() => setTeamProjects([]))
       .finally(() => setProjectsLoading(false));
   }, [activeTeamId, refreshKey]);
-
-  /** Load active projects from every team the user belongs to (navbar search). */
-  useEffect(() => {
-    if (!teams.length) {
-      setAllTeamsHeaderProjects([]);
-      return;
-    }
-    let cancelled = false;
-    setAllTeamsHeaderSearchLoading(true);
-    void Promise.all(
-      teams.map((team) =>
-        api.projects
-          .list(team.id)
-          .then((list) =>
-            list
-              .filter((p) => p.status === 'ACTIVE')
-              .map(
-                (p): ProjectForHeaderSearch => ({
-                  ...p,
-                  teamId: team.id,
-                  teamName: team.name,
-                }),
-              ),
-          )
-          .catch(() => [] as ProjectForHeaderSearch[]),
-      ),
-    )
-      .then((chunks) => {
-        if (cancelled) return;
-        setAllTeamsHeaderProjects(chunks.flat());
-      })
-      .finally(() => {
-        if (!cancelled) setAllTeamsHeaderSearchLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [teams, refreshKey]);
 
   const currentProjectIdFromPath = pathname.startsWith('/dashboard/projects/')
     ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
@@ -230,75 +179,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       return name.includes(q) || slug.includes(q);
     });
   }, [menuProjects, projectSearch]);
-
-  /** Merged list for global search; route project added if not already listed */
-  const headerSearchBasePool = useMemo(() => {
-    const byId = new Map<string, ProjectForHeaderSearch>();
-    for (const p of allTeamsHeaderProjects) {
-      byId.set(p.id, p);
-    }
-    if (routeProject?.id === currentProjectIdFromPath && !byId.has(routeProject.id)) {
-      const t = teams.find((x) => x.id === routeProject.teamId);
-      byId.set(routeProject.id, {
-        ...projectToListItem(routeProject),
-        teamId: routeProject.teamId,
-        teamName: t?.name ?? 'Team',
-      });
-    }
-    return Array.from(byId.values());
-  }, [allTeamsHeaderProjects, routeProject, currentProjectIdFromPath, teams]);
-
-  /** Header search: project name only, all teams. Sort by recency. */
-  const byRecency = (a: ProjectForHeaderSearch, b: ProjectForHeaderSearch) => {
-    const au = a.updatedAt || a.createdAt || '';
-    const bu = b.updatedAt || b.createdAt || '';
-    if (au !== bu) return au < bu ? 1 : -1;
-    return a.name.localeCompare(b.name);
-  };
-  const headerSearchResults = useMemo(() => {
-    const q = headerProjectQuery.trim().toLowerCase();
-    const list = headerSearchBasePool;
-    if (!q) return [...list].sort(byRecency).slice(0, 12);
-    return list.filter((p) => p.name.toLowerCase().includes(q)).sort(byRecency);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headerSearchBasePool, headerProjectQuery]);
-
-  const closeHeaderProjectSearch = useCallback(() => {
-    setHeaderProjectQuery('');
-    setHeaderSearchFocused(false);
-    setHeaderMobileSearchOpen(false);
-    headerSearchInputDesktopRef.current?.blur();
-    headerSearchInputMobileRef.current?.blur();
-  }, []);
-
-  const openHeaderMobileSearch = () => {
-    setDropdownOpen(false);
-    setProjectsMenuOpen(false);
-    setDocsMenuOpen(false);
-    setUserMenuOpen(false);
-    setHeaderMobileSearchOpen(true);
-  };
-
-  const showHeaderSearchDropdown =
-    teams.length > 0 && (headerSearchFocused || headerProjectQuery.trim().length > 0);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (!headerSearchFocused && !headerMobileSearchOpen && !headerProjectQuery.trim()) return;
-      e.preventDefault();
-      closeHeaderProjectSearch();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [headerSearchFocused, headerMobileSearchOpen, headerProjectQuery, closeHeaderProjectSearch]);
-
-  useLayoutEffect(() => {
-    if (!headerMobileSearchOpen) return;
-    window.requestAnimationFrame(() => {
-      headerSearchInputMobileRef.current?.focus();
-    });
-  }, [headerMobileSearchOpen]);
 
   async function switchTeam(teamId: string) {
     try {
@@ -367,9 +247,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between px-3 sm:px-4 md:px-6 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
+    <header ref={headerRef} className="sticky top-0 z-30 shrink-0 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
+      {/* ── Row 1: logo + nav items + right actions (horizontally scrollable on small screens) ── */}
+      <div className="flex h-14 items-center gap-2 overflow-x-auto px-3 sm:px-4 md:px-6 scrollbar-thin">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3 md:gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
@@ -408,7 +290,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           variant="ghost"
           size="sm"
           className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground sm:inline-flex"
-          onClick={() => { closeHeaderProjectSearch(); setFeedbackOpen(true); }}
+          onClick={() => { setFeedbackOpen(true); }}
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Feedback</span>
@@ -422,229 +304,19 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 setDropdownOpen(false);
                 setProjectsMenuOpen(false);
                 setUserMenuOpen(false);
-                closeHeaderProjectSearch();
-              }
+                              }
             }}
           />
         </div>
       </div>
 
-      {/* ── Center: project search (all teams, project name only) ── */}
-      <div
-        className="relative z-40 flex min-w-0 flex-1 items-center justify-center px-1 sm:px-2"
-        data-header-project-search="true"
-      >
-        <button
-          type="button"
-          className="relative flex w-full min-w-0 max-w-sm items-center gap-2 rounded-lg border border-input bg-muted/30 py-2 pl-3 pr-3 text-left text-sm text-muted-foreground shadow-sm transition-[box-shadow,background-color] hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring/30 lg:hidden"
-          onClick={() => teams.length > 0 && openHeaderMobileSearch()}
-          disabled={!teams.length}
-          title={
-            teams.length
-              ? 'Search project names in all teams you belong to'
-              : 'Create a team to search projects'
-          }
-        >
-          <Search className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">Search projects by name…</span>
-        </button>
-
-        <div className="relative hidden w-full min-w-0 max-w-xl lg:block">
-          <label htmlFor="header-project-search-desktop" className="sr-only">
-            Search projects by name across all your teams
-          </label>
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            id="header-project-search-desktop"
-            ref={headerSearchInputDesktopRef}
-            type="search"
-            value={headerProjectQuery}
-            onChange={(e) => setHeaderProjectQuery(e.target.value)}
-            onFocus={() => setHeaderSearchFocused(true)}
-            onBlur={() => {
-              window.setTimeout(() => setHeaderSearchFocused(false), 150);
-            }}
-            placeholder="Search projects by name…"
-            title="Searches project names in every team you belong to (not team names or descriptions)"
-            autoComplete="off"
-            autoCorrect="off"
-            disabled={!teams.length}
-            className={cn(
-              'h-10 w-full min-w-0 rounded-lg border border-input bg-background pl-10 pr-10 text-sm shadow-sm',
-              'placeholder:text-muted-foreground/85',
-              'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
-              !teams.length && 'cursor-not-allowed opacity-50',
-            )}
-          />
-          {headerProjectQuery ? (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setHeaderProjectQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-          {showHeaderSearchDropdown && (
-            <div
-              className="absolute left-0 top-full z-50 mt-1.5 w-[max(100%,20rem)] max-h-[min(70vh,22rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card shadow-md"
-              role="listbox"
-              aria-label="Project search results"
-            >
-              <p className="border-b border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">All your teams</span> — matches{' '}
-                <span className="font-medium text-foreground">project names</span> only. Team names
-                and descriptions are not included.
-              </p>
-              {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
-                <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
-              ) : headerSearchResults.length === 0 ? (
-                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {headerProjectQuery.trim()
-                    ? 'No projects match that name.'
-                    : 'No projects in your teams yet.'}
-                </p>
-              ) : (
-                <ul className="p-0.5">
-                  {headerSearchResults.map((project) => (
-                    <li key={project.id} role="option">
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          closeHeaderProjectSearch();
-                          router.push(`/dashboard/projects/${project.id}`);
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
-                          project.id === currentProjectIdFromPath
-                            ? 'bg-primary/10 font-medium text-primary'
-                            : 'hover:bg-accent',
-                        )}
-                      >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
-                          {project.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1 text-left">
-                          <p className="truncate font-medium" title={project.name}>
-                            {project.name}
-                          </p>
-                          <p className="truncate text-xs text-muted-foreground" title={project.teamName}>
-                            {project.teamName}
-                          </p>
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* spacer pushes right section to end */}
+      <div className="flex-1" />
 
       {/* ── Right: team switcher + invites + user ────────────────── */}
-      <div className="flex items-center gap-2 md:gap-3">
-        {headerMobileSearchOpen && (
-          <>
-            <button
-              type="button"
-              className="fixed inset-0 z-[54] bg-background/60 backdrop-blur-[1px] md:hidden"
-              aria-label="Dismiss search"
-              onClick={closeHeaderProjectSearch}
-            />
-            <div
-              className="fixed left-0 right-0 top-14 z-[55] flex max-h-[min(70vh,22rem)] flex-col border-b border-border bg-card shadow-lg md:hidden"
-              data-header-project-search="true"
-            >
-              <div className="shrink-0 border-b border-border px-3 pb-2 pt-3">
-                <p className="text-sm font-semibold text-foreground">Search projects</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  Type a <span className="font-medium text-foreground">project name</span>. We search
-                  across <span className="font-medium text-foreground">all teams</span> you belong to
-                  (team names are not searched).
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
-                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <input
-                  ref={headerSearchInputMobileRef}
-                  value={headerProjectQuery}
-                  onChange={(e) => setHeaderProjectQuery(e.target.value)}
-                  placeholder="e.g. billing, api, website…"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  onClick={closeHeaderProjectSearch}
-                  aria-label="Close search"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-1">
-                {allTeamsHeaderSearchLoading && headerSearchBasePool.length === 0 ? (
-                  <p className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</p>
-                ) : headerSearchResults.length === 0 ? (
-                  <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                    {headerProjectQuery.trim()
-                      ? 'No projects match that name.'
-                      : 'No projects in your teams yet.'}
-                  </p>
-                ) : (
-                  <ul>
-                    {headerSearchResults.map((project) => (
-                      <li key={project.id}>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            closeHeaderProjectSearch();
-                            router.push(`/dashboard/projects/${project.id}`);
-                          }}
-                          className={cn(
-                            'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
-                            project.id === currentProjectIdFromPath
-                              ? 'bg-primary/10 font-medium text-primary'
-                              : 'active:bg-accent',
-                          )}
-                        >
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
-                            {project.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0 flex-1 text-left">
-                            <p className="truncate font-medium" title={project.name}>
-                              {project.name}
-                            </p>
-                            <p
-                              className="truncate text-xs text-muted-foreground"
-                              title={project.teamName}
-                            >
-                              {project.teamName}
-                            </p>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
+      <div className="flex shrink-0 items-center gap-2 md:gap-3">
         <button
-          onClick={() => { closeHeaderProjectSearch(); setMobileMenuOpen(!mobileMenuOpen); }}
+          onClick={() => { setMobileMenuOpen(!mobileMenuOpen); }}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"
           aria-label="Open menu"
         >
@@ -654,8 +326,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         <div className="relative hidden md:block" data-nav-dropdown-root="true">
           <button
             onClick={() => {
-              closeHeaderProjectSearch();
-              setProjectsMenuOpen(false);
+                            setProjectsMenuOpen(false);
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
               setDropdownOpen(!dropdownOpen);
@@ -783,8 +454,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <button
             type="button"
             onClick={() => {
-              closeHeaderProjectSearch();
-              setDropdownOpen(false);
+                            setDropdownOpen(false);
               setDocsMenuOpen(false);
               setUserMenuOpen(false);
               setProjectsMenuOpen(!projectsMenuOpen);
@@ -910,8 +580,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           onOpenChange={(next) => {
             setUserMenuOpen(next);
             if (next) {
-              closeHeaderProjectSearch();
-              setDropdownOpen(false);
+                            setDropdownOpen(false);
               setProjectsMenuOpen(false);
               setDocsMenuOpen(false);
             }
@@ -920,11 +589,13 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
         />
       </div>
 
+      </div>
+
       <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       {mobileMenuOpen && (
         <>
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
-          <div className="absolute right-3 top-14 z-50 w-64 rounded-lg border bg-card p-2 shadow-lg md:hidden">
+          <div className="absolute right-3 z-50 w-64 rounded-lg border bg-card p-2 shadow-lg md:hidden" style={{ top: 'var(--header-h, 3.5rem)' }}>
             <button
               onClick={() => { setMobileMenuOpen(false); router.push('/dashboard'); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"

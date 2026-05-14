@@ -9,6 +9,7 @@ import { CreditCard } from 'lucide-react';
 import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { UserInfo, UserProfile, Team } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
@@ -307,7 +308,10 @@ export default function DashboardLayout({
             isRoot={profile?.role === 'ROOT'}
             onTeamChange={handleHeaderTeamChange}
           />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          <main className={cn(
+            'flex min-h-0 min-w-0 flex-1 flex-col',
+            isProjectDetailRoute ? 'overflow-hidden' : 'overflow-y-auto',
+          )}>
             {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (
               <div className={`flex items-center justify-between gap-4 border-b px-6 py-3 ${
                 billingBanner.type === 'error'

@@ -857,7 +857,7 @@ export default function ProjectsPage() {
       onDragEnd={handleDragEnd}
     >
       {/* -m-6 escapes the dashboard layout's p-6 padding */}
-      <div className="-mx-6 -mt-6 -mb-6 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)' }}>
+      <div className="-mx-6 -mt-6 -mb-6 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--header-h, 3.5rem))' }}>
 
         {/* ── Top bar ──────────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-card shrink-0">

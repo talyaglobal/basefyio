@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -26,15 +26,18 @@ import {
   Database,
   FolderOpen,
   Plus,
+  Search,
   TrendingUp,
   Users,
   Activity,
   Calendar,
   CheckCircle2,
   PauseCircle,
+  X,
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
+import { cn } from '@/lib/utils';
 
 // ── Helpers ──────────────────────────────────────────────────
 function buildMonthlyData(projects: ProjectListItem[], months = 6) {
@@ -105,12 +108,19 @@ function StatCard({
 export default function DashboardPage() {
   const router = useRouter();
   const { activeTeamId } = useActiveTeam();
-  const { profile } = useDashboard();
+  const { profile, teams } = useDashboard();
 
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // ── Project search (all teams) ──
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [allTeamsProjects, setAllTeamsProjects] = useState<(ProjectListItem & { teamId: string; teamName: string })[]>([]);
+  const [allTeamsLoading, setAllTeamsLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!activeTeamId) return;
@@ -126,6 +136,48 @@ export default function DashboardPage() {
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, [activeTeamId]);
+
+  // Load all team projects for search
+  useEffect(() => {
+    if (!teams.length) { setAllTeamsProjects([]); return; }
+    let cancelled = false;
+    setAllTeamsLoading(true);
+    void Promise.all(
+      teams.map((team) =>
+        api.projects.list(team.id)
+          .then((list) => list.filter((p) => p.status === 'ACTIVE').map((p) => ({ ...p, teamId: team.id, teamName: team.name })))
+          .catch(() => [] as (ProjectListItem & { teamId: string; teamName: string })[]),
+      ),
+    ).then((chunks) => {
+      if (!cancelled) setAllTeamsProjects(chunks.flat());
+    }).finally(() => { if (!cancelled) setAllTeamsLoading(false); });
+    return () => { cancelled = true; };
+  }, [teams]);
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const sorted = [...allTeamsProjects].sort((a, b) => {
+      const au = a.updatedAt || a.createdAt || '';
+      const bu = b.updatedAt || b.createdAt || '';
+      return au < bu ? 1 : au > bu ? -1 : a.name.localeCompare(b.name);
+    });
+    if (!q) return sorted.slice(0, 12);
+    return sorted.filter((p) => p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q));
+  }, [allTeamsProjects, searchQuery]);
+
+  const showSearchDropdown = searchFocused || searchQuery.trim().length > 0;
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-dashboard-search="true"]')) return;
+      setSearchFocused(false);
+      setSearchQuery('');
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // Derived stats
   const activeCount = projects.filter((p) => p.status === 'ACTIVE').length;
@@ -176,6 +228,79 @@ export default function DashboardPage() {
           <Plus className="mr-2 h-4 w-4" />
           New Project
         </Button>
+      </div>
+
+      {/* Full-width project search */}
+      <div className="relative" data-dashboard-search="true">
+        <Search
+          className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <input
+          ref={searchInputRef}
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => { setTimeout(() => setSearchFocused(false), 150); }}
+          placeholder="Search projects across all your teams..."
+          autoComplete="off"
+          autoCorrect="off"
+          className={cn(
+            'h-12 w-full rounded-xl border border-input bg-card pl-12 pr-12 text-sm shadow-sm',
+            'placeholder:text-muted-foreground/70',
+            'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
+            'transition-shadow duration-150',
+          )}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setSearchQuery('')}
+            className="absolute right-4 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+        {showSearchDropdown && (
+          <div className="absolute left-0 top-full z-30 mt-2 w-full max-h-[min(60vh,24rem)] overflow-y-auto rounded-xl border border-border bg-card shadow-lg">
+            {allTeamsLoading && allTeamsProjects.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">Loading projects…</p>
+            ) : searchResults.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                {searchQuery.trim() ? 'No projects match that name.' : 'No projects in your teams yet.'}
+              </p>
+            ) : (
+              <ul className="p-1">
+                {searchResults.map((project) => (
+                  <li key={project.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchFocused(false);
+                        router.push(`/dashboard/projects/${project.id}`);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm transition-colors hover:bg-accent"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-sm font-bold text-white shadow-sm">
+                        {project.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{project.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{project.teamName}</p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Stat Cards */}

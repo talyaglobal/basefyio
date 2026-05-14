@@ -7,6 +7,16 @@ const ID_TOKEN_KEY = 'kb_id_token';
 const AUTH_MARKER_KEY = 'kb_logged_in';
 const FORCE_PASSWORD_CHANGE_KEY = 'kb_force_password_change';
 
+/** Root domain for cross-subdomain cookies (e.g. `.kolaybase.com`). */
+function getRootDomain(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return undefined;
+  const parts = hostname.split('.');
+  if (parts.length < 2) return undefined;
+  return `.${parts.slice(-2).join('.')}`;
+}
+
 function getStorage() {
   if (typeof window === 'undefined') return null;
   return window.localStorage;
@@ -37,10 +47,13 @@ export function setTokens(tokens: AuthTokens) {
     path: '/',
   });
   // Small marker cookie for middleware checks; avoids JWT cookie size limits.
+  // Set on root domain so the marketing site can detect logged-in state.
+  const rootDomain = getRootDomain();
   Cookies.set(AUTH_MARKER_KEY, '1', {
     expires: 30,
     sameSite: 'lax',
     path: '/',
+    ...(rootDomain ? { domain: rootDomain } : {}),
   });
   if (tokens.forcePasswordChange) {
     Cookies.set(FORCE_PASSWORD_CHANGE_KEY, '1', {
@@ -60,7 +73,8 @@ export function clearTokens() {
   storage?.removeItem(ID_TOKEN_KEY);
   Cookies.remove(TOKEN_KEY, { path: '/' });
   Cookies.remove(REFRESH_KEY, { path: '/' });
-  Cookies.remove(AUTH_MARKER_KEY, { path: '/' });
+  const rootDomain = getRootDomain();
+  Cookies.remove(AUTH_MARKER_KEY, { path: '/', ...(rootDomain ? { domain: rootDomain } : {}) });
   Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });
 }
 

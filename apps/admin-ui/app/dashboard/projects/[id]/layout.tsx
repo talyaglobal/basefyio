@@ -285,13 +285,13 @@ export default function ProjectLayout({
     <ProjectProvider project={project} loading={false} refreshProject={refreshProject}>
       <div
       className={cn(
-        'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6',
+        'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6 overflow-hidden',
         isResizing && 'select-none',
       )}
     >
       <aside
         className={cn(
-          'sticky top-0 self-start h-[calc(100vh-3.5rem)] shrink-0',
+          'h-full shrink-0',
           'border-r bg-card flex flex-col overflow-hidden',
           'transition-[width] duration-200 ease-out motion-reduce:transition-none',
         )}
@@ -496,7 +496,7 @@ export default function ProjectLayout({
 
       <main
         className={cn(
-          'h-full min-h-0 min-w-0 flex-1 p-6',
+          'h-full min-h-0 min-w-0 flex-1 p-6 overflow-y-auto',
           isLogsRoute ? 'flex flex-col overflow-hidden' : '',
         )}
       >

@@ -14,6 +14,7 @@ import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
+import { AuthNav } from "@/components/auth-nav";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import {
   getAppPortalUrl,
@@ -148,12 +149,7 @@ export default async function Home() {
             >
               Docs
             </Link>
-            <Link
-              href={appRoot}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Sign In
-            </Link>
+            <AuthNav appUrl={appRoot} />
             <ThemeToggle />
             <Link
               href={appSignup}
