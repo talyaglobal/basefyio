@@ -2,6 +2,43 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import chalk from 'chalk';
 import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken, clearAuthTokens } from './config.js';
 
+/**
+ * Proactively refresh the access token if it expires within the next 60 seconds.
+ * Call this before any command that requires auth so the session stays alive
+ * indefinitely (until explicit `kb logout`).
+ */
+export async function ensureFreshToken(): Promise<void> {
+  const token = getAccessToken();
+  if (!token) return; // not logged in
+
+  // Decode JWT exp without verification (server verifies)
+  try {
+    const [, payloadB64] = token.split('.');
+    const json = Buffer.from(payloadB64, 'base64url').toString('utf8');
+    const payload = JSON.parse(json) as { exp?: number };
+    if (typeof payload.exp === 'number') {
+      const expiresInMs = payload.exp * 1000 - Date.now();
+      // If token is still valid for more than 60 seconds, skip refresh
+      if (expiresInMs > 60_000) return;
+    }
+  } catch {
+    // Can't decode — try refreshing anyway
+  }
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return;
+
+  try {
+    const { data } = await axios.post(`${getApiUrl()}/api/auth/refresh`, { refreshToken });
+    if (data?.accessToken) {
+      setAccessToken(data.accessToken);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
+    }
+  } catch {
+    // Silent — the 401 interceptor will handle it on the actual request
+  }
+}
+
 
 /**
  * Carried out of the response interceptor so the calling command can decide

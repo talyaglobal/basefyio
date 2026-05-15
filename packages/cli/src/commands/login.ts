@@ -57,20 +57,28 @@ export async function loginCommand(options: LoginOptions) {
   // Heartbeat hints — silent waiting feels broken. Surface progressively
   // better diagnostics so the user knows what to check.
   const hint20 = setTimeout(() => {
-    spinner.text = 'Still waiting… click "Allow access" in the browser if you haven\'t already.';
+    spinner.text = 'Still waiting… log in and click "Allow access" in the browser if you haven\'t already.';
   }, 20_000);
   hint20.unref();
   const hint60 = setTimeout(() => {
     spinner.text =
-      'Still waiting… if the browser shows "Authentication complete" but this stays here, ' +
+      'Still waiting… make sure you completed the login and clicked "Allow access". ' +
+      'If the browser shows "Authentication complete" but this stays here, ' +
       'a firewall may be blocking the loopback callback. Try cancelling (Ctrl+C) and re-running.';
   }, 60_000);
   hint60.unref();
+  const hint180 = setTimeout(() => {
+    spinner.text =
+      'Still waiting (3+ minutes)… the session will time out at 5 minutes. ' +
+      'If stuck, press Ctrl+C and run kb login again.';
+  }, 180_000);
+  hint180.unref();
 
   try {
     const { exchangeCode } = await handle.result;
     clearTimeout(hint20);
     clearTimeout(hint60);
+    clearTimeout(hint180);
     spinner.text = 'Completing authentication…';
 
     // Exchange the one-time code for real tokens. Wrap with our own timeout
@@ -109,6 +117,7 @@ export async function loginCommand(options: LoginOptions) {
   } catch (err: any) {
     clearTimeout(hint20);
     clearTimeout(hint60);
+    clearTimeout(hint180);
     spinner.fail('Authentication failed');
     const msg = err?.message || String(err);
     if (msg.toLowerCase().includes('timed out')) {

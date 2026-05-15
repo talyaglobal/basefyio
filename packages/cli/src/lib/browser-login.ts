@@ -18,12 +18,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomBytes } from 'node:crypto';
 
 /**
- * Auth must complete within this window. 5 minutes was generous but made
- * "stuck" sessions feel terminal — users would CTRL-C and re-try, racing
- * the same loopback port with an old still-listening server. 2 minutes is
- * enough for real browser auth and short enough that timeouts surface fast.
+ * Auth must complete within this window. The user may need to log in to the
+ * admin-ui first (enter credentials, 2FA, OAuth redirect) before they can
+ * approve the CLI request, so 5 minutes is a reasonable upper bound.
  */
-const LOGIN_TIMEOUT_MS = 2 * 60 * 1000;
+const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="en">

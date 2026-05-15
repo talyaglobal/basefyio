@@ -31,6 +31,8 @@ export async function linkCommand(options: LinkOptions) {
       }
       spinner.stop();
 
+      allProjects.sort((a, b) => a.name.localeCompare(b.name));
+
       if (!allProjects.length) {
         error('No projects found. Create one first:  kb init');
         process.exit(1);

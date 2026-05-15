@@ -3,11 +3,13 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { loginCommand } from './commands/login.js';
+import { logoutCommand } from './commands/logout.js';
 import { initCommand } from './commands/init.js';
 import { projectsCommand, createProject, deleteProject } from './commands/projects.js';
 import { statusCommand } from './commands/status.js';
 import { linkCommand, unlinkProject } from './commands/link.js';
 import { logsCommand } from './commands/logs.js';
+import { ensureFreshToken } from './lib/api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -21,11 +23,25 @@ program
 
 // ── Authentication ──────────────────────────────────────────
 
+// Proactively refresh the access token before every command so the CLI session
+// stays alive until the user explicitly runs `kb logout`.
+program.hook('preAction', async (thisCommand) => {
+  const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
+  // Skip refresh for login/logout — they manage tokens themselves
+  if (cmdName === 'login' || cmdName === 'logout') return;
+  await ensureFreshToken();
+});
+
 program
   .command('login')
   .description('Authenticate with the Kolaybase platform')
   .option('--api-url <url>', 'Platform API URL (default: https://api.kolaybase.com)')
   .action(loginCommand);
+
+program
+  .command('logout')
+  .description('Sign out and clear saved credentials')
+  .action(logoutCommand);
 
 // ── Project lifecycle ───────────────────────────────────────
 
