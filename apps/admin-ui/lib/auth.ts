@@ -37,7 +37,7 @@ export function setTokens(tokens: AuthTokens) {
     storage?.removeItem(ID_TOKEN_KEY);
   }
   Cookies.set(TOKEN_KEY, tokens.accessToken, {
-    expires: 7,
+    expires: 30,
     sameSite: 'lax',
     path: '/',
   });
@@ -136,7 +136,24 @@ export function parseJwt(token: string): UserInfo | null {
 }
 
 export function isAuthenticated(): boolean {
-  return !!getAccessToken();
+  const hasToken = !!getAccessToken();
+  // Ensure the cross-domain marker cookie exists when the user is logged in.
+  // Existing sessions may have the old cookie scoped only to app.kolaybase.com;
+  // re-setting it on the root domain lets kolaybase.com detect the session.
+  if (hasToken && typeof document !== 'undefined') {
+    const rootDomain = getRootDomain();
+    // Only re-set if we can detect a root domain (production) and the cookie
+    // might not yet be on the root domain.
+    if (rootDomain) {
+      Cookies.set(AUTH_MARKER_KEY, '1', {
+        expires: 30,
+        sameSite: 'lax',
+        path: '/',
+        domain: rootDomain,
+      });
+    }
+  }
+  return hasToken;
 }
 
 export function getTokenExpiry(): number | null {
@@ -154,9 +171,12 @@ export function getTokenExpiry(): number | null {
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshRetryCount = 0;
+const MAX_REFRESH_RETRIES = 5;
 
 export function startProactiveRefresh() {
   stopProactiveRefresh();
+  refreshRetryCount = 0;
 
   function schedule() {
     const expiry = getTokenExpiry();
@@ -166,42 +186,86 @@ export function startProactiveRefresh() {
     const delay = Math.max(expiry - Date.now() - 180_000, 5_000);
 
     refreshTimer = setTimeout(async () => {
-      const rt = getRefreshToken();
-      if (!rt) return;
-      try {
-        const res = await fetch('/api/proxy/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: rt }),
-        });
-        if (res.ok) {
-          const tokens: AuthTokens = await res.json();
-          setTokens(tokens);
-          schedule();
-          return;
-        }
-
-        // Hard auth failures: refresh token invalid/expired.
-        if (res.status === 400 || res.status === 401) {
-          clearTokens();
-          return;
-        }
-
-        // Transient failure: retry later without forcing logout.
-        refreshTimer = setTimeout(schedule, 30_000);
-      } catch {
-        // Network issue: retry later without forcing logout.
-        refreshTimer = setTimeout(schedule, 30_000);
-      }
+      await doRefresh();
     }, delay);
   }
 
+  async function doRefresh() {
+    const rt = getRefreshToken();
+    if (!rt) return;
+    try {
+      const res = await fetch('/api/proxy/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: rt }),
+      });
+      if (res.ok) {
+        const tokens: AuthTokens = await res.json();
+        setTokens(tokens);
+        refreshRetryCount = 0;
+        schedule();
+        return;
+      }
+
+      // Hard auth failures: retry a few times before giving up.
+      // Keycloak can transiently 401 during restarts/deployments.
+      if (res.status === 400 || res.status === 401) {
+        refreshRetryCount++;
+        if (refreshRetryCount >= MAX_REFRESH_RETRIES) {
+          clearTokens();
+          window.location.href = '/login';
+          return;
+        }
+        // Exponential backoff: 10s, 20s, 40s, 80s, ...
+        const backoff = Math.min(10_000 * Math.pow(2, refreshRetryCount - 1), 120_000);
+        refreshTimer = setTimeout(() => void doRefresh(), backoff);
+        return;
+      }
+
+      // Transient failure: retry later without forcing logout.
+      refreshTimer = setTimeout(schedule, 30_000);
+    } catch {
+      // Network issue: retry later without forcing logout.
+      refreshTimer = setTimeout(schedule, 30_000);
+    }
+  }
+
+  // Also refresh when the tab becomes visible again (laptop open, tab switch)
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+
   schedule();
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible') return;
+  const expiry = getTokenExpiry();
+  if (!expiry) return;
+  // If token expires within 5 minutes, refresh immediately
+  if (expiry - Date.now() < 300_000) {
+    const rt = getRefreshToken();
+    if (!rt) return;
+    fetch('/api/proxy/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: rt }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((tokens) => {
+        if (tokens) setTokens(tokens as AuthTokens);
+      })
+      .catch(() => {});
+  }
 }
 
 export function stopProactiveRefresh() {
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   }
 }

@@ -1,24 +1,11 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 const AUTH_MARKER_KEY = "kb_logged_in";
 
-function getCookie(name: string): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const match = document.cookie.match(
-    new RegExp("(?:^|;\\s*)" + name + "=([^;]*)")
-  );
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
-
-export function AuthNav({ appUrl }: { appUrl: string }) {
-  const [loggedIn, setLoggedIn] = useState(false);
-
-  useEffect(() => {
-    setLoggedIn(getCookie(AUTH_MARKER_KEY) === "1");
-  }, []);
+export async function AuthNav({ appUrl }: { appUrl: string }) {
+  const cookieStore = await cookies();
+  const loggedIn = cookieStore.get(AUTH_MARKER_KEY)?.value === "1";
 
   if (loggedIn) {
     return (

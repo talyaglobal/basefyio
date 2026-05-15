@@ -54,6 +54,20 @@ export class KeycloakAdminService implements OnModuleInit {
       if (realm && !realm.loginWithEmailAllowed) {
         updates.loginWithEmailAllowed = true;
       }
+      // Keep sessions alive for 30 days so users stay logged in until explicit logout.
+      // SSO session idle = 30 days (how long a session survives without activity).
+      // SSO session max  = 30 days (absolute cap regardless of activity).
+      // Offline session idle = 30 days (refresh tokens for CLI / long-lived sessions).
+      const THIRTY_DAYS = 30 * 24 * 60 * 60; // 2_592_000 seconds
+      if (!realm?.ssoSessionIdleTimeout || realm.ssoSessionIdleTimeout < THIRTY_DAYS) {
+        updates.ssoSessionIdleTimeout = THIRTY_DAYS;
+      }
+      if (!realm?.ssoSessionMaxLifespan || realm.ssoSessionMaxLifespan < THIRTY_DAYS) {
+        updates.ssoSessionMaxLifespan = THIRTY_DAYS;
+      }
+      if (!realm?.offlineSessionIdleTimeout || realm.offlineSessionIdleTimeout < THIRTY_DAYS) {
+        updates.offlineSessionIdleTimeout = THIRTY_DAYS;
+      }
       if (Object.keys(updates).length > 0) {
         await this.client.realms.update({ realm: 'master' }, updates);
         this.logger.log('Master realm settings updated');
@@ -356,7 +370,9 @@ export class KeycloakAdminService implements OnModuleInit {
       duplicateEmailsAllowed: false,
       verifyEmail: false,
       accessTokenLifespan: 1800,
-      ssoSessionIdleTimeout: 86400,
+      ssoSessionIdleTimeout: 2592000,  // 30 days
+      ssoSessionMaxLifespan: 2592000,  // 30 days
+      offlineSessionIdleTimeout: 2592000, // 30 days
     });
 
     try {
