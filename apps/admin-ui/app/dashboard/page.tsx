@@ -23,6 +23,8 @@ import { Button } from '@/components/ui/button';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import {
   ArrowRight,
+  Check,
+  ChevronDown,
   Database,
   FolderOpen,
   Plus,
@@ -107,13 +109,38 @@ function StatCard({
 // ── Main ─────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
-  const { activeTeamId } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId } = useActiveTeam();
   const { profile, teams } = useDashboard();
 
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
+
+  const activeTeam = teams.find((t) => t.id === activeTeamId);
+  const sortedTeams = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name)), [teams]);
+
+  // Close team dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-team-selector="true"]')) return;
+      setTeamDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  async function switchTeam(teamId: string) {
+    try {
+      await api.teams.setActive(teamId);
+      const Cookies = (await import('js-cookie')).default;
+      Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+      setActiveTeamId(teamId);
+      setTeamDropdownOpen(false);
+    } catch { /* silent */ }
+  }
 
   // ── Project search (all teams) ──
   const [searchQuery, setSearchQuery] = useState('');
@@ -230,40 +257,75 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* Full-width project search */}
-      <div className="relative" data-dashboard-search="true">
-        <Search
-          className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          ref={searchInputRef}
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => { setTimeout(() => setSearchFocused(false), 150); }}
-          placeholder="Search projects across all your teams..."
-          autoComplete="off"
-          autoCorrect="off"
-          className={cn(
-            'h-12 w-full rounded-xl border border-input bg-card pl-12 pr-12 text-sm shadow-sm',
-            'placeholder:text-muted-foreground/70',
-            'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
-            'transition-shadow duration-150',
-          )}
-        />
-        {searchQuery && (
+      {/* Team selector + search */}
+      <div className="flex items-center gap-3">
+        {/* Team selector */}
+        <div className="relative shrink-0" data-team-selector="true">
           <button
             type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setSearchQuery('')}
-            className="absolute right-4 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Clear search"
+            onClick={() => setTeamDropdownOpen((prev) => !prev)}
+            className="flex h-12 items-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
           >
-            <X className="h-4 w-4" />
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span className="max-w-[160px] truncate">{activeTeam?.name ?? 'Select team'}</span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
-        )}
+          {teamDropdownOpen && (
+            <div className="absolute left-0 top-full z-40 mt-1.5 w-64 max-h-72 overflow-y-auto rounded-xl border bg-card p-1 shadow-lg">
+              {sortedTeams.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">No teams found.</p>
+              ) : sortedTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => void switchTeam(t.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                    t.id === activeTeamId ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent',
+                  )}
+                >
+                  <span className="truncate">{t.name}</span>
+                  {t.id === activeTeamId && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Search */}
+        <div className="relative min-w-0 flex-1" data-dashboard-search="true">
+          <Search
+            className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => { setTimeout(() => setSearchFocused(false), 150); }}
+            placeholder="Search projects across all your teams..."
+            autoComplete="off"
+            autoCorrect="off"
+            className={cn(
+              'h-12 w-full rounded-xl border border-input bg-card pl-12 pr-12 text-sm shadow-sm',
+              'placeholder:text-muted-foreground/70',
+              'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
+              'transition-shadow duration-150',
+            )}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setSearchQuery('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         {showSearchDropdown && (
           <div className="absolute left-0 top-full z-30 mt-2 w-full max-h-[min(60vh,24rem)] overflow-y-auto rounded-xl border border-border bg-card shadow-lg">
             {allTeamsLoading && allTeamsProjects.length === 0 ? (
@@ -301,6 +363,7 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Stat Cards */}
