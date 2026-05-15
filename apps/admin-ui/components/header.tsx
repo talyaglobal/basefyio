@@ -248,8 +248,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
   return (
     <header ref={headerRef} className="sticky top-0 z-30 shrink-0 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
-      {/* ── Row 1: logo + nav items + right actions (horizontally scrollable on small screens) ── */}
-      <div className="flex h-14 items-center gap-2 overflow-x-auto px-3 sm:px-4 md:px-6 scrollbar-thin">
+      <div className="flex h-14 items-center gap-2 px-3 sm:px-4 md:px-6">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
         <Link href="/dashboard" className="flex items-center gap-2">
