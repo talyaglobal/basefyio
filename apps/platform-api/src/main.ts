@@ -13,16 +13,24 @@ async function bootstrap() {
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+      frameguard: { action: 'deny' },
+      contentSecurityPolicy: false, // API doesn't serve HTML; CSP not needed
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    }),
+  );
 
   const rawOrigins =
     process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:3002';
-  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
-  const allowAll = allowedOrigins.includes('*');
+  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim()).filter((o) => o !== '*');
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowAll || allowedOrigins.includes(origin)) {
+      // Allow server-to-server (no origin) and whitelisted origins only.
+      // Never allow wildcard with credentials — browsers block it and it's insecure.
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(null, false);

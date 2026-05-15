@@ -6,6 +6,7 @@ import type {
   ColumnInfo,
   Filter,
   FilterOperator,
+  OrFilter,
   OrderClause,
 } from '../lib/types.js';
 
@@ -28,6 +29,72 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+// ── Or Condition Builder ───────────────────────────────
+
+export class OrConditionBuilder {
+  private _filters: OrFilter[] = [];
+
+  /** @internal */
+  getFilters(): OrFilter[] {
+    return this._filters;
+  }
+
+  eq(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'eq', value });
+    return this;
+  }
+
+  neq(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'neq', value });
+    return this;
+  }
+
+  gt(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'gt', value });
+    return this;
+  }
+
+  gte(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'gte', value });
+    return this;
+  }
+
+  lt(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'lt', value });
+    return this;
+  }
+
+  lte(column: string, value: unknown): this {
+    this._filters.push({ column, operator: 'lte', value });
+    return this;
+  }
+
+  like(column: string, pattern: string): this {
+    this._filters.push({ column, operator: 'like', value: pattern });
+    return this;
+  }
+
+  ilike(column: string, pattern: string): this {
+    this._filters.push({ column, operator: 'ilike', value: pattern });
+    return this;
+  }
+
+  is(column: string, value: null | boolean): this {
+    this._filters.push({ column, operator: 'is', value });
+    return this;
+  }
+
+  in(column: string, values: unknown[]): this {
+    this._filters.push({ column, operator: 'in', value: values });
+    return this;
+  }
+
+  not(column: string, operator: FilterOperator, value: unknown): this {
+    this._filters.push({ column, operator, value, negate: true });
+    return this;
+  }
+}
+
 // ── Query Builder ───────────────────────────────────────
 
 type Operation = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
@@ -42,7 +109,8 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
   private _updateData: Record<string, unknown> = {};
   private _upsertConflict: string[] = [];
   private _filters: Filter[] = [];
-  private _or: string[] = [];
+  private _or: OrFilter[][] = [];
+  private _orRaw: string[] = [];
   private _orders: OrderClause[] = [];
   private _limit?: number;
   private _offset?: number;
@@ -147,8 +215,40 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
     return this;
   }
 
-  or(conditions: string): this {
-    this._or.push(conditions);
+  /**
+   * Add an OR condition group using safe, structured filter objects.
+   * Each call creates an OR group: the filters within the callback are
+   * OR-ed together, and the resulting group is AND-ed with other clauses.
+   *
+   * @example
+   * // WHERE ... AND ("status" = 'active' OR "role" = 'admin')
+   * kb.from('users')
+   *   .select()
+   *   .or((q) => q.eq('status', 'active').eq('role', 'admin'))
+   */
+  or(buildFn: (q: OrConditionBuilder) => OrConditionBuilder): this {
+    const builder = new OrConditionBuilder();
+    buildFn(builder);
+    const filters = builder.getFilters();
+    if (filters.length) {
+      this._or.push(filters);
+    }
+    return this;
+  }
+
+  /**
+   * Add a raw OR condition string. The string is inserted into the WHERE
+   * clause **without any escaping or sanitization**.
+   *
+   * **WARNING: NEVER pass unsanitized user input to this method. Doing so
+   * creates a SQL injection vulnerability. Prefer the safe `or()` method
+   * with structured filter objects instead.**
+   *
+   * @example
+   * .orRaw("status = 'active' OR role = 'admin'")
+   */
+  orRaw(conditions: string): this {
+    this._orRaw.push(conditions);
     return this;
   }
 
@@ -219,7 +319,33 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
       parts.push(neg ? `${neg}(${clause})` : clause);
     }
 
-    for (const raw of this._or) {
+    for (const orGroup of this._or) {
+      const orParts = orGroup.map((f) => {
+        const col = quoteIdent(f.column);
+        const neg = f.negate ? 'NOT ' : '';
+        let clause: string;
+
+        switch (f.operator) {
+          case 'eq':  clause = `${col} = ${escapeValue(f.value)}`; break;
+          case 'neq': clause = `${col} != ${escapeValue(f.value)}`; break;
+          case 'gt':  clause = `${col} > ${escapeValue(f.value)}`; break;
+          case 'gte': clause = `${col} >= ${escapeValue(f.value)}`; break;
+          case 'lt':  clause = `${col} < ${escapeValue(f.value)}`; break;
+          case 'lte': clause = `${col} <= ${escapeValue(f.value)}`; break;
+          case 'like':  clause = `${col} LIKE ${escapeValue(f.value)}`; break;
+          case 'ilike': clause = `${col} ILIKE ${escapeValue(f.value)}`; break;
+          case 'is':  clause = `${col} IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`; break;
+          case 'in':  clause = `${col} IN ${escapeValue(f.value)}`; break;
+          case 'not': clause = `NOT (${col} = ${escapeValue(f.value)})`; break;
+          default:    clause = `${col} = ${escapeValue(f.value)}`;
+        }
+
+        return neg ? `${neg}(${clause})` : clause;
+      });
+      parts.push(`(${orParts.join(' OR ')})`);
+    }
+
+    for (const raw of this._orRaw) {
       parts.push(`(${raw})`);
     }
 
@@ -345,6 +471,13 @@ export class DatabaseClient {
     return new QueryBuilder<T>(this.http, this.projectId, table);
   }
 
+  /**
+   * Execute a raw SQL query.
+   *
+   * **WARNING: This method executes raw SQL. NEVER pass unsanitized user input
+   * directly into the query string, as this creates SQL injection vulnerabilities.
+   * Always validate and sanitize any dynamic values before including them.**
+   */
   async sql<T = Record<string, unknown>>(query: string): Promise<KolaybaseResponse<T[]>> {
     try {
       const result = await this.http.json<SqlResult>('/sql/execute', {

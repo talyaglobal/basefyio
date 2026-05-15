@@ -954,7 +954,13 @@ function MessageBubble({
         {parts.map((part, i) => {
           if (part.type === 'text') {
             if (!part.value.trim()) return null;
-            const html = part.value
+            // Escape HTML first to prevent XSS from AI responses or injected content
+            const escaped = part.value
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+            const html = escaped
               .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
               .replace(/`([^`]+)`/g, '<code class="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">$1</code>')
               .replace(/\n/g, '<br>');

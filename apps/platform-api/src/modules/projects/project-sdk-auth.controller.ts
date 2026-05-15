@@ -203,6 +203,14 @@ export class ProjectSdkAuthController {
     @Query('state') state: string,
   ) {
     const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
+
+    // SECURITY: Validate redirect URL to prevent open redirect token theft.
+    // Only allow relative paths — SDK OAuth should redirect back to the same app.
+    let safeRedirect = result.redirectTo || '/';
+    if (safeRedirect.startsWith('//') || (safeRedirect.startsWith('http') && !safeRedirect.startsWith('http://localhost'))) {
+      safeRedirect = '/';
+    }
+
     const params = new URLSearchParams({
       access_token: result.accessToken,
       refresh_token: result.refreshToken,
@@ -210,7 +218,7 @@ export class ProjectSdkAuthController {
       token_type: result.tokenType || 'Bearer',
       provider,
     });
-    res.redirect(`${result.redirectTo}#${params.toString()}`);
+    res.redirect(`${safeRedirect}#${params.toString()}`);
   }
 
   private getPayload(req: Request): ApiKeyPayload {

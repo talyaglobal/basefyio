@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query, Res, UseGuards, Req, Put, Patch, UploadedFile, UseInterceptors, BadRequestException, Delete, HttpCode, HttpStatus, Inject } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -22,6 +22,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { ObservabilityService } from '../observability/observability.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
+import { RateLimitGuard, RateLimit } from '../../common/guards/rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -32,6 +33,8 @@ export class AuthController {
   ) {}
 
   @Post('signup')
+  @UseGuards(RateLimitGuard)
+  @RateLimit(5, 60) // 5 requests per minute per IP
   async signup(@Body() dto: SignupDto) {
     return this.authService.initiateSignup(dto);
   }
@@ -47,6 +50,8 @@ export class AuthController {
   }
 
   @Post('login')
+  @UseGuards(RateLimitGuard)
+  @RateLimit(10, 60) // 10 login attempts per minute per IP
   async login(@Body() dto: LoginDto, @Req() req: Request) {
     const ipAddress =
       (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -64,6 +69,8 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(RateLimitGuard)
+  @RateLimit(30, 60) // 30 refresh requests per minute per IP
   async refresh(@Body('refreshToken') refreshToken: string) {
     return this.authService.refresh(refreshToken);
   }
@@ -79,6 +86,8 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @UseGuards(RateLimitGuard)
+  @RateLimit(3, 60) // 3 requests per minute per IP
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto.email);
   }
@@ -544,10 +553,25 @@ export class AuthController {
         return res.redirect((result as any).cliRedirectUrl);
       }
 
-      // Standard web flow: embed tokens in the fragment so the frontend can read them
-      const appUrl = result.redirectTo?.startsWith('http')
-        ? result.redirectTo
-        : `${baseAppUrl}${result.redirectTo || '/login'}`;
+      // Standard web flow: embed tokens in the fragment so the frontend can read them.
+      // SECURITY: Only allow relative paths or same-origin redirects to prevent open redirect token theft.
+      let redirectPath = result.redirectTo || '/login';
+      if (redirectPath.startsWith('http')) {
+        try {
+          const redirectUrl = new URL(redirectPath);
+          const appOrigin = new URL(baseAppUrl);
+          if (redirectUrl.origin !== appOrigin.origin) {
+            redirectPath = '/login'; // Block external redirect
+          }
+        } catch {
+          redirectPath = '/login';
+        }
+      } else if (redirectPath.startsWith('//')) {
+        redirectPath = '/login'; // Block protocol-relative URLs
+      }
+      const appUrl = redirectPath.startsWith('http')
+        ? redirectPath
+        : `${baseAppUrl}${redirectPath}`;
 
       const params = new URLSearchParams({
         access_token: result.accessToken,

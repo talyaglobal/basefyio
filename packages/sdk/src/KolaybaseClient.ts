@@ -62,6 +62,10 @@ export class KolaybaseClient {
   /**
    * Execute a raw SQL query.
    *
+   * **WARNING: This method executes raw SQL. NEVER pass unsanitized user input
+   * directly into the query string, as this creates SQL injection vulnerabilities.
+   * Always validate and sanitize any dynamic values before including them.**
+   *
    * @example
    * const { data } = await kb.sql('SELECT * FROM users WHERE id = 1')
    */

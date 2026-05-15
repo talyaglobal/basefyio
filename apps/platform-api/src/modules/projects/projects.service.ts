@@ -1158,7 +1158,8 @@ export class ProjectsService {
     try {
       const sanitized = dbName.replace(/[^a-z0-9_]/g, '');
       await client.query(
-        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${sanitized}'`,
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [sanitized],
       );
       await client.query(`DROP DATABASE IF EXISTS "${sanitized}"`);
       this.logger.log(`Database "${sanitized}" dropped`);

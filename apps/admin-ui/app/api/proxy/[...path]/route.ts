@@ -5,11 +5,46 @@ const BACKEND_URL =
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+/** Validate Origin/Referer for state-changing requests to prevent CSRF. */
+function validateOrigin(request: NextRequest): boolean {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return true;
+  const origin = request.headers.get('origin');
+  const referer = request.headers.get('referer');
+  const host = request.headers.get('host');
+  if (!host) return false;
+  // Accept same-origin requests
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host;
+      return originHost === host;
+    } catch { return false; }
+  }
+  if (referer) {
+    try {
+      const refHost = new URL(referer).host;
+      return refHost === host;
+    } catch { return false; }
+  }
+  // No origin or referer — could be server-side fetch, allow cautiously
+  return true;
+}
+
 async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await params;
+
+  // Block path traversal attempts
+  if (path.some((seg) => seg === '..' || seg === '.' || seg.includes('\0'))) {
+    return NextResponse.json({ message: 'Invalid path' }, { status: 400 });
+  }
+
+  // CSRF protection: reject cross-origin state-changing requests
+  if (!validateOrigin(request)) {
+    return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+  }
+
   const url = new URL(request.url);
   const query = url.search;
   const target = `${BACKEND_URL}/api/${path.join('/')}${query}`;
@@ -79,9 +114,9 @@ async function proxy(
         'content-type': upstreamCt || 'application/json',
       },
     });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
-      { message: `Backend unreachable: ${err.message}` },
+      { message: 'Backend unreachable' },
       { status: 502 },
     );
   }

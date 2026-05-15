@@ -420,6 +420,7 @@ export class ProjectDataService {
       const qualified = `"${schema}"."${tableName}"`;
       const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== '');
       if (!keys.length) throw new BadRequestException('No data provided');
+      for (const k of keys) this.validateColumnName(k);
 
       const cols = keys.map((k) => `"${k}"`).join(', ');
       const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
@@ -456,6 +457,8 @@ export class ProjectDataService {
       const whereCols = Object.keys(pkWhere);
       if (!setCols.length) throw new BadRequestException('No data to update');
       if (!whereCols.length) throw new BadRequestException('No primary key provided');
+      for (const k of setCols) this.validateColumnName(k);
+      for (const k of whereCols) this.validateColumnName(k);
 
       let paramIdx = 1;
       const setClause = setCols
@@ -501,6 +504,7 @@ export class ProjectDataService {
       const qualified = `"${schema}"."${tableName}"`;
       const whereCols = Object.keys(pkWhere);
       if (!whereCols.length) throw new BadRequestException('No primary key provided');
+      for (const k of whereCols) this.validateColumnName(k);
 
       const whereClause = whereCols
         .map((k, i) => `"${k}" = $${i + 1}`)

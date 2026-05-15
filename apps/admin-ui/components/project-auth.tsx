@@ -1068,6 +1068,15 @@ function TemplateEditorDialog({
     return Object.entries(previewVars).reduce((s, [k, v]) => s.replaceAll(k, v), text);
   }
 
+  /** Strip dangerous HTML for the preview: scripts, event handlers, javascript: URIs */
+  function sanitizeHtmlPreview(html: string): string {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<script[^>]*>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+      .replace(/javascript\s*:/gi, 'blocked:');
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -1128,7 +1137,7 @@ function TemplateEditorDialog({
             {showPreview ? (
               <div className="rounded-md border bg-white p-4 min-h-[200px]">
                 <p className="mb-2 text-xs font-medium text-muted-foreground">Subject: {applyVars(subject)}</p>
-                <div className="border-t pt-2" dangerouslySetInnerHTML={{ __html: applyVars(body) }} />
+                <div className="border-t pt-2" dangerouslySetInnerHTML={{ __html: sanitizeHtmlPreview(applyVars(body)) }} />
               </div>
             ) : (
               <Textarea

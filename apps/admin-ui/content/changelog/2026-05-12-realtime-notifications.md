@@ -1,35 +1,25 @@
 ---
 date: 2026-05-12
 slug: realtime-notifications
-title: Anlık bildirimler artık çalışıyor
+title: Bildirimler artik anlik
 kind: feature
-summary: 15 saniye bekleme yok — feedback olayları artık tarayıcına anlık düşüyor.
+summary: Yeni feedback, yorum veya durum degisikligi oldu mu? Artik aninda bildirim aliyorsunuz.
 ---
 
-## Ne değişti?
+Eskiden bir kullanici feedback gonderdiginde, gormek icin sayfayi yenilemek ya da birkac saniye beklemek gerekiyordu.
 
-Eskiden bir kullanıcı feedback gönderdiğinde, başkalarının bunu görmesi için **15 saniyelik polling döngüsü** beklemesi gerekiyordu. Bu süre boyunca tarayıcı, sunucuya "yeni bir şey var mı?" diye sorup duruyordu. Şimdi sunucu, olay olduğu anda **tek taraflı** olarak tarayıcıya bildiriyor.
+Artik boyle degil. Bir sey oldugu anda bildirim caniniz yaniyor — bekleme yok.
 
-Sonuç: feedback gönderildiği an ROOT admin'lerin bildirim çanı yanıyor. Ortalama gecikme 15 sn → 200 ms (yaklaşık 75× daha hızlı).
+## Hangi olaylar anlik bildirim gonderiyor?
 
-## Hangi olaylar artık anlık?
+- **Yeni feedback geldi** — admin'lere aninda duser.
+- **Feedback durumu degisti** — feedback sahibi ve admin'ler gorur.
+- **Yeni yorum eklendi** — yorumun bir bolumu bildirimde gorunur.
 
-- **Yeni feedback gönderildi** — ROOT admin'lere düşer.
-- **Feedback statüsü değiştirildi** — feedback sahibi + ROOT admin'lere.
-- **Feedback güncellendi / silindi** — aynı alıcı listesi.
-- **Yorum eklendi** — feedback sahibi + ROOT admin'lere; yorumun ilk 200 karakteri bildirim mesajında.
+## Ne kadar hizli?
 
-## Nasıl test edersin?
+Eskiden ortalama 15 saniye gecikme vardi. Simdi 1 saniyenin altinda. Gercekten anlik.
 
-1. İki ayrı tarayıcı sekmesi aç, biri ROOT, biri normal kullanıcı.
-2. Normal kullanıcı sekmesinden Feedback butonu → bir şey yaz → Send.
-3. ROOT sekmesinde **1 saniyeden kısa** sürede çan kırmızıya döner, toast çıkar: *"New feedback submitted — TestUser (test@x.com) submitted 'Bug raporu'."*
+## Sorun cikarsa?
 
-DevTools'ta `realtime/stream` isteğini açıp **EventStream** sekmesinden olayların geldiğini canlı görebilirsin.
-
-## Acil durum kapatma
-
-Bir sorun çıkarsa redeploy gerektirmeden devre dışı bırakabilirsin:
-
-- Platform-api container env: `KB_REALTIME_DISABLE=1` → sunucu olay yayımlamaz.
-- Admin-ui container env: `NEXT_PUBLIC_KB_REALTIME_DISABLE=1` → tarayıcı abone olmaz.
+Anlık bildirimleri kapatmaniz gerekirse, uygulamayi yeniden deploy etmeden ortam degiskeniyle devre disi birakabilirsiniz. Kapatinca bildirimler gelmez ama uygulama normal calismaya devam eder — sadece sayfayi yenileyerek degisiklikleri gorursunuz.

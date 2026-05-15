@@ -104,7 +104,7 @@ const { data } = await kb.from('posts')
           <tr><td><code>.is(col, val)</code></td><td><code>IS</code></td><td><code>.is(&apos;deleted_at&apos;, null)</code></td></tr>
           <tr><td><code>.in(col, vals)</code></td><td><code>IN (...)</code></td><td><code>.in(&apos;id&apos;, [1,2,3])</code></td></tr>
           <tr><td><code>.not(col, op, val)</code></td><td><code>NOT</code></td><td><code>.not(&apos;status&apos;, &apos;eq&apos;, &apos;draft&apos;)</code></td></tr>
-          <tr><td><code>.or(filters)</code></td><td><code>OR</code></td><td><code>.or(&apos;status.eq.active,role.eq.admin&apos;)</code></td></tr>
+          <tr><td><code>.or(callback)</code></td><td><code>OR</code></td><td><code>.or(q =&gt; q.eq(&apos;status&apos;, &apos;active&apos;).eq(&apos;role&apos;, &apos;admin&apos;))</code></td></tr>
         </tbody>
       </table>
 

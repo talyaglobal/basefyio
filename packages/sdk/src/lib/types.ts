@@ -156,6 +156,13 @@ export interface Filter {
   negate?: boolean;
 }
 
+export interface OrFilter {
+  column: string;
+  operator: FilterOperator;
+  value: unknown;
+  negate?: boolean;
+}
+
 export interface OrderClause {
   column: string;
   ascending: boolean;

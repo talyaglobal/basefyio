@@ -1,48 +1,25 @@
 ---
 date: 2026-05-11
 slug: clean-duplicates
-title: Clean Duplicates — Tekrar eden satirlari tek tikla temizle
+title: Tekrar eden satirlari tek tikla temizleyin
 kind: feature
-summary: Bir veya daha fazla sutuna gore mukerrer kayitlari bul, on izleme yap, sonra binlerce/milyonlarca satiri saniyeler icinde sil.
+summary: Tablonuzdaki mukerrer kayitlari bulun, kacinin silinecegini gorun, tek tikla temizleyin.
 ---
 
-## Ne yapar?
+Toplu veri yukledikten sonra tabloda ayni kayittan birden fazla kalabiliyor. Ayni e-posta adresi iki kere, ayni urun kodu uc kere... Bunlari elle temizlemek hem zahmetli hem riskli.
 
-Buyuk import'lardan sonra mutlaka kalan: ayni `part_number`'a iki satir, ayni `email`'e ucuncu kayit. Eskiden SQL editorde `DELETE` cumlesi yazmak gerekirdi — riskli ve yavasti.
+Artik Table Editor'deki **Clean duplicates** butonuyla tek tikla halledebilirsiniz.
 
-Yeni **Clean duplicates** butonu Table Editor sag ust kosesinde. Acan dialogda:
+## Nasil kullanilir?
 
-1. **Key columns** — Hangi sutun(lar)in es olmasi "duplicate" sayilsin? `part_number` secersin ya da `(brand, sku)` cifti gibi cogul. Bir sutunda NULL'lar birbiriyle es sayilir (DISTINCT ON semantigi).
-2. **Search columns** — Cok genis tablolar icin (60+ sutun) anlik filtre.
-3. **Preview count** — Hicbir sey silmeden, "su an kac satir silinecek?" sayisini gosterir. 1.500 → tikla → 1.500 satir silinir. 1.000'den fazla eslesirse `1.000+` der (counter capped). Once preview, sonra delete.
-4. **Remove duplicates** — Onaylarsin, batched silme baslar. Her batch en fazla 8.000 satir. Bir grup icindeki en eski satir (Postgres internal `ctid`) korunur, kalanlar silinir.
+1. **Hangi sutunlara gore?** — Ornegin `email` sutununu secin. Ayni e-postaya sahip satirlar tekrar sayilir. Birden fazla sutun da secebilirsiniz, mesela `marka + urun_kodu` birlikte.
 
-## Performans
+2. **Once sayiyi gorun** — "Kac satir silinecek?" sorusunun cevabini, hicbir sey silmeden once gorursunuz.
 
-Onceki sezgisel implementasyon `WHERE EXISTS (SELECT ... ctid > t1.ctid ...)` self-join kullaniyordu. 1.5M satirda bu O(n^2) → 2.25 trilyon karsilastirma → 15s statement_timeout aninda patliyordu.
+3. **Temizleyin** — Onaylayin, tekrar eden satirlar silinsin. Her gruptaki en eski kayit korunur, digerileri kaldirilir.
 
-Yeni implementasyon **window function** kullaniyor:
+## Bilmeniz gerekenler
 
-```sql
-DELETE FROM tablo
-WHERE ctid IN (
-  SELECT ctid FROM (
-    SELECT ctid, ROW_NUMBER() OVER (PARTITION BY key_cols ORDER BY ctid) AS rn
-    FROM tablo
-  ) ranked
-  WHERE rn > 1
-  LIMIT 8000
-)
-```
-
-Bu yaklasim O(n log n) — milyonlarca satirda saniye-dakika seviyesinde tamamlanir. Per-statement timeout bu islem icin 0'a (sinirsiz) cekilir cunku admin operasyonu.
-
-## Onemli notlar
-
-- **Geri alinamaz**. Silme kalicidir. Once `Preview count`, sonra `Remove duplicates`.
-- **Foreign key kisitlari**: baska tablo bu satirlara FK ile bagliysa silme basarisiz olur — sistem hata mesaji gosterir, FK referanslarini cozmen gerekir.
-- 16 milyon satir uzeri bir tek tiklamada silinmez — sistem "daha kaldi, tekrar bas" der.
-
-## Test ettim mi?
-
-`fleetpride_all_products` (1.5M satir) icinde `birim + i_stanbul_stok` cakismalarini birakti. Preview "1.243 satir silinecek". Click → 2 saniyede tamam. Yan tablonun row count'u sidebar'da otomatik guncellendi.
+- **Geri alinamaz.** Silinen satirlar geri gelmez. Bu yuzden once mutlaka on izleme yapin.
+- **Cok hizli.** Milyonlarca satirda bile saniyeler icinde tamamlanir.
+- Baska tablolarla baglantili satirlar varsa (foreign key), sistem sizi uyarir — once o baglantilari cozmeniz gerekir.

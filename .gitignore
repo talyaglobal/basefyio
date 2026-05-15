@@ -24,3 +24,6 @@ coverage/
 
 prisma/*.db
 prisma/migrations/**/migration_lock.toml
+
+# Local project link (created by `kb link`)
+.kolaybase/

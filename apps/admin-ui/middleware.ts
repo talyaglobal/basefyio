@@ -11,9 +11,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token =
-    request.cookies.get('kb_access_token')?.value ||
-    request.cookies.get('kb_logged_in')?.value;
+  // Only accept the actual access token — the kb_logged_in marker is a lightweight
+  // hint for the marketing site, not an auth credential.
+  const token = request.cookies.get('kb_access_token')?.value;
   const forcePasswordChange = request.cookies.get('kb_force_password_change')?.value === '1';
 
   if (!token) {

@@ -36,15 +36,18 @@ export function setTokens(tokens: AuthTokens) {
   } else {
     storage?.removeItem(ID_TOKEN_KEY);
   }
+  const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
   Cookies.set(TOKEN_KEY, tokens.accessToken, {
     expires: 30,
     sameSite: 'lax',
     path: '/',
+    ...(isSecure ? { secure: true } : {}),
   });
   Cookies.set(REFRESH_KEY, tokens.refreshToken, {
     expires: 30,
     sameSite: 'lax',
     path: '/',
+    ...(isSecure ? { secure: true } : {}),
   });
   // Small marker cookie for middleware checks; avoids JWT cookie size limits.
   // Set on root domain so the marketing site can detect logged-in state.
@@ -54,12 +57,14 @@ export function setTokens(tokens: AuthTokens) {
     sameSite: 'lax',
     path: '/',
     ...(rootDomain ? { domain: rootDomain } : {}),
+    ...(isSecure ? { secure: true } : {}),
   });
   if (tokens.forcePasswordChange) {
     Cookies.set(FORCE_PASSWORD_CHANGE_KEY, '1', {
       expires: 7,
       sameSite: 'lax',
       path: '/',
+      ...(isSecure ? { secure: true } : {}),
     });
   } else {
     Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });

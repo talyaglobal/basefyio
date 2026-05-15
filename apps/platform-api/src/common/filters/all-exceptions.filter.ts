@@ -25,7 +25,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = typeof res === 'string' ? res : (res as any).message || message;
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
-      message = exception.message;
+      // Don't leak internal error details to the client
+      message = 'Internal server error';
     }
 
     response.status(status).json({

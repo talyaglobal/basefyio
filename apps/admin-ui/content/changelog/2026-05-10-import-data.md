@@ -1,52 +1,33 @@
 ---
 date: 2026-05-10
 slug: import-data-wizard
-title: Import Data — CSV ve Excel toplu yukleme sihirbazi
+title: CSV ve Excel dosyalarini dogrudan tabloya yukleyin
 kind: feature
-summary: Her projeye CSV/XLSX dosyalarini akilli bir sihirbazla toplu yukle. Otomatik sema tespiti, sutun esleme, conflict yonetimi, arkaplan isleme.
+summary: Artik CSV veya Excel dosyalarinizi surekleyip birakin, sutunlari esleyin, yukleyin. SQL yazmaya gerek yok.
 ---
 
-## Ne icin?
+Elinizdeki CSV ya da Excel dosyasini tabloya aktarmak icin artik SQL yazmak zorunda degilsiniz.
 
-Kolay'da yeni bir tabloya veri yuklemek artik kolay. Excel'den / Postgres dump'tan / 3. parti tedarikciden gelen CSV-XLSX dosyalarini Table Editor uzerinden, hicbir SQL yazmadan icine atabiliyorsun.
+Table Editor'deki **Import Data** butonuna tiklayin, dosyanizi surekleyip birakin — gerisini biz hallettik.
 
 ## Nasil calisir?
 
-Table Editor sag ust kosesindeki **Import Data** butonu sihirbazi acar. 4 adim:
+1. **Dosyanizi secin** — CSV, TSV veya Excel dosyalarini surekleyip birakin. Birden fazla dosya da olur.
 
-1. **Upload** — Bir veya birden cok dosyayi siruksuyle birak. Tipler: `.csv`, `.tsv`, `.xlsx`. Her dosya boyutu ayri.
-2. **Configure** — Sistem ilk binlerce satira bakip:
-   - Header satirini bulur (degistirilebilir).
-   - Sutun tiplerini tespit eder (text, integer, numeric, boolean, uuid, date, jsonb).
-   - Hedef tabloyu sec: mevcut bir tabloya append / overwrite et, ya da yeni bir tablo yarat.
-   - Sutun bazli esle: kaynak `Kategori` → hedef `kategori (text)`.
-3. **Running** — BullMQ background job. Server-Sent Events ile canli progress: kac satir okundu, kac yazildi, kac atlandi, kac hatali oldu. Iptal edebilirsin.
-4. **Done** — Ozet ekrani: toplam isle suresi, throughput, basari yuzdesi, hatali satirlarin CSV dosyasini indir.
+2. **Ayarlari yapin** — Sutun tipleri otomatik tespit edilir. Mevcut bir tabloya ekleyin ya da yenisini olusturun. Hangi sutunun nereye gidecegini kendiniz esleyebilirsiniz.
 
-## Conflict yonetimi (`On duplicate row`)
+3. **Yuklemeyi baslatın** — Canli ilerleme cubugu ile kac satirin yazildigini anlik takip edin. Isterseniz iptal edebilirsiniz.
 
-CSV'nin icinde mevcut tablonun anahtariyla cakisan satirlar varsa:
+4. **Tamam!** — Sure, basari orani ve varsa hatali satirlarin listesini gorun.
 
-- **Skip — keep existing row**: var olani koru, yeni satiri atla. *"Eski veri kalsin."*
-- **Update — overwrite existing row**: var olanin uzerine yaz. *"Yeni veri otoriter."*
-- **Fail — error on conflict**: ilk cakismada tum aktarimi durdur. *"Hicbir cakisma istemiyorum."*
+## Ayni kayit tekrar gelirse ne olur?
 
-Skip / Update icin **conflict columns** sec — bu sutun(lar)in `UNIQUE` constraint'i olmali. Olmamis hatasi alirsan ya constrainti ekle, ya Fail moduna gec.
+Dosyanizda tablodaki mevcut bir kayitla cakisan satir varsa uc secenek sunuyoruz:
 
-## Buyuk dosyalar icin presigned upload
+- **Atla** — mevcut kaydi koru, yenisini gec
+- **Uzerine yaz** — yeni veri ile guncelle
+- **Hata ver** — cakisma olursa islemi durdur
 
-50 MB'tan buyuk dosyalar dogrudan **MinIO'ya presigned PUT** ile yuklenir, platform-api uzerinden gecmez. Bu sayede 800 MB - 2 GB CSV'lar bile 502 / timeout almadan akar. Multi-file mode'da dosyalardan biri buyukse o tek dosya icin presigned, kucukler proxy uzerinden — otomatik karar.
+## Buyuk dosyalar icin de dert etmeyin
 
-## Hata satiri raporu
-
-Her invalid satir (NULL constraint, type cast, vs.) bir bad-rows CSV'sine yazilir. Import bitince **Download error report** ile indirip, sebebini ayri kolonda goruyorsun.
-
-## Performans optimizasyonu
-
-- Worker batch INSERT yapar, batch boyutu 500 satir.
-- Hata aldigi batch'leri **per-row retry**'a dusurur (class 22 / 23 SQL hatalari) — boylece tek bozuk satir 500'lu batch'i comple kaybetmez.
-- Import bittikten sonra `ANALYZE schema.table` calistirir ki sidebar row count'u (`n_live_tup` tabanli) gercek sayiyla esit kalsin.
-
-## Test ettim mi?
-
-FleetPride catalog import: 20 dosya, toplam 1.5M satir, 850 MB. Single click, 12 dakika, sifir kayip.
+Yuzlerce megabaytlik dosyalar bile sorunsuz yuklenir. Hatali satirlar ayri bir rapor dosyasina yazilir — indirip neden reddedildigini gorebilirsiniz.
