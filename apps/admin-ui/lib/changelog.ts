@@ -52,28 +52,136 @@ export function getChangelogEntry(slug: string): ChangelogEntry | null {
   return listChangelogEntries().find((e) => e.slug === slug) || null;
 }
 
-export function renderMarkdown(md: string): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return md
-    .split(/\r?\n\r?\n/)
-    .map((para) => para.trim())
-    .filter(Boolean)
-    .map((para) => {
-      const h = para.match(/^(#{1,4})\s+(.*)$/);
-      if (h) return '<h' + h[1].length + '>' + esc(h[2]) + '</h' + h[1].length + '>';
-      if (/^[-*]\s+/.test(para)) {
-        const items = para.split(/\r?\n/).map((l) => '<li>' + esc(l.replace(/^[-*]\s+/, '')) + '</li>').join('');
-        return '<ul>' + items + '</ul>';
-      }
-      return '<p>' + esc(para) + '</p>';
-    })
-    .join('\n');
+/** Escape HTML entities */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-const C_FEAT = 'bg-emerald-100 text-emerald-800';
-const C_BUG = 'bg-amber-100 text-amber-800';
-const C_IMP = 'bg-blue-100 text-blue-800';
-const C_BRK = 'bg-red-100 text-red-800';
+/** Process inline markdown: bold, italic, inline code, links, strikethrough */
+function inlineMarkdown(text: string): string {
+  let s = esc(text);
+  // inline code (before bold/italic so backticks inside are safe)
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // bold + italic
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  // bold
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // italic
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // strikethrough
+  s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  // links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s;
+}
+
+/**
+ * Render markdown to HTML with support for:
+ * - Headings (## h2, ### h3, #### h4)
+ * - Bold (**text**), italic (*text*), bold+italic (***text***)
+ * - Inline code (`code`)
+ * - Strikethrough (~~text~~)
+ * - Links [text](url)
+ * - Unordered lists (- item, * item)
+ * - Ordered lists (1. item)
+ * - Code blocks (```lang ... ```)
+ * - Blockquotes (> text)
+ * - Horizontal rules (---, ***)
+ * - Paragraphs
+ */
+export function renderMarkdown(md: string): string {
+  const lines = md.split(/\r?\n/);
+  const html: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Skip empty lines
+    if (!line.trim()) { i++; continue; }
+
+    // Code block (```)
+    const codeMatch = line.match(/^```(\w*)$/);
+    if (codeMatch) {
+      const lang = codeMatch[1];
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(esc(lines[i]));
+        i++;
+      }
+      i++; // skip closing ```
+      html.push(`<pre><code${lang ? ` class="language-${lang}"` : ''}>${codeLines.join('\n')}</code></pre>`);
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^([-*_])\1{2,}\s*$/.test(line.trim())) {
+      html.push('<hr>');
+      i++;
+      continue;
+    }
+
+    // Heading
+    const headingMatch = line.match(/^(#{1,4})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      html.push(`<h${level}>${inlineMarkdown(headingMatch[2])}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith('> ')) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && (lines[i].startsWith('> ') || lines[i].startsWith('>'))) {
+        quoteLines.push(lines[i].replace(/^>\s?/, ''));
+        i++;
+      }
+      html.push(`<blockquote>${quoteLines.map((l) => `<p>${inlineMarkdown(l)}</p>`).join('')}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*]\s+/, ''));
+        i++;
+      }
+      html.push('<ul>' + items.map((item) => `<li>${inlineMarkdown(item)}</li>`).join('') + '</ul>');
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ''));
+        i++;
+      }
+      html.push('<ol>' + items.map((item) => `<li>${inlineMarkdown(item)}</li>`).join('') + '</ol>');
+      continue;
+    }
+
+    // Paragraph: collect consecutive non-empty, non-special lines
+    const paraLines: string[] = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|[-*]\s|>\s|\d+\.\s|```)/.test(lines[i]) && !/^([-*_])\1{2,}\s*$/.test(lines[i].trim())) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    if (paraLines.length) {
+      html.push(`<p>${paraLines.map(inlineMarkdown).join('<br>')}</p>`);
+    }
+  }
+
+  return html.join('\n');
+}
+
+const C_FEAT = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+const C_BUG = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+const C_IMP = 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+const C_BRK = 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300';
 
 export const KIND_BADGE_CLASS: Record<ChangelogKind, string> = {
   feature: C_FEAT,
