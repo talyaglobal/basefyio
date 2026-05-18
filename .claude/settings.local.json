@@ -25,7 +25,8 @@
       "Bash(docker exec:*)",
       "Bash(curl -s -X POST http://localhost:8000/auth/sign-in -H 'Content-Type: application/json' -d '{\"email\":\"admin@kolaybase.com\",\"password\":\"admin123\"}')",
       "Bash(curl -s http://localhost:8000/)",
-      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"batuhan@kolaybase.com\",\"password\":\"admin123\"}')"
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"batuhan@kolaybase.com\",\"password\":\"admin123\"}')",
+      "Bash(echo \"EXIT_CODE: $?\")"
     ]
   }
 }
