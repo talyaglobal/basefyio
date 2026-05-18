@@ -11,7 +11,21 @@
       "Bash(npm run:*)",
       "Bash(npm ls:*)",
       "Read(//c/Users/Development/.claude/projects/c--IT-Projects-kolaybase-new/ed4a1026-b276-46ce-a561-385f9475a797/subagents/**)",
-      "Bash(wc -l md/*.md)"
+      "Bash(wc -l md/*.md)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx prisma:*)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate deploy)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate resolve --rolled-back 20260414100000_add_subscription_first_failure_at)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate resolve --applied 20260414100000_add_subscription_first_failure_at)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate resolve --applied 20260414110000_drop_username_columns)",
+      "Bash(docker compose:*)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate resolve --rolled-back 20260518100000_enable_pgvector)",
+      "Bash(DATABASE_URL=\"postgresql://kolaybase:kolaybase_secret@localhost:5433/kolaybase\" npx prisma migrate resolve --rolled-back 20260518100100_embedding_tables)",
+      "Bash(docker exec:*)",
+      "Bash(curl -s -X POST http://localhost:8000/auth/sign-in -H 'Content-Type: application/json' -d '{\"email\":\"admin@kolaybase.com\",\"password\":\"admin123\"}')",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"batuhan@kolaybase.com\",\"password\":\"admin123\"}')"
     ]
   }
 }

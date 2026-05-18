@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RagService } from './rag.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -27,6 +28,7 @@ export class AiService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly ragService: RagService,
   ) {
     const apiKey = config.get<string>('openai.apiKey');
     if (apiKey) {
@@ -83,7 +85,15 @@ export class AiService {
       delete safeContext.tables;
     }
 
-    const systemPrompt = this.buildSystemPrompt(safeContext);
+    // Retrieve relevant context via RAG (graceful degradation — never throws)
+    let ragContext = '';
+    try {
+      ragContext = await this.ragService.retrieveContext(message, safeContext);
+    } catch (err: any) {
+      this.logger.warn('RAG retrieval failed, continuing without context', err?.message);
+    }
+
+    const systemPrompt = this.buildSystemPrompt(safeContext) + ragContext;
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },

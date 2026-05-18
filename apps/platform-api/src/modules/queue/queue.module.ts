@@ -9,6 +9,8 @@ export const BILLING_QUEUE = 'billing';
 /** Generic CSV/XLSX → table import (distinct from supabase-import, which is a
  *  whole-project Supabase migration). */
 export const DATA_IMPORT_QUEUE = 'data-import';
+/** Async pgvector embedding generation (semantic search, RAG, recommendations). */
+export const EMBEDDING_QUEUE = 'embedding';
 
 @Global()
 @Module({
@@ -47,6 +49,7 @@ export const DATA_IMPORT_QUEUE = 'data-import';
       { name: EXPORT_QUEUE },
       { name: BILLING_QUEUE },
       { name: DATA_IMPORT_QUEUE },
+      { name: EMBEDDING_QUEUE },
     ),
   ],
   exports: [BullModule],

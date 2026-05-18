@@ -169,11 +169,11 @@ Response: { id, email, username, emailVerified, ... }`}</code></pre>
           <tr><th>Method</th><th>Path</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td>POST</td><td><code>/auth/change-email</code></td><td>Request email change</td></tr>
-          <tr><td>POST</td><td><code>/auth/change-email/verify</code></td><td>Confirm email change</td></tr>
-          <tr><td>POST</td><td><code>/auth/reauth</code></td><td>Request re-authentication</td></tr>
-          <tr><td>POST</td><td><code>/auth/reauth/verify</code></td><td>Verify re-auth OTP</td></tr>
-          <tr><td>POST</td><td><code>/auth/invite</code></td><td>Invite user (service key only)</td></tr>
+          <tr><td>POST</td><td><code>/api/rest/v1/auth/change-email</code></td><td>Request email change</td></tr>
+          <tr><td>POST</td><td><code>/api/rest/v1/auth/change-email/verify</code></td><td>Confirm email change</td></tr>
+          <tr><td>POST</td><td><code>/api/rest/v1/auth/reauth</code></td><td>Request re-authentication</td></tr>
+          <tr><td>POST</td><td><code>/api/rest/v1/auth/reauth/verify</code></td><td>Verify re-auth OTP</td></tr>
+          <tr><td>POST</td><td><code>/api/rest/v1/auth/invite</code></td><td>Invite user (service key only)</td></tr>
         </tbody>
       </table>
 

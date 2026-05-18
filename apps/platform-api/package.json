@@ -18,6 +18,8 @@
     "prisma:studio": "prisma studio",
     "rls:backfill": "ts-node --transpile-only scripts/backfill-rls.ts",
     "rls:backfill:dry": "ts-node --transpile-only scripts/backfill-rls.ts --dry",
+    "embeddings:backfill": "ts-node --transpile-only scripts/backfill-embeddings.ts",
+    "embeddings:backfill:dry": "ts-node --transpile-only scripts/backfill-embeddings.ts --dry",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix"
   },
   "dependencies": {
@@ -51,6 +53,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.0",
     "pg": "^8.12.0",
+    "pgvector": "^0.2.1",
     "reflect-metadata": "^0.2.0",
     "resend": "^6.9.2",
     "rxjs": "^7.8.0",

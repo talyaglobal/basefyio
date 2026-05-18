@@ -11,6 +11,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from '../projects/project-activity.service';
+import { EmbeddingService } from '../embedding/embedding.service';
 
 const FORBIDDEN_PATTERNS = [
   'DROP DATABASE',
@@ -47,6 +48,7 @@ export class SqlService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly activity: ProjectActivityService,
+    private readonly embeddingService: EmbeddingService,
   ) {}
 
   async execute(
@@ -118,7 +120,7 @@ export class SqlService {
         }
       }
 
-      await this.prisma.sqlAuditLog.create({
+      const auditLog = await this.prisma.sqlAuditLog.create({
         data: {
           projectId,
           userId: userId || 'sdk',
@@ -126,7 +128,32 @@ export class SqlService {
           rowCount: result.rowCount,
           duration,
         },
+        select: { id: true },
       });
+
+      // Asynchronously index the query for semantic search — fire and forget.
+      // Only index non-trivial queries (>20 chars) to avoid noise.
+      if (query.trim().length > 20) {
+        const normalizedQuery = query
+          .replace(/\/\*[\s\S]*?\*\//g, ' ')
+          .replace(/--[^\n]*/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 1000);
+
+        this.embeddingService.enqueueJob(
+          [{
+            entityType: 'sql_audit_log',
+            entityId: auditLog.id,
+            content: normalizedQuery,
+            projectId,
+            teamId: project.teamId,
+            extraMeta: { rowCount: result.rowCount ?? null, duration },
+          }],
+          10, // low priority
+          2000, // 2s delay — let the audit log settle first
+        );
+      }
 
       // Log every successful SQL execution. The Project logs page lives or
       // dies by this — previously only failures showed up, which made the

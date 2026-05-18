@@ -32,6 +32,7 @@ export default function CliDocs() {
 
       <h2>Authentication</h2>
       <h3>kb login</h3>
+
       <p>
         Log in to your Kolaybase account. The CLI opens your default browser,
         where you authenticate via Keycloak. After signing in you are shown a
@@ -47,6 +48,10 @@ kb login --api-url https://api.your-domain.com`}</code></pre>
         Credentials are stored in <code>~/.kolaybase/config.json</code>. Run{" "}
         <code>kb login</code> again at any time to switch accounts.
       </p>
+
+      <h3>kb logout</h3>
+      <p>Sign out and clear saved credentials.</p>
+      <pre><code>{`kb logout`}</code></pre>
 
       <h2>Project Setup</h2>
 
@@ -91,13 +96,16 @@ kb list`}</code></pre>
       <h3>kb db push</h3>
       <p>
         Push a local schema to the remote database. Supports Prisma schema
-        files and raw SQL.
+        files and raw SQL. Shortcut: <code>kb push</code>.
       </p>
       <pre><code>{`# Push Prisma schema
 kb db push
 
 # Push SQL file
-kb db push --file schema.sql`}</code></pre>
+kb db push --file schema.sql
+
+# Shortcut
+kb push`}</code></pre>
 
       <h3>kb db pull</h3>
       <p>Introspect the remote database and save schema locally.</p>

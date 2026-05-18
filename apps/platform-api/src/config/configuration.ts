@@ -70,6 +70,15 @@ export default () => ({
     apiKey: process.env.OPENAI_API_KEY || '',
   },
 
+  embedding: {
+    /** Set to "false" to disable all embedding / vector search without removing the module. */
+    enabled: process.env.EMBEDDING_ENABLED !== 'false',
+    /** OpenAI embedding model. text-embedding-3-small is cost-effective and high quality. */
+    model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
+    /** Hard cap on daily OpenAI token usage to prevent runaway costs (default 1M). */
+    maxDailyTokens: parseInt(process.env.EMBEDDING_MAX_DAILY_TOKENS || '1000000', 10),
+  },
+
   oauth: {
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

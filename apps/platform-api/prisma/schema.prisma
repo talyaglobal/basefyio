@@ -664,3 +664,31 @@ model RootAlert {
   @@index([kind, createdAt(sort: Desc)])
   @@map("root_alerts")
 }
+
+// ── Embeddings (pgvector) ─────────────────────────────────
+// Metadata twin for embeddings. The actual vector(1536) lives in the raw-SQL
+// table `embeddings_store` because Prisma 5 does not support the vector type.
+// All vector reads/writes go through VectorStoreService via $queryRawUnsafe.
+model EmbeddingRecord {
+  id             String   @id @default(uuid())
+  /// SHA-256 hex of the embedded text — used as a dedup/cache key.
+  contentHash    String   @unique @map("content_hash") @db.VarChar(64)
+  /// e.g. "sql_audit_log" | "project_schema" | "project_activity" | ...
+  entityType     String   @map("entity_type") @db.VarChar(64)
+  entityId       String   @map("entity_id")
+  projectId      String?  @map("project_id")
+  teamId         String?  @map("team_id")
+  /// Token count for cost tracking.
+  tokenCount     Int?     @map("token_count")
+  embeddingModel String   @default("text-embedding-3-small") @map("embedding_model") @db.VarChar(80)
+  /// Stores the original chunk text (and any display fields) so RAG hydration
+  /// is a single scan on this table instead of fan-out joins.
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@index([projectId, entityType])
+  @@index([teamId, entityType])
+  @@map("embedding_records")
+}
