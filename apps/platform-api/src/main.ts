@@ -28,13 +28,15 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow server-to-server (no origin) and whitelisted origins only.
-      // Never allow wildcard with credentials — browsers block it and it's insecure.
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(null, false);
-      }
+      // Server-to-server requests (no origin header) are always allowed.
+      if (!origin) return callback(null, true);
+      // Dashboard / admin-ui origins — static allowlist.
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      // All other origins are allowed because SDK endpoints (rest/v1, sql,
+      // storage) are protected by apikey header validation (ApiKeyGuard),
+      // not cookies. Rejecting unknown origins would block legitimate SDK
+      // users building browser apps against their Kolaybase project.
+      callback(null, true);
     },
     credentials: true,
     allowedHeaders: [
@@ -44,6 +46,7 @@ async function bootstrap() {
       'x-project-id',
       'prefer',
       'x-client-info',
+      'x-supabase-api-version',
     ],
     exposedHeaders: ['Content-Range', 'X-Total-Count'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

@@ -204,10 +204,16 @@ export class ProjectSdkAuthController {
   ) {
     const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
 
-    // SECURITY: Validate redirect URL to prevent open redirect token theft.
-    // Only allow relative paths — SDK OAuth should redirect back to the same app.
+    // SECURITY: Only allow relative paths to prevent open redirect token theft.
+    // Absolute URLs (including http://localhost) are rejected — the OAuth flow
+    // should redirect back to the same app via a relative path.
     let safeRedirect = result.redirectTo || '/';
-    if (safeRedirect.startsWith('//') || (safeRedirect.startsWith('http') && !safeRedirect.startsWith('http://localhost'))) {
+    if (
+      !safeRedirect.startsWith('/') ||
+      safeRedirect.startsWith('//') ||
+      safeRedirect.includes('://') ||
+      safeRedirect.includes('\\')
+    ) {
       safeRedirect = '/';
     }
 

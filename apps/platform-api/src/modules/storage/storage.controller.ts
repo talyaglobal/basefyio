@@ -13,6 +13,7 @@ import {
   UploadedFile,
   ParseFilePipe,
   MaxFileSizeValidator,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -176,12 +177,20 @@ export class StorageController {
     @Query('expiry') expiry: string,
     @CurrentUser() user?: JwtPayload,
   ) {
+    const MAX_EXPIRY = 7 * 24 * 60 * 60; // 7 days
+    const MIN_EXPIRY = 60; // 1 minute
+    let expirySeconds = expiry ? parseInt(expiry, 10) : 3600;
+    if (isNaN(expirySeconds) || expirySeconds < MIN_EXPIRY || expirySeconds > MAX_EXPIRY) {
+      throw new BadRequestException(
+        `Expiry must be between ${MIN_EXPIRY} and ${MAX_EXPIRY} seconds`,
+      );
+    }
     return this.storage.getPresignedUrl(
       projectId,
       user?.sub,
       bucketName,
       objectPath,
-      expiry ? parseInt(expiry, 10) : 3600,
+      expirySeconds,
     );
   }
 

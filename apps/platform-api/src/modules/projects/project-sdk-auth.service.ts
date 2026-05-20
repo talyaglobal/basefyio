@@ -69,6 +69,13 @@ export class ProjectSdkAuthService {
     return `${realmName}-anon`;
   }
 
+  /** Returns the public-facing API base URL including the /api prefix. */
+  private getPublicApiBase(): string {
+    const raw = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
+    const base = raw.replace(/\/+$/, '');
+    return base.endsWith('/api') ? base : `${base}/api`;
+  }
+
   /* ───────── Sign Up ───────── */
   async signup(
     projectId: string,
@@ -102,8 +109,8 @@ export class ProjectSdkAuthService {
       const tokenData = JSON.stringify({ userId, realmName: project.keycloakRealm, projectId });
       await this.redis.set(`verify_email:${projectId}:${otp}`, tokenData, 86400);
 
-      const apiUrl = this.config.get<string>('publicApiUrl');
-      const verifyUrl = `${apiUrl}/rest/v1/auth/verify-email-callback?otp=${otp}&apikey=${project.anonKey}`;
+      const apiBase = this.getPublicApiBase();
+      const verifyUrl = `${apiBase}/rest/v1/auth/verify-email-callback?otp=${otp}&apikey=${project.anonKey}`;
 
       this.sendEmail(projectId, data.email, project.name, 'verify', {
         otp, verify_url: verifyUrl,
@@ -195,8 +202,8 @@ export class ProjectSdkAuthService {
     const tokenData = JSON.stringify({ userId: user.id, email, realmName: project.keycloakRealm, projectId });
     await this.redis.set(`magic_link:${projectId}:${otp}`, tokenData, 600);
 
-    const apiUrl = this.config.get<string>('publicApiUrl');
-    const magicLinkUrl = `${apiUrl}/rest/v1/auth/magic-link-callback?otp=${otp}&apikey=${project.anonKey}`;
+    const apiBase = this.getPublicApiBase();
+    const magicLinkUrl = `${apiBase}/rest/v1/auth/magic-link-callback?otp=${otp}&apikey=${project.anonKey}`;
 
     this.sendEmail(projectId, email, project.name, 'magic_link', {
       otp, magic_link_url: magicLinkUrl,
@@ -237,8 +244,8 @@ export class ProjectSdkAuthService {
     });
     await this.redis.set(`change_email:${projectId}:${otp}`, tokenData, 3600);
 
-    const apiUrl = this.config.get<string>('publicApiUrl');
-    const confirmUrl = `${apiUrl}/rest/v1/auth/change-email-callback?otp=${otp}&apikey=${project.anonKey}`;
+    const apiBase = this.getPublicApiBase();
+    const confirmUrl = `${apiBase}/rest/v1/auth/change-email-callback?otp=${otp}&apikey=${project.anonKey}`;
 
     this.sendEmail(projectId, newEmail, project.name, 'change_email', {
       otp, confirm_url: confirmUrl, new_email: newEmail, email: currentUser.email,
@@ -295,8 +302,8 @@ export class ProjectSdkAuthService {
     const tokenData = JSON.stringify({ email, realmName: project.keycloakRealm, projectId });
     await this.redis.set(`invite_user:${projectId}:${otp}`, tokenData, 86400 * 7);
 
-    const apiUrl = this.config.get<string>('publicApiUrl');
-    const inviteUrl = `${apiUrl}/rest/v1/auth/invite-callback?otp=${otp}&apikey=${project.anonKey}`;
+    const apiBase = this.getPublicApiBase();
+    const inviteUrl = `${apiBase}/rest/v1/auth/invite-callback?otp=${otp}&apikey=${project.anonKey}`;
 
     this.sendEmail(projectId, email, project.name, 'invite', { invite_url: inviteUrl })
       .catch((err) => this.logger.warn(`Invite email failed: ${err.message}`));
@@ -308,8 +315,8 @@ export class ProjectSdkAuthService {
   async getOAuthRedirectUrl(projectId: string, provider: string, redirectTo?: string) {
     const project = await this.getProject(projectId);
     const keycloakUrl = this.config.get<string>('keycloak.url');
-    const publicApiUrl = this.config.get<string>('publicApiUrl');
-    const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+    const apiBase = this.getPublicApiBase();
+    const callbackUrl = `${apiBase}/rest/v1/auth/callback/${projectId}/${provider}`;
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
 
     const stateData = JSON.stringify({
@@ -336,8 +343,8 @@ export class ProjectSdkAuthService {
     const { redirectTo } = stateData;
 
     const keycloakUrl = this.config.get<string>('keycloak.url');
-    const publicApiUrl = this.config.get<string>('publicApiUrl');
-    const callbackUrl = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${provider}`;
+    const apiBase = this.getPublicApiBase();
+    const callbackUrl = `${apiBase}/rest/v1/auth/callback/${projectId}/${provider}`;
     const tokenUrl = `${keycloakUrl}/realms/${project.keycloakRealm}/protocol/openid-connect/token`;
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
 

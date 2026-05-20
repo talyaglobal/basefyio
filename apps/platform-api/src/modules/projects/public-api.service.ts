@@ -65,11 +65,33 @@ export class PublicApiService {
   private readonly autoHealLastAttemptMs = new Map<string, number>();
   private static readonly AUTO_HEAL_COOLDOWN_MS = 60_000;
 
+  /** Cached connection pools per project. Reused across requests to avoid
+   *  creating a new TCP connection + auth handshake on every single query. */
+  private readonly poolCache = new Map<string, { pool: Pool; lastUsed: number }>();
+  private static readonly POOL_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  private poolCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly projectsService: ProjectsService,
-  ) {}
+  ) {
+    // Periodically close idle pools to avoid holding connections to databases
+    // that are no longer being queried.
+    this.poolCleanupTimer = setInterval(() => this.evictIdlePools(), 60_000);
+  }
+
+  private evictIdlePools(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.poolCache) {
+      if (now - entry.lastUsed > PublicApiService.POOL_IDLE_TIMEOUT_MS) {
+        entry.pool.end().catch((err) =>
+          this.logger.warn(`Failed to close idle pool for ${id}: ${err.message}`),
+        );
+        this.poolCache.delete(id);
+      }
+    }
+  }
 
   async select(
     projectId: string,
@@ -328,7 +350,6 @@ export class PublicApiService {
       throw e;
     } finally {
       client.release();
-      await pool.end();
     }
   }
 
@@ -502,6 +523,12 @@ export class PublicApiService {
   }
 
   private async getPool(projectId: string): Promise<Pool> {
+    const cached = this.poolCache.get(projectId);
+    if (cached) {
+      cached.lastUsed = Date.now();
+      return cached.pool;
+    }
+
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
       select: { dbHost: true, dbPort: true, dbUser: true, dbPassword: true, dbName: true },
@@ -511,13 +538,18 @@ export class PublicApiService {
       throw new ForbiddenException('Project not found or inactive');
     }
 
-    return new Pool({
+    const pool = new Pool({
       host: project.dbHost,
       port: project.dbPort,
       user: project.dbUser,
       password: project.dbPassword,
       database: project.dbName,
       statement_timeout: 15_000,
+      max: 5,
+      idleTimeoutMillis: 30_000,
     });
+
+    this.poolCache.set(projectId, { pool, lastUsed: Date.now() });
+    return pool;
   }
 }

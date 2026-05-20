@@ -433,16 +433,16 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
         body: JSON.stringify({ projectId: this.projectId, query: sql }),
       });
 
-      const data = (result.rows ?? []) as T[];
+      const rows = (result.rows ?? []) as T[];
 
       if (this._single) {
-        if (data.length === 0) {
-          return { data: null as unknown as T[], error: { message: 'No rows returned' } };
+        if (rows.length === 0) {
+          return { data: null, error: null } as KolaybaseResponse<T[]>;
         }
-        return { data: data[0] as unknown as T[], error: null };
+        return { data: rows[0] as any, error: null };
       }
 
-      return { data, error: null };
+      return { data: rows, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
     }
