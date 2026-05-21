@@ -108,7 +108,7 @@ export default () => ({
   docker: {
     socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
     network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',
-    pgImage: process.env.DOCKER_PG_IMAGE || 'postgres:16-alpine',
+    pgImage: process.env.DOCKER_PG_IMAGE || 'pgvector/pgvector:pg16',
     minioImage: process.env.DOCKER_MINIO_IMAGE || 'minio/minio:latest',
   },
 });

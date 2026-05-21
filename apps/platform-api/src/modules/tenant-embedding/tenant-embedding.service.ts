@@ -72,6 +72,9 @@ export class TenantEmbeddingService {
   /**
    * Enable pgvector on a project's database: runs the bootstrap SQL that
    * creates the vector extension, embedding tables, indexes, and grants.
+   *
+   * CREATE EXTENSION requires superuser privileges, so we connect with the
+   * platform admin credentials (same approach as RLS bootstrap).
    */
   async enablePgvector(projectId: string): Promise<void> {
     const project = await this.getProject(projectId);
@@ -81,10 +84,10 @@ export class TenantEmbeddingService {
       return;
     }
 
-    const pool = this.projectPool(project);
+    const adminPool = this.adminPoolForProjectDb(project.dbName);
     try {
       const sql = this.loadBootstrapSql();
-      await pool.query(sql);
+      await adminPool.query(sql);
 
       await this.prisma.project.update({
         where: { id: projectId },
@@ -101,7 +104,7 @@ export class TenantEmbeddingService {
         `Failed to enable pgvector: ${err.message}`,
       );
     } finally {
-      await pool.end();
+      await adminPool.end();
     }
   }
 
@@ -384,6 +387,22 @@ export class TenantEmbeddingService {
       );
     }
     return project;
+  }
+
+  /**
+   * Connect to a project's database as the platform admin (superuser).
+   * Required for CREATE EXTENSION and GRANTing to RLS roles.
+   */
+  private adminPoolForProjectDb(dbName: string): Pool {
+    return new Pool({
+      host: this.config.get<string>('database.host'),
+      port: this.config.get<number>('database.port'),
+      user: this.config.get<string>('database.user'),
+      password: this.config.get<string>('database.password'),
+      database: dbName,
+      statement_timeout: 30_000,
+      connectionTimeoutMillis: 5_000,
+    });
   }
 
   private projectPool(project: {

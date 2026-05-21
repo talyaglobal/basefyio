@@ -40,7 +40,7 @@ services:
   # ── Infrastructure ───────────────────────────────────────
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
