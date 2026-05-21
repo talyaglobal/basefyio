@@ -1,33 +1,33 @@
 ---
 date: 2026-05-10
 slug: import-data-wizard
-title: CSV ve Excel dosyalarini dogrudan tabloya yukleyin
+title: Import CSV and Excel files directly into your table
 kind: feature
-summary: Artik CSV veya Excel dosyalarinizi surekleyip birakin, sutunlari esleyin, yukleyin. SQL yazmaya gerek yok.
+summary: Drag and drop your CSV or Excel files, map the columns, and import. No SQL required.
 ---
 
-Elinizdeki CSV ya da Excel dosyasini tabloya aktarmak icin artik SQL yazmak zorunda degilsiniz.
+You no longer need to write SQL to import a CSV or Excel file into your table.
 
-Table Editor'deki **Import Data** butonuna tiklayin, dosyanizi surekleyip birakin — gerisini biz hallettik.
+Click the **Import Data** button in the Table Editor, drag and drop your file — we'll handle the rest.
 
-## Nasil calisir?
+## How does it work?
 
-1. **Dosyanizi secin** — CSV, TSV veya Excel dosyalarini surekleyip birakin. Birden fazla dosya da olur.
+1. **Select your file** — Drag and drop CSV, TSV, or Excel files. Multiple files are supported.
 
-2. **Ayarlari yapin** — Sutun tipleri otomatik tespit edilir. Mevcut bir tabloya ekleyin ya da yenisini olusturun. Hangi sutunun nereye gidecegini kendiniz esleyebilirsiniz.
+2. **Configure settings** — Column types are auto-detected. Add to an existing table or create a new one. You can manually map which column goes where.
 
-3. **Yuklemeyi baslatın** — Canli ilerleme cubugu ile kac satirin yazildigini anlik takip edin. Isterseniz iptal edebilirsiniz.
+3. **Start the import** — Track how many rows have been written in real time with a live progress bar. You can cancel at any time.
 
-4. **Tamam!** — Sure, basari orani ve varsa hatali satirlarin listesini gorun.
+4. **Done!** — See the duration, success rate, and a list of any failed rows.
 
-## Ayni kayit tekrar gelirse ne olur?
+## What happens if a record already exists?
 
-Dosyanizda tablodaki mevcut bir kayitla cakisan satir varsa uc secenek sunuyoruz:
+If your file contains rows that conflict with existing records in the table, we offer three options:
 
-- **Atla** — mevcut kaydi koru, yenisini gec
-- **Uzerine yaz** — yeni veri ile guncelle
-- **Hata ver** — cakisma olursa islemi durdur
+- **Skip** — Keep the existing record, ignore the new one
+- **Overwrite** — Update with the new data
+- **Raise error** — Stop the operation if a conflict occurs
 
-## Buyuk dosyalar icin de dert etmeyin
+## Don't worry about large files
 
-Yuzlerce megabaytlik dosyalar bile sorunsuz yuklenir. Hatali satirlar ayri bir rapor dosyasina yazilir — indirip neden reddedildigini gorebilirsiniz.
+Even files hundreds of megabytes in size import without issues. Failed rows are written to a separate report file — you can download it and see why they were rejected.

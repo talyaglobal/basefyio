@@ -28,7 +28,9 @@
       "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"batuhan@kolaybase.com\",\"password\":\"admin123\"}')",
       "Bash(echo \"EXIT_CODE: $?\")",
       "Bash(find /c/IT/Projects/kolaybase-new/apps -maxdepth 1 -type d -exec bash -c 'test -f \"$1/package.json\" && echo \"$1/package.json\"' _ {} \\\\;)",
-      "Bash(find /c/IT/Projects/kolaybase-new/packages -maxdepth 1 -type d -exec bash -c 'test -f \"$1/package.json\" && echo \"$1/package.json\"' _ {} \\\\;)"
+      "Bash(find /c/IT/Projects/kolaybase-new/packages -maxdepth 1 -type d -exec bash -c 'test -f \"$1/package.json\" && echo \"$1/package.json\"' _ {} \\\\;)",
+      "Bash(npx nest:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

@@ -503,7 +503,7 @@ export class ProjectsService {
       await this.assertTeamMember(project.teamId, userId);
     }
 
-    const { githubToken, vercelToken, folder, tags, ...safe } = project;
+    const { githubToken, vercelToken, embeddingApiKey, folder, tags, ...safe } = project;
 
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;

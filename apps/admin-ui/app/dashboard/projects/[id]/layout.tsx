@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
 import {
   Book,
+  BrainCircuit,
   Copy,
   Database,
   Download,
@@ -109,6 +110,7 @@ const navItems = [
   { label: 'Connection', href: '/connect', icon: Link2 },
   { label: 'Backup & Export', href: '/backup', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
+  { label: 'AI / Embeddings', href: '/embeddings', icon: BrainCircuit },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 

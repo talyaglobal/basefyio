@@ -1,24 +1,24 @@
 ---
 date: 2026-05-12
 slug: team-wide-project-notifications
-title: Proje bildirimleri artik tum takima gidiyor
+title: Project notifications now go to the entire team
 kind: feature
-summary: Biri yeni proje actiginda, sildiginde veya geri aldiginda takimdaki herkes bildirim aliyor.
+summary: When someone creates, deletes, or restores a project, everyone on the team gets notified.
 ---
 
-Onceden proje olusturuldu, silindi gibi bildirimler sadece admin'lere gidiyordu. Takimdaki diger kisiler bundan haberdar olmuyordu.
+Previously, notifications about project creation, deletion, etc. were only sent to admins. Other team members were left out of the loop.
 
-Artik proje ile ilgili her onemli degisiklik, takimdaki herkesin bildirim canina duser:
+Now every important project change is delivered to everyone on the team:
 
-- **Yeni proje olusturuldu** — "Ahmet 'WebSitem' projesini olusturdu."
-- **Proje guncellendi** — isim degisikligi, klasor tasima gibi.
-- **Proje silindi** — "Ahmet 'WebSitem' projesini cope tasidi."
-- **Proje geri alindi** — "Ahmet 'WebSitem' projesini geri yukledi."
+- **New project created** — "Ahmet created the 'MyWebsite' project."
+- **Project updated** — name change, folder move, etc.
+- **Project deleted** — "Ahmet moved the 'MyWebsite' project to trash."
+- **Project restored** — "Ahmet restored the 'MyWebsite' project."
 
-Bildirime tikladiginizda dogrudan ilgili projeye gidersiniz.
+Clicking the notification takes you directly to the relevant project.
 
-## Detaylar
+## Details
 
-- Islemi yapan kisi kendine bildirim almaz — zaten ne yaptigini biliyor.
-- Sadece kendi takiminizin projelerini gorursunuz, baska takimlarin projeleri gorunmez.
-- Anlik bildirimler kapali olsa bile uygulama normal calisir, sadece sayfayi yenileyerek degisiklikleri gorursunuz.
+- The person who performed the action doesn't receive a notification — they already know what they did.
+- You only see notifications for your own team's projects, not other teams'.
+- Even if real-time notifications are disabled, the app works normally — you'll just see changes by refreshing the page.

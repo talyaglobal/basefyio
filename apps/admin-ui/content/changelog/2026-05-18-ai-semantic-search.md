@@ -1,95 +1,95 @@
 ---
 date: 2026-05-18
 slug: ai-semantic-search
-title: AI Destekli Arama, RAG ve Akıllı Öneriler
+title: AI-Powered Search, RAG, and Smart Suggestions
 kind: feature
-summary: Artık SQL geçmişinizi, tablo şemalarınızı ve proje aktivitelerinizi doğal dille arayabiliyorsunuz. AI asistan projenizi gerçekten anlıyor.
+summary: You can now search your SQL history, table schemas, and project activities using natural language. The AI assistant truly understands your project.
 ---
 
-Bugüne kadar SQL geçmişinde bir şey aradığınızda tam olarak ne yazdığınızı hatırlamanız gerekiyordu. Tablo adını yanlış yazarsanız — hiçbir şey çıkmıyordu.
+Until now, when searching your SQL history, you had to remember exactly what you wrote. If you misspelled a table name — nothing came up.
 
-Artık öyle değil.
+Not anymore.
 
-## Ne değişti?
+## What changed?
 
-Üç büyük özellik aynı anda devreye girdi. Hepsi birbirine bağlı, hepsi arka planda sessizce çalışıyor.
-
----
-
-### 1. Semantik Arama
-
-SQL sorgularınızı, tablo şemalarınızı ve proje aktivitelerinizi **anlamına göre** arayabilirsiniz artık.
-
-"users tablosundaki son kayıtlar" yazın — `SELECT * FROM users ORDER BY created_at DESC` sorgusunu bulur. Kelime kelime eşleşmesi aramaz, neyi kastettiğinizi anlar.
-
-**Ne aranıyor?**
-
-- Çalıştırdığınız tüm SQL sorguları
-- Projenizin tablo yapıları (her tablo bir chunk olarak indeksleniyor)
-- Proje aktivite geçmişi
-- Feedback ve issue geçmişi
-
-Tüm bunlar arka planda otomatik olarak indeksleniyor. Siz sadece arayın.
+Three major features launched simultaneously. They're all interconnected and work silently in the background.
 
 ---
 
-### 2. RAG — AI Asistan Artık Projenizi Gerçekten Biliyor
+### 1. Semantic Search
 
-AI Chat'e soru sorduğunuzda artık sistem, projenizle gerçekten ilgili bağlamı otomatik olarak buluyor ve AI'ya veriyor.
+You can now search your SQL queries, table schemas, and project activities **by meaning**.
 
-Eskiden AI asistan size şema hakkında genel sorular sorardı ya da generic örnekler verirdi. Şimdi şöyle bir şey söyleyebiliyor:
+Type "recent records in users table" — it finds `SELECT * FROM users ORDER BY created_at DESC`. It doesn't look for an exact word match; it understands what you meant.
 
-> "Projenizde daha önce `orders` tablosunda şu sorguyu çalıştırmışsınız: `SELECT status, COUNT(*) FROM orders GROUP BY status` — bu yapıyı baz alarak şunu öneririm..."
+**What's searchable?**
 
-Siz hiçbir şey yapmıyorsunuz. AI, geçmişinizden ve şemanızdan otomatik olarak bağlam çekiyor.
+- All SQL queries you've run
+- Your project's table structures (each table is indexed as a chunk)
+- Project activity history
+- Feedback and issue history
 
-**Nasıl çalışıyor?**
-
-Sorunuzu yazıyorsunuz → sistem soruya en yakın içerikleri buluyor (tablo şemanız, son sorgularınız, hata desenleri) → bunları AI'ya bağlam olarak veriyor → AI o bağlamı kullanarak cevap veriyor.
-
-Bütün bu süreç 300-500ms içinde tamamlanıyor. Fark etmeyeceksiniz ama cevapların kalitesi ciddi ölçüde arttı.
-
----
-
-### 3. Akıllı Sorgu Önerileri
-
-SQL editöründe bir sorgu çalıştırdıktan sonra "Benzer sorgular" görmeye başlayacaksınız.
-
-- **Aynı projeden benzer sorgular** — Geçmişte benzer bir şey yazdıysanız karşınıza çıkıyor
-- **Takımdaki diğer projelerden desenler** — Başka bir projede aynı yapıda bir tablo varsa ve benzer bir sorgu yazılmışsa, o deseni görebiliyorsunuz
-
-Hepsi cosine similarity ile çalışıyor — "şuna benziyor" diye eşleştiriyor, kelime kelime aramıyor.
+Everything is indexed automatically in the background. You just search.
 
 ---
 
-## Teknik detay merak edenler için
+### 2. RAG — The AI Assistant Now Truly Knows Your Project
 
-Tüm bu özellikler **pgvector** üzerine kurulu. PostgreSQL veritabanınızın içinde, ayrı bir servis veya ücretli üçüncü parti olmadan.
+When you ask a question in AI Chat, the system now automatically finds relevant context from your project and feeds it to the AI.
 
-- Embedding modeli: `text-embedding-3-small` (OpenAI)
-- Index tipi: HNSW (cosine distance, m=16)
-- Arama stratejisi: Semantic + keyword (pg_trgm) hibrit, Reciprocal Rank Fusion ile birleştirme
-- Günlük token limiti: Konfigüre edilebilir (varsayılan 1M token/gün)
+Previously, the AI assistant would ask you generic questions about your schema or give generic examples. Now it can say things like:
 
-Her şey OpenAI API key'inizi kullanıyor. Ayrı bir ücret yok.
+> "You previously ran this query on the `orders` table: `SELECT status, COUNT(*) FROM orders GROUP BY status` — based on this pattern, I'd suggest..."
+
+You don't have to do anything. The AI automatically pulls context from your history and schema.
+
+**How does it work?**
+
+You type your question → the system finds the most relevant content (your table schema, recent queries, error patterns) → feeds them to the AI as context → the AI uses that context to respond.
+
+This entire process completes in 300-500ms. You won't notice it, but the quality of responses has improved significantly.
 
 ---
 
-## Şu an için
+### 3. Smart Query Suggestions
 
-İndeksleme otomatik çalışıyor — bugünden itibaren çalıştırdığınız her SQL sorgusu, oluşturduğunuz her tablo otomatik olarak indekleniyor.
+After running a query in the SQL editor, you'll start seeing "Similar queries".
 
-Eski veriler için backfill çalıştırabilirsiniz:
+- **Similar queries from the same project** — If you wrote something similar before, it shows up
+- **Patterns from other projects in your team** — If another project has a similar table structure and a similar query was written, you can see that pattern
+
+Everything runs on cosine similarity — it matches by "this looks similar", not by exact word matching.
+
+---
+
+## For the technically curious
+
+All these features are built on **pgvector**. Inside your PostgreSQL database, with no separate service or paid third-party dependency.
+
+- Embedding model: `text-embedding-3-small` (OpenAI)
+- Index type: HNSW (cosine distance, m=16)
+- Search strategy: Semantic + keyword (pg_trgm) hybrid, combined with Reciprocal Rank Fusion
+- Daily token limit: Configurable (default 1M tokens/day)
+
+Everything uses your OpenAI API key. No additional cost.
+
+---
+
+## For now
+
+Indexing runs automatically — from today onward, every SQL query you run and every table you create is automatically indexed.
+
+For existing data, you can run a backfill:
 
 ```bash
-npm run embeddings:backfill:dry   # önce ne kadar veri var gör
-npm run embeddings:backfill       # çalıştır
+npm run embeddings:backfill:dry   # preview how much data exists first
+npm run embeddings:backfill       # run it
 ```
 
-Kapatmak isterseniz tek bir env variable yeterli:
+To disable, a single env variable is enough:
 
 ```
 EMBEDDING_ENABLED=false
 ```
 
-Her şey normal çalışmaya devam eder, sadece AI özellikleri devre dışı kalır.
+Everything continues to work normally, only the AI features are disabled.

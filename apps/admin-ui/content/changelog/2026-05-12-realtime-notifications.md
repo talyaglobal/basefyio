@@ -1,25 +1,25 @@
 ---
 date: 2026-05-12
 slug: realtime-notifications
-title: Bildirimler artik anlik
+title: Notifications are now real-time
 kind: feature
-summary: Yeni feedback, yorum veya durum degisikligi oldu mu? Artik aninda bildirim aliyorsunuz.
+summary: New feedback, comment, or status change? You now get notified instantly.
 ---
 
-Eskiden bir kullanici feedback gonderdiginde, gormek icin sayfayi yenilemek ya da birkac saniye beklemek gerekiyordu.
+Previously, when a user submitted feedback, you had to refresh the page or wait a few seconds to see it.
 
-Artik boyle degil. Bir sey oldugu anda bildirim caniniz yaniyor — bekleme yok.
+Not anymore. As soon as something happens, your notification bell rings — no waiting.
 
-## Hangi olaylar anlik bildirim gonderiyor?
+## Which events trigger real-time notifications?
 
-- **Yeni feedback geldi** — admin'lere aninda duser.
-- **Feedback durumu degisti** — feedback sahibi ve admin'ler gorur.
-- **Yeni yorum eklendi** — yorumun bir bolumu bildirimde gorunur.
+- **New feedback received** — Instantly delivered to admins.
+- **Feedback status changed** — Visible to the feedback author and admins.
+- **New comment added** — A preview of the comment appears in the notification.
 
-## Ne kadar hizli?
+## How fast is it?
 
-Eskiden ortalama 15 saniye gecikme vardi. Simdi 1 saniyenin altinda. Gercekten anlik.
+Previously there was an average 15-second delay. Now it's under 1 second. Truly real-time.
 
-## Sorun cikarsa?
+## What if something goes wrong?
 
-Anlık bildirimleri kapatmaniz gerekirse, uygulamayi yeniden deploy etmeden ortam degiskeniyle devre disi birakabilirsiniz. Kapatinca bildirimler gelmez ama uygulama normal calismaya devam eder — sadece sayfayi yenileyerek degisiklikleri gorursunuz.
+If you need to disable real-time notifications, you can turn them off with an environment variable without redeploying the app. When disabled, notifications won't arrive but the app continues to work normally — you'll just see changes by refreshing the page.

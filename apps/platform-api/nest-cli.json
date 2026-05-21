@@ -5,7 +5,8 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "assets": [
-      { "include": "modules/projects/sql/*.sql", "outDir": "dist" }
+      { "include": "modules/projects/sql/*.sql", "outDir": "dist" },
+      { "include": "modules/tenant-embedding/sql/*.sql", "outDir": "dist" }
     ],
     "watchAssets": true
   }

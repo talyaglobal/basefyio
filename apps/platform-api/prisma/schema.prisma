@@ -207,6 +207,14 @@ model Project {
   vercelProjectId String? @map("vercel_project_id")
   vercelTeamId    String? @map("vercel_team_id")
 
+  // Tenant Embedding / pgvector
+  /// Whether pgvector extension + embedding tables have been provisioned in this project's DB.
+  pgvectorEnabled     Boolean   @default(false) @map("pgvector_enabled")
+  /// When pgvector was enabled on this project's DB. Null = never.
+  pgvectorEnabledAt   DateTime? @map("pgvector_enabled_at")
+  /// Per-project OpenAI API key for embeddings. Falls back to platform-level key if null.
+  embeddingApiKey     String?   @map("embedding_api_key")
+
   team         Team          @relation(fields: [teamId], references: [id])
   folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   tags          ProjectTagAssignment[]

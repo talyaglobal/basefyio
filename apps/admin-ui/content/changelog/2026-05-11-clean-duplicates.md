@@ -1,25 +1,25 @@
 ---
 date: 2026-05-11
 slug: clean-duplicates
-title: Tekrar eden satirlari tek tikla temizleyin
+title: Clean duplicate rows with a single click
 kind: feature
-summary: Tablonuzdaki mukerrer kayitlari bulun, kacinin silinecegini gorun, tek tikla temizleyin.
+summary: Find duplicate records in your table, see how many will be deleted, and clean them with one click.
 ---
 
-Toplu veri yukledikten sonra tabloda ayni kayittan birden fazla kalabiliyor. Ayni e-posta adresi iki kere, ayni urun kodu uc kere... Bunlari elle temizlemek hem zahmetli hem riskli.
+After bulk data imports, you can end up with duplicate records in your table. The same email address twice, the same product code three times... Cleaning these up manually is both tedious and risky.
 
-Artik Table Editor'deki **Clean duplicates** butonuyla tek tikla halledebilirsiniz.
+Now you can handle it with the **Clean duplicates** button in the Table Editor.
 
-## Nasil kullanilir?
+## How to use it?
 
-1. **Hangi sutunlara gore?** — Ornegin `email` sutununu secin. Ayni e-postaya sahip satirlar tekrar sayilir. Birden fazla sutun da secebilirsiniz, mesela `marka + urun_kodu` birlikte.
+1. **Which columns to check?** — For example, select the `email` column. Rows with the same email are considered duplicates. You can also select multiple columns, such as `brand + product_code` together.
 
-2. **Once sayiyi gorun** — "Kac satir silinecek?" sorusunun cevabini, hicbir sey silmeden once gorursunuz.
+2. **Preview the count first** — You'll see the answer to "How many rows will be deleted?" before anything is removed.
 
-3. **Temizleyin** — Onaylayin, tekrar eden satirlar silinsin. Her gruptaki en eski kayit korunur, digerileri kaldirilir.
+3. **Clean up** — Confirm, and the duplicate rows are deleted. The oldest record in each group is kept, the rest are removed.
 
-## Bilmeniz gerekenler
+## Things to know
 
-- **Geri alinamaz.** Silinen satirlar geri gelmez. Bu yuzden once mutlaka on izleme yapin.
-- **Cok hizli.** Milyonlarca satirda bile saniyeler icinde tamamlanir.
-- Baska tablolarla baglantili satirlar varsa (foreign key), sistem sizi uyarir — once o baglantilari cozmeniz gerekir.
+- **Irreversible.** Deleted rows cannot be recovered. Always preview first.
+- **Very fast.** Completes in seconds even with millions of rows.
+- If there are rows linked to other tables (foreign key), the system will warn you — you'll need to resolve those references first.

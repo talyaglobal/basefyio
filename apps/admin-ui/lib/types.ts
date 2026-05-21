@@ -97,6 +97,8 @@ export interface Project {
   supabaseImportLog?: unknown;
   github?: GitHubIntegration;
   vercel?: VercelIntegration;
+  pgvectorEnabled?: boolean;
+  pgvectorEnabledAt?: string | null;
 }
 
 /** Single row from `GET /projects/:id/activity` */

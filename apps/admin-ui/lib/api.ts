@@ -1647,6 +1647,35 @@ export const api = {
     },
   },
 
+  embeddings: {
+    getStatus(projectId: string) {
+      return request<{
+        pgvectorEnabled: boolean;
+        pgvectorEnabledAt: string | null;
+        hasApiKey: boolean;
+        embeddingCount: number | null;
+      }>(`/projects/${projectId}/embeddings/status`);
+    },
+    enable(projectId: string) {
+      return request<{ message: string; projectId: string }>(
+        `/projects/${projectId}/embeddings/enable`,
+        { method: 'POST' },
+      );
+    },
+    disable(projectId: string) {
+      return request<{ message: string; projectId: string }>(
+        `/projects/${projectId}/embeddings/enable`,
+        { method: 'DELETE' },
+      );
+    },
+    setApiKey(projectId: string, apiKey: string | null) {
+      return request<{ message: string }>(
+        `/projects/${projectId}/embeddings/api-key`,
+        { method: 'POST', body: JSON.stringify({ apiKey }) },
+      );
+    },
+  },
+
   tags: {
     list(teamId: string) {
       return request<import('./types').ProjectTag[]>(`/project-tags?teamId=${teamId}`);

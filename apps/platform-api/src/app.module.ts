@@ -27,6 +27,7 @@ import { DataImportModule } from './modules/data-import/data-import.module';
 import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { SearchModule } from './modules/search/search.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
+import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embedding.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -62,6 +63,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     EmbeddingModule,
     SearchModule,
     RecommendationModule,
+    TenantEmbeddingModule,
   ],
 })
 export class AppModule implements NestModule {
