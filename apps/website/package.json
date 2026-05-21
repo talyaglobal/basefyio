@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "@kolaybase/geo": "file:../../packages/geo",
     "@react-three/fiber": "^8.17.10",
     "lucide-react": "^0.577.0",
     "next": "14.2.35",

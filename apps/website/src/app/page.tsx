@@ -14,6 +14,7 @@ import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
+import { HomeFaq } from "@/components/home-faq";
 import { AuthNav } from "@/components/auth-nav";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import {
@@ -148,6 +149,12 @@ export default async function Home() {
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               Docs
+            </Link>
+            <Link
+              href="#faq"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              FAQ
             </Link>
             <AuthNav appUrl={appRoot} />
             <ThemeToggle />
@@ -325,6 +332,8 @@ export default async function Home() {
         </div>
       </section>
 
+      <HomeFaq />
+
       <footer className="border-t border-border px-6 py-16">
         <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 sm:grid-cols-4">
           <div>
@@ -415,6 +424,22 @@ export default async function Home() {
                 >
                   Documentation
                 </Link>
+              </li>
+              <li>
+                <Link
+                  href="#faq"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  FAQ
+                </Link>
+              </li>
+              <li>
+                <a
+                  href="/llms.txt"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  llms.txt
+                </a>
               </li>
             </ul>
           </div>
