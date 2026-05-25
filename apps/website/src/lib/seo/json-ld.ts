@@ -136,6 +136,31 @@ export function faqSchema(items: FaqItem[]): Thing {
   };
 }
 
+export type DefinedTermInput = {
+  name: string;
+  description: string;
+  url: string;
+  /** Origin, for the DefinedTermSet @id. */
+  siteUrl: string;
+};
+
+/** Schema for a single glossary/learn term page. */
+export function definedTermSchema(input: DefinedTermInput): Thing {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTerm",
+    name: input.name,
+    description: input.description,
+    url: input.url,
+    inDefinedTermSet: {
+      "@type": "DefinedTermSet",
+      "@id": `${input.siteUrl}/learn#glossary`,
+      name: `${SITE.name} Glossary`,
+      url: `${input.siteUrl}/learn`,
+    },
+  };
+}
+
 export type ItemListEntry = { name: string; url: string; description?: string };
 
 /** Used on index pages (blog list, comparison list) for richer SERP results. */

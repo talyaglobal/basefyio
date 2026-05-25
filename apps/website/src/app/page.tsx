@@ -427,6 +427,46 @@ export default async function Home() {
               </li>
               <li>
                 <Link
+                  href="/blog"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Blog
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/compare"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Compare
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/use-cases"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Use cases
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/integrations"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Integrations
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/learn"
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Learn
+                </Link>
+              </li>
+              <li>
+                <Link
                   href="#faq"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >

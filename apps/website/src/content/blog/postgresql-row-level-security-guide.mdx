@@ -1,0 +1,75 @@
+---
+title: "PostgreSQL Row-Level Security: A Practical Guide"
+description: "Learn how PostgreSQL row-level security (RLS) works, when to use it, and how to write policies that enforce multi-tenant and per-user access at the database layer."
+date: "2026-05-19"
+author: "Kolaybase Team"
+tags: ["PostgreSQL", "security", "RLS", "multi-tenancy"]
+---
+
+Most access-control bugs come from the same place: permission checks scattered
+across application code, where one missing `if` leaks another user's data.
+PostgreSQL row-level security (RLS) moves those checks into the database, where
+they're enforced on every query no matter which client runs it.
+
+## What row-level security does
+
+RLS lets you attach **policies** to a table. A policy is a SQL expression that
+decides which rows a given user can see or modify. Once enabled, PostgreSQL
+applies it automatically to every `select`, `insert`, `update`, and `delete`.
+
+```sql
+alter table documents enable row level security;
+
+create policy "owners can read their documents"
+  on documents for select
+  using (owner_id = auth.uid());
+```
+
+Now a query like `select * from documents` only ever returns the current user's
+rows — even if the application forgets to filter.
+
+## Read vs. write policies
+
+`using` controls which existing rows are **visible** (for select/update/delete).
+`with check` controls which rows can be **written** (for insert/update):
+
+```sql
+create policy "owners can insert their own documents"
+  on documents for insert
+  with check (owner_id = auth.uid());
+```
+
+Separating them prevents a user from inserting a row "owned" by someone else.
+
+## Multi-tenant isolation
+
+For SaaS, the most common pattern is tenant isolation on an `org_id` column:
+
+```sql
+create policy "members read their org's rows"
+  on projects for select
+  using (org_id = auth.org_id());
+```
+
+This single policy guarantees tenants can never read across organizations —
+enforced by Postgres, not hope. See the
+[backend for SaaS applications](/use-cases/saas-applications) use case for the
+full pattern.
+
+## Common pitfalls
+
+- **Forgetting `enable row level security`.** Policies don't apply until RLS is
+  turned on for the table.
+- **Table owners bypass RLS.** Run your app as a non-owner role, or use
+  `force row level security`.
+- **Performance.** Policy expressions run per row — index the columns they
+  reference (e.g. `owner_id`, `org_id`).
+
+## Why this matters
+
+When access control lives in the database, every entry point inherits it: your
+REST API, the SQL console, a background job. That's exactly how Kolaybase's
+[auto-generated REST API](/blog/rest-api-on-postgresql-without-boilerplate)
+stays safe — the API respects your policies automatically.
+
+Define the rule once, in the right place, and stop re-checking it everywhere.

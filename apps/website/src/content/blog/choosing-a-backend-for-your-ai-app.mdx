@@ -1,0 +1,59 @@
+---
+title: "How to Choose a Backend for Your AI App"
+description: "AI apps still need a normal backend: users, conversation history, document storage, and usage limits. Here's how to choose one that won't slow you down."
+date: "2026-05-20"
+author: "Kolaybase Team"
+tags: ["AI", "backend", "LLM", "architecture"]
+---
+
+It's easy to spend all your time on prompts and models and forget that an AI
+product is still a normal application underneath. Users sign in. Conversations
+get saved. Documents get uploaded. Usage needs limits. The backend you pick for
+that foundation decides how fast you can ship everything around the model.
+
+## What an AI app actually needs from a backend
+
+Strip away the model and most AI apps need:
+
+1. **Accounts** — authentication and user profiles.
+2. **History** — conversations, messages, prompts, and outputs.
+3. **Documents** — file uploads for retrieval (RAG) and the metadata to find them.
+4. **Limits & billing data** — usage counters, plans, quotas.
+5. **An API** — so your app and any background workers can read and write all of the above.
+
+None of that is AI-specific. It's the same backend every app needs — which means
+you shouldn't build it from scratch.
+
+## Relational data fits AI apps better than you'd think
+
+Conversations belong to users. Messages belong to conversations. Documents belong
+to workspaces. That's relational data, and PostgreSQL models it cleanly with
+foreign keys and fast queries — much better than stuffing everything into
+documents and reconstructing relationships in code.
+
+```sql
+create table messages (
+  id bigint generated always as identity primary key,
+  conversation_id bigint references conversations(id),
+  role text not null,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+```
+
+## Checklist for choosing
+
+- **Does it include auth, storage, and an API?** If not, you'll build them.
+- **Is it standard PostgreSQL?** Standard SQL keeps you portable and lets you
+  adopt ecosystem extensions as your needs grow.
+- **Can you self-host?** Useful for data-sensitive workloads.
+- **Is access control at the database?** Row-level security keeps user data
+  isolated — see the [RLS guide](/blog/postgresql-row-level-security-guide).
+
+## Where Kolaybase fits
+
+Kolaybase gives you the whole non-model foundation — PostgreSQL, authentication,
+S3-compatible storage, and a REST API — so the only thing left to build is the
+part that's actually yours. See the
+[backend for AI applications](/use-cases/ai-applications) use case, or compare
+the [build-vs-buy trade-off](/blog/build-vs-buy-backend) before you decide.
