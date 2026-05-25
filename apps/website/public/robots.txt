@@ -1,9 +1,0 @@
-# https://kolaybase.com — crawler guidelines
-# https://www.robotstxt.org/robotstxt.html
-
-User-agent: *
-Allow: /
-
-# Dynamic /robots.txt from src/app/robots.ts takes precedence when the Next server runs.
-# Static fallback sitemap URL:
-Sitemap: https://kolaybase.com/sitemap.xml

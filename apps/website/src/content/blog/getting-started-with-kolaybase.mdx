@@ -1,0 +1,87 @@
+---
+title: "Getting Started with Kolaybase: A PostgreSQL Backend in Minutes"
+description: "Spin up a hosted PostgreSQL database, authentication, storage, and an auto-generated REST API with Kolaybase. A step-by-step guide from zero to first query."
+date: "2026-05-12"
+author: "Kolaybase Team"
+tags: ["getting started", "PostgreSQL", "REST API", "tutorial"]
+---
+
+Building a backend usually means wiring together a database, an auth layer, file
+storage, and an API — before you write a single line of product code. Kolaybase
+collapses that setup into a few minutes. This guide takes you from an empty
+project to your first authenticated query.
+
+## What you get out of the box
+
+Every Kolaybase project ships with:
+
+- A dedicated **PostgreSQL 16** database — not a shared schema, a real database.
+- **Authentication** backed by Keycloak (email + OAuth).
+- **S3-compatible object storage** for files.
+- An **auto-generated REST API** with PostgREST-style filtering.
+
+## 1. Install the CLI
+
+```bash
+npm install -g kolaybase-cli
+kb login
+```
+
+The CLI authenticates against your account and becomes the fastest way to create
+projects, run migrations, and open a SQL console.
+
+## 2. Create a project
+
+```bash
+kb projects create my-app
+```
+
+Behind the scenes this provisions a PostgreSQL database and an auth realm scoped
+to `my-app`. Nothing is shared with your other projects.
+
+## 3. Define a table
+
+Open the SQL editor (`kb sql my-app`) and create a table:
+
+```sql
+create table todos (
+  id bigint generated always as identity primary key,
+  title text not null,
+  done boolean not null default false,
+  created_at timestamptz not null default now()
+);
+```
+
+The moment the table exists, it's queryable over REST — no extra deployment
+step.
+
+## 4. Query from your app
+
+Install the SDK and read your data:
+
+```ts
+import { createClient } from "kolaybase-js";
+
+const kb = createClient({
+  projectId: process.env.KOLAYBASE_PROJECT_ID!,
+  apiKey: process.env.KOLAYBASE_ANON_KEY!,
+});
+
+const { data, error } = await kb
+  .from("todos")
+  .select("*")
+  .eq("done", false)
+  .order("created_at", { ascending: false });
+```
+
+That's a fully working backend: a real database, a typed client, and an API you
+never had to build.
+
+## Where to go next
+
+- Add [authentication](/docs/sdk) so each user sees only their own rows.
+- Read the [REST API reference](/docs/api) for filtering, pagination, and
+  embedding related tables.
+- Compare Kolaybase to [building your own backend](/blog/build-vs-buy-backend).
+
+Ship the product, not the plumbing.

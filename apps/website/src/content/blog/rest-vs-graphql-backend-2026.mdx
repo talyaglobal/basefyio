@@ -1,0 +1,66 @@
+---
+title: "REST vs. GraphQL for Your Backend in 2026"
+description: "A pragmatic comparison of REST and GraphQL for application backends — caching, tooling, learning curve, and when an auto-generated REST API is the simpler win."
+date: "2026-05-17"
+author: "Kolaybase Team"
+tags: ["REST API", "GraphQL", "architecture", "backend"]
+---
+
+The REST-vs-GraphQL debate often gets framed as old-vs-new. In practice both are
+mature, and the right choice depends on your data shape, your team, and how much
+infrastructure you want to run. Here's a pragmatic breakdown.
+
+## Where GraphQL shines
+
+- **Client-driven shapes.** The client asks for exactly the fields it needs,
+  which helps complex, deeply nested UIs.
+- **One endpoint, many shapes.** Useful when many different clients consume the
+  same graph.
+- **Strong typing & introspection.** The schema doubles as documentation and
+  tooling.
+
+The cost: caching is harder (it's a single POST endpoint), you run a GraphQL
+server, and there's a real learning curve for resolvers, N+1 batching, and
+permissions.
+
+## Where REST shines
+
+- **HTTP caching just works.** GET requests cache at the CDN, browser, and proxy
+  layers with no extra effort.
+- **Simplicity.** Every tool, language, and developer already understands HTTP
+  and JSON.
+- **No extra runtime.** Especially when the API is generated from your database
+  schema.
+
+The classic REST complaint — over-fetching and under-fetching — mostly goes away
+when the API supports field selection, filtering, and embedding related
+resources.
+
+## Auto-generated REST removes the boilerplate
+
+The historical downside of REST was hand-writing controllers. A PostgREST-style
+API removes that: your PostgreSQL schema becomes the API, with filtering and
+related-table embedding built in.
+
+```ts
+const { data } = await kb
+  .from("posts")
+  .select("id, title, author:authors(name)")
+  .eq("published", true)
+  .order("created_at", { ascending: false });
+```
+
+That's field selection and a join in one request — much of GraphQL's ergonomics,
+over plain cacheable HTTP. See
+[how to build a REST API without boilerplate](/blog/rest-api-on-postgresql-without-boilerplate).
+
+## A simple way to decide
+
+> Choose GraphQL if many heterogeneous clients need flexible, deeply nested
+> queries and you're comfortable running and securing a GraphQL layer. Choose
+> REST — especially auto-generated REST — if you value caching, simplicity, and
+> fewer moving parts.
+
+Kolaybase takes the REST path with an auto-generated API; if you prefer GraphQL,
+see how it [compares to Nhost](/compare/kolaybase-vs-nhost), which is GraphQL-first
+via Hasura.

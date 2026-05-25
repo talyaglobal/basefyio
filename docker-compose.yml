@@ -187,7 +187,7 @@ services:
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
         # Leave unset in .env to use default; an empty value here removes the tag from the build.
-        NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-G-9HTNF4CR06}
+        NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-G-7Q90HE6Z02}
     restart: unless-stopped
     ports:
       - "${WEBSITE_PORT:-3002}:3000"

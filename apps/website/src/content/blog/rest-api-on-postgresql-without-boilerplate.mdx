@@ -1,0 +1,88 @@
+---
+title: "How to Build a REST API on PostgreSQL Without Writing Boilerplate"
+description: "Stop hand-writing CRUD controllers. Learn how an auto-generated, PostgREST-style REST API turns your PostgreSQL schema into a production endpoint instantly."
+date: "2026-05-15"
+author: "Kolaybase Team"
+tags: ["REST API", "PostgreSQL", "PostgREST", "backend"]
+---
+
+Most REST APIs are 80% boilerplate: a controller per table, the same
+list/create/update/delete handlers, pagination, filtering, and validation copied
+over and over. PostgreSQL already knows your schema — so why describe it twice?
+
+## The boilerplate problem
+
+A typical hand-written endpoint looks like this:
+
+```ts
+app.get("/articles", async (req, res) => {
+  const { status, limit = 20, offset = 0 } = req.query;
+  const rows = await db.query(
+    "select * from articles where status = $1 limit $2 offset $3",
+    [status, limit, offset],
+  );
+  res.json(rows);
+});
+```
+
+Multiply that by every table and every filter combination. It's repetitive,
+error-prone, and drifts out of sync with the database.
+
+## Generate the API from the schema
+
+With Kolaybase, the schema *is* the API. Define a table and it's immediately
+available over REST with filtering, ordering, and pagination built in:
+
+```bash
+# Filter, order, and paginate — all from the query string
+GET /articles?status=eq.published&order=created_at.desc&limit=20
+```
+
+The same query through the SDK:
+
+```ts
+const { data } = await kb
+  .from("articles")
+  .select("id, title, author:authors(name)")
+  .eq("status", "published")
+  .order("created_at", { ascending: false })
+  .range(0, 19);
+```
+
+Notice `author:authors(name)` — related tables are embedded in a single request,
+no N+1 queries and no custom join endpoint.
+
+## Filtering operators you get for free
+
+| Operator | Meaning            | Example                  |
+| -------- | ------------------ | ------------------------ |
+| `eq`     | equals             | `status=eq.published`    |
+| `gt`     | greater than       | `views=gt.1000`          |
+| `like`   | pattern match      | `title=like.*postgres*`  |
+| `in`     | in list            | `id=in.(1,2,3)`          |
+| `is`     | null check         | `deleted_at=is.null`     |
+
+## Security still lives in the database
+
+Auto-generated doesn't mean wide open. Row-level security policies decide who
+sees what, enforced by PostgreSQL itself:
+
+```sql
+alter table articles enable row level security;
+
+create policy "authors read own drafts"
+  on articles for select
+  using (auth.uid() = author_id or status = 'published');
+```
+
+The API respects the policy automatically — no permission checks scattered
+across controllers.
+
+## The takeaway
+
+Hand-written CRUD is a maintenance tax. Let PostgreSQL's schema and policies be
+the single source of truth, and let the REST layer be generated from it. You
+write product features; the plumbing writes itself.
+
+Read the full [REST API reference](/docs/api) or see how Kolaybase
+[compares to Supabase](/compare/kolaybase-vs-supabase).

@@ -26,6 +26,11 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     description: defaultDescription,
     applicationName: "Kolaybase",
+    alternates: {
+      types: {
+        "application/rss+xml": [{ url: "/feed.xml", title: "Kolaybase Blog" }],
+      },
+    },
     keywords: [
       "Kolaybase",
       "backend as a service",

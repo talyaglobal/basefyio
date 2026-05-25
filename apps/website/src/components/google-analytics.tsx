@@ -11,7 +11,7 @@ import Script from "next/script";
 function getMeasurementId(): string | null {
   const v = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
   if (v === "") return null;
-  const trimmed = (v ?? "G-9HTNF4CR06").trim();
+  const trimmed = (v ?? "G-7Q90HE6Z02").trim();
   return trimmed || null;
 }
 
