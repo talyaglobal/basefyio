@@ -170,7 +170,7 @@ export default function DashboardLayout({
     });
 
     return () => { isMounted = false; };
-  }, [activeTeamId]);
+  }, [activeTeamId, refreshKey]);
 
   // Derive banner + frozen-redirect from cached billingData whenever pathname changes
   useEffect(() => {

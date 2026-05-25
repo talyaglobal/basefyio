@@ -173,6 +173,12 @@ export class ProjectsService {
       anonKey = clients.anonKey;
       serviceKey = clients.serviceKey;
     } catch (err) {
+      // Clean up the potentially orphaned Keycloak realm before rolling back DB
+      try {
+        await this.keycloak.deleteRealm(realmName);
+      } catch {
+        this.logger.warn(`Rollback: could not delete orphaned realm "${realmName}"`);
+      }
       await this.dropDatabaseUser(dbUser);
       await this.dropDatabase(dbName);
       this.logger.error('Keycloak realm creation failed, rolling back', err);

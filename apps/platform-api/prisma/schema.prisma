@@ -22,6 +22,7 @@ enum ProjectStatus {
 
 enum TeamMemberRole {
   OWNER
+  ADMIN
   MEMBER
 }
 
@@ -112,18 +113,19 @@ model Team {
   vercelOAuthTeamId String?  @map("vercel_oauth_team_id")
   vercelOAuthUser   String?  @map("vercel_oauth_user")
 
-  personalForUser   User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
-  activeForUsers    User[]       @relation("ActiveTeam")
-  members           TeamMember[]
-  invites           TeamInvite[]
-  projects          Project[]
-  folders           ProjectFolder[]
-  tags              ProjectTag[]
-  subscription      Subscription?
-  invoices          Invoice[]
-  usage             TeamUsage?
-  infrastructure    TeamInfrastructure?
-  billingAccount    BillingAccount?
+  personalForUser    User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
+  activeForUsers     User[]       @relation("ActiveTeam")
+  members            TeamMember[]
+  invites            TeamInvite[]
+  projects           Project[]
+  folders            ProjectFolder[]
+  tags               ProjectTag[]
+  subscription       Subscription?
+  invoices           Invoice[]
+  usage              TeamUsage?
+  infrastructure     TeamInfrastructure?
+  billingAccount     BillingAccount?
+  rolePermissions    TeamRolePermission[]
 
   @@map("teams")
 }
@@ -140,6 +142,30 @@ model TeamMember {
 
   @@unique([teamId, userId])
   @@map("team_members")
+}
+
+model TeamRolePermission {
+  id                        String         @id @default(uuid())
+  teamId                    String         @map("team_id")
+  role                      TeamMemberRole
+  // Team settings
+  canRenameTeam             Boolean        @default(false) @map("can_rename_team")
+  canInviteMembers          Boolean        @default(false) @map("can_invite_members")
+  canRemoveMembers          Boolean        @default(false) @map("can_remove_members")
+  canManageIntegrations     Boolean        @default(false) @map("can_manage_integrations")
+  // Project operations
+  canCreateProjects         Boolean        @default(false) @map("can_create_projects")
+  canDeleteProjects         Boolean        @default(false) @map("can_delete_projects")
+  canRestoreProjects        Boolean        @default(false) @map("can_restore_projects")
+  canMoveProjects           Boolean        @default(false) @map("can_move_projects")
+  // Billing
+  canViewBilling            Boolean        @default(false) @map("can_view_billing")
+  canManageBilling          Boolean        @default(false) @map("can_manage_billing")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, role])
+  @@map("team_role_permissions")
 }
 
 enum InviteStatus {

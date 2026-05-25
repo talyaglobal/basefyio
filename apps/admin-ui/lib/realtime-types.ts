@@ -5,7 +5,8 @@ export type RealtimeEntityType =
   | 'team_invite'
   | 'team_member'
   | 'project'
-  | 'project_activity';
+  | 'project_activity'
+  | 'billing';
 
 export interface RealtimeEventEnvelope {
   eventId: string;

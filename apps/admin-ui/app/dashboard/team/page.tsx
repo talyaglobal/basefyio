@@ -24,6 +24,7 @@ import {
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Clock,
   Crown,
   Github,
@@ -33,11 +34,18 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Shield,
   Trash2,
   Unplug,
   Users,
   X,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 function VercelLogo({ className }: { className?: string }) {
   return (
@@ -49,7 +57,7 @@ function VercelLogo({ className }: { className?: string }) {
 
 // ── Team Integrations Section ─────────────────────────────────
 
-function TeamIntegrationsSection({ teamId }: { teamId: string }) {
+function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: string; canManage: boolean; refreshKey?: number }) {
   const [githubStatus, setGithubStatus] = useState<TeamGitHubStatus | null>(null);
   const [vercelStatus, setVercelStatus] = useState<TeamVercelStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,7 +84,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
 
   useEffect(() => {
     loadStatuses();
-  }, [teamId]);
+  }, [teamId, refreshKey]);
 
   async function handleConnectGitHub() {
     setConnectingGitHub(true);
@@ -174,7 +182,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
               </div>
             </div>
 
-            {githubStatus?.connected ? (
+            {canManage && (githubStatus?.connected ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -198,7 +206,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
                   <><Github className="h-3.5 w-3.5 mr-2" />Connect with GitHub</>
                 )}
               </Button>
-            )}
+            ))}
           </div>
 
           {/* Vercel Card */}
@@ -227,7 +235,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
               </div>
             </div>
 
-            {vercelStatus?.connected ? (
+            {canManage && (vercelStatus?.connected ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -251,7 +259,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
                   <><VercelLogo className="h-3.5 w-3.5 mr-2" />Connect with Vercel</>
                 )}
               </Button>
-            )}
+            ))}
           </div>
         </div>
       )}
@@ -264,7 +272,7 @@ function TeamIntegrationsSection({ teamId }: { teamId: string }) {
 export default function TeamSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activeTeamId, setActiveTeamId, refreshTeams } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, refreshTeams, refreshKey } = useActiveTeam();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
@@ -281,6 +289,22 @@ export default function TeamSettingsPage() {
   // Transfer ownership
   const [transferTarget, setTransferTarget] = useState<TeamMember | null>(null);
   const [transferring, setTransferring] = useState(false);
+
+  // Role permissions
+  type RolePerms = Record<string, boolean>;
+  const [rolePermissions, setRolePermissions] = useState<Record<string, RolePerms> | null>(null);
+  const [draftPermissions, setDraftPermissions] = useState<Record<string, RolePerms> | null>(null);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+  const permsDirty = !!(rolePermissions && draftPermissions && JSON.stringify(rolePermissions) !== JSON.stringify(draftPermissions));
+
+  const currentUserRole = members.find((m) => m.id === currentUserId)?.role;
+  const currentUserIsOwner = currentUserRole === 'OWNER';
+
+  function hasPermission(perm: string): boolean {
+    if (currentUserIsOwner) return true;
+    if (!currentUserRole || !rolePermissions) return false;
+    return rolePermissions[currentUserRole]?.[perm] ?? false;
+  }
 
   // Handle OAuth callback query params
   useEffect(() => {
@@ -308,15 +332,18 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [m, pi, mi, teams] = await Promise.all([
+      const [m, pi, mi, teams, rp] = await Promise.all([
         api.teams.listMembers(activeTeamId),
         api.teams.listTeamInvites(activeTeamId),
         api.teams.myInvites(),
         api.teams.list(),
+        api.teams.getRolePermissions(activeTeamId),
       ]);
       setMembers(m);
       setPendingInvites(pi);
       setMyInvites(mi);
+      setRolePermissions(rp);
+      setDraftPermissions(rp);
       const current = teams.find((t) => t.id === activeTeamId);
       if (current) setTeamName(current.name);
     } catch (err: any) {
@@ -343,7 +370,7 @@ export default function TeamSettingsPage() {
 
   useEffect(() => {
     loadAll();
-  }, [activeTeamId]);
+  }, [activeTeamId, refreshKey]);
 
   async function handleTransferOwnership() {
     if (!activeTeamId || !transferTarget) return;
@@ -513,15 +540,17 @@ export default function TeamSettingsPage() {
           <Button variant="outline" size="icon" onClick={loadAll}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Invite
-          </Button>
+          {hasPermission('canInviteMembers') && (
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Invite
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Team Name — owner only */}
-      {members.some((m) => m.id === currentUserId && m.role === 'OWNER') && (
+      {/* Team Name — owner or users with canRenameTeam */}
+      {hasPermission('canRenameTeam') && (
         <div className="rounded-lg border bg-card p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -576,17 +605,19 @@ export default function TeamSettingsPage() {
           ) : (
             <p className="text-sm font-medium">{teamName}</p>
           )}
-          <div className="pt-2">
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDeleteTeam}
-              disabled={members.length === 0}
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Delete Team
-            </Button>
-          </div>
+          {currentUserIsOwner && (
+            <div className="pt-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteTeam}
+                disabled={members.length === 0}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Delete Team
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -611,6 +642,8 @@ export default function TeamSettingsPage() {
                   ? `${m.firstName[0]}${m.lastName[0]}`.toUpperCase()
                   : displayName.slice(0, 2).toUpperCase();
                 const isOwner = m.role === 'OWNER';
+                const isAdmin = m.role === 'ADMIN';
+                const currentUserIsOwner = members.some((x) => x.id === currentUserId && x.role === 'OWNER');
 
                 return (
                   <div key={m.id} className="flex items-center gap-3 px-4 py-3">
@@ -641,6 +674,11 @@ export default function TeamSettingsPage() {
                             Owner
                           </Badge>
                         )}
+                        {isAdmin && (
+                          <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800">
+                            Admin
+                          </Badge>
+                        )}
                         {m.id === currentUserId && (
                           <Badge variant="outline" className="text-[10px] h-4 px-1.5">
                             You
@@ -650,26 +688,85 @@ export default function TeamSettingsPage() {
                       <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                     </div>
 
-                    {/* Actions for non-owner members (only visible to current owner) */}
-                    {m.role !== 'OWNER' && members.some((x) => x.id === currentUserId && x.role === 'OWNER') && (
+                    {/* Actions for non-owner members */}
+                    {!isOwner && m.id !== currentUserId && (currentUserIsOwner || hasPermission('canRemoveMembers')) && (
                       <div className="flex items-center gap-1 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
-                          title="Transfer ownership to this member"
-                          onClick={() => setTransferTarget(m)}
-                        >
-                          <Crown className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive/60 hover:text-destructive"
-                          onClick={() => handleRemove(m.id, displayName)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {/* Role change dropdown — owner only */}
+                        {currentUserIsOwner && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs gap-1"
+                              >
+                                {isAdmin ? (
+                                  <><Shield className="h-3 w-3" />Admin</>
+                                ) : (
+                                  <><Users className="h-3 w-3" />Member</>
+                                )}
+                                <ChevronDown className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  try {
+                                    await api.teams.updateMemberRole(activeTeamId!, m.id, 'ADMIN');
+                                    toast.success(`${displayName} is now an Admin`);
+                                    loadAll();
+                                  } catch (err: any) {
+                                    toast.error(err.message);
+                                  }
+                                }}
+                                disabled={isAdmin}
+                              >
+                                <Shield className="h-3.5 w-3.5 mr-2" />
+                                Admin
+                                {isAdmin && <Check className="h-3.5 w-3.5 ml-auto" />}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  try {
+                                    await api.teams.updateMemberRole(activeTeamId!, m.id, 'MEMBER');
+                                    toast.success(`${displayName} is now a Member`);
+                                    loadAll();
+                                  } catch (err: any) {
+                                    toast.error(err.message);
+                                  }
+                                }}
+                                disabled={m.role === 'MEMBER'}
+                              >
+                                <Users className="h-3.5 w-3.5 mr-2" />
+                                Member
+                                {m.role === 'MEMBER' && <Check className="h-3.5 w-3.5 ml-auto" />}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                        {/* Transfer ownership — owner only */}
+                        {currentUserIsOwner && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
+                            title="Transfer ownership to this member"
+                            onClick={() => setTransferTarget(m)}
+                          >
+                            <Crown className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {/* Remove member — permission based */}
+                        {hasPermission('canRemoveMembers') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive/60 hover:text-destructive"
+                            onClick={() => handleRemove(m.id, displayName)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -737,8 +834,137 @@ export default function TeamSettingsPage() {
 
       <Separator />
 
+      {/* Role Permissions Matrix — owner only */}
+      {currentUserIsOwner && activeTeamId && draftPermissions && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold">Role Permissions</h2>
+            <p className="text-sm text-muted-foreground">
+              Configure what each role can do in this team. Only the team owner can change these settings.
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="text-left px-4 py-2.5 font-medium">Permission</th>
+                  <th className="text-center px-4 py-2.5 font-medium w-24">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Crown className="h-3 w-3 text-amber-500" />
+                      Owner
+                    </div>
+                  </th>
+                  <th className="text-center px-4 py-2.5 font-medium w-24">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Shield className="h-3 w-3 text-blue-500" />
+                      Admin
+                    </div>
+                  </th>
+                  <th className="text-center px-4 py-2.5 font-medium w-24">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Users className="h-3 w-3 text-muted-foreground" />
+                      Member
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {([
+                  { key: '', label: 'Team Settings', isHeader: true },
+                  { key: 'canRenameTeam', label: 'Rename team' },
+                  { key: 'canInviteMembers', label: 'Invite & re-invite members' },
+                  { key: 'canRemoveMembers', label: 'Remove members' },
+                  { key: 'canManageIntegrations', label: 'Manage integrations' },
+                  { key: '', label: 'Projects', isHeader: true },
+                  { key: 'canCreateProjects', label: 'Create projects' },
+                  { key: 'canDeleteProjects', label: 'Delete projects' },
+                  { key: 'canRestoreProjects', label: 'Restore deleted projects' },
+                  { key: 'canMoveProjects', label: 'Move projects between teams' },
+                  { key: '', label: 'Billing', isHeader: true },
+                  { key: 'canViewBilling', label: 'View billing & invoices' },
+                  { key: 'canManageBilling', label: 'Manage plans & payments' },
+                ] as Array<{ key: string; label: string; isHeader?: boolean }>).map(({ key, label, isHeader }) => (
+                  isHeader ? (
+                    <tr key={label} className="bg-muted/20">
+                      <td colSpan={4} className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</td>
+                    </tr>
+                  ) : (
+                    <tr key={key}>
+                      <td className="px-4 py-2.5 pl-6">{label}</td>
+                      <td className="text-center px-4 py-2.5">
+                        <Check className="h-4 w-4 text-emerald-500 mx-auto" />
+                      </td>
+                      {(['ADMIN', 'MEMBER'] as const).map((role) => (
+                        <td key={role} className="text-center px-4 py-2.5">
+                          <button
+                            className="mx-auto flex items-center justify-center"
+                            onClick={() => {
+                              setDraftPermissions((prev) => prev ? {
+                                ...prev,
+                                [role]: { ...prev[role], [key]: !prev[role][key] },
+                              } : prev);
+                            }}
+                          >
+                            {draftPermissions[role]?.[key] ? (
+                              <Check className="h-4 w-4 text-emerald-500" />
+                            ) : (
+                              <X className="h-4 w-4 text-muted-foreground/30" />
+                            )}
+                          </button>
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={!permsDirty || savingPermissions}
+              onClick={async () => {
+                if (!activeTeamId || !draftPermissions || !rolePermissions) return;
+                setSavingPermissions(true);
+                try {
+                  for (const role of ['ADMIN', 'MEMBER'] as const) {
+                    const draft = draftPermissions[role];
+                    const saved = rolePermissions[role];
+                    if (JSON.stringify(draft) !== JSON.stringify(saved)) {
+                      await api.teams.updateRolePermissions(activeTeamId, role, draft);
+                    }
+                  }
+                  setRolePermissions({ ...draftPermissions });
+                  toast.success('Permissions saved');
+                } catch (err: any) {
+                  toast.error(err.message);
+                } finally {
+                  setSavingPermissions(false);
+                }
+              }}
+            >
+              {savingPermissions ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Saving...</>
+              ) : (
+                <><Save className="h-3.5 w-3.5 mr-2" />Save Changes</>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Separator />
+
       {/* Integrations Section */}
-      {activeTeamId && <TeamIntegrationsSection teamId={activeTeamId} />}
+      {activeTeamId && (
+        <TeamIntegrationsSection
+          teamId={activeTeamId}
+          canManage={hasPermission('canManageIntegrations')}
+          refreshKey={refreshKey}
+        />
+      )}
 
       {activeTeamId && (
         <InviteDialog

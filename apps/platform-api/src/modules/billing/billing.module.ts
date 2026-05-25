@@ -10,6 +10,8 @@ import { ObservabilityModule } from '../observability/observability.module';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
 import { BillingProcessor } from '../queue/billing.processor';
 import { QueueModule } from '../queue/queue.module';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { RealtimeStreamService } from '../../common/realtime/realtime-stream.service';
 
 @Module({
   imports: [PrismaModule, ObservabilityModule, QueueModule],
@@ -22,6 +24,8 @@ import { QueueModule } from '../queue/queue.module';
     BillingProcessor,
     RootRoleGuard,
     ManagementPermissionGuard,
+    RealtimeEventsService,
+    RealtimeStreamService,
   ],
   exports: [BillingService, UsageService, QuotaService],
 })

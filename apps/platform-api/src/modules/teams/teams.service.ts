@@ -51,6 +51,7 @@ export class TeamsService {
       data: { activeTeamId: team.id },
     });
 
+    await this.ensureDefaultRolePermissions(team.id);
     this.logger.log(`Personal team created for "${displayName}" (${team.id})`);
     return team;
   }
@@ -84,6 +85,7 @@ export class TeamsService {
       this.logger.error(`Failed to create subscription for new team ${team.id}: ${err}`);
     }
 
+    await this.ensureDefaultRolePermissions(team.id);
     this.logger.log(`Team "${name}" created by ${userId}`);
     return team;
   }
@@ -160,7 +162,7 @@ export class TeamsService {
   }
 
   async updateTeamName(teamId: string, userId: string, name: string) {
-    await this.assertOwner(teamId, userId);
+    await this.assertPermission(teamId, userId, 'canRenameTeam');
 
     const trimmed = name.trim();
     if (!trimmed || trimmed.length < 2) {
@@ -209,7 +211,7 @@ export class TeamsService {
   }
 
   async sendInvite(teamId: string, ownerUserId: string, usernameOrEmail: string) {
-    await this.assertOwner(teamId, ownerUserId);
+    await this.assertPermission(teamId, ownerUserId, 'canInviteMembers');
     await this.quota.assertCanInviteMember(teamId);
 
     const targetUser = await this.prisma.user.findFirst({
@@ -447,7 +449,7 @@ export class TeamsService {
   }
 
   async cancelInvite(teamId: string, inviteId: string, ownerUserId: string) {
-    await this.assertOwner(teamId, ownerUserId);
+    await this.assertPermission(teamId, ownerUserId, 'canInviteMembers');
 
     await this.prisma.teamInvite.deleteMany({
       where: { id: inviteId, teamId, status: 'PENDING' },
@@ -466,7 +468,7 @@ export class TeamsService {
   }
 
   async reInvite(teamId: string, inviteId: string, ownerUserId: string) {
-    await this.assertOwner(teamId, ownerUserId);
+    await this.assertPermission(teamId, ownerUserId, 'canInviteMembers');
 
     const invite = await this.prisma.teamInvite.findFirst({
       where: { id: inviteId, teamId, status: 'PENDING' },
@@ -507,7 +509,7 @@ export class TeamsService {
   }
 
   async removeMember(teamId: string, ownerUserId: string, targetUserId: string) {
-    await this.assertOwner(teamId, ownerUserId);
+    await this.assertPermission(teamId, ownerUserId, 'canRemoveMembers');
 
     if (targetUserId === ownerUserId) {
       throw new ForbiddenException('Cannot remove yourself as owner');
@@ -661,5 +663,157 @@ export class TeamsService {
     if (!m || m.role !== 'OWNER') {
       throw new ForbiddenException('Only the team owner can do this');
     }
+  }
+
+  async assertOwnerOrAdmin(teamId: string, userId: string) {
+    const m = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!m || (m.role !== 'OWNER' && m.role !== 'ADMIN')) {
+      throw new ForbiddenException('Only team owners and admins can do this');
+    }
+    return m;
+  }
+
+  /**
+   * Check if the user has a specific permission in this team.
+   * OWNER always has all permissions. For ADMIN/MEMBER, check the
+   * per-team TeamRolePermission record.
+   */
+  async assertPermission(
+    teamId: string,
+    userId: string,
+    permission: typeof TeamsService.PERM_KEYS[number],
+  ) {
+    const m = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!m) throw new ForbiddenException('Not a member of this team');
+    if (m.role === 'OWNER') return m;
+
+    const perms = await this.prisma.teamRolePermission.findUnique({
+      where: { teamId_role: { teamId, role: m.role } },
+    });
+    if (!perms || !perms[permission]) {
+      throw new ForbiddenException('You do not have permission to perform this action');
+    }
+    return m;
+  }
+
+  // ── Role permissions CRUD (OWNER only) ──
+
+  private static PERM_KEYS = [
+    'canRenameTeam', 'canInviteMembers', 'canRemoveMembers', 'canManageIntegrations',
+    'canCreateProjects', 'canDeleteProjects', 'canRestoreProjects', 'canMoveProjects',
+    'canViewBilling', 'canManageBilling',
+  ] as const;
+
+  private static ADMIN_DEFAULTS: Record<string, boolean> = {
+    canRenameTeam: true, canInviteMembers: true, canRemoveMembers: true, canManageIntegrations: true,
+    canCreateProjects: true, canDeleteProjects: true, canRestoreProjects: true, canMoveProjects: true,
+    canViewBilling: true, canManageBilling: false,
+  };
+
+  private static MEMBER_DEFAULTS: Record<string, boolean> = {
+    canRenameTeam: false, canInviteMembers: false, canRemoveMembers: false, canManageIntegrations: false,
+    canCreateProjects: true, canDeleteProjects: false, canRestoreProjects: false, canMoveProjects: false,
+    canViewBilling: false, canManageBilling: false,
+  };
+
+  private pickPerms(row: Record<string, unknown>) {
+    const result: Record<string, boolean> = {};
+    for (const key of TeamsService.PERM_KEYS) {
+      result[key] = row[key] === true;
+    }
+    return result;
+  }
+
+  async getRolePermissions(teamId: string, userId: string) {
+    await this.assertMember(teamId, userId);
+    const perms = await this.prisma.teamRolePermission.findMany({
+      where: { teamId },
+      orderBy: { role: 'asc' },
+    });
+    const result: Record<string, Record<string, boolean>> = {};
+    for (const role of ['ADMIN', 'MEMBER'] as const) {
+      const existing = perms.find((p) => p.role === role);
+      result[role] = existing
+        ? this.pickPerms(existing as unknown as Record<string, unknown>)
+        : (role === 'ADMIN' ? { ...TeamsService.ADMIN_DEFAULTS } : { ...TeamsService.MEMBER_DEFAULTS });
+    }
+    return result;
+  }
+
+  async updateRolePermissions(
+    teamId: string,
+    ownerUserId: string,
+    role: 'ADMIN' | 'MEMBER',
+    permissions: Record<string, boolean>,
+  ) {
+    await this.assertOwner(teamId, ownerUserId);
+    const defaults = role === 'ADMIN' ? TeamsService.ADMIN_DEFAULTS : TeamsService.MEMBER_DEFAULTS;
+    const safePerms: Record<string, boolean> = {};
+    for (const key of TeamsService.PERM_KEYS) {
+      if (key in permissions) safePerms[key] = permissions[key];
+    }
+    const updated = await this.prisma.teamRolePermission.upsert({
+      where: { teamId_role: { teamId, role } },
+      update: safePerms,
+      create: { teamId, role, ...defaults, ...safePerms },
+    });
+    this.logger.log(`Team ${teamId}: ${role} permissions updated by ${ownerUserId}`);
+    return this.pickPerms(updated as unknown as Record<string, unknown>);
+  }
+
+  /** Ensure default permission rows exist for a team (called on team create). */
+  async ensureDefaultRolePermissions(teamId: string) {
+    for (const [role, defaults] of [['ADMIN', TeamsService.ADMIN_DEFAULTS], ['MEMBER', TeamsService.MEMBER_DEFAULTS]] as const) {
+      await this.prisma.teamRolePermission.upsert({
+        where: { teamId_role: { teamId, role: role as 'ADMIN' | 'MEMBER' } },
+        update: {},
+        create: { teamId, role: role as 'ADMIN' | 'MEMBER', ...defaults },
+      });
+    }
+  }
+
+  async updateMemberRole(
+    teamId: string,
+    ownerUserId: string,
+    targetUserId: string,
+    newRole: 'ADMIN' | 'MEMBER',
+  ) {
+    await this.assertOwner(teamId, ownerUserId);
+
+    if (targetUserId === ownerUserId) {
+      throw new ForbiddenException('Cannot change your own role');
+    }
+
+    const target = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+    });
+    if (!target) {
+      throw new NotFoundException('Member not found');
+    }
+    if (target.role === 'OWNER') {
+      throw new ForbiddenException('Cannot change the role of an owner');
+    }
+
+    await this.prisma.teamMember.update({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+      data: { role: newRole },
+    });
+
+    this.logger.log(`Team ${teamId}: ${targetUserId} role changed to ${newRole} by ${ownerUserId}`);
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'updated',
+      entityId: `${teamId}:${targetUserId}`,
+      actorUserId: ownerUserId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { kind: 'role_changed', targetUserId, newRole },
+    });
+
+    return { message: `Member role updated to ${newRole}` };
   }
 }

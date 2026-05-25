@@ -240,6 +240,16 @@ export class TeamsController {
     }
   }
 
+  @Patch(':id/members/:userId/role')
+  async updateMemberRole(
+    @Param('id') id: string,
+    @Param('userId') targetUserId: string,
+    @Body() body: { role: 'ADMIN' | 'MEMBER' },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.updateMemberRole(id, user.sub, targetUserId, body.role);
+  }
+
   @Delete(':id/members/:userId')
   async removeMember(
     @Req() req: RequestWithTraceId,
@@ -314,6 +324,29 @@ export class TeamsController {
       });
       throw err;
     }
+  }
+
+  @Get(':id/role-permissions')
+  async getRolePermissions(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.getRolePermissions(id, user.sub);
+  }
+
+  @Put(':id/role-permissions/:role')
+  async updateRolePermissions(
+    @Param('id') id: string,
+    @Param('role') role: 'ADMIN' | 'MEMBER',
+    @Body() body: {
+      canRenameTeam?: boolean;
+      canInviteMembers?: boolean;
+      canRemoveMembers?: boolean;
+      canManageIntegrations?: boolean;
+    },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.updateRolePermissions(id, user.sub, role, body);
   }
 
   @Delete(':id')

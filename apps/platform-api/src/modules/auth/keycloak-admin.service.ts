@@ -361,6 +361,10 @@ export class KeycloakAdminService implements OnModuleInit {
     if (exists) {
       this.logger.warn(`Realm "${realmName}" already exists, deleting before recreate`);
       await this.client.realms.del({ realm: realmName });
+      // Re-authenticate after delete to ensure a fresh token for the create call
+      await this.ensureAuth();
+      // Wait briefly for Keycloak to fully clean up internal state (caches, JPA flush)
+      await new Promise((r) => setTimeout(r, 2000));
     }
     await this.client.realms.create({
       realm: realmName,
@@ -463,6 +467,12 @@ export class KeycloakAdminService implements OnModuleInit {
   async getRealmInfo(realmName: string) {
     await this.ensureAuth();
     const realm = await this.client.realms.findOne({ realm: realmName });
+    if (!realm) {
+      this.logger.error(`Realm "${realmName}" not found in Keycloak`);
+      throw new InternalServerErrorException(
+        `Authentication realm "${realmName}" not found. The realm may need to be re-provisioned.`,
+      );
+    }
     const users = await this.client.users.count({ realm: realmName });
     const clients = await this.client.clients.find({ realm: realmName });
 

@@ -30,7 +30,6 @@ import {
   User,
   Users,
   Menu,
-  ShieldCheck,
   X,
 } from 'lucide-react';
 import { FeedbackModal } from '@/components/feedback-modal';
@@ -274,15 +273,6 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             <FolderOpen className="h-3.5 w-3.5" />
             Projects
           </Link>
-          {profile?.role === 'ROOT' && (
-            <Link
-              href="/dashboard/management"
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Management
-            </Link>
-          )}
         </nav>
 
         <Button

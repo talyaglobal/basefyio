@@ -11,11 +11,19 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { TeamIntegrationsService } from './team-integrations.service';
+import { TeamsService } from '../teams/teams.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import {
+  CurrentUser,
+  JwtPayload,
+} from '../../common/decorators/current-user.decorator';
 
 @Controller('team-integrations')
 export class TeamIntegrationsController {
-  constructor(private readonly service: TeamIntegrationsService) {}
+  constructor(
+    private readonly service: TeamIntegrationsService,
+    private readonly teams: TeamsService,
+  ) {}
 
   // ── GitHub ──────────────────────────────────────────────────
 
@@ -27,7 +35,11 @@ export class TeamIntegrationsController {
 
   @Get(':teamId/github/connect-url')
   @UseGuards(JwtAuthGuard)
-  async getGitHubConnectUrl(@Param('teamId') teamId: string) {
+  async getGitHubConnectUrl(
+    @Param('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     const url = await this.service.getGitHubConnectUrl(teamId);
     return { url };
   }
@@ -47,14 +59,20 @@ export class TeamIntegrationsController {
   async connectGitHubWithPat(
     @Param('teamId') teamId: string,
     @Body('token') token: string,
+    @CurrentUser() user: JwtPayload,
   ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     await this.service.connectGitHubWithPat(teamId, token);
     return { connected: true };
   }
 
   @Delete(':teamId/github')
   @UseGuards(JwtAuthGuard)
-  disconnectGitHub(@Param('teamId') teamId: string) {
+  async disconnectGitHub(
+    @Param('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     return this.service.disconnectGitHub(teamId);
   }
 
@@ -84,7 +102,11 @@ export class TeamIntegrationsController {
 
   @Get(':teamId/vercel/connect-url')
   @UseGuards(JwtAuthGuard)
-  async getVercelConnectUrl(@Param('teamId') teamId: string) {
+  async getVercelConnectUrl(
+    @Param('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     const url = await this.service.getVercelConnectUrl(teamId);
     return { url };
   }
@@ -101,16 +123,22 @@ export class TeamIntegrationsController {
 
   @Post(':teamId/vercel/connect')
   @UseGuards(JwtAuthGuard)
-  connectVercel(
+  async connectVercel(
     @Param('teamId') teamId: string,
     @Body('token') token: string,
+    @CurrentUser() user: JwtPayload,
   ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     return this.service.connectVercelWithToken(teamId, token);
   }
 
   @Delete(':teamId/vercel')
   @UseGuards(JwtAuthGuard)
-  disconnectVercel(@Param('teamId') teamId: string) {
+  async disconnectVercel(
+    @Param('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.teams.assertPermission(teamId, user.sub, 'canManageIntegrations');
     return this.service.disconnectVercel(teamId);
   }
 

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe/stripe.service';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 @Injectable()
 export class BillingService implements OnModuleInit {
@@ -16,6 +17,7 @@ export class BillingService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    private readonly realtime: RealtimeEventsService,
   ) {}
 
   async onModuleInit() {
@@ -689,6 +691,10 @@ export class BillingService implements OnModuleInit {
     });
 
     this.logger.log(`Subscription canceled for team ${teamId}`);
+    this.realtime.publish({
+      entityType: 'billing', action: 'subscription_canceled', entityId: teamId,
+      actorUserId: userId, teamId,
+    }).catch(() => {});
     return { message: 'Subscription will cancel at end of billing period' };
   }
 
@@ -708,6 +714,10 @@ export class BillingService implements OnModuleInit {
     });
 
     this.logger.log(`Subscription resumed for team ${teamId}`);
+    this.realtime.publish({
+      entityType: 'billing', action: 'subscription_resumed', entityId: teamId,
+      actorUserId: userId, teamId,
+    }).catch(() => {});
     return { message: 'Subscription resumed' };
   }
 
@@ -875,6 +885,11 @@ export class BillingService implements OnModuleInit {
     this.logger.log(
       `Team ${teamId} upgraded to ${newPlanName}. Charged $${(amountDue / 100).toFixed(2)} (proration credit: $${(prorationCredit / 100).toFixed(2)})`,
     );
+    this.realtime.publish({
+      entityType: 'billing', action: 'plan_changed', entityId: teamId,
+      actorUserId: userId, teamId,
+      payload: { planName: newPlan.displayName },
+    }).catch(() => {});
 
     return {
       message: `Plan upgraded to ${newPlan.displayName}`,

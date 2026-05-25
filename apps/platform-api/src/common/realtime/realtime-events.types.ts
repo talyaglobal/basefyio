@@ -5,7 +5,8 @@ export type RealtimeEntityType =
   | 'team_invite'
   | 'team_member'
   | 'project'
-  | 'project_activity';
+  | 'project_activity'
+  | 'billing';
 
 export type RealtimeAction =
   | 'created'
@@ -19,7 +20,10 @@ export type RealtimeAction =
   | 'member_removed'
   | 'moved'
   | 'restored'
-  | 'activity_appended';
+  | 'activity_appended'
+  | 'plan_changed'
+  | 'subscription_canceled'
+  | 'subscription_resumed';
 
 export interface RealtimeEventEnvelope {
   eventId: string;

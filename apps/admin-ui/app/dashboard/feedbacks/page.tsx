@@ -46,6 +46,7 @@ function parseAttachments(raw: unknown): FeedbackAttachment[] {
 
 const STATUS_OPTIONS = ['OPEN', 'IN_PROGRESS', 'DONE', 'CLOSED'] as const;
 const FEEDBACK_STATUS_FILTER_KEY = 'kb_feedbacks_status_filter';
+const FEEDBACK_TYPE_FILTER_KEY = 'kb_feedbacks_type_filter';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   OPEN: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Circle className="h-3 w-3" /> },
@@ -55,9 +56,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 };
 
 const TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {
-  BUG: { label: 'Bug', icon: <Bug className="h-3.5 w-3.5 text-red-500" /> },
-  FEATURE: { label: 'Feature', icon: <Lightbulb className="h-3.5 w-3.5 text-purple-500" /> },
-  GENERAL: { label: 'General', icon: <MessageSquare className="h-3.5 w-3.5 text-blue-500" /> },
+  BUG: { label: 'Issue', icon: <Bug className="h-3.5 w-3.5 text-red-500" /> },
+  FEATURE: { label: 'Idea', icon: <Lightbulb className="h-3.5 w-3.5 text-purple-500" /> },
+  GENERAL: { label: 'Issue', icon: <MessageSquare className="h-3.5 w-3.5 text-blue-500" /> },
 };
 const MAX_COMMENT_FILES = 5;
 
@@ -68,6 +69,7 @@ export default function FeedbacksPage() {
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>('OPEN');
+  const [filterType, setFilterType] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -135,6 +137,19 @@ export default function FeedbacksPage() {
       filterStatus ?? 'ALL',
     );
   }, [filterStatus]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(FEEDBACK_TYPE_FILTER_KEY);
+    if (saved === 'ISSUE' || saved === 'IDEA') {
+      setFilterType(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(FEEDBACK_TYPE_FILTER_KEY, filterType ?? 'ALL');
+  }, [filterType]);
 
   async function handleStatusChange(id: string, status: string) {
     setUpdatingId(id);
@@ -227,6 +242,8 @@ export default function FeedbacksPage() {
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = feedbacks.filter((f) => {
     if (filterStatus && f.status !== filterStatus) return false;
+    if (filterType === 'ISSUE' && f.type === 'FEATURE') return false;
+    if (filterType === 'IDEA' && f.type !== 'FEATURE') return false;
     if (!normalizedSearch) return true;
     const haystack = [
       f.title,
@@ -297,11 +314,42 @@ export default function FeedbacksPage() {
         })}
       </div>
 
+      {isRoot && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setFilterType(null)}
+            className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              !filterType ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+            }`}
+          >
+            All Types
+          </button>
+          <button
+            onClick={() => setFilterType(filterType === 'ISSUE' ? null : 'ISSUE')}
+            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              filterType === 'ISSUE' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+            }`}
+          >
+            <Bug className="h-3 w-3 text-red-500" />
+            Issues
+          </button>
+          <button
+            onClick={() => setFilterType(filterType === 'IDEA' ? null : 'IDEA')}
+            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              filterType === 'IDEA' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+            }`}
+          >
+            <Lightbulb className="h-3 w-3 text-purple-500" />
+            Ideas
+          </button>
+        </div>
+      )}
+
       <div className="max-w-md">
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search feedback title, description, user, email..."
+          placeholder="Search feedback description, user, email..."
         />
       </div>
 

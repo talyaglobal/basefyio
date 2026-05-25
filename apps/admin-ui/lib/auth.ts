@@ -176,12 +176,9 @@ export function getTokenExpiry(): number | null {
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let refreshRetryCount = 0;
-const MAX_REFRESH_RETRIES = 5;
 
 export function startProactiveRefresh() {
   stopProactiveRefresh();
-  refreshRetryCount = 0;
 
   function schedule() {
     const expiry = getTokenExpiry();
@@ -207,31 +204,19 @@ export function startProactiveRefresh() {
       if (res.ok) {
         const tokens: AuthTokens = await res.json();
         setTokens(tokens);
-        refreshRetryCount = 0;
         schedule();
         return;
       }
 
-      // Hard auth failures: retry a few times before giving up.
-      // Keycloak can transiently 401 during restarts/deployments.
-      if (res.status === 400 || res.status === 401) {
-        refreshRetryCount++;
-        if (refreshRetryCount >= MAX_REFRESH_RETRIES) {
-          clearTokens();
-          window.location.href = '/login';
-          return;
-        }
-        // Exponential backoff: 10s, 20s, 40s, 80s, ...
-        const backoff = Math.min(10_000 * Math.pow(2, refreshRetryCount - 1), 120_000);
-        refreshTimer = setTimeout(() => void doRefresh(), backoff);
-        return;
-      }
-
-      // Transient failure: retry later without forcing logout.
-      refreshTimer = setTimeout(schedule, 30_000);
+      // Auth or transient failures: keep retrying forever.
+      // The user should NEVER be auto-logged-out by a background refresh.
+      // Only an explicit user logout should clear tokens.
+      // Retry with backoff (30s for transient, 60s for hard auth failures).
+      const backoff = res.status === 400 || res.status === 401 ? 60_000 : 30_000;
+      refreshTimer = setTimeout(() => void doRefresh(), backoff);
     } catch {
       // Network issue: retry later without forcing logout.
-      refreshTimer = setTimeout(schedule, 30_000);
+      refreshTimer = setTimeout(() => void doRefresh(), 30_000);
     }
   }
 

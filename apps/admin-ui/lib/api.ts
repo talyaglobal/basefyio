@@ -1,4 +1,4 @@
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
+import { getAccessToken, getRefreshToken, setTokens } from './auth';
 import type {
   AuthTokens,
   ColumnInfo,
@@ -446,6 +446,21 @@ export const api = {
     removeMember(teamId: string, userId: string) {
       return request<{ message: string }>(`/teams/${teamId}/members/${userId}`, {
         method: 'DELETE',
+      });
+    },
+    updateMemberRole(teamId: string, userId: string, role: 'ADMIN' | 'MEMBER') {
+      return request<{ message: string }>(`/teams/${teamId}/members/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+    },
+    getRolePermissions(teamId: string) {
+      return request<Record<string, { canRenameTeam: boolean; canInviteMembers: boolean; canRemoveMembers: boolean; canManageIntegrations: boolean }>>(`/teams/${teamId}/role-permissions`);
+    },
+    updateRolePermissions(teamId: string, role: 'ADMIN' | 'MEMBER', permissions: Record<string, boolean>) {
+      return request<Record<string, boolean>>(`/teams/${teamId}/role-permissions/${role}`, {
+        method: 'PUT',
+        body: JSON.stringify(permissions),
       });
     },
     transferOwnership(teamId: string, newOwnerUserId: string) {

@@ -10,6 +10,9 @@ import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
+import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
+import { parseJwt, getAccessToken } from '@/lib/auth';
 import {
   Book,
   BrainCircuit,
@@ -227,6 +230,25 @@ export default function ProjectLayout({
       toast.error('Failed to refresh project');
     }
   }, [id]);
+
+  // Realtime: subscribe to project channel for live updates
+  useEffect(() => {
+    if (!id || projectLoading || !project) return;
+    if (!isRealtimePhase1Enabled()) return;
+    const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
+    const unsubscribe = subscribeKbRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
+      if (event.entityType !== 'project') return;
+      // Skip self-triggered updates (UI already reflects the change)
+      if (event.action === 'updated' && event.actorUserId === currentUserId) return;
+      if (event.action === 'deleted') {
+        toast.error('This project has been deleted');
+        router.push('/dashboard/projects');
+        return;
+      }
+      refreshProject();
+    });
+    return () => { unsubscribe?.(); };
+  }, [id, projectLoading, project, refreshProject, router]);
 
   useEffect(() => {
     if (!id) return;

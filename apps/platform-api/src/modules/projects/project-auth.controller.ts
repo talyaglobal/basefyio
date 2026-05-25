@@ -224,4 +224,29 @@ export class ProjectAuthController {
       providers: await this.keycloak.listIdentityProviders(project.keycloakRealm),
     };
   }
+
+  @Post('repair')
+  async repairRealm(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const realmName = project.keycloakRealm;
+    const exists = await this.keycloak.realmExists(realmName);
+    if (exists) {
+      return { message: 'Realm is healthy, no repair needed', realm: realmName };
+    }
+
+    await this.keycloak.createRealm(realmName);
+    await this.keycloak.createClients(realmName);
+
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
+      title: 'Authentication realm repaired',
+      detail: `Realm "${realmName}" was re-provisioned`,
+    });
+
+    return { message: 'Realm repaired successfully', realm: realmName };
+  }
 }

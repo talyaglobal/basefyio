@@ -154,7 +154,7 @@ export interface Team {
   name: string;
   slug: string;
   isPersonal: boolean;
-  role: 'OWNER' | 'MEMBER';
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
   memberCount: number;
   projectCount: number;
 }
@@ -165,7 +165,7 @@ export interface TeamMember {
   firstName: string | null;
   lastName: string | null;
   avatarUrl: string | null;
-  role: 'OWNER' | 'MEMBER';
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
   joinedAt: string;
 }
 

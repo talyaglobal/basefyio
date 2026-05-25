@@ -282,7 +282,7 @@ function CardForm({
 // ── Main Page ───────────────────────────────────────────
 
 export default function BillingPage() {
-  const { activeTeamId } = useDashboard();
+  const { activeTeamId, refreshKey } = useDashboard();
   const searchParams = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -346,7 +346,7 @@ export default function BillingPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTeamId]);
+  }, [activeTeamId, refreshKey]);
 
   useEffect(() => {
     loadData();
