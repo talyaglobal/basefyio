@@ -9,9 +9,39 @@ import { NotificationsProvider } from '@/lib/notifications-context';
 import { GlobalErrorCatcher } from '@/components/global-error-catcher';
 import './globals.css';
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.kolaybase.com';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://kolaybase.com';
+
 export const metadata: Metadata = {
-  title: 'Kolaybase — Admin',
-  description: 'Self-hosted backend platform control plane',
+  title: {
+    default: 'Kolaybase — Open Source Backend Platform',
+    template: '%s | Kolaybase',
+  },
+  description:
+    'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration. An open-source alternative to Firebase and Supabase.',
+  metadataBase: new URL(APP_URL),
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
+  openGraph: {
+    type: 'website',
+    siteName: 'Kolaybase',
+    title: 'Kolaybase — Open Source Backend Platform',
+    description:
+      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+    url: SITE_URL,
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Kolaybase — Open Source Backend Platform',
+    description:
+      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

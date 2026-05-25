@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getChangelogEntry, listChangelogEntries, renderMarkdown, KIND_BADGE_CLASS, KIND_LABEL } from '@/lib/changelog';
@@ -8,6 +9,13 @@ export const revalidate = 60;
 
 export function generateStaticParams() {
   return listChangelogEntries().map((e) => ({ slug: e.slug }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const entry = getChangelogEntry(slug);
+  if (!entry) return {};
+  return { title: entry.title, description: entry.summary };
 }
 
 function formatDate(dateStr: string): string {
