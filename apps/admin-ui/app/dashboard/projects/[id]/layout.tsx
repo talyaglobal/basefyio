@@ -132,14 +132,6 @@ export default function ProjectLayout({
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [appVersion, setAppVersion] = useState<string>('');
-
-  useEffect(() => {
-    fetch('/api/changelog/latest')
-      .then((r) => r.json())
-      .then((d) => { if (d.version) setAppVersion(d.version); })
-      .catch(() => {});
-  }, []);
 
   const recoverProjectWithTeamSwitch = useCallback(
     async (projectId: string): Promise<Project | null> => {
@@ -317,7 +309,7 @@ export default function ProjectLayout({
     <ProjectProvider project={project} loading={false} refreshProject={refreshProject}>
       <div
       className={cn(
-        'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6 overflow-hidden',
+        'absolute inset-0 flex min-w-0 overflow-hidden',
         isResizing && 'select-none',
       )}
     >
@@ -444,11 +436,6 @@ export default function ProjectLayout({
                 />
               </div>
             </div>
-            {appVersion && (
-              <p className="mb-2 text-center text-[10px] italic text-muted-foreground/40">
-                {appVersion}
-              </p>
-            )}
           </>
         ) : (
           <>
@@ -513,9 +500,6 @@ export default function ProjectLayout({
               >
                 Auto
               </span>
-              {appVersion && (
-                <span className="text-[9px] italic text-muted-foreground/40">{appVersion}</span>
-              )}
             </div>
           </>
         )}
