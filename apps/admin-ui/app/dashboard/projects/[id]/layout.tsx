@@ -304,6 +304,7 @@ export default function ProjectLayout({
 
   const basePath = `/dashboard/projects/${id}`;
   const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
+  const isFullHeightRoute = pathname.startsWith(`${basePath}/tables`) || pathname.startsWith(`${basePath}/sql`);
 
   return (
     <ProjectProvider project={project} loading={false} refreshProject={refreshProject}>
@@ -520,8 +521,8 @@ export default function ProjectLayout({
 
       <main
         className={cn(
-          'h-full min-h-0 min-w-0 flex-1 p-6 overflow-y-auto',
-          isLogsRoute ? 'flex flex-col overflow-hidden' : '',
+          'h-full min-h-0 min-w-0 flex-1 p-6',
+          (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
         )}
       >
         {children}

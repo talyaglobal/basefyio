@@ -77,6 +77,8 @@ export interface ImportDataDialogProps {
   defaultTargetTable?: string | null;
   /** Called when the import completes successfully so the parent can refresh. */
   onCompleted?: () => void;
+  /** Called to download a CSV template for the currently selected table. */
+  onDownloadTemplate?: () => void;
 }
 
 interface MappingRow {
@@ -474,7 +476,7 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
         </DialogHeader>
 
         {step === 'upload' && (
-          <UploadStep busy={busy} onFile={handleFileUpload} error={error} batchFiles={batchFiles} />
+          <UploadStep busy={busy} onFile={handleFileUpload} error={error} batchFiles={batchFiles} onDownloadTemplate={props.onDownloadTemplate} />
         )}
 
         {step === 'configure' && inspect && (
@@ -611,6 +613,7 @@ function UploadStep(props: {
   onFile: (files: File[]) => void;
   error: string | null;
   batchFiles: Array<{ name: string; size: number; status: string; error?: string }>;
+  onDownloadTemplate?: () => void;
 }) {
   const [drag, setDrag] = useState(false);
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -647,20 +650,32 @@ function UploadStep(props: {
           file drives column detection; the rest are queued under the same plan.
         </div>
       </div>
-      <label className="cursor-pointer">
-        <input
-          type="file"
-          multiple
-          className="sr-only"
-          accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm"
-          onChange={onPick}
-          disabled={props.busy}
-        />
-        <span className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted">
-          <FileSpreadsheet className="h-4 w-4" />
-          Choose file(s)
-        </span>
-      </label>
+      <div className="flex items-center gap-3">
+        <label className="cursor-pointer">
+          <input
+            type="file"
+            multiple
+            className="sr-only"
+            accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm"
+            onChange={onPick}
+            disabled={props.busy}
+          />
+          <span className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted">
+            <FileSpreadsheet className="h-4 w-4" />
+            Choose file(s)
+          </span>
+        </label>
+        {props.onDownloadTemplate && (
+          <button
+            type="button"
+            onClick={props.onDownloadTemplate}
+            className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Download template
+          </button>
+        )}
+      </div>
       {props.batchFiles.length > 0 && (
         <div className="mt-2 w-full max-w-md space-y-1 text-left text-xs">
           {props.batchFiles.map((b, i) => (
