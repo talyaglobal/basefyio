@@ -10,7 +10,7 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
 
 const defaultTitle =
-  "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform";
+  "Kolaybase — PostgreSQL BaaS & REST API for Developers";
 const defaultDescription =
   "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
 

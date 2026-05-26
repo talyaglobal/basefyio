@@ -14,7 +14,7 @@ export const SITE = {
   lang: "en",
   twitter: "@kolaybase",
   defaultTitle:
-    "Kolaybase — PostgreSQL Backend & REST API for Developers | BaaS Platform",
+    "Kolaybase — PostgreSQL BaaS & REST API for Developers",
   defaultDescription:
     "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
   /** Path (relative to site root) of the default social share image. */
