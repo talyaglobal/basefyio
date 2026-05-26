@@ -3,6 +3,7 @@ date: 2026-05-12
 slug: team-wide-project-notifications
 title: Project notifications now go to the entire team
 kind: feature
+version: v1.0.2
 summary: When someone creates, deletes, or restores a project, everyone on the team gets notified.
 ---
 

@@ -1262,6 +1262,7 @@ export const api = {
       description?: string;
       type?: string;
       attachments?: { url: string; mimeType: string; kind: 'image' | 'video' }[];
+      appVersion?: string;
     }) {
       return request<{ id: string }>('/feedback', {
         method: 'POST',
@@ -1289,6 +1290,7 @@ export const api = {
         }[];
         type: string;
         status: string;
+        appVersion?: string | null;
         deletedAt?: string | null;
         createdAt: string;
       }[]>('/feedback');

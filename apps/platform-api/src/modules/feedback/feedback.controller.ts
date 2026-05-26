@@ -56,6 +56,10 @@ class CreateFeedbackDto {
   @ValidateNested({ each: true })
   @Type(() => FeedbackAttachmentDto)
   attachments?: FeedbackAttachmentDto[];
+
+  @IsString()
+  @IsOptional()
+  appVersion?: string;
 }
 
 class UpdateFeedbackStatusDto {
@@ -127,6 +131,7 @@ export class FeedbackController {
       description: dto.description,
       type: dto.type,
       attachments: dto.attachments,
+      appVersion: dto.appVersion,
     });
   }
 

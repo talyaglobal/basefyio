@@ -25,6 +25,7 @@ interface CreateFeedbackDto {
   description?: string;
   type?: FeedbackType;
   attachments?: FeedbackAttachmentRef[];
+  appVersion?: string;
 }
 
 interface UpdateFeedbackDto {
@@ -116,6 +117,7 @@ export class FeedbackService {
         description: dto.description || null,
         type: dto.type || FeedbackType.GENERAL,
         attachments: attachmentsJson,
+        appVersion: dto.appVersion || null,
       },
     });
     await this.appendEvent({

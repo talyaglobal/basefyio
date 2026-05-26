@@ -105,6 +105,14 @@ export function DashboardSidebar({
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    fetch('/api/changelog/latest')
+      .then((r) => r.json())
+      .then((d) => { if (d.version) setAppVersion(d.version); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -217,32 +225,37 @@ export function DashboardSidebar({
             <ChevronRight className="h-4 w-4" />
           </button>
         ) : (
-          <div className="flex items-center gap-1 rounded-md bg-muted/70 p-1">
-            <button
-              type="button"
-              onClick={() => setSidebarMode('auto')}
-              className={cn(
-                'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
-                sidebarMode === 'auto'
-                  ? 'bg-background text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Auto
-            </button>
-            <button
-              type="button"
-              onClick={() => setSidebarMode('open')}
-              className={cn(
-                'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
-                sidebarMode === 'open'
-                  ? 'bg-background text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Open
-            </button>
-          </div>
+          <>
+            <div className="flex items-center gap-1 rounded-md bg-muted/70 p-1">
+              <button
+                type="button"
+                onClick={() => setSidebarMode('auto')}
+                className={cn(
+                  'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                  sidebarMode === 'auto'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                onClick={() => setSidebarMode('open')}
+                className={cn(
+                  'flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                  sidebarMode === 'open'
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Open
+              </button>
+            </div>
+            {appVersion && (
+              <p className="mt-1 text-center text-[10px] italic text-muted-foreground/40">{appVersion}</p>
+            )}
+          </>
         )}
       </div>
     </aside>

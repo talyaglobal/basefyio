@@ -3,6 +3,7 @@ date: 2026-05-21
 slug: tenant-embeddings-api
 title: Embeddings API — Build Semantic Search & RAG Into Your Own App
 kind: feature
+version: v1.1.1
 summary: Enable pgvector on your project database, store embeddings via a simple REST API, and add semantic search or RAG to your application in minutes.
 ---
 

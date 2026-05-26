@@ -441,6 +441,7 @@ model Feedback {
   attachments Json?        @map("attachments")
   type        FeedbackType   @default(GENERAL)
   status      FeedbackStatus @default(OPEN)
+  appVersion  String?        @map("app_version")
   deletedAt   DateTime?      @map("deleted_at")
   createdAt   DateTime       @default(now()) @map("created_at")
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)

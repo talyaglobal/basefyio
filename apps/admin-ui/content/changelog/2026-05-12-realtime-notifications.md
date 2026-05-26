@@ -3,6 +3,7 @@ date: 2026-05-12
 slug: realtime-notifications
 title: Notifications are now real-time
 kind: feature
+version: v1.0.2
 summary: New feedback, comment, or status change? You now get notified instantly.
 ---
 

@@ -3,6 +3,7 @@ date: 2026-05-18
 slug: ai-semantic-search
 title: AI-Powered Search, RAG, and Smart Suggestions
 kind: feature
+version: v1.1.0
 summary: You can now search your SQL history, table schemas, and project activities using natural language. The AI assistant truly understands your project.
 ---
 
