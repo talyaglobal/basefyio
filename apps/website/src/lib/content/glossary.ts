@@ -289,6 +289,128 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["database-schema", "acid-transactions", "database-index"],
   },
+  {
+    slug: "primary-key",
+    term: "Primary Key",
+    definition:
+      "A primary key is a column (or set of columns) that uniquely identifies each row in a table, enforced by the database to be unique and non-null.",
+    body: [
+      "Every well-designed table has a primary key so each row can be referenced unambiguously. The database rejects duplicate or null values in the key, guaranteeing identity.",
+      "Keys are often surrogate (an auto-generated identity or UUID) or natural (a real-world unique value like an email). Surrogate keys are common because they're stable and compact.",
+      "Primary keys are the targets that foreign keys reference, making them the backbone of relational integrity.",
+    ],
+    related: ["foreign-key", "uuid", "database-schema", "database-index"],
+  },
+  {
+    slug: "orm",
+    term: "ORM",
+    aka: "Object-Relational Mapping",
+    definition:
+      "An ORM (object-relational mapping) is a library that maps database tables to objects in your programming language, letting you query and persist data without writing raw SQL.",
+    body: [
+      "ORMs translate between rows and language objects, handling CRUD, relationships, and migrations through a typed API. They speed up development and reduce boilerplate.",
+      "The trade-off is a layer of abstraction that can hide what SQL actually runs, sometimes causing performance surprises like N+1 queries. Many teams mix an ORM for common access with raw SQL for complex queries.",
+      "A PostgREST-style REST API offers a different path: you get a query interface over your schema without an ORM, while keeping raw SQL available when needed.",
+    ],
+    related: ["crud", "postgrest", "database-schema", "rest-api"],
+  },
+  {
+    slug: "pagination",
+    term: "Pagination",
+    definition:
+      "Pagination splits a large result set into smaller pages, returning a slice at a time so APIs and UIs stay fast and memory-efficient.",
+    body: [
+      "Rather than returning thousands of rows at once, pagination returns a bounded page. The two common approaches are offset-based (limit/offset) and cursor- or keyset-based (fetch rows after a known value).",
+      "Offset pagination is simple but gets slower on deep pages and can skip or repeat rows when data changes. Keyset pagination is more efficient and stable for large, frequently-updated datasets.",
+      "A good REST API exposes pagination through query parameters, so clients control page size and position without custom endpoints.",
+    ],
+    related: ["rest-api", "database-index", "crud"],
+  },
+  {
+    slug: "sql-injection",
+    term: "SQL Injection",
+    definition:
+      "SQL injection is a security vulnerability where untrusted input is inserted into a SQL query, letting an attacker read or modify data they shouldn't.",
+    body: [
+      "It happens when user input is concatenated directly into SQL. An attacker can craft input that changes the query's meaning — bypassing auth, dumping tables, or deleting data.",
+      "The fix is parameterized queries (bind variables), which keep data separate from SQL code, plus least-privilege database roles and input validation at the boundary.",
+      "When you must run dynamic SQL, never interpolate raw user input; pass values as parameters and rely on database permissions and row-level security as defense in depth.",
+    ],
+    related: ["row-level-security", "api-key", "database-schema"],
+  },
+  {
+    slug: "database-view",
+    term: "Database View",
+    definition:
+      "A database view is a saved query that behaves like a virtual table, letting you encapsulate complex logic and expose a simplified, reusable interface to data.",
+    body: [
+      "A view stores a SELECT statement under a name. Querying the view runs the underlying query, so you can hide joins and calculations behind a clean, table-like surface.",
+      "Views are great for reporting and for shaping data for an API: define a metric or denormalized shape once, then read it everywhere. Materialized views go further by caching results for speed.",
+      "With a PostgREST-style API, a view is exposed as an endpoint just like a table, making complex queries available to clients without custom code.",
+    ],
+    related: ["database-schema", "postgrest", "full-text-search", "rest-api"],
+  },
+  {
+    slug: "stored-procedure",
+    term: "Stored Procedure",
+    definition:
+      "A stored procedure (or function) is logic stored and executed inside the database, letting you run complex operations close to the data in a single call.",
+    body: [
+      "Stored procedures and functions encapsulate multi-step logic — validation, calculations, multiple writes — on the database server. They run in one round trip and can enforce invariants centrally.",
+      "In PostgreSQL, functions can be written in SQL or PL/pgSQL and called from queries or APIs. They're useful for atomic operations and for logic that must always run regardless of the client.",
+      "Used judiciously, they reduce network chatter and keep critical rules next to the data; overused, they can scatter business logic, so balance is key.",
+    ],
+    related: ["acid-transactions", "database-schema", "database-view"],
+  },
+  {
+    slug: "database-replication",
+    term: "Database Replication",
+    definition:
+      "Database replication copies data from a primary database to one or more replicas, improving availability, read scalability, and disaster recovery.",
+    body: [
+      "Replication streams changes from a primary to replicas. Read replicas absorb read traffic and serve as standbys that can be promoted if the primary fails.",
+      "It can be synchronous (a write waits for replicas, stronger durability, higher latency) or asynchronous (faster, with a small lag). PostgreSQL supports streaming replication natively.",
+      "Replication underpins high availability and is a key part of operating a database reliably, alongside backups and failover planning.",
+    ],
+    related: ["connection-pooling", "acid-transactions", "serverless-database"],
+  },
+  {
+    slug: "upsert",
+    term: "Upsert",
+    definition:
+      "An upsert inserts a row, or updates it if a row with the same key already exists — a single operation that means 'insert or update'.",
+    body: [
+      "Upserts avoid the race-prone pattern of checking for a row and then inserting or updating. The database does it atomically in one statement.",
+      "In PostgreSQL this is INSERT ... ON CONFLICT, where you specify the conflicting key and what to update. It's ideal for syncing data, counters, and idempotent writes.",
+      "Many client SDKs expose upsert directly, so you can write 'create or update this record' without custom transaction logic.",
+    ],
+    related: ["crud", "acid-transactions", "primary-key"],
+  },
+  {
+    slug: "soft-delete",
+    term: "Soft Delete",
+    definition:
+      "A soft delete marks a row as deleted (e.g. with a deleted_at timestamp) instead of removing it, so data can be recovered, audited, or filtered out.",
+    body: [
+      "Instead of a destructive DELETE, a soft delete sets a flag or timestamp. Application queries then exclude 'deleted' rows, while the data remains for recovery and history.",
+      "It's useful for undo, audit trails, and compliance, but it adds complexity: every query must filter deleted rows, and unique constraints and storage must account for them.",
+      "Row-level security and views can help enforce that 'deleted' rows stay hidden from normal access while remaining available to admins.",
+    ],
+    related: ["row-level-security", "database-view", "crud"],
+  },
+  {
+    slug: "uuid",
+    term: "UUID",
+    aka: "Universally Unique Identifier",
+    definition:
+      "A UUID is a 128-bit identifier designed to be globally unique without a central authority, often used as a primary key in distributed systems.",
+    body: [
+      "UUIDs let independent systems generate IDs that won't collide, which is handy for distributed apps, client-generated keys, and merging data from multiple sources.",
+      "Compared to sequential integer keys, UUIDs don't leak row counts and can be created offline, but they're larger and less index-friendly; newer time-ordered variants improve locality.",
+      "PostgreSQL supports UUIDs natively as a type and can generate them, making them a practical primary-key choice for many schemas.",
+    ],
+    related: ["primary-key", "database-index", "database-schema"],
+  },
 ];
 
 export function getTerm(slug: string): GlossaryTerm | undefined {

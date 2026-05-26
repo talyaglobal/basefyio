@@ -92,6 +92,11 @@ The pages are organized by search intent. Highest commercial intent first.
 | `/compare/kolaybase-vs-nhost` | nhost alternative, rest vs graphql backend |
 | `/compare/kolaybase-vs-render` | render alternative, backend hosting |
 | `/compare/kolaybase-vs-aws-amplify` | aws amplify alternative, no lock-in backend |
+| `/compare/kolaybase-vs-convex` | convex alternative, postgres vs convex |
+| `/compare/kolaybase-vs-hasura` | hasura alternative, rest vs graphql engine |
+| `/compare/kolaybase-vs-directus` | directus alternative, headless data platform |
+| `/compare/kolaybase-vs-strapi` | strapi alternative, headless cms backend |
+| `/compare/kolaybase-vs-xata` | xata alternative, serverless postgres platform |
 
 ### Use-case pages (intent: "backend for X")
 
