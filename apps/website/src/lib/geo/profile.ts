@@ -7,6 +7,104 @@
  * may quote one line of this with no surrounding context.
  */
 import type { GeoProfile } from "@kolaybase/geo";
+import { getAllPosts } from "@/lib/content/blog";
+import { COMPARISONS } from "@/lib/content/comparisons";
+import { USE_CASES } from "@/lib/content/use-cases";
+import { GLOSSARY } from "@/lib/content/glossary";
+import { INTEGRATIONS } from "@/lib/content/integrations";
+
+/**
+ * Build the dynamic content sections that surface every blog post, comparison,
+ * use case, integration, and glossary term to AI answer engines via
+ * `/llms.txt` and `/llms-full.txt`. Without this, the GEO profile would only
+ * point at the docs, hiding the bulk of the site from engines like ChatGPT and
+ * Perplexity that fetch the manifest first.
+ */
+function contentSections(): NonNullable<GeoProfile["sections"]> {
+  const sections: NonNullable<GeoProfile["sections"]> = [];
+
+  const posts = getAllPosts();
+  if (posts.length > 0) {
+    sections.push({
+      title: "Blog",
+      description:
+        "Engineering notes, guides, and explainers about PostgreSQL backends, REST APIs, auth, and self-hosting.",
+      links: [
+        { title: "Blog index", url: "/blog", note: "All posts, newest first" },
+        ...posts.map((p) => ({
+          title: p.title,
+          url: `/blog/${p.slug}`,
+          note: p.description,
+        })),
+      ],
+    });
+  }
+
+  if (COMPARISONS.length > 0) {
+    sections.push({
+      title: "Comparisons",
+      description:
+        "Honest, side-by-side comparisons of Kolaybase with other backend platforms.",
+      links: [
+        { title: "All comparisons", url: "/compare", note: "Index of every comparison" },
+        ...COMPARISONS.map((c) => ({
+          title: `Kolaybase vs. ${c.competitor}`,
+          url: `/compare/${c.slug}`,
+          note: c.description,
+        })),
+      ],
+    });
+  }
+
+  if (USE_CASES.length > 0) {
+    sections.push({
+      title: "Use cases",
+      description: "What teams build on Kolaybase — by application type.",
+      links: [
+        { title: "All use cases", url: "/use-cases", note: "Index of every use case" },
+        ...USE_CASES.map((u) => ({
+          title: u.title,
+          url: `/use-cases/${u.slug}`,
+          note: u.description,
+        })),
+      ],
+    });
+  }
+
+  if (INTEGRATIONS.length > 0) {
+    sections.push({
+      title: "Integrations",
+      description:
+        "Framework-specific guides for using kolaybase-js with the JavaScript/TypeScript ecosystem.",
+      links: [
+        { title: "All integrations", url: "/integrations", note: "Index of every integration" },
+        ...INTEGRATIONS.map((i) => ({
+          title: i.title,
+          url: `/integrations/${i.slug}`,
+          note: i.description,
+        })),
+      ],
+    });
+  }
+
+  if (GLOSSARY.length > 0) {
+    sections.push({
+      title: "Learn — backend & PostgreSQL glossary",
+      description:
+        "Self-contained definitions for backend, PostgreSQL, and API concepts. Safe to quote one line.",
+      links: [
+        { title: "Glossary index", url: "/learn", note: "All terms, alphabetical" },
+        ...GLOSSARY.map((t) => ({
+          title: t.aka ? `${t.term} (${t.aka})` : t.term,
+          url: `/learn/${t.slug}`,
+          note: t.definition,
+        })),
+      ],
+    });
+  }
+
+  return sections;
+}
 
 /** Build the profile against a resolved site origin (no trailing slash). */
 export function createGeoProfile(siteUrl: string): GeoProfile {
@@ -58,6 +156,7 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
           { title: "CLI reference", url: "/docs/cli", note: "The kb command-line tool" },
         ],
       },
+      ...contentSections(),
       {
         title: "Product",
         links: [
