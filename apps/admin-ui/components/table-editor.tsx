@@ -1180,10 +1180,22 @@ export function TableEditor({ projectId }: TableEditorProps) {
     );
   }
 
+  function downloadCsvTemplate() {
+    if (!columns.length || !selected) return;
+    const headers = columns.map((c) => c.name).join(',');
+    const blob = new Blob([headers + '\n'], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selected}_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0 pb-4">
         <h1 className="text-2xl font-bold tracking-tight">Table Editor</h1>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={loadTables}>
@@ -1214,7 +1226,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
       </div>
 
       {tables.length === 0 ? (
-        <div className="flex h-48 flex-col items-center justify-center rounded-lg border border-dashed">
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
           <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
           <p className="font-medium">No tables yet</p>
           <p className="mb-4 text-sm text-muted-foreground">
@@ -1227,7 +1239,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
         </div>
       ) : (
         <div
-          className="flex h-[calc(100vh-220px)] min-h-[480px] max-h-[calc(100vh-220px)] gap-0 overflow-hidden rounded-lg border"
+          className="flex flex-1 min-h-0 gap-0 overflow-hidden rounded-lg border"
         >
           {/* Sidebar: table list */}
           <div
@@ -1648,11 +1660,27 @@ export function TableEditor({ projectId }: TableEditorProps) {
                               <tr>
                                 <td
                                   colSpan={(data?.fields?.length ?? 0) + 3}
-                                  className="py-12 text-center text-sm text-muted-foreground"
+                                  className="py-16 text-center"
                                 >
-                                  {filterText
-                                    ? 'No rows match your filter'
-                                    : 'No rows — click "Row" to insert data'}
+                                  {filterText ? (
+                                    <p className="text-sm text-muted-foreground">No rows match your filter</p>
+                                  ) : (
+                                    <div className="flex flex-col items-center gap-3">
+                                      <Table2 className="h-10 w-10 text-muted-foreground/30" />
+                                      <p className="font-medium">This table is empty</p>
+                                      <p className="text-sm text-muted-foreground">Import data from a CSV file or add rows manually</p>
+                                      <div className="flex items-center gap-2 mt-2">
+                                        <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                                          <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
+                                          Import data from CSV
+                                        </Button>
+                                        <Button size="sm" variant="ghost" onClick={downloadCsvTemplate}>
+                                          Download template
+                                        </Button>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mt-1">or drag and drop a CSV file here</p>
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             ) : null}
@@ -1739,6 +1767,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
           loadTables();
           if (selected) reloadTableData();
         }}
+        onDownloadTemplate={columns.length > 0 ? downloadCsvTemplate : undefined}
       />
       {selected && (
         <DuplicateCleanerDialog

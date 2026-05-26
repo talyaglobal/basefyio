@@ -3,6 +3,7 @@ date: 2026-05-11
 slug: clean-duplicates
 title: Clean duplicate rows with a single click
 kind: feature
+version: v1.0.1
 summary: Find duplicate records in your table, see how many will be deleted, and clean them with one click.
 ---
 

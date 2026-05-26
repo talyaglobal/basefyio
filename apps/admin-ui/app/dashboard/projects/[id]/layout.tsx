@@ -304,12 +304,13 @@ export default function ProjectLayout({
 
   const basePath = `/dashboard/projects/${id}`;
   const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
+  const isFullHeightRoute = pathname.startsWith(`${basePath}/tables`) || pathname.startsWith(`${basePath}/sql`);
 
   return (
     <ProjectProvider project={project} loading={false} refreshProject={refreshProject}>
       <div
       className={cn(
-        'flex h-full min-h-full min-w-0 w-full flex-1 gap-0 -m-6 overflow-hidden',
+        'absolute inset-0 flex min-w-0 overflow-hidden',
         isResizing && 'select-none',
       )}
     >
@@ -520,8 +521,8 @@ export default function ProjectLayout({
 
       <main
         className={cn(
-          'h-full min-h-0 min-w-0 flex-1 p-6 overflow-y-auto',
-          isLogsRoute ? 'flex flex-col overflow-hidden' : '',
+          'h-full min-h-0 min-w-0 flex-1 p-6',
+          (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
         )}
       >
         {children}

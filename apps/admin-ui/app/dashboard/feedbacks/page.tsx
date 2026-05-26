@@ -566,6 +566,12 @@ export default function FeedbacksPage() {
                       </span>
                       <span>·</span>
                       <span>{new Date(fb.createdAt).toLocaleString()}</span>
+                      {isRoot && fb.appVersion && (
+                        <>
+                          <span>·</span>
+                          <span className="font-mono text-[10px]">{fb.appVersion}</span>
+                        </>
+                      )}
                       <span>·</span>
                       <a
                         href={fb.url}

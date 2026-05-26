@@ -3,6 +3,7 @@ date: 2026-05-10
 slug: import-data-wizard
 title: Import CSV and Excel files directly into your table
 kind: feature
+version: v1.0.0
 summary: Drag and drop your CSV or Excel files, map the columns, and import. No SQL required.
 ---
 

@@ -179,6 +179,11 @@ export default function PublicChangelogPage() {
                                   <span className={'inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold shadow-sm ' + badge.cls}>
                                     {badge.label}
                                   </span>
+                                  {e.version && (
+                                    <span className="inline-block rounded-full border px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                      {e.version}
+                                    </span>
+                                  )}
                                   <span className="text-xs text-muted-foreground md:hidden">{dateStr}</span>
                                 </div>
                                 <h2 className="mt-3 text-base font-bold leading-snug group-hover:text-primary transition-colors">

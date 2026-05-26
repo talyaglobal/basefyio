@@ -353,7 +353,7 @@ export default function DashboardLayout({
             <div
               className={
                 isProjectDetailRoute
-                  ? 'flex h-full min-h-0 flex-1 p-3 sm:p-4 md:p-6'
+                  ? 'relative flex h-full min-h-0 flex-1'
                   : 'flex-1 p-3 sm:p-4 md:p-6'
               }
             >

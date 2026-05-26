@@ -3,6 +3,7 @@ date: 2026-05-25
 slug: team-roles-permissions
 title: Team Roles & Granular Permission Control
 kind: feature
+version: v1.2.0
 summary: Teams now have three roles — Owner, Admin, and Member — with a fully customizable permission matrix. Each team owner can configure exactly what Admins and Members are allowed to do.
 ---
 

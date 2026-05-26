@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listChangelogEntries } from '@/lib/changelog';
+import { listChangelogEntries, getLatestVersion } from '@/lib/changelog';
 
 // Cache for 1 minute so the widget doesn't hammer the filesystem on every
 // pageview. Entries are committed to git, not user-mutable, so staleness up
@@ -21,6 +21,8 @@ export async function GET() {
       slug: top.slug,
       date: top.date,
       title: top.title,
+      version: top.version,
     },
+    version: getLatestVersion(),
   });
 }

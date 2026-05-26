@@ -8,6 +8,7 @@ export interface ChangelogEntry {
   date: string;
   title: string;
   kind: ChangelogKind;
+  version?: string;
   summary: string;
   body: string;
 }
@@ -42,7 +43,7 @@ export function listChangelogEntries(): ChangelogEntry[] {
       const raw = fs.readFileSync(path.join(CHANGELOG_DIR, file), 'utf8');
       const { data, body } = parseFrontmatter(raw);
       if (!data.slug || !data.title || !data.date) continue;
-      out.push({ slug: data.slug, date: data.date, title: data.title, kind: vk(data.kind), summary: data.summary || '', body });
+      out.push({ slug: data.slug, date: data.date, title: data.title, kind: vk(data.kind), version: data.version || undefined, summary: data.summary || '', body });
     } catch {}
   }
   return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -50,6 +51,14 @@ export function listChangelogEntries(): ChangelogEntry[] {
 
 export function getChangelogEntry(slug: string): ChangelogEntry | null {
   return listChangelogEntries().find((e) => e.slug === slug) || null;
+}
+
+export function getLatestVersion(): string {
+  const entries = listChangelogEntries();
+  for (const e of entries) {
+    if (e.version) return e.version;
+  }
+  return 'v1.0.0';
 }
 
 /** Escape HTML entities */

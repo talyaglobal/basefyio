@@ -34,9 +34,17 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [takingScreenshot, setTakingScreenshot] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [appVersion, setAppVersion] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  useEffect(() => {
+    fetch('/api/changelog/latest')
+      .then((r) => r.json())
+      .then((d) => { if (d.version) setAppVersion(d.version); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -168,6 +176,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
         description: description.trim(),
         type: feedbackType,
         attachments: attachments.length ? attachments : undefined,
+        appVersion: appVersion || undefined,
       });
       toast.success(step === 'idea' ? 'Idea submitted — thank you!' : 'Issue reported — thank you!');
       onOpenChange(false);
