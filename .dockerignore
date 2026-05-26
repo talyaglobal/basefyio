@@ -1,0 +1,9 @@
+**/node_modules
+**/.next
+**/.git
+**/.vscode
+**/coverage
+**/.env
+**/.env.*
+**/npm-debug.log*
+*.zip

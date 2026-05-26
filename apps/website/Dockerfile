@@ -2,15 +2,22 @@ FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
+# Build the @kolaybase/geo workspace package
+FROM base AS geo
+COPY packages/geo /geo
+RUN cd /geo && npm ci && npm run build
+
 FROM base AS deps
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY apps/website/package.json ./
+# Remove the local file: dependency before installing — we'll link it manually
+RUN sed -i '/"@kolaybase\/geo"/d' package.json && npm install --ignore-scripts
+# Copy built geo package into node_modules
+COPY --from=geo /geo ./node_modules/@kolaybase/geo
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/website/ .
 
-# Baked into the client/server bundle at build time — must be the public prod URL unless you override for local images.
 ARG NEXT_PUBLIC_SITE_URL=https://kolaybase.com
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 
