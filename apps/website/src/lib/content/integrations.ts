@@ -495,6 +495,247 @@ export default function Posts() {
       },
     ],
   },
+  {
+    slug: "nuxt",
+    name: "Nuxt",
+    category: "Framework",
+    title: "Kolaybase + Nuxt: PostgreSQL Backend for Nuxt Apps",
+    description:
+      "Use Kolaybase with Nuxt 3 for a PostgreSQL backend, auth, and storage. The kolaybase-js SDK works in composables, server routes, and plugins.",
+    intro:
+      "Nuxt handles rendering and routing on top of Vue; Kolaybase provides the backend — PostgreSQL, auth, and storage — through the kolaybase-js SDK on both server and client.",
+    install: INSTALL,
+    setupTitle: "Create the client",
+    setup: `// utils/kolaybase.ts
+import { createClient } from "kolaybase-js";
+
+const config = useRuntimeConfig();
+export const kb = createClient({
+  projectId: config.public.kolaybaseProjectId,
+  apiKey: config.public.kolaybaseAnonKey,
+});`,
+    setupNote:
+      "Expose the anon key via runtimeConfig.public for client use. For server routes that need elevated access, read a service key from the private runtimeConfig instead.",
+    usageTitle: "Fetch data in a component",
+    usage: `<script setup lang="ts">
+import { kb } from "~/utils/kolaybase";
+
+const { data: posts } = await useAsyncData("posts", async () => {
+  const { data } = await kb.from("posts").select("id, title");
+  return data ?? [];
+});
+</script>`,
+    benefits: [
+      {
+        title: "Server and client",
+        body: "Use the SDK in composables, server routes (/server/api), and plugins with one setup.",
+      },
+      {
+        title: "No backend boilerplate",
+        body: "Query PostgreSQL directly instead of writing server routes for basic CRUD.",
+      },
+      {
+        title: "Auth and storage included",
+        body: "kb.auth and kb.storage cover sign-in and uploads out of the box.",
+      },
+    ],
+    faqs: [
+      {
+        question: "Does Kolaybase work with Nuxt 3 server routes?",
+        answer:
+          "Yes. Create a server-side client with a service key in /server/api routes for trusted operations, and a public client for the browser.",
+      },
+      {
+        question: "Where do Kolaybase keys go in Nuxt?",
+        answer:
+          "Public anon keys go in runtimeConfig.public; service keys go in the private runtimeConfig, accessed only in server routes.",
+      },
+    ],
+  },
+  {
+    slug: "angular",
+    name: "Angular",
+    category: "Framework",
+    title: "Kolaybase + Angular: A Backend for Angular Apps",
+    description:
+      "Connect an Angular app to Kolaybase for PostgreSQL data, auth, and storage via the kolaybase-js SDK, wrapped in an injectable service.",
+    intro:
+      "Give your Angular app a backend without building one. Wrap the kolaybase-js SDK in an injectable service and use it across components and resolvers.",
+    install: INSTALL,
+    setupTitle: "Create an injectable client",
+    setup: `// src/app/kolaybase.service.ts
+import { Injectable } from "@angular/core";
+import { createClient } from "kolaybase-js";
+import { environment } from "../environments/environment";
+
+@Injectable({ providedIn: "root" })
+export class Kolaybase {
+  client = createClient({
+    projectId: environment.kolaybaseProjectId,
+    apiKey: environment.kolaybaseAnonKey,
+  });
+}`,
+    setupNote:
+      "Put the anon key in environment.ts. Row-level security keeps it safe in the browser. Never ship a service key to an Angular bundle.",
+    usageTitle: "Use the service in a component",
+    usage: `import { Component, inject, signal } from "@angular/core";
+import { Kolaybase } from "./kolaybase.service";
+
+@Component({ selector: "app-posts", template: "..." })
+export class PostsComponent {
+  private kb = inject(Kolaybase);
+  posts = signal<any[]>([]);
+
+  async ngOnInit() {
+    const { data } = await this.kb.client.from("posts").select("id, title");
+    this.posts.set(data ?? []);
+  }
+}`,
+    benefits: [
+      {
+        title: "Dependency-injection friendly",
+        body: "Expose the client through an injectable service and use it anywhere Angular DI reaches.",
+      },
+      {
+        title: "Full backend included",
+        body: "Database, auth, and storage from a single SDK — no separate services to wire.",
+      },
+      {
+        title: "Secured by the database",
+        body: "Row-level security makes the anon key safe to ship to the browser.",
+      },
+    ],
+    faqs: [
+      {
+        question: "Is it safe to use Kolaybase in an Angular app?",
+        answer:
+          "Yes, with the anon key and row-level security enabled. Policies run in the database, so users only access rows they're permitted to.",
+      },
+      {
+        question: "How do I track the current user in Angular?",
+        answer:
+          "Expose kb.auth.getUser and kb.auth.onAuthStateChange from your service and store the user in a signal or RxJS subject.",
+      },
+    ],
+  },
+  {
+    slug: "solidjs",
+    name: "SolidJS",
+    category: "Framework",
+    title: "Kolaybase + SolidJS: Backend for Solid Apps",
+    description:
+      "Use Kolaybase with SolidJS for PostgreSQL data, auth, and storage. The kolaybase-js SDK pairs cleanly with Solid resources and signals.",
+    intro:
+      "SolidJS gives you fine-grained reactivity; Kolaybase gives it a backend. Load data with createResource and the kolaybase-js SDK.",
+    install: INSTALL,
+    setupTitle: "Create the client",
+    setup: `// src/kolaybase.ts
+import { createClient } from "kolaybase-js";
+
+export const kb = createClient({
+  projectId: import.meta.env.VITE_KOLAYBASE_PROJECT_ID,
+  apiKey: import.meta.env.VITE_KOLAYBASE_ANON_KEY,
+});`,
+    setupNote:
+      "Use the anon key in the browser; row-level security enforces access at the database.",
+    usageTitle: "Load data with a resource",
+    usage: `import { createResource, For } from "solid-js";
+import { kb } from "./kolaybase";
+
+export function Posts() {
+  const [posts] = createResource(async () => {
+    const { data } = await kb.from("posts").select("id, title");
+    return data ?? [];
+  });
+  return <ul><For each={posts()}>{(p) => <li>{p.title}</li>}</For></ul>;
+}`,
+    benefits: [
+      {
+        title: "Works with resources",
+        body: "createResource pairs naturally with async SDK calls for data fetching.",
+      },
+      {
+        title: "Full backend included",
+        body: "Database, auth, and storage in one SDK.",
+      },
+      {
+        title: "Standard PostgreSQL",
+        body: "Real SQL and row-level security, fully portable with pg_dump.",
+      },
+    ],
+    faqs: [
+      {
+        question: "Does kolaybase-js work with SolidStart?",
+        answer:
+          "Yes. SolidStart supports server and client code, and the SDK runs in both. Use the anon key on the client and a service key only in server functions.",
+      },
+      {
+        question: "How do I handle auth in SolidJS?",
+        answer:
+          "Wrap kb.auth in a context or store, and use kb.auth.onAuthStateChange to keep the current user reactive.",
+      },
+    ],
+  },
+  {
+    slug: "express",
+    name: "Express",
+    category: "Runtime",
+    title: "Kolaybase + Express: Backend Data Access in Node.js APIs",
+    description:
+      "Use Kolaybase from an Express server for PostgreSQL queries, auth, and storage. Ideal for custom APIs, webhooks, and trusted server-side logic.",
+    intro:
+      "Running an Express API? Use kolaybase-js server-side to read and write PostgreSQL data, with a service key for trusted operations that bypass row-level security.",
+    install: INSTALL,
+    setupTitle: "Create a server client",
+    setup: `// kolaybase.js
+import { createClient } from "kolaybase-js";
+
+export const kb = createClient({
+  projectId: process.env.KOLAYBASE_PROJECT_ID,
+  apiKey: process.env.KOLAYBASE_SERVICE_KEY, // server-only
+});`,
+    setupNote:
+      "Keep the service key on the server only. Use it for trusted operations; for anything reachable by the browser, use the anon key with row-level security.",
+    usageTitle: "Use it in a route handler",
+    usage: `import express from "express";
+import { kb } from "./kolaybase.js";
+
+const app = express();
+
+app.get("/api/posts", async (_req, res) => {
+  const { data, error } = await kb.from("posts").select("id, title");
+  if (error) return res.status(500).json({ error });
+  res.json(data);
+});
+
+app.listen(3000);`,
+    benefits: [
+      {
+        title: "Trusted server access",
+        body: "Use a service key for operations that need to bypass row-level security.",
+      },
+      {
+        title: "Add a custom API surface",
+        body: "Expose your own endpoints with Express while Kolaybase handles the data layer.",
+      },
+      {
+        title: "Raw SQL available",
+        body: "Use kb.sql for reports and complex queries beyond the query builder.",
+      },
+    ],
+    faqs: [
+      {
+        question: "Can I build a custom REST API over Kolaybase with Express?",
+        answer:
+          "Yes. Use Express for bespoke endpoints and business logic, and kolaybase-js with a service key for data access.",
+      },
+      {
+        question: "Should I use the anon or service key in Express?",
+        answer:
+          "Use the service key for trusted server operations. If you forward requests on behalf of end users, prefer the anon key so row-level security still applies.",
+      },
+    ],
+  },
 ];
 
 export function getIntegration(slug: string): Integration | undefined {
