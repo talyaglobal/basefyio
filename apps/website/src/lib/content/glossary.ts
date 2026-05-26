@@ -18,6 +18,12 @@ export type GlossaryTerm = {
   body: string[];
   /** Slugs of related terms for cross-linking. */
   related: string[];
+  /**
+   * Term-specific links to commercial pages (compare/use-case/blog/integrations)
+   * that turn long-tail readers into product context. Optional; falls back to
+   * the generic CTA on terms without it.
+   */
+  seeAlso?: { label: string; href: string }[];
 };
 
 export const GLOSSARY: GlossaryTerm[] = [
@@ -33,6 +39,11 @@ export const GLOSSARY: GlossaryTerm[] = [
       "BaaS is most valuable when the backend is undifferentiated work — most apps need the same accounts, data, and storage plumbing. Teams building on standard technologies like PostgreSQL also keep portability, avoiding lock-in.",
     ],
     related: ["rest-api", "row-level-security", "object-storage", "multi-tenancy"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "Build vs. buy a backend", href: "/blog/build-vs-buy-backend" },
+      { label: "Kolaybase vs. Supabase", href: "/compare/kolaybase-vs-supabase" },
+    ],
   },
   {
     slug: "rest-api",
@@ -45,6 +56,11 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Modern REST APIs can be generated directly from a database schema, adding filtering, ordering, pagination, and related-resource embedding without hand-written controllers.",
     ],
     related: ["postgrest", "crud", "api-key", "webhook"],
+    seeAlso: [
+      { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
+      { label: "Kolaybase vs. Hasura", href: "/compare/kolaybase-vs-hasura" },
+    ],
   },
   {
     slug: "postgrest",
@@ -57,6 +73,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "This pattern dramatically reduces backend boilerplate while keeping standard SQL as the single source of truth for both data and access control.",
     ],
     related: ["rest-api", "row-level-security", "database-schema", "crud"],
+    seeAlso: [
+      { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "Kolaybase vs. Hasura", href: "/compare/kolaybase-vs-hasura" },
+    ],
   },
   {
     slug: "row-level-security",
@@ -70,6 +90,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Because the rule lives in the database, you define access control once instead of re-checking it in every endpoint, eliminating a whole class of data-leak bugs.",
     ],
     related: ["multi-tenancy", "postgrest", "acid-transactions", "database-schema"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "PostgreSQL row-level security: a practical guide", href: "/blog/postgresql-row-level-security-guide" },
+    ],
   },
   {
     slug: "object-storage",
@@ -82,6 +106,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Access is usually controlled with signed URLs — time-limited links that grant temporary access to a private object without exposing credentials.",
     ],
     related: ["backend-as-a-service", "api-key", "webhook"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "Backend for AI applications", href: "/use-cases/ai-applications" },
+    ],
   },
   {
     slug: "multi-tenancy",
@@ -94,6 +122,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "The right choice depends on tenant count, isolation requirements, and compliance needs — and ideally one you can evolve without a rewrite.",
     ],
     related: ["row-level-security", "backend-as-a-service", "database-schema"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "Multi-tenancy database patterns", href: "/blog/multi-tenancy-database-patterns" },
+    ],
   },
   {
     slug: "jwt",
@@ -107,6 +139,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "JWTs are widely used in API authentication and are issued by identity systems after a user signs in via email or OAuth.",
     ],
     related: ["oauth", "api-key", "rest-api"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "Use Kolaybase with Next.js", href: "/integrations/nextjs" },
+    ],
   },
   {
     slug: "oauth",
@@ -119,6 +155,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Backends typically integrate OAuth through an auth service or identity provider, then issue their own session or JWT for subsequent API calls.",
     ],
     related: ["jwt", "backend-as-a-service", "api-key"],
+    seeAlso: [
+      { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
+      { label: "Use Kolaybase with React Native", href: "/integrations/react-native" },
+    ],
   },
   {
     slug: "crud",
@@ -155,6 +195,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Connection management matters more in serverless contexts, where many ephemeral functions connect at once — making connection pooling important.",
     ],
     related: ["connection-pooling", "backend-as-a-service", "database-migration"],
+    seeAlso: [
+      { label: "Kolaybase vs. Neon", href: "/compare/kolaybase-vs-neon" },
+      { label: "Kolaybase vs. Xata", href: "/compare/kolaybase-vs-xata" },
+    ],
   },
   {
     slug: "database-migration",
@@ -239,6 +283,11 @@ export const GLOSSARY: GlossaryTerm[] = [
       "REST and GraphQL both work well; the choice depends on your clients, caching needs, and how much infrastructure you want to run. Auto-generated REST often wins on simplicity and caching.",
     ],
     related: ["rest-api", "postgrest", "crud"],
+    seeAlso: [
+      { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
+      { label: "Kolaybase vs. Nhost", href: "/compare/kolaybase-vs-nhost" },
+      { label: "Kolaybase vs. Hasura", href: "/compare/kolaybase-vs-hasura" },
+    ],
   },
   {
     slug: "cors",
@@ -276,6 +325,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "For very search-heavy products, a dedicated search engine may be warranted, but Postgres full-text search covers a wide range of needs with no extra infrastructure.",
     ],
     related: ["database-index", "database-schema", "rest-api"],
+    seeAlso: [
+      { label: "Kolaybase vs. Xata", href: "/compare/kolaybase-vs-xata" },
+      { label: "Backend for analytics dashboards", href: "/use-cases/analytics-dashboards" },
+    ],
   },
   {
     slug: "foreign-key",
@@ -288,6 +341,10 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Relational integrity through foreign keys is a major advantage of PostgreSQL over schemaless stores, where relationships must be maintained in application code.",
     ],
     related: ["database-schema", "acid-transactions", "database-index"],
+    seeAlso: [
+      { label: "Backend for e-commerce", href: "/use-cases/ecommerce" },
+      { label: "Multi-tenancy database patterns", href: "/blog/multi-tenancy-database-patterns" },
+    ],
   },
   {
     slug: "primary-key",

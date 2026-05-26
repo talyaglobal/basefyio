@@ -94,7 +94,28 @@ export default async function TermPage({ params }: Params) {
           </section>
         )}
 
-        <section className="mt-12 flex flex-col items-start gap-4 rounded-xl border border-border bg-accent/30 p-8 sm:flex-row sm:items-center sm:justify-between">
+        {t.seeAlso && t.seeAlso.length > 0 && (
+          <section className="mt-12 rounded-xl border border-border bg-accent/30 p-6">
+            <h2 className="mb-3 text-lg font-semibold">
+              {t.term} in Kolaybase
+            </h2>
+            <ul className="space-y-2">
+              {t.seeAlso.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:underline"
+                  >
+                    {link.label}
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="mt-8 flex flex-col items-start gap-4 rounded-xl border border-border bg-accent/30 p-8 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold">See it in practice</h2>
             <p className="mt-1 text-muted-foreground">
