@@ -27,12 +27,23 @@ export class MarketingInsightsService {
 
   constructor(private readonly config: ConfigService) {
     this.credentials = this.loadServiceAccount();
-    this.googleAuth = this.credentials
-      ? new google.auth.GoogleAuth({
-          credentials: this.credentials,
-          scopes: SCOPES,
-        })
-      : null;
+    const impersonateEmail = (this.config.get<string>('marketing.impersonateEmail') || '').trim();
+    if (this.credentials && impersonateEmail) {
+      // Domain-wide delegation: impersonate the specified user
+      this.googleAuth = new google.auth.GoogleAuth({
+        credentials: this.credentials,
+        scopes: SCOPES,
+        clientOptions: { subject: impersonateEmail },
+      });
+    } else if (this.credentials) {
+      // Direct service account access (no impersonation)
+      this.googleAuth = new google.auth.GoogleAuth({
+        credentials: this.credentials,
+        scopes: SCOPES,
+      });
+    } else {
+      this.googleAuth = null;
+    }
   }
 
   private loadServiceAccount(): JWTInput | null {

@@ -101,6 +101,8 @@ export default () => ({
     serviceAccountJsonB64: process.env.GOOGLE_MARKETING_SA_JSON_B64 || '',
     gscSiteUrl: process.env.GOOGLE_SEARCH_CONSOLE_SITE_URL || '',
     ga4PropertyId: process.env.GOOGLE_ANALYTICS_PROPERTY_ID || '',
+    /** Email to impersonate via domain-wide delegation (e.g. admin@company.com). */
+    impersonateEmail: process.env.GOOGLE_MARKETING_IMPERSONATE_EMAIL || '',
     /** Optional full URL for URL Inspection when property is sc-domain:… */
     inspectUrlOverride: process.env.GOOGLE_SEARCH_CONSOLE_INSPECT_URL || '',
   },
