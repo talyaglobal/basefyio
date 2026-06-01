@@ -9,6 +9,9 @@ import {
   Key,
   ArrowRight,
   Check,
+  Lock,
+  Server,
+  GitBranch,
 } from "lucide-react";
 import { KolaybaseLogo } from "@/components/kolaybase-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -170,26 +173,32 @@ export default async function Home() {
 
       <HomeHero>
         <div className="mx-auto max-w-4xl text-center">
-          <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
-            Backend in <span className="gradient-text">minutes</span>, not days
+          <div className="animate-fade-in mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary motion-reduce:animate-none">
+            <Zap className="h-3.5 w-3.5" />
+            PostgREST-compatible API with multi-tenant isolation
+          </div>
+          <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl [animation-delay:80ms] motion-reduce:animate-none">
+            The backend platform that{" "}
+            <span className="gradient-text">scales with you</span>
           </h1>
-          <p className="animate-fade-in mx-auto mt-6 max-w-2xl text-balance text-center text-lg leading-relaxed text-muted-foreground [animation-delay:120ms] motion-reduce:animate-none">
-            Database, authentication, and REST API. Launch your project with
-            no-code backend.
+          <p className="animate-fade-in mx-auto mt-6 max-w-2xl text-balance text-center text-lg leading-relaxed text-muted-foreground [animation-delay:160ms] motion-reduce:animate-none">
+            PostgreSQL database, Keycloak authentication, object storage, and a
+            PostgREST-compatible REST API — each project fully isolated with its
+            own database, connection pool, and Row-Level Security.
           </p>
-          <div className="animate-fade-in mt-10 flex flex-col justify-center gap-4 [animation-delay:200ms] motion-reduce:animate-none sm:flex-row">
+          <div className="animate-fade-in mt-10 flex flex-col justify-center gap-4 [animation-delay:240ms] motion-reduce:animate-none sm:flex-row">
             <Link
               href={appSignup}
               className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-6 text-base font-semibold text-primary-foreground shadow-subtle transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
             >
-              Get Started Free
+              Start Building
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               href={appRoot}
               className="inline-flex h-12 items-center justify-center rounded-md border border-border bg-background/80 px-6 text-base font-medium text-foreground backdrop-blur-sm transition-colors duration-150 hover:bg-accent"
             >
-              View Demo
+              View Dashboard
             </Link>
           </div>
         </div>
@@ -199,43 +208,58 @@ export default async function Home() {
         <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
         <div className="relative mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-            Everything in one platform
+            One platform. Every backend primitive.
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-            Visual table editor, SQL Editor, OAuth, email, and ready-to-use REST
-            API. Simplify backend development and database management.
+            Database, auth, storage, API, and email — integrated from the ground
+            up. Not stitched together from five different products.
           </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
                 icon: Database,
-                title: "Visual Database",
-                desc: "Create tables and columns with drag-and-drop. Define foreign key relationships easily.",
+                title: "Isolated PostgreSQL",
+                desc: "Every project runs on its own dedicated PostgreSQL instance. No shared databases, no noisy neighbors.",
               },
               {
-                icon: Shield,
-                title: "Authentication",
-                desc: "Email/password, Google and GitHub OAuth. Project-level OAuth settings.",
+                icon: Lock,
+                title: "Keycloak Authentication",
+                desc: "Enterprise-grade auth powered by Keycloak — per-project realms, 8 OAuth providers, RBAC, and SSO out of the box.",
               },
               {
                 icon: Zap,
                 title: "PostgREST-Compatible API",
-                desc: "Instant CRUD endpoints for every table with PostgREST-compatible syntax — powered by our own multi-tenant engine. No extra containers, zero config.",
+                desc: "Same filter syntax developers know from PostgREST — built on our own multi-tenant engine. Zero extra containers.",
+              },
+              {
+                icon: Server,
+                title: "Multi-Tenant Engine",
+                desc: "Per-project databases, connection pools, and automatic RLS — without managing separate infrastructure per tenant.",
               },
               {
                 icon: Table2,
-                title: "Table Editor",
-                desc: "Relations, indexes, and validations managed from a single screen.",
+                title: "Visual Schema Editor",
+                desc: "Design tables, columns, foreign keys, and indexes visually. Beginners see descriptions, experts get full control.",
+              },
+              {
+                icon: Shield,
+                title: "Row-Level Security",
+                desc: "RLS policies enforced automatically via API key roles. anon, authenticated, and service_role — wired to your JWT.",
+              },
+              {
+                icon: GitBranch,
+                title: "Backup & Integrations",
+                desc: "GitHub for schema migrations, Vercel for deployments, pg_dump backups — connected from your dashboard.",
               },
               {
                 icon: Mail,
-                title: "Email Integration",
-                desc: "Resend, SendGrid, SES or custom SMTP for verification and notification emails.",
+                title: "Email Infrastructure",
+                desc: "Resend, SendGrid, SES, or custom SMTP. Transactional emails for verification and notifications.",
               },
               {
                 icon: Key,
-                title: "API Keys",
-                desc: "Project-based API keys for secure access control.",
+                title: "Project API Keys",
+                desc: "Anon key for client-side, service key for server-side. Scoped per project with automatic role mapping.",
               },
             ].map(({ icon: Icon, title, desc }) => (
               <div
