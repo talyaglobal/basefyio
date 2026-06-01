@@ -256,6 +256,79 @@ export function HomeMarketing() {
         </div>
       </section>
 
+      {/* REST API engine */}
+      <section className="border-t border-border px-6 py-16 md:py-24" id="rest-engine">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
+            <div>
+              <Badge variant="outline" className="mb-4 gap-1.5">
+                <Code2 className="h-3.5 w-3.5" />
+                API Engine
+              </Badge>
+              <h2 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
+                PostgREST-compatible syntax.{" "}
+                <span className="gradient-text">Multi-tenant engine.</span>
+              </h2>
+              <p className="mt-4 text-lg text-muted-foreground">
+                We use the same query syntax developers already know from PostgREST
+                — filters, ordering, pagination, column selection — but built on our
+                own engine designed for multi-tenant isolation from day one. Every
+                project gets its own database, its own connection pool, and
+                automatic Row-Level Security — without spinning up extra containers
+                or paying per-instance costs.
+              </p>
+              <ul className="mt-8 space-y-3 text-sm">
+                {[
+                  "Familiar PostgREST filter syntax: eq, neq, gt, lt, ilike, in, is",
+                  "Per-project database isolation — not shared schemas",
+                  "Automatic RLS enforcement with API key + JWT context",
+                  "Built-in connection pooling — no extra PgBouncer setup",
+                  "Zero extra containers: one platform serves all projects",
+                ].map((item) => (
+                  <li key={item} className="flex gap-3">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                      <Check className="h-3 w-3" />
+                    </span>
+                    <span className="text-muted-foreground">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <Card className="overflow-hidden border-border/80 bg-gradient-to-b from-card to-muted/20 shadow-medium">
+              <CardHeader className="border-b border-border bg-muted/30 pb-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-3 w-3 rounded-full bg-red-400/80" />
+                  <div className="flex h-3 w-3 rounded-full bg-yellow-400/80" />
+                  <div className="flex h-3 w-3 rounded-full bg-green-400/80" />
+                  <span className="ml-2 text-xs text-muted-foreground font-mono">
+                    terminal
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed">
+                  <code className="text-muted-foreground">
+                    <span className="text-emerald-500">GET</span>{" "}
+                    <span className="text-foreground">/rest/v1/products</span>
+                    {"\n"}
+                    {"  "}?select=id,name,price{"\n"}
+                    {"  "}&amp;category=eq.electronics{"\n"}
+                    {"  "}&amp;price=lt.500{"\n"}
+                    {"  "}&amp;order=price.asc{"\n"}
+                    {"  "}&amp;limit=20{"\n\n"}
+                    <span className="text-muted-foreground/60">
+                      {"// "}Same syntax you know.{"\n"}
+                      {"// "}Multi-tenant isolation you need.{"\n"}
+                      {"// "}Zero extra infrastructure.
+                    </span>
+                  </code>
+                </pre>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
       {/* Framework row */}
       <section className="border-t border-border bg-muted/15 px-6 py-16 md:py-24">
         <div className="mx-auto max-w-6xl">

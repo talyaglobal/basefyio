@@ -146,3 +146,27 @@
     text-wrap: balance;
   }
 }
+
+/* Gradient mesh blob animations */
+@keyframes meshFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(5%, 8%) scale(1.05); }
+  66% { transform: translate(-3%, -4%) scale(0.97); }
+}
+
+@keyframes meshFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-6%, -5%) scale(1.03); }
+  66% { transform: translate(4%, 6%) scale(0.95); }
+}
+
+@keyframes meshFloat3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(8%, -6%) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes meshFloat1 { 0%, 100% { transform: none; } }
+  @keyframes meshFloat2 { 0%, 100% { transform: none; } }
+  @keyframes meshFloat3 { 0%, 100% { transform: none; } }
+}

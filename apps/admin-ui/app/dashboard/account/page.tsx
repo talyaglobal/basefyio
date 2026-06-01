@@ -662,6 +662,7 @@ export default function AccountPage() {
         </div>
       </div>
 
+      {!isExternalAuth && (
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium">
           <KeyRound className="h-4 w-4" />
@@ -673,12 +674,9 @@ export default function AccountPage() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          {isExternalAuth
-            ? `Social sign-in account (${signOnMethod}). Password sign-in is disabled for this account.`
-            : 'Set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).'}
+          Set a new password (minimum 8 characters, with uppercase, lowercase, number, and special character).
         </p>
 
-        {!isExternalAuth ? (
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -728,18 +726,12 @@ export default function AccountPage() {
             <p className="text-xs text-destructive">Passwords do not match</p>
           )}
         </div>
-        ) : (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            This user can only sign in with {signOnMethod}. Password setup/change is disabled.
-          </div>
-        )}
 
         <div className="flex justify-end">
           <Button
             onClick={handleChangePassword}
             disabled={
               changingPassword ||
-              isExternalAuth ||
               newPassword.length < 8 ||
               newPassword !== confirmPassword
             }
@@ -750,6 +742,7 @@ export default function AccountPage() {
           </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }

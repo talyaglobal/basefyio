@@ -10,6 +10,7 @@ import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
+import { ContextHelpPanel } from '@/components/context-help-panel';
 import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import { parseJwt, getAccessToken } from '@/lib/auth';
@@ -21,6 +22,7 @@ import {
   Download,
   ExternalLink,
   FolderOpen,
+  Globe,
   Key,
   Link2,
   Plug,
@@ -110,6 +112,7 @@ const navItems = [
   { label: 'SQL Editor', href: '/sql', icon: Terminal },
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
+  { label: 'REST API', href: '/api-explorer', icon: Globe },
   { label: 'Connection', href: '/connect', icon: Link2 },
   { label: 'Backup & Export', href: '/backup', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
@@ -519,14 +522,17 @@ export default function ProjectLayout({
         )}
       </aside>
 
-      <main
-        className={cn(
-          'h-full min-h-0 min-w-0 flex-1 p-6',
-          (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
-        )}
-      >
-        {children}
-      </main>
+      <div className="h-full min-h-0 min-w-0 flex-1 flex relative">
+        <main
+          className={cn(
+            'h-full min-h-0 min-w-0 flex-1 p-6',
+            (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
+          )}
+        >
+          {children}
+        </main>
+        <ContextHelpPanel />
+      </div>
     </div>
     </ProjectProvider>
   );

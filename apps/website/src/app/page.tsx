@@ -219,8 +219,8 @@ export default async function Home() {
               },
               {
                 icon: Zap,
-                title: "Auto REST API",
-                desc: "CRUD endpoints generated for every table. Integrate with our SDK.",
+                title: "PostgREST-Compatible API",
+                desc: "Instant CRUD endpoints for every table with PostgREST-compatible syntax — powered by our own multi-tenant engine. No extra containers, zero config.",
               },
               {
                 icon: Table2,

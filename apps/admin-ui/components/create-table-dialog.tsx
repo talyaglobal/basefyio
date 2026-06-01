@@ -15,35 +15,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Plus, Trash2, Key, GripVertical } from 'lucide-react';
-
-const PG_TYPES = [
-  { value: 'uuid', label: 'UUID' },
-  { value: 'serial', label: 'Serial (auto-increment)' },
-  { value: 'bigserial', label: 'Big Serial' },
-  { value: 'integer', label: 'Integer' },
-  { value: 'bigint', label: 'Big Integer' },
-  { value: 'smallint', label: 'Small Integer' },
-  { value: 'text', label: 'Text' },
-  { value: 'varchar(255)', label: 'Varchar(255)' },
-  { value: 'boolean', label: 'Boolean' },
-  { value: 'timestamptz', label: 'Timestamp (TZ)' },
-  { value: 'timestamp', label: 'Timestamp' },
-  { value: 'date', label: 'Date' },
-  { value: 'time', label: 'Time' },
-  { value: 'numeric', label: 'Numeric' },
-  { value: 'real', label: 'Float' },
-  { value: 'double precision', label: 'Double' },
-  { value: 'jsonb', label: 'JSONB' },
-  { value: 'json', label: 'JSON' },
-  { value: 'bytea', label: 'Binary' },
-];
-
-const DEFAULT_SUGGESTIONS: Record<string, string[]> = {
-  uuid: ['gen_random_uuid()'],
-  timestamptz: ['now()', 'CURRENT_TIMESTAMP'],
-  timestamp: ['now()', 'CURRENT_TIMESTAMP'],
-  boolean: ['true', 'false'],
-};
+import { FieldTypeSelector } from '@/components/field-type-selector';
+import { DEFAULT_SUGGESTIONS } from '@/lib/pg-field-types';
 
 interface ColumnDef {
   id: number;
@@ -186,17 +159,11 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
                     className="h-8 text-sm"
                   />
 
-                  <select
+                  <FieldTypeSelector
                     value={col.type}
-                    onChange={(e) => updateColumn(col.id, 'type', e.target.value)}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-sm"
-                  >
-                    {PG_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={(v) => updateColumn(col.id, 'type', v)}
+                    compact
+                  />
 
                   <button
                     type="button"
