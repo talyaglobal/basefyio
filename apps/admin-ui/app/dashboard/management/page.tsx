@@ -538,10 +538,12 @@ export default function ManagementPage() {
 
   if (profile === null || loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm font-medium text-muted-foreground">Loading...</p>
+      <div className="relative mx-auto max-w-6xl" style={{ minHeight: '60vh' }}>
+        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium text-muted-foreground">Loading...</p>
+          </div>
         </div>
       </div>
     );
@@ -552,7 +554,7 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="relative mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-start gap-3">
           <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/dashboard')}>
@@ -719,7 +721,7 @@ export default function ManagementPage() {
       </div>
 
       {tabLoading && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md">
+        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">Loading...</p>
