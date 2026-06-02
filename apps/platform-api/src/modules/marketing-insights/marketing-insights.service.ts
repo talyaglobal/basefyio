@@ -384,7 +384,7 @@ export class MarketingInsightsService {
                 { name: 'averageSessionDuration' },
               ],
               orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-              limit: 15,
+              limit: '15',
             },
           }),
           // Traffic sources
@@ -398,7 +398,7 @@ export class MarketingInsightsService {
                 { name: 'activeUsers' },
               ],
               orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-              limit: 10,
+              limit: '10',
             },
           }),
           // Device category
@@ -412,7 +412,7 @@ export class MarketingInsightsService {
                 { name: 'activeUsers' },
               ],
               orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-              limit: 5,
+              limit: '5',
             },
           }),
           // Country
@@ -426,7 +426,7 @@ export class MarketingInsightsService {
                 { name: 'activeUsers' },
               ],
               orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-              limit: 10,
+              limit: '10',
             },
           }),
         ]);
