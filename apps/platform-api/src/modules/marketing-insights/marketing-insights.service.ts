@@ -330,11 +330,11 @@ export class MarketingInsightsService {
       };
     }
 
-    if (!this.directAuth) {
+    if (!this.impersonatedAuth) {
       return { configured: false, message: 'Could not create Google auth client.' };
     }
 
-    const analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.directAuth });
+    const analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.impersonatedAuth });
     const prop = `properties/${propertyId}`;
 
     try {
