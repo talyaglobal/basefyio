@@ -538,8 +538,11 @@ export default function ManagementPage() {
 
   if (profile === null || loading) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -716,7 +719,7 @@ export default function ManagementPage() {
       </div>
 
       {tabLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">Loading...</p>
@@ -735,8 +738,8 @@ export default function ManagementPage() {
               </p>
             </div>
           </div>
-          {!gscData && !tabLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+          {!gscData ? (
+            null
           ) : gscData && !gscData.configured ? (
             <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
               <p className="font-medium">Not configured</p>
@@ -1006,8 +1009,8 @@ export default function ManagementPage() {
               <p className="text-sm text-muted-foreground">Sessions and page views for the last 28 days.</p>
             </div>
           </div>
-          {!gaData && !tabLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+          {!gaData ? (
+            null
           ) : gaData && !gaData.configured ? (
             <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
               <p className="font-medium">Not configured</p>
@@ -1236,8 +1239,8 @@ export default function ManagementPage() {
               </div>
             )}
           </div>
-          {!stripeData && !tabLoading ? (
-            <p className="text-sm text-muted-foreground">Loading...</p>
+          {!stripeData ? (
+            null
           ) : stripeData?.error || (stripeData && !stripeData.configured) ? (
             <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-200">
               <p className="font-medium">Stripe not available</p>
