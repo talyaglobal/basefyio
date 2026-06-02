@@ -16,7 +16,10 @@ import {
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,6 +31,7 @@ import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import type {
   AuditLogEntry,
+  GscSearchPerformance,
   ManagementAnalyticsTrafficSummary,
   ManagementPlan,
   ManagementSearchConsoleSummary,
@@ -161,6 +165,7 @@ export default function ManagementPage() {
   );
   const [gscData, setGscData] = useState<ManagementSearchConsoleSummary | null>(null);
   const [gaData, setGaData] = useState<ManagementAnalyticsTrafficSummary | null>(null);
+  const [stripeData, setStripeData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
     | 'users'
     | 'plans'
@@ -171,6 +176,7 @@ export default function ManagementPage() {
     | 'deletionReasons'
     | 'searchConsole'
     | 'analytics'
+    | 'stripe'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -267,7 +273,8 @@ export default function ManagementPage() {
       | 'permissions'
       | 'deletionReasons'
       | 'searchConsole'
-      | 'analytics',
+      | 'analytics'
+      | 'stripe',
     force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
@@ -310,6 +317,13 @@ export default function ManagementPage() {
           setGaData(data);
         } catch (e: any) {
           setGaData({ configured: true, error: e.message || 'Failed to fetch Analytics data' } as any);
+        }
+      } else if (tab === 'stripe' && (managementPermissions?.canManagePlans || isRoot)) {
+        try {
+          const data = await api.billing.managementStripeOverview();
+          setStripeData(data);
+        } catch (e: any) {
+          setStripeData({ configured: false, error: e.message || 'Failed to fetch Stripe data' });
         }
       }
       setLoadedTabs((prev) => new Set(prev).add(tab));
@@ -679,6 +693,19 @@ export default function ManagementPage() {
           Analytics
         </button>
         )}
+        {(managementPermissions?.canManagePlans || isRoot) && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'stripe'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('stripe')}
+        >
+          Stripe
+        </button>
+        )}
       </div>
 
       {tabLoading && (
@@ -716,28 +743,32 @@ export default function ManagementPage() {
               <p className="font-medium">Failed to load Search Console data</p>
               <p className="mt-2 text-muted-foreground">{(gscData as any).error}</p>
             </div>
-          ) : gscData && gscData.configured ? (
+          ) : gscData && gscData.configured ? (() => {
+            const sp = gscData.searchPerformance as GscSearchPerformance | null;
+            return (
             <div className="space-y-6">
               <p className="text-xs text-muted-foreground">
                 Property: <span className="font-mono text-foreground">{gscData.siteUrl}</span>
               </p>
-              {gscData.sitemaps.some((s) => s.warnings > 0 || s.errors > 0) && (
-                <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-red-200">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    Sitemap issues
-                  </div>
-                  <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-red-100/90">
-                    {gscData.sitemaps
-                      .filter((s) => s.warnings > 0 || s.errors > 0)
-                      .map((s) => (
-                        <li key={s.path}>
-                          {s.path}: {s.errors} error(s), {s.warnings} warning(s)
-                        </li>
-                      ))}
-                  </ul>
+
+              {/* Summary cards */}
+              {sp && (
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { label: 'Clicks', value: sp.totals.clicks.toLocaleString() },
+                    { label: 'Impressions', value: sp.totals.impressions.toLocaleString() },
+                    { label: 'Avg CTR', value: `${sp.totals.ctr}%` },
+                    { label: 'Avg Position', value: String(sp.totals.avgPosition) },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-md border bg-muted/30 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">{c.label}</div>
+                      <div className="text-lg font-semibold tabular-nums">{c.value}</div>
+                    </div>
+                  ))}
                 </div>
               )}
+
+              {/* URL inspection */}
               {gscData.urlInspection &&
                 typeof gscData.urlInspection === 'object' &&
                 Array.isArray((gscData.urlInspection as { issues?: string[] }).issues) &&
@@ -754,8 +785,178 @@ export default function ManagementPage() {
                     </ul>
                   </div>
                 )}
+
+              {/* Clicks & Impressions chart */}
+              {sp && sp.byDate.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Search traffic (28 days)</h3>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={sp.byDate.map((row) => ({
+                          label: row.date.slice(5),
+                          clicks: row.clicks,
+                          impressions: row.impressions,
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} />
+                        <Tooltip contentStyle={{ fontSize: 12 }} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area type="monotone" dataKey="clicks" name="Clicks" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.2} />
+                        <Area type="monotone" dataKey="impressions" name="Impressions" stroke="hsl(210 76% 60%)" fill="hsl(210 76% 60%)" fillOpacity={0.08} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* CTR & Position chart */}
+              {sp && sp.byDate.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">CTR & Average Position</h3>
+                  <div className="h-56 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={sp.byDate.map((row) => ({
+                          label: row.date.slice(5),
+                          ctr: row.ctr,
+                          position: row.position,
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                        <YAxis yAxisId="ctr" tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} unit="%" />
+                        <YAxis yAxisId="pos" orientation="right" tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} reversed />
+                        <Tooltip contentStyle={{ fontSize: 12 }} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area yAxisId="ctr" type="monotone" dataKey="ctr" name="CTR (%)" stroke="hsl(142 76% 36%)" fill="hsl(142 76% 36%)" fillOpacity={0.12} />
+                        <Area yAxisId="pos" type="monotone" dataKey="position" name="Avg Position" stroke="hsl(38 92% 50%)" fill="hsl(38 92% 50%)" fillOpacity={0.1} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Queries */}
+              {sp && sp.topQueries?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Top Queries</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Query</th>
+                          <th className="px-3 py-2 text-right">Clicks</th>
+                          <th className="px-3 py-2 text-right">Impressions</th>
+                          <th className="px-3 py-2 text-right">CTR</th>
+                          <th className="px-3 py-2 text-right">Position</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sp.topQueries.map((q) => (
+                          <tr key={q.query} className="border-b border-border/60 last:border-0">
+                            <td className="max-w-[260px] truncate px-3 py-2">{q.query}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{q.clicks}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{q.impressions}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{q.ctr}%</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{q.position}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Pages */}
+              {sp && sp.topPages?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Top Pages</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Page</th>
+                          <th className="px-3 py-2 text-right">Clicks</th>
+                          <th className="px-3 py-2 text-right">Impressions</th>
+                          <th className="px-3 py-2 text-right">CTR</th>
+                          <th className="px-3 py-2 text-right">Position</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sp.topPages.map((p) => (
+                          <tr key={p.page} className="border-b border-border/60 last:border-0">
+                            <td className="max-w-[320px] truncate px-3 py-2 font-mono text-xs">{p.page}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.clicks}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.impressions}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.ctr}%</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.position}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Device & Country side by side */}
+              {sp && (sp.byDevice?.length > 0 || sp.byCountry?.length > 0) && (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {sp.byDevice?.length > 0 && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium">By Device</h3>
+                      <div className="h-48 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={sp.byDevice} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                            <XAxis dataKey="device" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                            <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
+                            <Tooltip contentStyle={{ fontSize: 12 }} />
+                            <Bar dataKey="clicks" name="Clicks" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                  {sp.byCountry?.length > 0 && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium">By Country</h3>
+                      <div className="h-48 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={sp.byCountry.slice(0, 8)} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                            <XAxis dataKey="country" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                            <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
+                            <Tooltip contentStyle={{ fontSize: 12 }} />
+                            <Bar dataKey="clicks" name="Clicks" fill="hsl(210 76% 60%)" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sitemaps */}
               <div>
                 <h3 className="mb-2 text-sm font-medium">Sitemaps</h3>
+                {gscData.sitemaps.some((s) => s.warnings > 0 || s.errors > 0) && (
+                  <div className="mb-3 rounded-lg border border-red-800/40 bg-red-950/20 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-red-200">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      Sitemap issues
+                    </div>
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-red-100/90">
+                      {gscData.sitemaps.filter((s) => s.warnings > 0 || s.errors > 0).map((s) => (
+                        <li key={s.path}>{s.path}: {s.errors} error(s), {s.warnings} warning(s)</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-left text-sm">
                     <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
@@ -768,77 +969,22 @@ export default function ManagementPage() {
                     </thead>
                     <tbody>
                       {gscData.sitemaps.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="px-3 py-4 text-muted-foreground">
-                            No sitemaps submitted for this property.
-                          </td>
+                        <tr><td colSpan={4} className="px-3 py-4 text-muted-foreground">No sitemaps submitted for this property.</td></tr>
+                      ) : gscData.sitemaps.map((s) => (
+                        <tr key={s.path} className="border-b border-border/60 last:border-0">
+                          <td className="max-w-[280px] truncate px-3 py-2 font-mono text-xs">{s.path}</td>
+                          <td className="px-3 py-2">{s.warnings}</td>
+                          <td className="px-3 py-2">{s.errors}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{s.lastDownloaded || '—'}</td>
                         </tr>
-                      ) : (
-                        gscData.sitemaps.map((s) => (
-                          <tr key={s.path} className="border-b border-border/60 last:border-0">
-                            <td className="max-w-[280px] truncate px-3 py-2 font-mono text-xs">{s.path}</td>
-                            <td className="px-3 py-2">{s.warnings}</td>
-                            <td className="px-3 py-2">{s.errors}</td>
-                            <td className="px-3 py-2 text-muted-foreground">
-                              {s.lastDownloaded || '—'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-              {gscData.searchPerformance &&
-                !('error' in gscData.searchPerformance) &&
-                Array.isArray(
-                  (gscData.searchPerformance as { byDate?: unknown }).byDate,
-                ) && (
-                  <div>
-                    <h3 className="mb-2 text-sm font-medium">Search traffic (28 days)</h3>
-                    <p className="mb-3 text-xs text-muted-foreground">
-                      Clicks:{' '}
-                      <span className="text-foreground">
-                        {(gscData.searchPerformance as { totals: { clicks: number } }).totals.clicks}
-                      </span>
-                      {' · '}
-                      Impressions:{' '}
-                      <span className="text-foreground">
-                        {
-                          (gscData.searchPerformance as { totals: { impressions: number } }).totals
-                            .impressions
-                        }
-                      </span>
-                    </p>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart
-                          data={(gscData.searchPerformance as { byDate: { date: string; clicks: number; impressions: number }[] }).byDate.map((row) => ({
-                            label: row.date.slice(5),
-                            clicks: row.clicks,
-                            impressions: row.impressions,
-                          }))}
-                          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                          <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
-                          <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
-                          <Tooltip contentStyle={{ fontSize: 12 }} />
-                          <Area
-                            type="monotone"
-                            dataKey="clicks"
-                            name="Clicks"
-                            stroke="hsl(var(--primary))"
-                            fill="hsl(var(--primary))"
-                            fillOpacity={0.2}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
             </div>
-          ) : null}
+            );
+          })() : null}
         </section>
       )}
 
@@ -862,65 +1008,390 @@ export default function ManagementPage() {
                 GOOGLE_ANALYTICS_PROPERTY_ID.
               </p>
             </div>
-          ) : gaData && gaData.configured ? (
-            <div className="space-y-4">
+          ) : gaData && gaData.configured ? (() => {
+            const fmtLabel = (raw: string) =>
+              raw.length === 8 ? `${raw.slice(4, 6)}/${raw.slice(6, 8)}` : raw.slice(5, 10);
+            const fmtMetric = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+            const fmtDuration = (s: number) => {
+              const m = Math.floor(s / 60);
+              const sec = Math.round(s % 60);
+              return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+            };
+            const fmtSummary = (k: string, v: number) => {
+              if (k === 'bounceRate') return `${Math.round(v * 100)}%`;
+              if (k === 'averageSessionDuration') return fmtDuration(v);
+              return v.toLocaleString();
+            };
+            return (
+            <div className="space-y-6">
               {gaData.error && (
                 <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-200">
                   {gaData.error}
                 </div>
               )}
-              <div className="flex flex-wrap gap-4 text-sm">
+
+              {/* Summary cards */}
+              <div className="flex flex-wrap gap-3">
                 {Object.entries(gaData.summary || {}).map(([k, v]) => (
                   <div key={k} className="rounded-md border bg-muted/30 px-3 py-2">
-                    <div className="text-xs capitalize text-muted-foreground">{k.replace(/([A-Z])/g, ' $1')}</div>
-                    <div className="text-lg font-semibold tabular-nums">{Number(v).toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">{fmtMetric(k)}</div>
+                    <div className="text-lg font-semibold tabular-nums">{fmtSummary(k, Number(v))}</div>
                   </div>
                 ))}
               </div>
+
+              {/* Sessions & Page Views chart */}
               {(gaData.byDate || []).length > 0 && (
-                <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={gaData.byDate.map((row) => {
-                        const raw = String(row.date || '');
-                        const label =
-                          raw.length === 8
-                            ? `${raw.slice(4, 6)}/${raw.slice(6, 8)}`
-                            : raw.slice(5, 10);
-                        return {
-                          label,
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Sessions & Page Views</h3>
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={gaData.byDate.map((row) => ({
+                          label: fmtLabel(String(row.date || '')),
                           sessions: Number(row.sessions ?? 0),
+                          activeUsers: Number(row.activeUsers ?? 0),
                           screenPageViews: Number(row.screenPageViews ?? 0),
-                        };
-                      })}
-                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
-                      <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} />
-                      <Tooltip contentStyle={{ fontSize: 12 }} />
-                      <Area
-                        type="monotone"
-                        dataKey="sessions"
-                        name="Sessions"
-                        stroke="hsl(var(--primary))"
-                        fill="hsl(var(--primary))"
-                        fillOpacity={0.15}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="screenPageViews"
-                        name="Page views"
-                        stroke="hsl(142 76% 36%)"
-                        fill="hsl(142 76% 36%)"
-                        fillOpacity={0.1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} />
+                        <Tooltip contentStyle={{ fontSize: 12 }} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area type="monotone" dataKey="sessions" name="Sessions" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.15} />
+                        <Area type="monotone" dataKey="activeUsers" name="Active Users" stroke="hsl(262 83% 58%)" fill="hsl(262 83% 58%)" fillOpacity={0.08} />
+                        <Area type="monotone" dataKey="screenPageViews" name="Page Views" stroke="hsl(142 76% 36%)" fill="hsl(142 76% 36%)" fillOpacity={0.08} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Bounce Rate & Avg Session Duration chart */}
+              {(gaData.byDate || []).length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Engagement</h3>
+                  <div className="h-56 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={gaData.byDate.map((row) => ({
+                          label: fmtLabel(String(row.date || '')),
+                          bounceRate: Math.round(Number(row.bounceRate ?? 0) * 100),
+                          avgDuration: Math.round(Number(row.averageSessionDuration ?? 0)),
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                        <YAxis yAxisId="bounce" tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} unit="%" />
+                        <YAxis yAxisId="dur" orientation="right" tick={{ fontSize: 11 }} className="text-muted-foreground" width={44} unit="s" />
+                        <Tooltip contentStyle={{ fontSize: 12 }} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area yAxisId="bounce" type="monotone" dataKey="bounceRate" name="Bounce Rate (%)" stroke="hsl(0 72% 51%)" fill="hsl(0 72% 51%)" fillOpacity={0.1} />
+                        <Area yAxisId="dur" type="monotone" dataKey="avgDuration" name="Avg Duration (s)" stroke="hsl(38 92% 50%)" fill="hsl(38 92% 50%)" fillOpacity={0.1} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Pages */}
+              {gaData.topPages && gaData.topPages.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Top Pages</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Page</th>
+                          <th className="px-3 py-2 text-right">Views</th>
+                          <th className="px-3 py-2 text-right">Users</th>
+                          <th className="px-3 py-2 text-right">Avg Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gaData.topPages.map((p) => (
+                          <tr key={String(p.dimension)} className="border-b border-border/60 last:border-0">
+                            <td className="max-w-[320px] truncate px-3 py-2 font-mono text-xs">{String(p.dimension)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.screenPageViews || 0).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.activeUsers || 0).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{fmtDuration(Number(p.averageSessionDuration || 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Traffic Sources, Device, Country — grid */}
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {/* Traffic Sources */}
+                {gaData.trafficSources && gaData.trafficSources.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">Traffic Sources</h3>
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={gaData.trafficSources.slice(0, 8)} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis type="number" tick={{ fontSize: 10 }} className="text-muted-foreground" />
+                          <YAxis type="category" dataKey="dimension" tick={{ fontSize: 10 }} className="text-muted-foreground" width={80} />
+                          <Tooltip contentStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="sessions" name="Sessions" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {/* By Device */}
+                {gaData.byDevice && gaData.byDevice.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">By Device</h3>
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={gaData.byDevice} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="dimension" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                          <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
+                          <Tooltip contentStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="sessions" name="Sessions" fill="hsl(262 83% 58%)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {/* By Country */}
+                {gaData.byCountry && gaData.byCountry.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">By Country</h3>
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={gaData.byCountry.slice(0, 8)} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="dimension" tick={{ fontSize: 10 }} className="text-muted-foreground" />
+                          <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
+                          <Tooltip contentStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="sessions" name="Sessions" fill="hsl(210 76% 60%)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            );
+          })() : null}
+        </section>
+      )}
+
+      {activeTab === 'stripe' && (managementPermissions?.canManagePlans || isRoot) && (
+        <section className="space-y-6 rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <h2 className="text-base font-semibold">Stripe Overview</h2>
+              <p className="text-sm text-muted-foreground">Revenue, subscriptions, charges, and invoices from Stripe.</p>
+            </div>
+          </div>
+          {!stripeData && !tabLoading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : stripeData?.error || (stripeData && !stripeData.configured) ? (
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-200">
+              <p className="font-medium">Stripe not available</p>
+              <p className="mt-2 text-muted-foreground">{stripeData?.error || stripeData?.message || 'Stripe is not configured.'}</p>
+            </div>
+          ) : stripeData?.configured ? (() => {
+            const s = stripeData.summary;
+            const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+            return (
+            <div className="space-y-6">
+              {/* Summary cards */}
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { label: 'Total Revenue (Net)', value: fmt(s.totalRevenue) },
+                  { label: 'Total Gross', value: fmt(s.totalGross) },
+                  { label: 'Stripe Fees', value: fmt(s.totalFees) },
+                  { label: 'MRR', value: fmt(s.mrr) },
+                  { label: 'Active Subs', value: String(s.activeSubscriptions) },
+                  { label: 'Past Due', value: String(s.pastDueSubscriptions) },
+                  { label: 'Canceled', value: String(s.canceledSubscriptions) },
+                  { label: 'Total Customers', value: String(s.totalCustomers) },
+                ].map((c) => (
+                  <div key={c.label} className="rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="text-xs text-muted-foreground">{c.label}</div>
+                    <div className="text-lg font-semibold tabular-nums">{c.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Monthly Revenue chart */}
+              {stripeData.revenueByMonth?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Monthly Revenue</h3>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={stripeData.revenueByMonth} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={50} tickFormatter={(v: number) => `$${(v / 100).toFixed(0)}`} />
+                        <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => fmt(Number(v))} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar dataKey="gross" name="Gross" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="net" name="Net" fill="hsl(142 76% 36%)" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="fees" name="Fees" fill="hsl(0 72% 51%)" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Active Subscriptions */}
+              {stripeData.activeSubscriptions?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Active Subscriptions ({stripeData.activeSubscriptions.length})</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Customer</th>
+                          <th className="px-3 py-2">Plan</th>
+                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Period End</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stripeData.activeSubscriptions.map((sub: any) => (
+                          <tr key={sub.id} className="border-b border-border/60 last:border-0">
+                            <td className="px-3 py-2">
+                              <div className="truncate max-w-[200px]">{sub.customerName || sub.customerEmail || '—'}</div>
+                              {sub.customerName && sub.customerEmail && (
+                                <div className="text-xs text-muted-foreground truncate max-w-[200px]">{sub.customerEmail}</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">{sub.planName || '—'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{fmt(sub.amount)}/mo</td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                sub.status === 'active' ? 'bg-green-950/40 text-green-300' :
+                                sub.status === 'past_due' ? 'bg-amber-950/40 text-amber-300' :
+                                'bg-muted text-muted-foreground'
+                              }`}>
+                                {sub.status}
+                              </span>
+                              {sub.cancelAtPeriodEnd && <span className="ml-1 text-xs text-amber-400">canceling</span>}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">{sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Charges */}
+              {stripeData.recentCharges?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Recent Charges</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Date</th>
+                          <th className="px-3 py-2">Customer</th>
+                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stripeData.recentCharges.slice(0, 20).map((c: any) => (
+                          <tr key={c.id} className="border-b border-border/60 last:border-0">
+                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{new Date(c.created).toLocaleDateString()}</td>
+                            <td className="px-3 py-2 truncate max-w-[180px]">{c.customerName || c.customerEmail || '—'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {fmt(c.amount)}
+                              {c.refunded && <span className="ml-1 text-xs text-red-400">refunded {fmt(c.amountRefunded)}</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                c.status === 'succeeded' ? 'bg-green-950/40 text-green-300' :
+                                c.status === 'failed' ? 'bg-red-950/40 text-red-300' :
+                                c.status === 'pending' ? 'bg-amber-950/40 text-amber-300' :
+                                'bg-muted text-muted-foreground'
+                              }`}>
+                                {c.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground truncate max-w-[200px]">
+                              {c.failureMessage || c.description || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Invoices */}
+              {stripeData.recentInvoices?.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-medium">Recent Invoices</h3>
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Invoice</th>
+                          <th className="px-3 py-2">Customer</th>
+                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Date</th>
+                          <th className="px-3 py-2">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stripeData.recentInvoices.slice(0, 20).map((inv: any) => (
+                          <tr key={inv.id} className="border-b border-border/60 last:border-0">
+                            <td className="px-3 py-2 font-mono text-xs">{inv.number || inv.id.slice(-8)}</td>
+                            <td className="px-3 py-2 truncate max-w-[180px]">{inv.customerName || inv.customerEmail || '—'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{fmt(inv.amount)}</td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                inv.status === 'paid' ? 'bg-green-950/40 text-green-300' :
+                                inv.status === 'open' ? 'bg-amber-950/40 text-amber-300' :
+                                inv.status === 'uncollectible' ? 'bg-red-950/40 text-red-300' :
+                                'bg-muted text-muted-foreground'
+                              }`}>
+                                {inv.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{inv.created ? new Date(inv.created).toLocaleDateString() : '—'}</td>
+                            <td className="px-3 py-2">
+                              <div className="flex gap-2">
+                                {inv.hostedUrl && (
+                                  <a href={inv.hostedUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">View</a>
+                                )}
+                                {inv.pdf && (
+                                  <a href={inv.pdf} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">PDF</a>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
-          ) : null}
+            );
+          })() : null}
         </section>
       )}
 

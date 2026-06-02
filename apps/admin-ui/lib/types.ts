@@ -309,6 +309,33 @@ export interface ManagementGscSitemapRow {
   errors: number;
 }
 
+export interface GscSearchPerformanceRow {
+  date: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+export interface GscDimensionRow {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+  [key: string]: string | number;
+}
+
+export interface GscSearchPerformance {
+  from: string;
+  to: string;
+  totals: { clicks: number; impressions: number; ctr: number; avgPosition: number };
+  byDate: GscSearchPerformanceRow[];
+  topQueries: (GscDimensionRow & { query: string })[];
+  topPages: (GscDimensionRow & { page: string })[];
+  byDevice: (GscDimensionRow & { device: string })[];
+  byCountry: (GscDimensionRow & { country: string })[];
+}
+
 export type ManagementSearchConsoleSummary =
   | { configured: false; message?: string }
   | {
@@ -317,7 +344,8 @@ export type ManagementSearchConsoleSummary =
       sites: { siteUrl: string; permissionLevel: string }[];
       sitemaps: ManagementGscSitemapRow[];
       urlInspection: Record<string, unknown> | null;
-      searchPerformance: Record<string, unknown> | null;
+      searchPerformance: GscSearchPerformance | null;
+      error?: string;
     };
 
 export type ManagementAnalyticsTrafficSummary =
@@ -329,6 +357,10 @@ export type ManagementAnalyticsTrafficSummary =
       dimensionHeaders: string[];
       metricHeaders: string[];
       summary: Record<string, number>;
+      topPages?: Record<string, number | string>[];
+      trafficSources?: Record<string, number | string>[];
+      byDevice?: Record<string, number | string>[];
+      byCountry?: Record<string, number | string>[];
       error?: string;
     };
 

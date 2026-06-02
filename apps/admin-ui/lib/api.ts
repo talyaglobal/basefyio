@@ -1642,6 +1642,9 @@ export const api = {
         body: JSON.stringify({ planName }),
       });
     },
+    managementStripeOverview() {
+      return request<any>('/billing/management/stripe-overview');
+    },
   },
   observability: {
     listRootAlerts(limit = 100) {

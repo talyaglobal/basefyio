@@ -426,6 +426,147 @@ export class BillingController {
     return this.billing.updateManagementUserPackage(userId, planName);
   }
 
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Get('management/stripe-overview')
+  async stripeOverview() {
+    if (!this.stripe.isEnabled()) {
+      return { configured: false, message: 'Stripe is not configured.' };
+    }
+
+    const client = this.stripe.getClient();
+
+    const [charges, balanceTxns, invoices, subscriptions, customers] =
+      await Promise.all([
+        client.charges.list({
+          limit: 50,
+          expand: ['data.customer'],
+        }),
+        client.balanceTransactions.list({
+          limit: 50,
+        }),
+        client.invoices.list({
+          limit: 50,
+          expand: ['data.customer', 'data.subscription'],
+        }),
+        client.subscriptions.list({
+          limit: 100,
+          status: 'all',
+          expand: ['data.customer', 'data.plan'],
+        }),
+        client.customers.list({
+          limit: 100,
+        }),
+      ]);
+
+    // Revenue summary from balance transactions
+    const revenueTxns = balanceTxns.data.filter(
+      (t) => t.type === 'charge' && t.status === 'available',
+    );
+    const totalRevenue = revenueTxns.reduce((s, t) => s + t.net, 0);
+    const totalGross = revenueTxns.reduce((s, t) => s + t.amount, 0);
+    const totalFees = revenueTxns.reduce((s, t) => s + t.fee, 0);
+
+    // Monthly revenue by month
+    const monthlyRevenue: Record<string, { gross: number; net: number; fees: number; count: number }> = {};
+    for (const t of balanceTxns.data) {
+      if (t.type !== 'charge') continue;
+      const d = new Date(t.created * 1000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyRevenue[key]) monthlyRevenue[key] = { gross: 0, net: 0, fees: 0, count: 0 };
+      monthlyRevenue[key].gross += t.amount;
+      monthlyRevenue[key].net += t.net;
+      monthlyRevenue[key].fees += t.fee;
+      monthlyRevenue[key].count++;
+    }
+    const revenueByMonth = Object.entries(monthlyRevenue)
+      .map(([month, v]) => ({ month, ...v }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    // Subscription stats
+    const activeSubs = subscriptions.data.filter((s) => s.status === 'active');
+    const canceledSubs = subscriptions.data.filter((s) => s.status === 'canceled');
+    const pastDueSubs = subscriptions.data.filter((s) => s.status === 'past_due');
+    const mrr = activeSubs.reduce((s, sub) => {
+      const item = sub.items?.data[0];
+      return s + (item?.price?.unit_amount || 0);
+    }, 0);
+
+    // Recent charges
+    const recentCharges = charges.data.map((c) => ({
+      id: c.id,
+      amount: c.amount,
+      currency: c.currency,
+      status: c.status,
+      created: new Date(c.created * 1000).toISOString(),
+      customerEmail: typeof c.customer === 'object' && c.customer && 'email' in c.customer
+        ? (c.customer as any).email : null,
+      customerName: typeof c.customer === 'object' && c.customer && 'name' in c.customer
+        ? (c.customer as any).name : null,
+      description: c.description,
+      paid: c.paid,
+      refunded: c.refunded,
+      amountRefunded: c.amount_refunded,
+      failureMessage: c.failure_message,
+    }));
+
+    // Recent invoices
+    const recentInvoices = invoices.data.map((inv) => ({
+      id: inv.id,
+      number: inv.number,
+      amount: inv.amount_due,
+      amountPaid: inv.amount_paid,
+      currency: inv.currency,
+      status: inv.status,
+      created: inv.created ? new Date(inv.created * 1000).toISOString() : null,
+      dueDate: inv.due_date ? new Date(inv.due_date * 1000).toISOString() : null,
+      customerEmail: typeof inv.customer === 'object' && inv.customer && 'email' in inv.customer
+        ? (inv.customer as any).email : null,
+      customerName: typeof inv.customer === 'object' && inv.customer && 'name' in inv.customer
+        ? (inv.customer as any).name : null,
+      hostedUrl: inv.hosted_invoice_url,
+      pdf: inv.invoice_pdf,
+      planName: typeof inv.subscription === 'object' && inv.subscription
+        ? (inv.subscription as any).metadata?.planName || null : null,
+    }));
+
+    // Active subscriptions list
+    const activeSubscriptions = activeSubs.map((s) => ({
+      id: s.id,
+      status: s.status,
+      created: new Date(s.created * 1000).toISOString(),
+      currentPeriodEnd: s.current_period_end
+        ? new Date(s.current_period_end * 1000).toISOString() : null,
+      cancelAtPeriodEnd: s.cancel_at_period_end,
+      customerEmail: typeof s.customer === 'object' && s.customer && 'email' in s.customer
+        ? (s.customer as any).email : null,
+      customerName: typeof s.customer === 'object' && s.customer && 'name' in s.customer
+        ? (s.customer as any).name : null,
+      planName: s.metadata?.planName || s.items?.data[0]?.price?.nickname || null,
+      amount: s.items?.data[0]?.price?.unit_amount || 0,
+      currency: s.currency,
+    }));
+
+    return {
+      configured: true,
+      summary: {
+        totalRevenue,
+        totalGross,
+        totalFees,
+        mrr,
+        currency: 'usd',
+        activeSubscriptions: activeSubs.length,
+        canceledSubscriptions: canceledSubs.length,
+        pastDueSubscriptions: pastDueSubs.length,
+        totalCustomers: customers.data.length,
+      },
+      revenueByMonth,
+      recentCharges,
+      recentInvoices,
+      activeSubscriptions,
+    };
+  }
+
   @Post('webhook')
   @HttpCode(200)
   async handleWebhook(

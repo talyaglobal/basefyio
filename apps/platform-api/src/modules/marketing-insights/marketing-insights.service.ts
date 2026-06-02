@@ -23,26 +23,36 @@ function daysAgo(n: number): Date {
 export class MarketingInsightsService {
   private readonly logger = new Logger(MarketingInsightsService.name);
   private readonly credentials: JWTInput | null;
-  private readonly googleAuth: GoogleAuth | null;
+  /** Auth with impersonation (for GSC) — falls back to directAuth if no impersonate email. */
+  private readonly impersonatedAuth: GoogleAuth | null;
+  /** Auth without impersonation (for GA4) — always uses direct service account. */
+  private readonly directAuth: GoogleAuth | null;
 
   constructor(private readonly config: ConfigService) {
     this.credentials = this.loadServiceAccount();
+    if (!this.credentials) {
+      this.impersonatedAuth = null;
+      this.directAuth = null;
+      return;
+    }
+
+    // Direct service account access (no impersonation) — used for GA4
+    this.directAuth = new google.auth.GoogleAuth({
+      credentials: this.credentials,
+      scopes: SCOPES,
+    });
+
     const impersonateEmail = (this.config.get<string>('marketing.impersonateEmail') || '').trim();
-    if (this.credentials && impersonateEmail) {
-      // Domain-wide delegation: impersonate the specified user
-      this.googleAuth = new google.auth.GoogleAuth({
+    if (impersonateEmail) {
+      // Domain-wide delegation for GSC: impersonate the specified user
+      this.impersonatedAuth = new google.auth.GoogleAuth({
         credentials: this.credentials,
         scopes: SCOPES,
         clientOptions: { subject: impersonateEmail },
       });
-    } else if (this.credentials) {
-      // Direct service account access (no impersonation)
-      this.googleAuth = new google.auth.GoogleAuth({
-        credentials: this.credentials,
-        scopes: SCOPES,
-      });
     } else {
-      this.googleAuth = null;
+      // No impersonation configured — GSC also uses direct auth
+      this.impersonatedAuth = this.directAuth;
     }
   }
 
@@ -113,12 +123,12 @@ export class MarketingInsightsService {
       };
     }
 
-    if (!this.googleAuth) {
+    if (!this.impersonatedAuth) {
       return { configured: false, message: 'Could not create Google auth client.' };
     }
 
-    const sc = google.searchconsole({ version: 'v1', auth: this.googleAuth });
-    const wm = google.webmasters({ version: 'v3', auth: this.googleAuth });
+    const sc = google.searchconsole({ version: 'v1', auth: this.impersonatedAuth });
+    const wm = google.webmasters({ version: 'v3', auth: this.impersonatedAuth });
 
     const sitesRes = await sc.sites.list().catch((e: Error) => {
       this.logger.warn(`sites.list failed: ${e.message}`);
@@ -180,41 +190,102 @@ export class MarketingInsightsService {
 
     const end = new Date();
     const start = daysAgo(28);
-    let searchPerformance: Record<string, unknown> | null = null;
-    try {
-      const sa = await wm.searchanalytics.query({
+    const dateRange = {
+      startDate: isoDate(start),
+      endDate: isoDate(end),
+    };
+
+    // Fire all search analytics queries in parallel
+    const [byDateRes, topQueriesRes, topPagesRes, byDeviceRes, byCountryRes] = await Promise.allSettled([
+      // By date — daily clicks/impressions/ctr/position
+      wm.searchanalytics.query({
         siteUrl,
-        requestBody: {
-          startDate: isoDate(start),
-          endDate: isoDate(end),
-          dimensions: ['date'],
-          rowLimit: 25000,
-        },
-      });
-      const rows = sa.data.rows || [];
-      let totalClicks = 0;
-      let totalImpressions = 0;
-      const byDate: { date: string; clicks: number; impressions: number }[] = [];
-      for (const r of rows) {
-        const keys = r.keys || [];
-        const date = keys[0] || '';
-        const clicks = Number(r.clicks || 0);
-        const impressions = Number(r.impressions || 0);
-        totalClicks += clicks;
-        totalImpressions += impressions;
-        byDate.push({ date, clicks, impressions });
-      }
-      byDate.sort((a, b) => a.date.localeCompare(b.date));
-      searchPerformance = {
-        from: isoDate(start),
-        to: isoDate(end),
-        totals: { clicks: totalClicks, impressions: totalImpressions },
-        byDate,
-      };
-    } catch (e) {
-      this.logger.warn(`searchanalytics.query failed: ${(e as Error).message}`);
-      searchPerformance = { error: (e as Error).message };
+        requestBody: { ...dateRange, dimensions: ['date'], rowLimit: 25000 },
+      }),
+      // Top queries
+      wm.searchanalytics.query({
+        siteUrl,
+        requestBody: { ...dateRange, dimensions: ['query'], rowLimit: 20 },
+      }),
+      // Top pages
+      wm.searchanalytics.query({
+        siteUrl,
+        requestBody: { ...dateRange, dimensions: ['page'], rowLimit: 20 },
+      }),
+      // By device
+      wm.searchanalytics.query({
+        siteUrl,
+        requestBody: { ...dateRange, dimensions: ['device'], rowLimit: 10 },
+      }),
+      // By country
+      wm.searchanalytics.query({
+        siteUrl,
+        requestBody: { ...dateRange, dimensions: ['country'], rowLimit: 10 },
+      }),
+    ]);
+
+    // Helper to extract rows from settled results
+    const extract = (res: PromiseSettledResult<any>) =>
+      res.status === 'fulfilled' ? (res.value.data.rows || []) : [];
+
+    // By date
+    const byDateRows = extract(byDateRes);
+    let totalClicks = 0;
+    let totalImpressions = 0;
+    let totalCtr = 0;
+    let totalPosition = 0;
+    const byDate: { date: string; clicks: number; impressions: number; ctr: number; position: number }[] = [];
+    for (const r of byDateRows) {
+      const date = (r.keys || [])[0] || '';
+      const clicks = Number(r.clicks || 0);
+      const impressions = Number(r.impressions || 0);
+      const ctr = Number(r.ctr || 0);
+      const position = Number(r.position || 0);
+      totalClicks += clicks;
+      totalImpressions += impressions;
+      byDate.push({ date, clicks, impressions, ctr: Math.round(ctr * 10000) / 100, position: Math.round(position * 10) / 10 });
     }
+    if (byDate.length > 0) {
+      totalCtr = totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0;
+      totalPosition = byDate.reduce((s, r) => s + r.position, 0) / byDate.length;
+    }
+    byDate.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Top queries
+    const topQueries = extract(topQueriesRes).map((r: any) => ({
+      query: (r.keys || [])[0] || '',
+      clicks: Number(r.clicks || 0),
+      impressions: Number(r.impressions || 0),
+      ctr: Math.round(Number(r.ctr || 0) * 10000) / 100,
+      position: Math.round(Number(r.position || 0) * 10) / 10,
+    }));
+
+    // Top pages
+    const topPages = extract(topPagesRes).map((r: any) => ({
+      page: (r.keys || [])[0] || '',
+      clicks: Number(r.clicks || 0),
+      impressions: Number(r.impressions || 0),
+      ctr: Math.round(Number(r.ctr || 0) * 10000) / 100,
+      position: Math.round(Number(r.position || 0) * 10) / 10,
+    }));
+
+    // By device
+    const byDevice = extract(byDeviceRes).map((r: any) => ({
+      device: (r.keys || [])[0] || '',
+      clicks: Number(r.clicks || 0),
+      impressions: Number(r.impressions || 0),
+      ctr: Math.round(Number(r.ctr || 0) * 10000) / 100,
+      position: Math.round(Number(r.position || 0) * 10) / 10,
+    }));
+
+    // By country
+    const byCountry = extract(byCountryRes).map((r: any) => ({
+      country: (r.keys || [])[0] || '',
+      clicks: Number(r.clicks || 0),
+      impressions: Number(r.impressions || 0),
+      ctr: Math.round(Number(r.ctr || 0) * 10000) / 100,
+      position: Math.round(Number(r.position || 0) * 10) / 10,
+    }));
 
     return {
       configured: true,
@@ -225,7 +296,21 @@ export class MarketingInsightsService {
       })),
       sitemaps: sitemapRows,
       urlInspection,
-      searchPerformance,
+      searchPerformance: {
+        from: dateRange.startDate,
+        to: dateRange.endDate,
+        totals: {
+          clicks: totalClicks,
+          impressions: totalImpressions,
+          ctr: totalCtr,
+          avgPosition: Math.round(totalPosition * 10) / 10,
+        },
+        byDate,
+        topQueries,
+        topPages,
+        byDevice,
+        byCountry,
+      },
     };
   }
 
@@ -245,70 +330,154 @@ export class MarketingInsightsService {
       };
     }
 
-    if (!this.googleAuth) {
+    if (!this.directAuth) {
       return { configured: false, message: 'Could not create Google auth client.' };
     }
 
-    const analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.googleAuth });
-    try {
-      const [report, totals] = await Promise.all([
-        analyticsData.properties.runReport({
-          property: `properties/${propertyId}`,
-          requestBody: {
-            dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
-            dimensions: [{ name: 'date' }],
-            metrics: [
-              { name: 'sessions' },
-              { name: 'activeUsers' },
-              { name: 'screenPageViews' },
-            ],
-            orderBys: [{ dimension: { dimensionName: 'date' } }],
-          },
-        }),
-        analyticsData.properties.runReport({
-          property: `properties/${propertyId}`,
-          requestBody: {
-            dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
-            metrics: [
-              { name: 'sessions' },
-              { name: 'activeUsers' },
-              { name: 'screenPageViews' },
-              { name: 'newUsers' },
-            ],
-          },
-        }),
-      ]);
+    const analyticsData = google.analyticsdata({ version: 'v1beta', auth: this.directAuth });
+    const prop = `properties/${propertyId}`;
 
-      const dimHeaders = report.data.dimensionHeaders?.map((h) => h.name) || [];
-      const metricHeaders = report.data.metricHeaders?.map((h) => h.name) || [];
+    try {
+      const [dailyReport, totalsReport, topPagesReport, referrerReport, deviceReport, countryReport] =
+        await Promise.all([
+          // Daily breakdown
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              dimensions: [{ name: 'date' }],
+              metrics: [
+                { name: 'sessions' },
+                { name: 'activeUsers' },
+                { name: 'screenPageViews' },
+                { name: 'bounceRate' },
+                { name: 'averageSessionDuration' },
+              ],
+              orderBys: [{ dimension: { dimensionName: 'date' } }],
+            },
+          }),
+          // Totals (summary cards)
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              metrics: [
+                { name: 'sessions' },
+                { name: 'activeUsers' },
+                { name: 'screenPageViews' },
+                { name: 'newUsers' },
+                { name: 'bounceRate' },
+                { name: 'averageSessionDuration' },
+                { name: 'engagedSessions' },
+              ],
+            },
+          }),
+          // Top pages
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              dimensions: [{ name: 'pagePath' }],
+              metrics: [
+                { name: 'screenPageViews' },
+                { name: 'activeUsers' },
+                { name: 'averageSessionDuration' },
+              ],
+              orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+              limit: 15,
+            },
+          }),
+          // Traffic sources
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              dimensions: [{ name: 'sessionSource' }],
+              metrics: [
+                { name: 'sessions' },
+                { name: 'activeUsers' },
+              ],
+              orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+              limit: 10,
+            },
+          }),
+          // Device category
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              dimensions: [{ name: 'deviceCategory' }],
+              metrics: [
+                { name: 'sessions' },
+                { name: 'activeUsers' },
+              ],
+              orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+              limit: 5,
+            },
+          }),
+          // Country
+          analyticsData.properties.runReport({
+            property: prop,
+            requestBody: {
+              dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+              dimensions: [{ name: 'country' }],
+              metrics: [
+                { name: 'sessions' },
+                { name: 'activeUsers' },
+              ],
+              orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+              limit: 10,
+            },
+          }),
+        ]);
+
+      // Helper: extract dimension rows into typed objects
+      const extractDim = (report: any) => {
+        const metricNames = (report.data.metricHeaders || []).map((h: any) => h.name || '');
+        return (report.data.rows || []).map((row: any) => {
+          const dim = row.dimensionValues?.[0]?.value || '';
+          const metrics = (row.metricValues || []).map((m: any) => Number(m.value || 0));
+          const out: Record<string, number | string> = { dimension: dim };
+          metricNames.forEach((name: string, i: number) => {
+            out[name] = metrics[i] ?? 0;
+          });
+          return out;
+        });
+      };
+
+      // Daily breakdown
+      const metricHeaders = dailyReport.data.metricHeaders?.map((h) => h.name) || [];
       const byDate =
-        report.data.rows?.map((row) => {
+        dailyReport.data.rows?.map((row) => {
           const dateRaw = row.dimensionValues?.[0]?.value || '';
           const metrics = (row.metricValues || []).map((m) => Number(m.value || 0));
           const out: Record<string, number | string> = { date: dateRaw };
           metricHeaders.forEach((name, i) => {
-            const key = name || `m${i}`;
-            out[key] = metrics[i] ?? 0;
+            out[name || `m${i}`] = metrics[i] ?? 0;
           });
           return out;
         }) || [];
 
-      const totalRow = totals.data.rows?.[0];
+      // Totals
+      const totalRow = totalsReport.data.rows?.[0];
       const totalMetrics = (totalRow?.metricValues || []).map((m) => Number(m.value || 0));
-      const totalNames = totals.data.metricHeaders?.map((h) => h.name) || [];
+      const totalNames = totalsReport.data.metricHeaders?.map((h) => h.name) || [];
       const summary: Record<string, number> = {};
       totalNames.forEach((name, i) => {
-        const key = name || `m${i}`;
-        summary[key] = totalMetrics[i] ?? 0;
+        summary[name || `m${i}`] = totalMetrics[i] ?? 0;
       });
 
       return {
         configured: true,
         propertyId,
         byDate,
-        dimensionHeaders: dimHeaders,
+        dimensionHeaders: ['date'],
         metricHeaders,
         summary,
+        topPages: extractDim(topPagesReport),
+        trafficSources: extractDim(referrerReport),
+        byDevice: extractDim(deviceReport),
+        byCountry: extractDim(countryReport),
       };
     } catch (e) {
       const err = e as Error;
