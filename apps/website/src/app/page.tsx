@@ -27,9 +27,9 @@ import {
 } from "@/lib/site-url";
 
 const ogTitle =
-  "Kolaybase — PostgreSQL BaaS & REST API for Developers";
+  "Kolaybase — The Open Source Supabase Alternative";
 const ogDescription =
-  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
+  "Kolaybase: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {
@@ -175,16 +175,16 @@ export default async function Home() {
         <div className="mx-auto max-w-4xl text-center">
           <div className="animate-fade-in mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary motion-reduce:animate-none">
             <Zap className="h-3.5 w-3.5" />
-            PostgREST-compatible API with multi-tenant isolation
+            The open-source Supabase alternative
           </div>
           <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl [animation-delay:80ms] motion-reduce:animate-none">
-            The backend platform that{" "}
-            <span className="gradient-text">scales with you</span>
+            Build apps faster with{" "}
+            <span className="gradient-text">your own database</span>
           </h1>
           <p className="animate-fade-in mx-auto mt-6 max-w-2xl text-balance text-center text-lg leading-relaxed text-muted-foreground [animation-delay:160ms] motion-reduce:animate-none">
-            PostgreSQL database, Keycloak authentication, object storage, and a
-            PostgREST-compatible REST API — each project fully isolated with its
-            own database, connection pool, and Row-Level Security.
+            PostgreSQL database, authentication, file storage, and instant REST
+            API — all in one platform. Create a project and start building
+            your app in minutes, not weeks.
           </p>
           <div className="animate-fade-in mt-10 flex flex-col justify-center gap-4 [animation-delay:240ms] motion-reduce:animate-none sm:flex-row">
             <Link
@@ -208,58 +208,58 @@ export default async function Home() {
         <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
         <div className="relative mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-            One platform. Every backend primitive.
+            Everything your app needs. One platform.
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-            Database, auth, storage, API, and email — integrated from the ground
-            up. Not stitched together from five different products.
+            Database, auth, storage, and API — integrated from day one.
+            Like Supabase and Firebase, but open-source and self-hostable.
           </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
                 icon: Database,
-                title: "Isolated PostgreSQL",
-                desc: "Every project runs on its own dedicated PostgreSQL instance. No shared databases, no noisy neighbors.",
+                title: "PostgreSQL Database",
+                desc: "Every project gets its own PostgreSQL database. Full SQL power, no shared tables, no noisy neighbors.",
               },
               {
                 icon: Lock,
-                title: "Keycloak Authentication",
-                desc: "Enterprise-grade auth powered by Keycloak — per-project realms, 8 OAuth providers, RBAC, and SSO out of the box.",
+                title: "Authentication",
+                desc: "Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and JWT — ready out of the box.",
               },
               {
                 icon: Zap,
-                title: "PostgREST-Compatible API",
-                desc: "Same filter syntax developers know from PostgREST — built on our own multi-tenant engine. Zero extra containers.",
+                title: "Instant REST API",
+                desc: "Create a table, get a REST API instantly. PostgREST-compatible filters, pagination, and sorting — no code needed.",
               },
               {
                 icon: Server,
-                title: "Multi-Tenant Engine",
-                desc: "Per-project databases, connection pools, and automatic RLS — without managing separate infrastructure per tenant.",
+                title: "Realtime & Subscriptions",
+                desc: "Listen to database changes in real-time. Build live dashboards, chat apps, and collaborative tools effortlessly.",
               },
               {
                 icon: Table2,
-                title: "Visual Schema Editor",
-                desc: "Design tables, columns, foreign keys, and indexes visually. Beginners see descriptions, experts get full control.",
+                title: "Table Editor",
+                desc: "Design your schema visually. Add columns, set types, create relations — like a spreadsheet that generates APIs.",
               },
               {
                 icon: Shield,
                 title: "Row-Level Security",
-                desc: "RLS policies enforced automatically via API key roles. anon, authenticated, and service_role — wired to your JWT.",
+                desc: "Fine-grained access control at the database level. Users only see their own data — enforced automatically.",
               },
               {
                 icon: GitBranch,
-                title: "Backup & Integrations",
-                desc: "GitHub for schema migrations, Vercel for deployments, pg_dump backups — connected from your dashboard.",
+                title: "Integrations",
+                desc: "Connect GitHub for migrations, Vercel for deployments. One-click backups and restore from the dashboard.",
               },
               {
                 icon: Mail,
-                title: "Email Infrastructure",
-                desc: "Resend, SendGrid, SES, or custom SMTP. Transactional emails for verification and notifications.",
+                title: "Email & Notifications",
+                desc: "Built-in transactional emails for verification, password reset, and invites. Works with Resend, SendGrid, or custom SMTP.",
               },
               {
                 icon: Key,
-                title: "Project API Keys",
-                desc: "Anon key for client-side, service key for server-side. Scoped per project with automatic role mapping.",
+                title: "API Keys & Security",
+                desc: "Anon key for your frontend, service key for your server. Per-project scoping with automatic role mapping.",
               },
             ].map(({ icon: Icon, title, desc }) => (
               <div

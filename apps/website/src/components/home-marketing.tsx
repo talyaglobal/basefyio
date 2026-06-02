@@ -67,13 +67,12 @@ export function HomeMarketing() {
                 id="trusted-heading"
                 className="mx-auto max-w-2xl pt-2 text-xl font-bold tracking-tight sm:text-2xl"
               >
-                Enterprise infrastructure, startup speed
+                Ship your app, not your infrastructure
               </CardTitle>
               <CardDescription className="mx-auto max-w-2xl text-base">
-                Keycloak for auth, PostgreSQL for data, PostgREST-compatible API
-                for access — all managed from a single dashboard. Built for
-                teams that need compliance-ready infrastructure without the
-                setup cost.
+                Database, auth, storage, and API — managed from a single
+                dashboard. Focus on building your product, not configuring
+                servers.
               </CardDescription>
             </CardHeader>
             <CardFooter className="flex flex-wrap justify-center gap-2 py-6 md:gap-3">
@@ -99,14 +98,13 @@ export function HomeMarketing() {
               Kolaybase vs PostgREST
             </Badge>
             <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
-              PostgREST syntax you know.{" "}
-              <span className="gradient-text">Platform you need.</span>
+              Familiar syntax.{" "}
+              <span className="gradient-text">Complete platform.</span>
             </h2>
             <p className="mt-5 text-lg text-muted-foreground">
-              PostgREST is a great tool for single-database REST exposure. But
-              when you need multi-tenancy, auth, storage, and a dashboard —
-              you end up gluing together 5+ services. Kolaybase gives you the
-              same query syntax with everything integrated.
+              If you know PostgREST or Supabase, you already know Kolaybase.
+              Same query syntax — but with auth, storage, dashboard, and
+              multi-project isolation built in. No gluing 5 services together.
             </p>
           </div>
 
@@ -163,8 +161,8 @@ export function HomeMarketing() {
 
           <p className="mx-auto mt-6 max-w-2xl text-center text-sm text-muted-foreground">
             PostgREST is open-source and excellent at what it does. Kolaybase
-            builds on the same query conventions while adding the platform
-            layer teams need in production.
+            adds the complete app platform on top — so you can ship faster
+            without assembling infrastructure yourself.
           </p>
         </div>
       </section>
@@ -292,9 +290,9 @@ export function HomeMarketing() {
               <span className="gradient-text">Instantly.</span>
             </h2>
             <p className="mt-4 text-lg text-muted-foreground">
-              Create a table in the dashboard — a full CRUD REST API is live
-              immediately. Standard HTTP, standard JSON, PostgREST-compatible
-              filters. No code generation step, no deploy, no waiting.
+              Create a table in the dashboard — your API is live instantly.
+              Standard HTTP, standard JSON. No code generation, no deploy
+              step, no waiting. Just build your app.
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
@@ -409,8 +407,8 @@ export function HomeMarketing() {
                 <span className="gradient-text">any framework</span>
               </CardTitle>
               <CardDescription className="mx-auto max-w-2xl text-base">
-                Your frontend stays yours. Kolaybase speaks HTTP and standards—no
-                lock-in to a single client stack or vendor SDK religion.
+                Use your favorite stack. Kolaybase speaks standard HTTP — no
+                proprietary SDK required. Works with any language, any framework.
               </CardDescription>
             </CardHeader>
             <CardContent className="pb-8">
@@ -442,16 +440,15 @@ export function HomeMarketing() {
                 <Globe2 className="h-7 w-7 text-primary" aria-hidden />
               </div>
               <CardTitle className="mt-4 text-balance text-2xl sm:text-3xl md:text-4xl">
-                Pick one piece—or run the full stack.
+                One platform. Not five glued together.
               </CardTitle>
               <CardDescription className="mx-auto max-w-2xl text-base text-muted-foreground">
                 <span className="font-medium text-foreground">
-                  Best-of-breed pieces, one coherent platform.
+                  Built as a single product, not a bundle.
                 </span>{" "}
-                Some tools make you assemble five products and pretend it&apos;s
-                &quot;seamless.&quot; Kolaybase is built as a single product:
-                database, auth, APIs, and the dashboard experience match—without
-                the franken-stack tax.
+                Database, auth, storage, and API designed to work together from
+                day one. No integration headaches, no version conflicts, no
+                surprise bills from five different vendors.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -468,20 +465,19 @@ export function HomeMarketing() {
                 Stay in one place
               </Badge>
               <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-                Manage tables, security, and APIs—without a terminal tour
+                Build visually. Drop into SQL when you need it.
               </h2>
               <p className="mt-4 text-lg text-muted-foreground">
-                Other dashboards love showing you SQL editors and policy
-                editors first. Useful for experts—exhausting when you just need
-                CRUD and sane defaults. Kolaybase keeps the power, trims the
-                busywork.
+                A dashboard that feels like a modern app, not a database admin
+                tool. Create tables like a spreadsheet, manage users with a
+                click, explore your API visually — with full SQL power underneath.
               </p>
               <Separator className="my-8" />
               <ul className="space-y-4 text-sm">
                 {[
-                  "Full CRUD from the table editor—spreadsheet-simple when you want it",
-                  "Auth and project settings where you expect them—not scattered across tabs",
-                  "Security you can grow into—without writing a policy novella on day one",
+                  "Table editor that feels like a spreadsheet — full CRUD, no SQL required",
+                  "User management, OAuth providers, and API keys — all in one place",
+                  "Row-level security that works out of the box — no policy writing on day one",
                 ].map((item) => (
                   <li key={item} className="flex gap-3">
                     <Check className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -541,13 +537,13 @@ export function HomeMarketing() {
                   </span>
                 </div>
                 <h2 className="mt-4 text-balance text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
-                  From prototype to production — on one platform
+                  From idea to production — in minutes
                 </h2>
                 <p className="mt-4 text-lg text-muted-foreground">
-                  Stop assembling backends from five different services. Kolaybase
-                  gives you isolated PostgreSQL, enterprise auth, object storage,
-                  and a PostgREST-compatible API — all managed, all integrated,
-                  all from your dashboard.
+                  Stop configuring infrastructure. Kolaybase gives you a
+                  database, auth, storage, and API — create a project and
+                  start building your app immediately. Open-source and
+                  self-hostable.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link
@@ -574,11 +570,11 @@ export function HomeMarketing() {
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-muted-foreground">
                   {[
-                    "Isolated PostgreSQL per project with PgBouncer pooling",
-                    "Keycloak auth with per-project realms and 8 OAuth providers",
-                    "PostgREST-compatible REST API with automatic RLS",
-                    "S3-compatible object storage (MinIO)",
-                    "Visual dashboard — tables, auth, API explorer, backups",
+                    "PostgreSQL database per project — fully isolated",
+                    "Authentication with email, Google, GitHub & more",
+                    "Instant REST API — create a table, get an endpoint",
+                    "File storage — upload, manage, serve with CDN",
+                    "Dashboard — tables, auth, API explorer, backups, AI assistant",
                   ].map((item) => (
                     <p key={item} className="flex gap-2">
                       <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
