@@ -131,6 +131,9 @@ export class ProjectsService {
     const dbHost = this.config.get<string>('database.host')!;
     const dbPort = this.config.get<number>('database.port')!;
 
+    // Fail fast if Keycloak is down — avoids creating orphaned DB resources
+    await this.keycloak.assertHealthy();
+
     let actualDbHost = dbHost;
     let actualDbPort = dbPort;
     let actualAdminUser: string | undefined;
@@ -172,7 +175,7 @@ export class ProjectsService {
       const clients = await this.keycloak.createClients(realmName);
       anonKey = clients.anonKey;
       serviceKey = clients.serviceKey;
-    } catch (err) {
+    } catch (err: any) {
       // Clean up the potentially orphaned Keycloak realm before rolling back DB
       try {
         await this.keycloak.deleteRealm(realmName);
@@ -181,9 +184,10 @@ export class ProjectsService {
       }
       await this.dropDatabaseUser(dbUser);
       await this.dropDatabase(dbName);
-      this.logger.error('Keycloak realm creation failed, rolling back', err);
+      const reason = err?.message || 'unknown error';
+      this.logger.error(`Keycloak realm creation failed (${reason}), rolling back`, err);
       throw new InternalServerErrorException(
-        'Failed to provision authentication realm',
+        `Failed to provision authentication realm: ${reason}`,
       );
     }
 

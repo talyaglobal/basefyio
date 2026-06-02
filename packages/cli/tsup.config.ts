@@ -1,4 +1,6 @@
 import { defineConfig } from 'tsup';
+import { writeFileSync, readFileSync } from 'fs';
+import { resolve } from 'path';
 
 export default defineConfig({
   entry: ['src/index.ts'],
@@ -8,8 +10,14 @@ export default defineConfig({
   shims: true,
   minify: false,
   sourcemap: true,
-  splitting: false,
-  banner: {
-    js: '#!/usr/bin/env node',
+  splitting: true,
+  // Don't use banner — with splitting it injects the shebang into every chunk.
+  // Instead, prepend it to the entry point after the build finishes.
+  onSuccess: async () => {
+    const entry = resolve('dist', 'index.js');
+    const content = readFileSync(entry, 'utf-8');
+    if (!content.startsWith('#!')) {
+      writeFileSync(entry, `#!/usr/bin/env node\n${content}`);
+    }
   },
 });

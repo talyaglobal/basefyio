@@ -1,6 +1,6 @@
 {
   "name": "@kolaybase/platform-api",
-  "version": "0.1.0",
+  "version": "1.2.1",
   "private": true,
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"

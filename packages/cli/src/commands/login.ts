@@ -1,8 +1,5 @@
 import chalk from 'chalk';
-import open from 'open';
-import { apiClient, handleApiError } from '../lib/api.js';
 import { setUserConfig, setAccessToken, setRefreshToken, setApiUrl, getApiUrl } from '../lib/config.js';
-import { success, createSpinner, printLogo, printBox } from '../lib/ui.js';
 import { startBrowserLogin } from '../lib/browser-login.js';
 
 interface LoginOptions {
@@ -10,8 +7,6 @@ interface LoginOptions {
 }
 
 export async function loginCommand(options: LoginOptions) {
-  printLogo();
-
   if (options.apiUrl) {
     setApiUrl(options.apiUrl);
   }
@@ -28,29 +23,29 @@ export async function loginCommand(options: LoginOptions) {
     process.exit(1);
   }
 
-  // Start the loopback server and get the nonce + port
+  // Start the loopback server immediately — this is fast (OS port assignment)
   const handle = startBrowserLogin();
   const port = await handle.port;
 
   // Build the CLI-login URL that the backend will handle
   const loginUrl = `${getApiUrl()}/api/auth/cli-login?port=${port}&nonce=${nonce(handle)}`;
 
-  // Always show the URL so users can paste it manually if `open` lies about
-  // success (it returns as soon as the spawn fires; the browser may never
-  // actually appear on locked-down machines / wsl / ssh-x sessions). The
-  // earlier behaviour only showed the URL when `open` THREW, which never
-  // happens on Windows even when the browser fails to launch.
+  // Fire browser open + heavy module loads in parallel so the user sees output faster
+  const [, { printLogo, printBox, createSpinner, success }, { apiClient, handleApiError }] = await Promise.all([
+    import('open').then((m) => m.default(loginUrl)).catch(() => null),
+    import('../lib/ui.js'),
+    import('../lib/api.js'),
+  ]);
+
+  printLogo();
+
+  // Always show the URL so users can paste it manually
   printBox(
     `If your browser does not open, paste this URL manually:\n\n${chalk.cyan(loginUrl)}`,
     { title: 'Browser Login', borderColor: 'cyan' },
   );
 
-  try {
-    await open(loginUrl);
-    console.log(chalk.gray('Opening your browser for authentication…'));
-  } catch {
-    console.log(chalk.yellow('Could not auto-open browser — use the URL above.'));
-  }
+  console.log(chalk.gray('Opening your browser for authentication…'));
 
   const spinner = createSpinner('Waiting for authentication in your browser…');
 

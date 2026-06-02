@@ -32,6 +32,40 @@ export class KeycloakAdminService implements OnModuleInit {
 
   constructor(private readonly config: ConfigService) {}
 
+  /**
+   * Retry an async operation with exponential backoff.
+   * Retries on network errors / 5xx responses (transient); throws immediately on 4xx (permanent).
+   */
+  private async withRetry<T>(
+    label: string,
+    fn: () => Promise<T>,
+    maxAttempts = 3,
+    baseDelayMs = 1000,
+  ): Promise<T> {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.response?.status ?? err?.status;
+        // Don't retry client errors (4xx) – they won't resolve on retry
+        if (status && status >= 400 && status < 500) {
+          throw err;
+        }
+        if (attempt < maxAttempts) {
+          const delay = baseDelayMs * Math.pow(2, attempt - 1);
+          this.logger.warn(
+            `${label}: attempt ${attempt}/${maxAttempts} failed (${err.message}), retrying in ${delay}ms…`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    this.logger.error(`${label}: all ${maxAttempts} attempts failed`);
+    throw lastErr;
+  }
+
   async onModuleInit() {
     this.client = new KcAdminClient({
       baseUrl: this.config.get<string>('keycloak.url'),
@@ -331,10 +365,12 @@ export class KeycloakAdminService implements OnModuleInit {
 
   private async ensureAuth() {
     try {
-      await this.authenticate();
-    } catch (err) {
+      await this.withRetry('ensureAuth', () => this.authenticate());
+    } catch (err: any) {
       this.logger.error('Failed to re-authenticate with Keycloak', err);
-      throw new InternalServerErrorException('Keycloak authentication failed');
+      throw new InternalServerErrorException(
+        `Keycloak authentication failed: ${err.message || 'unknown error'}`,
+      );
     }
   }
 
@@ -349,6 +385,24 @@ export class KeycloakAdminService implements OnModuleInit {
       if (byEmail?.id) return byEmail.id;
     }
     throw new InternalServerErrorException('Platform user not found in Keycloak');
+  }
+
+  /**
+   * Quick connectivity check — authenticates and lists realms.
+   * Throws with a descriptive message if Keycloak is unreachable or credentials are wrong.
+   */
+  async assertHealthy(): Promise<void> {
+    try {
+      await this.withRetry('healthCheck', async () => {
+        await this.authenticate();
+        await this.client.realms.find();
+      });
+    } catch (err: any) {
+      const url = this.config.get<string>('keycloak.url');
+      throw new InternalServerErrorException(
+        `Keycloak is not reachable at ${url}: ${err.message || 'unknown error'}`,
+      );
+    }
   }
 
   // ── Realm operations ──
@@ -366,18 +420,20 @@ export class KeycloakAdminService implements OnModuleInit {
       // Wait briefly for Keycloak to fully clean up internal state (caches, JPA flush)
       await new Promise((r) => setTimeout(r, 2000));
     }
-    await this.client.realms.create({
-      realm: realmName,
-      enabled: true,
-      registrationAllowed: true,
-      loginWithEmailAllowed: true,
-      duplicateEmailsAllowed: false,
-      verifyEmail: false,
-      accessTokenLifespan: 1800,
-      ssoSessionIdleTimeout: 2592000,  // 30 days
-      ssoSessionMaxLifespan: 2592000,  // 30 days
-      offlineSessionIdleTimeout: 2592000, // 30 days
-    });
+    await this.withRetry(`createRealm(${realmName})`, () =>
+      this.client.realms.create({
+        realm: realmName,
+        enabled: true,
+        registrationAllowed: true,
+        loginWithEmailAllowed: true,
+        duplicateEmailsAllowed: false,
+        verifyEmail: false,
+        accessTokenLifespan: 1800,
+        ssoSessionIdleTimeout: 2592000,  // 30 days
+        ssoSessionMaxLifespan: 2592000,  // 30 days
+        offlineSessionIdleTimeout: 2592000, // 30 days
+      }),
+    );
 
     try {
       const baseUrl = this.config.get<string>('keycloak.url');
@@ -409,25 +465,29 @@ export class KeycloakAdminService implements OnModuleInit {
     const anonClientId = `${realmName}-anon`;
     const serviceClientId = `${realmName}-service`;
 
-    await this.client.clients.create({
-      realm: realmName,
-      clientId: anonClientId,
-      enabled: true,
-      publicClient: true,
-      directAccessGrantsEnabled: true,
-      standardFlowEnabled: true,
-    });
+    await this.withRetry(`createClient(${anonClientId})`, () =>
+      this.client.clients.create({
+        realm: realmName,
+        clientId: anonClientId,
+        enabled: true,
+        publicClient: true,
+        directAccessGrantsEnabled: true,
+        standardFlowEnabled: true,
+      }),
+    );
 
     const serviceSecret = uuid();
-    await this.client.clients.create({
-      realm: realmName,
-      clientId: serviceClientId,
-      enabled: true,
-      publicClient: false,
-      serviceAccountsEnabled: true,
-      directAccessGrantsEnabled: true,
-      secret: serviceSecret,
-    });
+    await this.withRetry(`createClient(${serviceClientId})`, () =>
+      this.client.clients.create({
+        realm: realmName,
+        clientId: serviceClientId,
+        enabled: true,
+        publicClient: false,
+        serviceAccountsEnabled: true,
+        directAccessGrantsEnabled: true,
+        secret: serviceSecret,
+      }),
+    );
 
     this.logger.log(`Clients created for realm "${realmName}"`);
 

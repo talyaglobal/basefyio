@@ -2,14 +2,6 @@ import { Command } from 'commander';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import { loginCommand } from './commands/login.js';
-import { logoutCommand } from './commands/logout.js';
-import { initCommand } from './commands/init.js';
-import { projectsCommand, createProject, deleteProject } from './commands/projects.js';
-import { statusCommand } from './commands/status.js';
-import { linkCommand, unlinkProject } from './commands/link.js';
-import { logsCommand } from './commands/logs.js';
-import { ensureFreshToken } from './lib/api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -29,6 +21,7 @@ program.hook('preAction', async (thisCommand) => {
   const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
   // Skip refresh for login/logout — they manage tokens themselves
   if (cmdName === 'login' || cmdName === 'logout') return;
+  const { ensureFreshToken } = await import('./lib/api.js');
   await ensureFreshToken();
 });
 
@@ -36,12 +29,18 @@ program
   .command('login')
   .description('Authenticate with the Kolaybase platform')
   .option('--api-url <url>', 'Platform API URL (default: https://api.kolaybase.com)')
-  .action(loginCommand);
+  .action(async (options) => {
+    const { loginCommand } = await import('./commands/login.js');
+    await loginCommand(options);
+  });
 
 program
   .command('logout')
   .description('Sign out and clear saved credentials')
-  .action(logoutCommand);
+  .action(async () => {
+    const { logoutCommand } = await import('./commands/logout.js');
+    await logoutCommand();
+  });
 
 // ── Project lifecycle ───────────────────────────────────────
 
@@ -49,18 +48,27 @@ program
   .command('init')
   .description('Create a new Kolaybase project and link it to the current directory')
   .option('-n, --name <name>', 'Project name')
-  .action(initCommand);
+  .action(async (options) => {
+    const { initCommand } = await import('./commands/init.js');
+    await initCommand(options);
+  });
 
 program
   .command('link')
   .description('Link current directory to an existing remote project')
   .option('--project-id <id>', 'Project ID to link directly')
-  .action(linkCommand);
+  .action(async (options) => {
+    const { linkCommand } = await import('./commands/link.js');
+    await linkCommand(options);
+  });
 
 program
   .command('unlink')
   .description('Remove the project link from the current directory')
-  .action(unlinkProject);
+  .action(async () => {
+    const { unlinkProject } = await import('./commands/link.js');
+    await unlinkProject();
+  });
 
 // ── Project info ────────────────────────────────────────────
 
@@ -68,25 +76,37 @@ program
   .command('status')
   .description('Show credentials, keys, and connection info for the linked project')
   .option('--show-keys', 'Reveal secret values instead of masking them')
-  .action(statusCommand);
+  .action(async (options) => {
+    const { statusCommand } = await import('./commands/status.js');
+    await statusCommand(options);
+  });
 
 program
   .command('projects')
   .alias('list')
   .description('List all projects in your team')
-  .action(projectsCommand);
+  .action(async () => {
+    const { projectsCommand } = await import('./commands/projects.js');
+    await projectsCommand();
+  });
 
 program
   .command('projects:create')
   .description('Create a new project without linking')
   .option('-n, --name <name>', 'Project name')
   .option('-d, --description <description>', 'Project description')
-  .action(createProject);
+  .action(async (options) => {
+    const { createProject } = await import('./commands/projects.js');
+    await createProject(options);
+  });
 
 program
   .command('projects:delete <projectId>')
   .description('Delete a remote project (requires confirmation)')
-  .action(deleteProject);
+  .action(async (projectId) => {
+    const { deleteProject } = await import('./commands/projects.js');
+    await deleteProject(projectId);
+  });
 
 // ── Database ────────────────────────────────────────────────
 
@@ -241,7 +261,10 @@ program
   .command('logs')
   .description('Show SQL audit logs for the linked project')
   .option('-n, --tail <lines>', 'Number of recent entries', '50')
-  .action(logsCommand);
+  .action(async (options) => {
+    const { logsCommand } = await import('./commands/logs.js');
+    await logsCommand(options);
+  });
 
 // ── Secrets / env ───────────────────────────────────────────
 
