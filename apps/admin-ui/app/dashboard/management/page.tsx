@@ -554,7 +554,15 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="relative mx-auto max-w-6xl space-y-6">
+    <div className="relative mx-auto max-w-6xl space-y-6" style={{ minHeight: '50vh' }}>
+      {tabLoading && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="flex items-start gap-3">
           <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/dashboard')}>
@@ -719,15 +727,6 @@ export default function ManagementPage() {
         </button>
         )}
       </div>
-
-      {tabLoading && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium text-muted-foreground">Loading...</p>
-          </div>
-        </div>
-      )}
 
       {activeTab === 'searchConsole' && canAccessManagement && (
         <section className="space-y-4 rounded-xl border bg-card p-4">
