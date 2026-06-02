@@ -298,11 +298,19 @@ export default function ManagementPage() {
         const deletionReasons = await api.projects.listDeletionReasons(200);
         setProjectDeletionReasons(deletionReasons);
       } else if (tab === 'searchConsole' && canAccessManagement) {
-        const data = await api.auth.managementSearchConsole();
-        setGscData(data);
+        try {
+          const data = await api.auth.managementSearchConsole();
+          setGscData(data);
+        } catch (e: any) {
+          setGscData({ configured: true, error: e.message || 'Failed to fetch Search Console data' } as any);
+        }
       } else if (tab === 'analytics' && canAccessManagement) {
-        const data = await api.auth.managementAnalyticsTraffic();
-        setGaData(data);
+        try {
+          const data = await api.auth.managementAnalyticsTraffic();
+          setGaData(data);
+        } catch (e: any) {
+          setGaData({ configured: true, error: e.message || 'Failed to fetch Analytics data' } as any);
+        }
       }
       setLoadedTabs((prev) => new Set(prev).add(tab));
     } catch (err: any) {
@@ -703,6 +711,11 @@ export default function ManagementPage() {
                 GOOGLE_SEARCH_CONSOLE_INSPECT_URL for domain properties.
               </p>
             </div>
+          ) : gscData && gscData.configured && (gscData as any).error ? (
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-200">
+              <p className="font-medium">Failed to load Search Console data</p>
+              <p className="mt-2 text-muted-foreground">{(gscData as any).error}</p>
+            </div>
           ) : gscData && gscData.configured ? (
             <div className="space-y-6">
               <p className="text-xs text-muted-foreground">
@@ -857,14 +870,14 @@ export default function ManagementPage() {
                 </div>
               )}
               <div className="flex flex-wrap gap-4 text-sm">
-                {Object.entries(gaData.summary).map(([k, v]) => (
+                {Object.entries(gaData.summary || {}).map(([k, v]) => (
                   <div key={k} className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs capitalize text-muted-foreground">{k.replace(/([A-Z])/g, ' $1')}</div>
                     <div className="text-lg font-semibold tabular-nums">{Number(v).toLocaleString()}</div>
                   </div>
                 ))}
               </div>
-              {gaData.byDate.length > 0 && (
+              {(gaData.byDate || []).length > 0 && (
                 <div className="h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
