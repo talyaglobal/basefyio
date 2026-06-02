@@ -23,7 +23,10 @@ import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { StripeService } from '../stripe/stripe.service';
 import { ObservabilityService } from '../observability/observability.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
+
+const STRIPE_EMAIL_SETTINGS_KEY = 'stripe_email_summary';
 
 @Controller('billing')
 export class BillingController {
@@ -34,6 +37,7 @@ export class BillingController {
     private readonly usage: UsageService,
     private readonly stripe: StripeService,
     private readonly observability: ObservabilityService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('plans')
@@ -424,6 +428,35 @@ export class BillingController {
     @Body('planName') planName: string,
   ) {
     return this.billing.updateManagementUserPackage(userId, planName);
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Get('management/stripe-email-settings')
+  async getStripeEmailSettings() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
+    });
+    return (row?.value as any) ?? { daily: false, weekly: false, monthly: false, yearly: false };
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Patch('management/stripe-email-settings')
+  async updateStripeEmailSettings(
+    @Body() body: { daily?: boolean; weekly?: boolean; monthly?: boolean; yearly?: boolean },
+  ) {
+    const current = await this.prisma.systemSetting.findUnique({
+      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
+    });
+    const prev = (current?.value as any) ?? { daily: false, weekly: false, monthly: false, yearly: false };
+    const next = { ...prev, ...body };
+    await this.prisma.systemSetting.upsert({
+      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
+      create: { key: STRIPE_EMAIL_SETTINGS_KEY, value: next },
+      update: { value: next },
+    });
+    return next;
   }
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)

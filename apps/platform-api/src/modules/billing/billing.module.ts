@@ -5,6 +5,7 @@ import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { QuotaService } from './quota.service';
 import { BillingScheduler } from './billing.scheduler';
+import { StripeSummaryScheduler } from './stripe-summary.scheduler';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { ObservabilityModule } from '../observability/observability.module';
 import { ManagementPermissionGuard } from '../../common/guards/management-permission.guard';
@@ -21,6 +22,7 @@ import { RealtimeStreamService } from '../../common/realtime/realtime-stream.ser
     UsageService,
     QuotaService,
     BillingScheduler,
+    StripeSummaryScheduler,
     BillingProcessor,
     RootRoleGuard,
     ManagementPermissionGuard,

@@ -704,6 +704,15 @@ model RootAlert {
 // Metadata twin for embeddings. The actual vector(1536) lives in the raw-SQL
 // table `embeddings_store` because Prisma 5 does not support the vector type.
 // All vector reads/writes go through VectorStoreService via $queryRawUnsafe.
+/// Key-value store for system-wide settings (e.g. scheduled email preferences).
+model SystemSetting {
+  key       String   @id @db.VarChar(128)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
 model EmbeddingRecord {
   id             String   @id @default(uuid())
   /// SHA-256 hex of the embedded text — used as a dedup/cache key.

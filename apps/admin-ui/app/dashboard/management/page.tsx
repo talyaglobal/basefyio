@@ -166,6 +166,7 @@ export default function ManagementPage() {
   const [gscData, setGscData] = useState<ManagementSearchConsoleSummary | null>(null);
   const [gaData, setGaData] = useState<ManagementAnalyticsTrafficSummary | null>(null);
   const [stripeData, setStripeData] = useState<any>(null);
+  const [stripeEmailSettings, setStripeEmailSettings] = useState<{ daily: boolean; weekly: boolean; monthly: boolean; yearly: boolean } | null>(null);
   const [activeTab, setActiveTab] = useState<
     | 'users'
     | 'plans'
@@ -319,11 +320,17 @@ export default function ManagementPage() {
           setGaData({ configured: true, error: e.message || 'Failed to fetch Analytics data' } as any);
         }
       } else if (tab === 'stripe' && (managementPermissions?.canManagePlans || isRoot)) {
-        try {
-          const data = await api.billing.managementStripeOverview();
-          setStripeData(data);
-        } catch (e: any) {
-          setStripeData({ configured: false, error: e.message || 'Failed to fetch Stripe data' });
+        const [overviewResult, settingsResult] = await Promise.allSettled([
+          api.billing.managementStripeOverview(),
+          api.billing.managementStripeEmailSettings(),
+        ]);
+        if (overviewResult.status === 'fulfilled') {
+          setStripeData(overviewResult.value);
+        } else {
+          setStripeData({ configured: false, error: overviewResult.reason?.message || 'Failed to fetch Stripe data' });
+        }
+        if (settingsResult.status === 'fulfilled') {
+          setStripeEmailSettings(settingsResult.value);
         }
       }
       setLoadedTabs((prev) => new Set(prev).add(tab));
@@ -709,9 +716,11 @@ export default function ManagementPage() {
       </div>
 
       {tabLoading && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading tab data...
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium text-muted-foreground">Loading...</p>
+          </div>
         </div>
       )}
 
@@ -1190,12 +1199,42 @@ export default function ManagementPage() {
 
       {activeTab === 'stripe' && (managementPermissions?.canManagePlans || isRoot) && (
         <section className="space-y-6 rounded-xl border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <h2 className="text-base font-semibold">Stripe Overview</h2>
-              <p className="text-sm text-muted-foreground">Revenue, subscriptions, charges, and invoices from Stripe.</p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <h2 className="text-base font-semibold">Stripe Overview</h2>
+                <p className="text-sm text-muted-foreground">Revenue, subscriptions, charges, and invoices from Stripe.</p>
+              </div>
             </div>
+
+            {/* Email summary settings */}
+            {stripeEmailSettings && (
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Email Reports</span>
+                {(['daily', 'weekly', 'monthly', 'yearly'] as const).map((period) => (
+                  <label key={period} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={stripeEmailSettings[period]}
+                      onChange={async (e) => {
+                        const next = { ...stripeEmailSettings, [period]: e.target.checked };
+                        setStripeEmailSettings(next);
+                        try {
+                          await api.billing.updateManagementStripeEmailSettings({ [period]: e.target.checked });
+                          toast.success(`${period.charAt(0).toUpperCase() + period.slice(1)} report ${e.target.checked ? 'enabled' : 'disabled'}`);
+                        } catch {
+                          setStripeEmailSettings(stripeEmailSettings);
+                          toast.error('Failed to update setting');
+                        }
+                      }}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer"
+                    />
+                    <span className="text-xs capitalize">{period}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           {!stripeData && !tabLoading ? (
             <p className="text-sm text-muted-foreground">Loading...</p>
