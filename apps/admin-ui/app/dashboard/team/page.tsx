@@ -272,11 +272,13 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
 export default function TeamSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activeTeamId, setActiveTeamId, refreshTeams, refreshKey } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey } = useActiveTeam();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
   const [userProjectsDialog, setUserProjectsDialog] = useState<{ userId: string; name: string } | null>(null);
+  /** Map of memberId → [{teamName, role}] for "All Teams" view */
+  const [memberTeamRoles, setMemberTeamRoles] = useState<Record<string, { teamName: string; role: string }[]>>({});
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -334,11 +336,29 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [m, pi, mi, teams, rp, projects] = await Promise.all([
+      const allTeams = await api.teams.list();
+
+      // Build member-team-roles map from all teams
+      const roleMap: Record<string, { teamName: string; role: string }[]> = {};
+      const allTeamMembers = await Promise.all(
+        allTeams.map((t) =>
+          api.teams.listMembers(t.id)
+            .then((ms) => ms.map((m) => ({ ...m, _teamName: t.name, _teamRole: m.role })))
+            .catch(() => []),
+        ),
+      );
+      for (const chunk of allTeamMembers) {
+        for (const m of chunk) {
+          if (!roleMap[m.id]) roleMap[m.id] = [];
+          roleMap[m.id].push({ teamName: (m as any)._teamName, role: (m as any)._teamRole });
+        }
+      }
+      setMemberTeamRoles(roleMap);
+
+      const [m, pi, mi, rp, projects] = await Promise.all([
         api.teams.listMembers(activeTeamId),
         api.teams.listTeamInvites(activeTeamId),
         api.teams.myInvites(),
-        api.teams.list(),
         api.teams.getRolePermissions(activeTeamId),
         api.projects.list(activeTeamId),
       ]);
@@ -348,7 +368,7 @@ export default function TeamSettingsPage() {
       setMyInvites(mi);
       setRolePermissions(rp);
       setDraftPermissions(rp);
-      const current = teams.find((t) => t.id === activeTeamId);
+      const current = allTeams.find((t) => t.id === activeTeamId);
       if (current) setTeamName(current.name);
     } catch (err: any) {
       toast.error(err.message);
@@ -702,7 +722,26 @@ export default function TeamSettingsPage() {
                           );
                         })()}
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                        {memberTeamRoles[m.id]?.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground/60">·</span>
+                        )}
+                        {memberTeamRoles[m.id]?.map((tr) => (
+                          <span
+                            key={tr.teamName}
+                            className={`inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-medium border ${
+                              tr.role === 'OWNER'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
+                                : tr.role === 'ADMIN'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
+                                : 'bg-muted text-muted-foreground border-border'
+                            }`}
+                          >
+                            {tr.teamName}: {tr.role.charAt(0) + tr.role.slice(1).toLowerCase()}
+                          </span>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Actions for non-owner members */}
