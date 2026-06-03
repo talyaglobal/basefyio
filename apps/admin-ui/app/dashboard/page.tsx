@@ -67,36 +67,44 @@ function buildStatusData(projects: ProjectListItem[]) {
 }
 
 // ── Stat Card ─────────────────────────────────────────────────
+const STAT_COLORS = [
+  'from-blue-500/20 to-blue-600/10 border-blue-500/20',
+  'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20',
+  'from-violet-500/20 to-violet-600/10 border-violet-500/20',
+  'from-amber-500/20 to-amber-600/10 border-amber-500/20',
+  'from-rose-500/20 to-rose-600/10 border-rose-500/20',
+  'from-cyan-500/20 to-cyan-600/10 border-cyan-500/20',
+  'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20',
+] as const;
+
 function StatCard({
   icon: Icon,
   label,
   value,
   sub,
-  accent,
+  colorIndex = 0,
   onClick,
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   sub?: string;
-  accent?: string;
+  colorIndex?: number;
   onClick?: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-xl border bg-card p-5 shadow-sm transition-all ${
-        onClick ? 'hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]' : ''
+      className={`w-full text-left rounded-xl border bg-gradient-to-br ${STAT_COLORS[colorIndex % STAT_COLORS.length]} p-5 backdrop-blur-sm transition-all ${
+        onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]' : ''
       }`}
     >
       {/* Icon + Label row */}
       <div className="flex items-center gap-2.5 mb-3">
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10'}`}>
-          <Icon className={`h-4 w-4 ${accent ? 'text-white' : 'text-primary'}`} />
-        </div>
-        <span className="text-sm font-medium text-muted-foreground leading-tight">{label}</span>
+        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground leading-tight">{label}</span>
         {onClick && (
-          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0 group-hover:text-primary transition-colors" />
+          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0" />
         )}
       </div>
       {/* Value */}
@@ -109,7 +117,7 @@ function StatCard({
 // ── Main ─────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
-  const { activeTeamId, setActiveTeamId } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, viewTeamId, setViewTeamId } = useDashboard();
   const { profile, teams } = useDashboard();
 
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
@@ -118,25 +126,15 @@ export default function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
 
-  // View selector: 'all' or a specific teamId — persisted in sessionStorage
-  const [viewTeamId, setViewTeamId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('kb_view_team') || 'all';
-    }
-    return 'all';
-  });
+  const viewTeam = viewTeamId === 'all' ? null : teams.find((t) => t.id === viewTeamId);
+  const viewLabel = viewTeamId === 'all' ? 'All Teams' : (viewTeam?.name ?? 'Select team');
 
   function changeViewTeam(id: string) {
     setViewTeamId(id);
-    sessionStorage.setItem('kb_view_team', id);
     if (id !== 'all') {
-      // Also update the real active team for other pages
       void switchTeam(id);
     }
   }
-
-  const viewTeam = viewTeamId === 'all' ? null : teams.find((t) => t.id === viewTeamId);
-  const viewLabel = viewTeamId === 'all' ? 'All Teams' : (viewTeam?.name ?? 'Select team');
   const sortedTeams = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name)), [teams]);
 
   // Close team dropdown on outside click
@@ -436,7 +434,7 @@ export default function DashboardPage() {
           label="Total Projects"
           value={projects.length}
           sub={`${activeCount} active`}
-          accent="bg-primary"
+          colorIndex={0}
           onClick={() => router.push('/dashboard/projects')}
         />
         <StatCard
@@ -444,6 +442,7 @@ export default function DashboardPage() {
           label="Active Projects"
           value={activeCount}
           sub={projects.length > 0 ? `${Math.round((activeCount / projects.length) * 100)}% of total` : undefined}
+          colorIndex={1}
           onClick={() => router.push('/dashboard/projects?status=ACTIVE')}
         />
         <StatCard
@@ -451,6 +450,7 @@ export default function DashboardPage() {
           label="Team Members"
           value={members.length}
           sub={`${members.filter((m) => m.role === 'OWNER').length} owner`}
+          colorIndex={2}
           onClick={() => router.push('/dashboard/team')}
         />
         <StatCard
@@ -458,6 +458,7 @@ export default function DashboardPage() {
           label="Created This Month"
           value={thisMonth}
           sub={trendUp ? '↑ more than last month' : totalLastMonth > 0 ? '↓ less than last month' : 'No projects last month'}
+          colorIndex={3}
           onClick={() => router.push('/dashboard/projects?filter=this-month')}
         />
       </div>

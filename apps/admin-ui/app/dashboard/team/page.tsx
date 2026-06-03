@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
-import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus } from '@/lib/types';
+import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus, ProjectListItem } from '@/lib/types';
 import { useActiveTeam } from '../layout';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -275,6 +275,8 @@ export default function TeamSettingsPage() {
   const { activeTeamId, setActiveTeamId, refreshTeams, refreshKey } = useActiveTeam();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
+  const [userProjectsDialog, setUserProjectsDialog] = useState<{ userId: string; name: string } | null>(null);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [myInvites, setMyInvites] = useState<TeamInvite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -332,14 +334,16 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [m, pi, mi, teams, rp] = await Promise.all([
+      const [m, pi, mi, teams, rp, projects] = await Promise.all([
         api.teams.listMembers(activeTeamId),
         api.teams.listTeamInvites(activeTeamId),
         api.teams.myInvites(),
         api.teams.list(),
         api.teams.getRolePermissions(activeTeamId),
+        api.projects.list(activeTeamId),
       ]);
       setMembers(m);
+      setTeamProjects(projects);
       setPendingInvites(pi);
       setMyInvites(mi);
       setRolePermissions(rp);
@@ -684,6 +688,19 @@ export default function TeamSettingsPage() {
                             You
                           </Badge>
                         )}
+                        {(() => {
+                          const count = teamProjects.filter((p) => p.createdBy === m.id).length;
+                          if (count === 0) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setUserProjectsDialog({ userId: m.id, name: displayName })}
+                              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                            >
+                              {count} project{count !== 1 ? 's' : ''}
+                            </button>
+                          );
+                        })()}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                     </div>
@@ -974,6 +991,48 @@ export default function TeamSettingsPage() {
           onInvited={loadAll}
         />
       )}
+
+      {/* User Projects Dialog */}
+      <Dialog open={!!userProjectsDialog} onOpenChange={(o) => { if (!o) setUserProjectsDialog(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Projects created by {userProjectsDialog?.name}</DialogTitle>
+            <DialogDescription>
+              {teamProjects.filter((p) => p.createdBy === userProjectsDialog?.userId).length} project(s) in this team
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto divide-y">
+            {teamProjects
+              .filter((p) => p.createdBy === userProjectsDialog?.userId)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setUserProjectsDialog(null);
+                    router.push(`/dashboard/projects/${p.id}`);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-2 py-3 text-left hover:bg-muted/50 rounded-lg transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {p.projectSizeBytes ? ` · ${(Number(p.projectSizeBytes) / 1024 / 1024).toFixed(1)} MB` : ''}
+                    </p>
+                  </div>
+                  <Badge variant={p.status === 'ACTIVE' ? 'default' : 'secondary'} className="shrink-0 text-[10px]">
+                    {p.status}
+                  </Badge>
+                </button>
+              ))}
+            {teamProjects.filter((p) => p.createdBy === userProjectsDialog?.userId).length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">No projects found.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Transfer Ownership Confirmation */}
       <Dialog open={!!transferTarget} onOpenChange={(o) => { if (!o) setTransferTarget(null); }}>

@@ -19,6 +19,9 @@ import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 interface DashboardContextValue {
   activeTeamId: string;
   setActiveTeamId: (id: string) => void;
+  /** 'all' or a specific teamId — controls which data is shown across pages */
+  viewTeamId: string;
+  setViewTeamId: (id: string) => void;
   refreshUser: () => void;
   refreshKey: number;
   refreshTeams: () => void;
@@ -31,6 +34,8 @@ interface DashboardContextValue {
 export const DashboardContext = createContext<DashboardContextValue>({
   activeTeamId: '',
   setActiveTeamId: () => {},
+  viewTeamId: 'all',
+  setViewTeamId: () => {},
   refreshUser: () => {},
   refreshKey: 0,
   refreshTeams: () => {},
@@ -46,6 +51,11 @@ export function useActiveTeam() {
 
 export function useDashboard() {
   return useContext(DashboardContext);
+}
+
+export function useViewTeam() {
+  const ctx = useContext(DashboardContext);
+  return { viewTeamId: ctx.viewTeamId, setViewTeamId: ctx.setViewTeamId, teams: ctx.teams };
 }
 
 export function useTeams() {
@@ -64,6 +74,14 @@ export default function DashboardLayout({
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [viewTeamId, setViewTeamIdRaw] = useState<string>(() => {
+    if (typeof window !== 'undefined') return sessionStorage.getItem('kb_view_team') || 'all';
+    return 'all';
+  });
+  const setViewTeamId = (id: string) => {
+    setViewTeamIdRaw(id);
+    sessionStorage.setItem('kb_view_team', id);
+  };
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -298,7 +316,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, refreshKey, refreshTeams, refreshUser, profile, refreshProfile, teams, inviteCount }}>
+    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, viewTeamId, setViewTeamId, refreshKey, refreshTeams, refreshUser, profile, refreshProfile, teams, inviteCount }}>
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">

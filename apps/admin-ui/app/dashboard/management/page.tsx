@@ -781,40 +781,44 @@ export default function ManagementPage() {
                 Property: <span className="font-mono text-foreground">{gscData.siteUrl}</span>
               </p>
 
-              {/* Summary cards */}
-              {sp && (
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    { label: 'Clicks', value: sp.totals.clicks.toLocaleString() },
-                    { label: 'Impressions', value: sp.totals.impressions.toLocaleString() },
-                    { label: 'Avg CTR', value: `${sp.totals.ctr}%` },
-                    { label: 'Avg Position', value: String(sp.totals.avgPosition) },
-                  ].map((c) => (
-                    <div key={c.label} className="rounded-md border bg-muted/30 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">{c.label}</div>
-                      <div className="text-lg font-semibold tabular-nums">{c.value}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* URL inspection */}
-              {gscData.urlInspection &&
-                typeof gscData.urlInspection === 'object' &&
-                Array.isArray((gscData.urlInspection as { issues?: string[] }).issues) &&
-                (gscData.urlInspection as { issues: string[] }).issues.length > 0 && (
-                  <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3">
-                    <p className="text-sm font-medium text-amber-200">URL inspection</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {(gscData.urlInspection as { inspectionUrl?: string }).inspectionUrl}
-                    </p>
-                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-amber-100/90">
-                      {(gscData.urlInspection as { issues: string[] }).issues.map((issue) => (
-                        <li key={issue}>{issue}</li>
-                      ))}
-                    </ul>
+              {/* Summary + URL inspection badges */}
+              <div className="flex flex-wrap gap-2">
+                {sp && [
+                  { label: 'Clicks', value: sp.totals.clicks.toLocaleString(), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20' },
+                  { label: 'Impressions', value: sp.totals.impressions.toLocaleString(), color: 'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20' },
+                  { label: 'Avg CTR', value: `${sp.totals.ctr}%`, color: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20' },
+                  { label: 'Avg Position', value: String(sp.totals.avgPosition), color: 'from-amber-500/20 to-amber-600/10 border-amber-500/20' },
+                ].map((c) => (
+                  <div key={c.label} className={`rounded-xl border bg-gradient-to-br ${c.color} px-3 py-2 backdrop-blur-sm`}>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{c.label}</div>
+                    <div className="text-lg font-bold tabular-nums">{c.value}</div>
                   </div>
-                )}
+                ))}
+                {gscData.urlInspection &&
+                  typeof gscData.urlInspection === 'object' &&
+                  Array.isArray((gscData.urlInspection as { issues?: string[] }).issues) &&
+                  (gscData.urlInspection as { issues: string[] }).issues.map((issue) => {
+                    const isGood = /ALLOWED|SUCCESSFUL|INDEXING_ALLOWED/.test(issue);
+                    return (
+                      <div
+                        key={issue}
+                        className={`rounded-xl border px-3 py-2 backdrop-blur-sm bg-gradient-to-br ${
+                          isGood
+                            ? 'from-emerald-500/15 to-emerald-600/5 border-emerald-500/20'
+                            : 'from-red-500/15 to-red-600/5 border-red-500/20'
+                        }`}
+                      >
+                        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          {issue.split(':')[0]?.trim()}
+                        </div>
+                        <div className={`text-sm font-semibold ${isGood ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {issue.split(':').slice(1).join(':').trim()}
+                        </div>
+                      </div>
+                    );
+                  })
+                }
+              </div>
 
               {/* Clicks & Impressions chart */}
               {sp && sp.byDate.length > 0 && (
@@ -1061,13 +1065,24 @@ export default function ManagementPage() {
               )}
 
               {/* Summary cards */}
-              <div className="flex flex-wrap gap-3">
-                {Object.entries(gaData.summary || {}).map(([k, v]) => (
-                  <div key={k} className="rounded-md border bg-muted/30 px-3 py-2">
-                    <div className="text-xs text-muted-foreground">{fmtMetric(k)}</div>
-                    <div className="text-lg font-semibold tabular-nums">{fmtSummary(k, Number(v))}</div>
-                  </div>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(gaData.summary || {}).map(([k, v], i) => {
+                  const colors = [
+                    'from-blue-500/20 to-blue-600/10 border-blue-500/20',
+                    'from-violet-500/20 to-violet-600/10 border-violet-500/20',
+                    'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20',
+                    'from-amber-500/20 to-amber-600/10 border-amber-500/20',
+                    'from-rose-500/20 to-rose-600/10 border-rose-500/20',
+                    'from-cyan-500/20 to-cyan-600/10 border-cyan-500/20',
+                    'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20',
+                  ];
+                  return (
+                    <div key={k} className={`rounded-xl border bg-gradient-to-br ${colors[i % colors.length]} px-3 py-2 backdrop-blur-sm`}>
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{fmtMetric(k)}</div>
+                      <div className="text-lg font-bold tabular-nums">{fmtSummary(k, Number(v))}</div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Sessions & Page Views chart */}
@@ -1243,20 +1258,20 @@ export default function ManagementPage() {
             return (
             <div className="space-y-6">
               {/* Summary cards */}
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 {[
-                  { label: 'Total Revenue (Net)', value: fmt(s.totalRevenue) },
-                  { label: 'Total Gross', value: fmt(s.totalGross) },
-                  { label: 'Stripe Fees', value: fmt(s.totalFees) },
-                  { label: 'MRR', value: fmt(s.mrr) },
-                  { label: 'Active Subs', value: String(s.activeSubscriptions) },
-                  { label: 'Past Due', value: String(s.pastDueSubscriptions) },
-                  { label: 'Canceled', value: String(s.canceledSubscriptions) },
-                  { label: 'Total Customers', value: String(s.totalCustomers) },
+                  { label: 'Net Revenue', value: fmt(s.totalRevenue), color: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20' },
+                  { label: 'Gross', value: fmt(s.totalGross), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20' },
+                  { label: 'Stripe Fees', value: fmt(s.totalFees), color: 'from-rose-500/20 to-rose-600/10 border-rose-500/20' },
+                  { label: 'MRR', value: fmt(s.mrr), color: 'from-violet-500/20 to-violet-600/10 border-violet-500/20' },
+                  { label: 'Active Subs', value: String(s.activeSubscriptions), color: 'from-cyan-500/20 to-cyan-600/10 border-cyan-500/20' },
+                  { label: 'Past Due', value: String(s.pastDueSubscriptions), color: s.pastDueSubscriptions > 0 ? 'from-amber-500/20 to-amber-600/10 border-amber-500/20' : 'from-gray-500/10 to-gray-600/5 border-gray-500/15' },
+                  { label: 'Canceled', value: String(s.canceledSubscriptions), color: 'from-gray-500/10 to-gray-600/5 border-gray-500/15' },
+                  { label: 'Customers', value: String(s.totalCustomers), color: 'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20' },
                 ].map((c) => (
-                  <div key={c.label} className="rounded-md border bg-muted/30 px-3 py-2">
-                    <div className="text-xs text-muted-foreground">{c.label}</div>
-                    <div className="text-lg font-semibold tabular-nums">{c.value}</div>
+                  <div key={c.label} className={`rounded-xl border bg-gradient-to-br ${c.color} px-3 py-2 backdrop-blur-sm`}>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{c.label}</div>
+                    <div className="text-lg font-bold tabular-nums">{c.value}</div>
                   </div>
                 ))}
               </div>

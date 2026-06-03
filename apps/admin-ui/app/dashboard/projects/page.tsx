@@ -186,7 +186,7 @@ function loadProjectsState(): ProjectsState | null {
 export default function ProjectsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activeTeamId } = useActiveTeam();
+  const { activeTeamId, viewTeamId } = useActiveTeam();
 
   const [projects, setProjects]     = useState<ProjectListItem[]>([]);
   const [folders, setFolders]       = useState<ProjectFolder[]>([]);
@@ -303,7 +303,6 @@ export default function ProjectsPage() {
   );
 
   // ── Load ─────────────────────────────────────────────────────────────────────
-  const viewTeamId = typeof window !== 'undefined' ? sessionStorage.getItem('kb_view_team') || activeTeamId : activeTeamId;
   const isAllTeams = viewTeamId === 'all';
 
   const loadAll = useCallback(async () => {
@@ -345,7 +344,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTeamId, isAllTeams]);
+  }, [activeTeamId, viewTeamId]);
 
   useEffect(() => { loadAll(); setShowTrash(false); setDeletedProjects([]); setIsOwner(false); }, [loadAll]);
 

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { clearTokens, stopProactiveRefresh, getRefreshToken, getIdToken } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Project, ProjectListItem, Team, UserInfo } from '@/lib/types';
+import { useViewTeam } from '@/app/dashboard/layout';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -67,6 +68,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const pathname = usePathname();
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
+  const { viewTeamId, setViewTeamId } = useViewTeam();
   const headerRef = useRef<HTMLElement | null>(null);
 
   const { teams, inviteCount } = useDashboard();
@@ -327,9 +329,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="max-w-[140px] truncate">
-              {activeTeam?.name || 'Select team'}
+              {viewTeamId === 'all' ? 'All Teams' : (activeTeam?.name || 'Select team')}
             </span>
-            {activeTeam?.role === 'OWNER' && (
+            {viewTeamId !== 'all' && activeTeam?.role === 'OWNER' && (
               <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                 Owner
               </span>
@@ -357,12 +359,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   {/* All Teams option */}
                   <button
                     onClick={() => {
-                      sessionStorage.setItem('kb_view_team', 'all');
+                      setViewTeamId('all');
                       setDropdownOpen(false);
-                      window.location.href = '/dashboard';
                     }}
                     className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                      typeof window !== 'undefined' && sessionStorage.getItem('kb_view_team') === 'all'
+                      viewTeamId === 'all'
                         ? 'bg-primary/10 text-primary font-medium'
                         : 'hover:bg-accent'
                     }`}
@@ -382,11 +383,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                     <button
                       key={team.id}
                       onClick={() => {
-                        sessionStorage.setItem('kb_view_team', team.id);
+                        setViewTeamId(team.id);
                         switchTeam(team.id);
                       }}
                       className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                        team.id === activeTeamId
+                        viewTeamId === team.id
                           ? 'bg-primary/10 text-primary font-medium'
                           : 'hover:bg-accent'
                       }`}
