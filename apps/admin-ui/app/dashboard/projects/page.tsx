@@ -303,27 +303,49 @@ export default function ProjectsPage() {
   );
 
   // ── Load ─────────────────────────────────────────────────────────────────────
+  const viewTeamId = typeof window !== 'undefined' ? sessionStorage.getItem('kb_view_team') || activeTeamId : activeTeamId;
+  const isAllTeams = viewTeamId === 'all';
+
   const loadAll = useCallback(async () => {
     if (!activeTeamId) return;
     setLoading(true);
     try {
-      const [p, f, t, allTeams] = await Promise.all([
-        api.projects.list(activeTeamId),
-        api.folders.list(activeTeamId),
-        api.tags.list(activeTeamId),
-        api.teams.list(),
-      ]);
-      setProjects(p);
-      setFolders(f);
-      setTags(t);
+      const allTeams = await api.teams.list();
       setTeams(allTeams);
-      setIsOwner(allTeams.some((tm) => tm.id === activeTeamId && tm.role === 'OWNER'));
+
+      if (isAllTeams) {
+        // Fetch projects from all teams in parallel
+        const chunks = await Promise.all(
+          allTeams.map((t) => api.projects.list(t.id).catch(() => [] as ProjectListItem[])),
+        );
+        setProjects(chunks.flat());
+        // Merge folders and tags from all teams
+        const folderChunks = await Promise.all(
+          allTeams.map((t) => api.folders.list(t.id).catch(() => [] as ProjectFolder[])),
+        );
+        setFolders(folderChunks.flat());
+        const tagChunks = await Promise.all(
+          allTeams.map((t) => api.tags.list(t.id).catch(() => [] as ProjectTag[])),
+        );
+        setTags(tagChunks.flat());
+        setIsOwner(true);
+      } else {
+        const [p, f, t] = await Promise.all([
+          api.projects.list(activeTeamId),
+          api.folders.list(activeTeamId),
+          api.tags.list(activeTeamId),
+        ]);
+        setProjects(p);
+        setFolders(f);
+        setTags(t);
+        setIsOwner(allTeams.some((tm) => tm.id === activeTeamId && tm.role === 'OWNER'));
+      }
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setLoading(false);
     }
-  }, [activeTeamId]);
+  }, [activeTeamId, isAllTeams]);
 
   useEffect(() => { loadAll(); setShowTrash(false); setDeletedProjects([]); setIsOwner(false); }, [loadAll]);
 

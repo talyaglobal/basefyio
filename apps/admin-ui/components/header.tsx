@@ -354,6 +354,26 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   </div>
                 </div>
                 <div className="p-1">
+                  {/* All Teams option */}
+                  <button
+                    onClick={() => {
+                      sessionStorage.setItem('kb_view_team', 'all');
+                      setDropdownOpen(false);
+                      window.location.href = '/dashboard';
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                      typeof window !== 'undefined' && sessionStorage.getItem('kb_view_team') === 'all'
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'hover:bg-accent'
+                    }`}
+                  >
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground text-xs font-bold shrink-0">*</div>
+                    <div className="min-w-0 text-left flex-1">
+                      <p className="font-medium">All Teams</p>
+                      <p className="text-xs text-muted-foreground">View all projects across teams</p>
+                    </div>
+                  </button>
+                  <div className="mx-2 my-1 border-t border-border" />
                   {filteredTeams.length === 0 ? (
                     <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                       No teams found.
@@ -361,7 +381,10 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   ) : filteredTeams.map((team) => (
                     <button
                       key={team.id}
-                      onClick={() => switchTeam(team.id)}
+                      onClick={() => {
+                        sessionStorage.setItem('kb_view_team', team.id);
+                        switchTeam(team.id);
+                      }}
                       className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                         team.id === activeTeamId
                           ? 'bg-primary/10 text-primary font-medium'
