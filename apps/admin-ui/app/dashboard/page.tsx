@@ -118,7 +118,25 @@ export default function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
 
-  const activeTeam = teams.find((t) => t.id === activeTeamId);
+  // View selector: 'all' or a specific teamId — persisted in sessionStorage
+  const [viewTeamId, setViewTeamId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('kb_view_team') || 'all';
+    }
+    return 'all';
+  });
+
+  function changeViewTeam(id: string) {
+    setViewTeamId(id);
+    sessionStorage.setItem('kb_view_team', id);
+    if (id !== 'all') {
+      // Also update the real active team for other pages
+      void switchTeam(id);
+    }
+  }
+
+  const viewTeam = viewTeamId === 'all' ? null : teams.find((t) => t.id === viewTeamId);
+  const viewLabel = viewTeamId === 'all' ? 'All Teams' : (viewTeam?.name ?? 'Select team');
   const sortedTeams = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name)), [teams]);
 
   // Close team dropdown on outside click
@@ -150,19 +168,51 @@ export default function DashboardPage() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (!activeTeamId) return;
+    if (!teams.length) return;
     setLoading(true);
-    Promise.all([
-      api.projects.list(activeTeamId),
-      api.teams.listMembers(activeTeamId),
-    ])
-      .then(([p, m]) => {
-        setProjects(p);
-        setMembers(m);
-      })
-      .catch((err) => toast.error(err.message))
-      .finally(() => setLoading(false));
-  }, [activeTeamId]);
+
+    if (viewTeamId === 'all') {
+      // Fetch projects from all teams
+      Promise.all(
+        teams.map((t) =>
+          api.projects.list(t.id).catch(() => [] as ProjectListItem[]),
+        ),
+      )
+        .then((chunks) => {
+          setProjects(chunks.flat());
+          // Aggregate members from all teams
+          return Promise.all(
+            teams.map((t) => api.teams.listMembers(t.id).catch(() => [] as TeamMember[])),
+          );
+        })
+        .then((memberChunks) => {
+          // Deduplicate members by userId
+          const seen = new Set<string>();
+          const unique: TeamMember[] = [];
+          for (const m of memberChunks.flat()) {
+            const key = m.email || m.id;
+            if (!seen.has(key)) {
+              seen.add(key);
+              unique.push(m);
+            }
+          }
+          setMembers(unique);
+        })
+        .catch((err) => toast.error(err.message))
+        .finally(() => setLoading(false));
+    } else {
+      Promise.all([
+        api.projects.list(viewTeamId),
+        api.teams.listMembers(viewTeamId),
+      ])
+        .then(([p, m]) => {
+          setProjects(p);
+          setMembers(m);
+        })
+        .catch((err) => toast.error(err.message))
+        .finally(() => setLoading(false));
+    }
+  }, [viewTeamId, teams]);
 
   // Load all team projects for search
   useEffect(() => {
@@ -267,25 +317,38 @@ export default function DashboardPage() {
             className="flex h-12 items-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
           >
             <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="max-w-[160px] truncate">{activeTeam?.name ?? 'Select team'}</span>
+            <span className="max-w-[160px] truncate">{viewLabel}</span>
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
           {teamDropdownOpen && (
             <div className="absolute left-0 top-full z-40 mt-1.5 w-64 max-h-72 overflow-y-auto rounded-xl border bg-card p-1 shadow-lg">
+              {/* All Teams option */}
+              <button
+                type="button"
+                onClick={() => { changeViewTeam('all'); setTeamDropdownOpen(false); }}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                  viewTeamId === 'all' ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent',
+                )}
+              >
+                <span>All Teams</span>
+                {viewTeamId === 'all' && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+              </button>
+              <div className="mx-2 my-1 border-t border-border" />
               {sortedTeams.length === 0 ? (
                 <p className="px-3 py-4 text-center text-sm text-muted-foreground">No teams found.</p>
               ) : sortedTeams.map((t) => (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => void switchTeam(t.id)}
+                  onClick={() => { changeViewTeam(t.id); setTeamDropdownOpen(false); }}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                    t.id === activeTeamId ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent',
+                    viewTeamId === t.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent',
                   )}
                 >
                   <span className="truncate">{t.name}</span>
-                  {t.id === activeTeamId && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+                  {viewTeamId === t.id && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
                 </button>
               ))}
             </div>

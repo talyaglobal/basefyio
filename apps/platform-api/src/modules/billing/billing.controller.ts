@@ -26,7 +26,7 @@ import { ObservabilityService } from '../observability/observability.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
 
-const STRIPE_EMAIL_SETTINGS_KEY = 'stripe_email_summary';
+const EMAIL_REPORTS_KEY = 'email_reports_config';
 
 @Controller('billing')
 export class BillingController {
@@ -432,28 +432,46 @@ export class BillingController {
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManagePlans')
-  @Get('management/stripe-email-settings')
-  async getStripeEmailSettings() {
+  @Get('management/email-reports')
+  async getEmailReportsConfig() {
     const row = await this.prisma.systemSetting.findUnique({
-      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
+      where: { key: EMAIL_REPORTS_KEY },
     });
-    return (row?.value as any) ?? { daily: false, weekly: false, monthly: false, yearly: false };
+    return (row?.value as any) ?? {
+      schedule: { daily: false, weekly: false, monthly: false, yearly: false },
+      content: {
+        newUsers: true,
+        newProjects: true,
+        deletedProjects: true,
+        newTeams: true,
+        deletedTeams: true,
+        searchConsole: true,
+        analytics: true,
+        stripe: true,
+      },
+    };
   }
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManagePlans')
-  @Patch('management/stripe-email-settings')
-  async updateStripeEmailSettings(
-    @Body() body: { daily?: boolean; weekly?: boolean; monthly?: boolean; yearly?: boolean },
+  @Patch('management/email-reports')
+  async updateEmailReportsConfig(
+    @Body() body: { schedule?: Record<string, boolean>; content?: Record<string, boolean> },
   ) {
     const current = await this.prisma.systemSetting.findUnique({
-      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
+      where: { key: EMAIL_REPORTS_KEY },
     });
-    const prev = (current?.value as any) ?? { daily: false, weekly: false, monthly: false, yearly: false };
-    const next = { ...prev, ...body };
+    const prev = (current?.value as any) ?? {
+      schedule: { daily: false, weekly: false, monthly: false, yearly: false },
+      content: {},
+    };
+    const next = {
+      schedule: { ...prev.schedule, ...(body.schedule || {}) },
+      content: { ...prev.content, ...(body.content || {}) },
+    };
     await this.prisma.systemSetting.upsert({
-      where: { key: STRIPE_EMAIL_SETTINGS_KEY },
-      create: { key: STRIPE_EMAIL_SETTINGS_KEY, value: next },
+      where: { key: EMAIL_REPORTS_KEY },
+      create: { key: EMAIL_REPORTS_KEY, value: next },
       update: { value: next },
     });
     return next;

@@ -10,6 +10,7 @@ import {
   Github,
   KeyRound,
   Loader2,
+  Mail,
   Search,
   ShieldCheck,
 } from 'lucide-react';
@@ -166,7 +167,7 @@ export default function ManagementPage() {
   const [gscData, setGscData] = useState<ManagementSearchConsoleSummary | null>(null);
   const [gaData, setGaData] = useState<ManagementAnalyticsTrafficSummary | null>(null);
   const [stripeData, setStripeData] = useState<any>(null);
-  const [stripeEmailSettings, setStripeEmailSettings] = useState<{ daily: boolean; weekly: boolean; monthly: boolean; yearly: boolean } | null>(null);
+  const [emailReportsConfig, setEmailReportsConfig] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
     | 'users'
     | 'plans'
@@ -178,6 +179,7 @@ export default function ManagementPage() {
     | 'searchConsole'
     | 'analytics'
     | 'stripe'
+    | 'emailReports'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -275,7 +277,8 @@ export default function ManagementPage() {
       | 'deletionReasons'
       | 'searchConsole'
       | 'analytics'
-      | 'stripe',
+      | 'stripe'
+      | 'emailReports',
     force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
@@ -320,17 +323,18 @@ export default function ManagementPage() {
           setGaData({ configured: true, error: e.message || 'Failed to fetch Analytics data' } as any);
         }
       } else if (tab === 'stripe' && (managementPermissions?.canManagePlans || isRoot)) {
-        const [overviewResult, settingsResult] = await Promise.allSettled([
-          api.billing.managementStripeOverview(),
-          api.billing.managementStripeEmailSettings(),
-        ]);
-        if (overviewResult.status === 'fulfilled') {
-          setStripeData(overviewResult.value);
-        } else {
-          setStripeData({ configured: false, error: overviewResult.reason?.message || 'Failed to fetch Stripe data' });
+        try {
+          const data = await api.billing.managementStripeOverview();
+          setStripeData(data);
+        } catch (e: any) {
+          setStripeData({ configured: false, error: e.message || 'Failed to fetch Stripe data' });
         }
-        if (settingsResult.status === 'fulfilled') {
-          setStripeEmailSettings(settingsResult.value);
+      } else if (tab === 'emailReports' && (managementPermissions?.canManagePlans || isRoot)) {
+        try {
+          const data = await api.billing.managementEmailReports();
+          setEmailReportsConfig(data);
+        } catch {
+          setEmailReportsConfig({ schedule: {}, content: {} });
         }
       }
       setLoadedTabs((prev) => new Set(prev).add(tab));
@@ -539,7 +543,7 @@ export default function ManagementPage() {
   if (profile === null || loading) {
     return (
       <div className="relative mx-auto max-w-6xl" style={{ minHeight: '60vh' }}>
-        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
+        <div className="fixed inset-0 top-14 z-30 flex items-center justify-center bg-background/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">Loading...</p>
@@ -556,7 +560,7 @@ export default function ManagementPage() {
   return (
     <div className="relative mx-auto max-w-6xl space-y-6" style={{ minHeight: '50vh' }}>
       {tabLoading && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-md">
+        <div className="fixed inset-0 top-14 z-30 flex items-center justify-center bg-background/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">Loading...</p>
@@ -724,6 +728,19 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('stripe')}
         >
           Stripe
+        </button>
+        )}
+        {(managementPermissions?.canManagePlans || isRoot) && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'emailReports'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('emailReports')}
+        >
+          Email Reports
         </button>
         )}
       </div>
@@ -1212,33 +1229,6 @@ export default function ManagementPage() {
               </div>
             </div>
 
-            {/* Email summary settings */}
-            {stripeEmailSettings && (
-              <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Email Reports</span>
-                {(['daily', 'weekly', 'monthly', 'yearly'] as const).map((period) => (
-                  <label key={period} className="flex items-center gap-1.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={stripeEmailSettings[period]}
-                      onChange={async (e) => {
-                        const next = { ...stripeEmailSettings, [period]: e.target.checked };
-                        setStripeEmailSettings(next);
-                        try {
-                          await api.billing.updateManagementStripeEmailSettings({ [period]: e.target.checked });
-                          toast.success(`${period.charAt(0).toUpperCase() + period.slice(1)} report ${e.target.checked ? 'enabled' : 'disabled'}`);
-                        } catch {
-                          setStripeEmailSettings(stripeEmailSettings);
-                          toast.error('Failed to update setting');
-                        }
-                      }}
-                      className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer"
-                    />
-                    <span className="text-xs capitalize">{period}</span>
-                  </label>
-                ))}
-              </div>
-            )}
           </div>
           {!stripeData ? (
             null
@@ -1435,6 +1425,125 @@ export default function ManagementPage() {
             </div>
             );
           })() : null}
+        </section>
+      )}
+
+      {activeTab === 'emailReports' && (managementPermissions?.canManagePlans || isRoot) && (
+        <section className="space-y-6 rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <h2 className="text-base font-semibold">Email Reports</h2>
+              <p className="text-sm text-muted-foreground">Configure automated email summaries sent to support@talyasmart.com</p>
+            </div>
+          </div>
+
+          {emailReportsConfig && (() => {
+            const schedule = emailReportsConfig.schedule || {};
+            const content = emailReportsConfig.content || {};
+
+            const updateSchedule = async (key: string, val: boolean) => {
+              const next = { ...emailReportsConfig, schedule: { ...schedule, [key]: val } };
+              setEmailReportsConfig(next);
+              try {
+                await api.billing.updateManagementEmailReports({ schedule: { [key]: val } });
+                toast.success(`${key.charAt(0).toUpperCase() + key.slice(1)} report ${val ? 'enabled' : 'disabled'}`);
+              } catch {
+                setEmailReportsConfig(emailReportsConfig);
+                toast.error('Failed to update');
+              }
+            };
+
+            const updateContent = async (key: string, val: boolean) => {
+              const next = { ...emailReportsConfig, content: { ...content, [key]: val } };
+              setEmailReportsConfig(next);
+              try {
+                await api.billing.updateManagementEmailReports({ content: { [key]: val } });
+              } catch {
+                setEmailReportsConfig(emailReportsConfig);
+                toast.error('Failed to update');
+              }
+            };
+
+            const scheduleItems = [
+              { key: 'daily', label: 'Daily', desc: 'Every day at 08:00 UTC' },
+              { key: 'weekly', label: 'Weekly', desc: 'Every Friday at 08:00 UTC' },
+              { key: 'monthly', label: 'Monthly', desc: '30th of every month' },
+              { key: 'yearly', label: 'Yearly', desc: 'December 30th' },
+            ];
+
+            const contentItems = [
+              { key: 'newUsers', label: 'New Users', desc: 'User signups in the period' },
+              { key: 'newProjects', label: 'New Projects', desc: 'Projects created in the period' },
+              { key: 'deletedProjects', label: 'Deleted Projects', desc: 'Projects deleted in the period' },
+              { key: 'newTeams', label: 'New Teams', desc: 'Teams created in the period' },
+              { key: 'deletedTeams', label: 'Deleted Teams', desc: 'Teams deleted in the period' },
+              { key: 'searchConsole', label: 'Search Console', desc: 'Google Search Console summary' },
+              { key: 'analytics', label: 'Analytics', desc: 'Google Analytics (GA4) summary' },
+              { key: 'stripe', label: 'Stripe', desc: 'Revenue, subscriptions, charges overview' },
+            ];
+
+            const anyScheduleOn = Object.values(schedule).some(Boolean);
+
+            return (
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Schedule */}
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold">Schedule</h3>
+                  <div className="space-y-2">
+                    {scheduleItems.map((item) => (
+                      <label
+                        key={item.key}
+                        className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                          schedule[item.key] ? 'border-primary/40 bg-primary/5' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!schedule[item.key]}
+                          onChange={(e) => void updateSchedule(item.key, e.target.checked)}
+                          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">{item.label}</div>
+                          <div className="text-xs text-muted-foreground">{item.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  {!anyScheduleOn && (
+                    <p className="mt-3 text-xs text-amber-500">No schedule enabled. Enable at least one to receive reports.</p>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold">Report Content</h3>
+                  <div className="space-y-2">
+                    {contentItems.map((item) => (
+                      <label
+                        key={item.key}
+                        className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                          content[item.key] ? 'border-primary/40 bg-primary/5' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={content[item.key] !== false}
+                          onChange={(e) => void updateContent(item.key, e.target.checked)}
+                          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">{item.label}</div>
+                          <div className="text-xs text-muted-foreground">{item.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </section>
       )}
 

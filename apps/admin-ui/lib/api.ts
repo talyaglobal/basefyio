@@ -1645,16 +1645,14 @@ export const api = {
     managementStripeOverview() {
       return request<any>('/billing/management/stripe-overview');
     },
-    managementStripeEmailSettings() {
-      return request<{ daily: boolean; weekly: boolean; monthly: boolean; yearly: boolean }>(
-        '/billing/management/stripe-email-settings',
-      );
+    managementEmailReports() {
+      return request<any>('/billing/management/email-reports');
     },
-    updateManagementStripeEmailSettings(settings: { daily?: boolean; weekly?: boolean; monthly?: boolean; yearly?: boolean }) {
-      return request<{ daily: boolean; weekly: boolean; monthly: boolean; yearly: boolean }>(
-        '/billing/management/stripe-email-settings',
-        { method: 'PATCH', body: JSON.stringify(settings) },
-      );
+    updateManagementEmailReports(body: { schedule?: Record<string, boolean>; content?: Record<string, boolean> }) {
+      return request<any>('/billing/management/email-reports', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
     },
   },
   observability: {
