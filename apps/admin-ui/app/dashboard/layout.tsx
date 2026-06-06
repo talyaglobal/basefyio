@@ -298,11 +298,14 @@ export default function DashboardLayout({
   useEffect(() => {
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
+    let debounceTimer: ReturnType<typeof setTimeout>;
     const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
-      setRefreshKey((k) => k + 1);
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 500);
     });
     return () => {
+      clearTimeout(debounceTimer);
       unsubscribe?.();
     };
   }, [activeTeamId]);

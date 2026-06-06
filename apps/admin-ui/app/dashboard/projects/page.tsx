@@ -346,6 +346,10 @@ export default function ProjectsPage() {
     }
   }, [activeTeamId, viewTeamId]);
 
+  // Keep a stable ref to loadAll so the realtime subscription never re-subscribes
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+
   useEffect(() => { loadAll(); setShowTrash(false); setDeletedProjects([]); setIsOwner(false); }, [loadAll]);
 
   useEffect(() => {
@@ -354,13 +358,13 @@ export default function ProjectsPage() {
     const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
       if (event.entityType === 'project' || event.entityType === 'project_activity' || event.entityType === 'team') {
-        void loadAll();
+        void loadAllRef.current();
       }
     });
     return () => {
       unsubscribe?.();
     };
-  }, [activeTeamId, loadAll]);
+  }, [activeTeamId]);
 
   // Close context menus + sort dropdown on outside click
   useEffect(() => {

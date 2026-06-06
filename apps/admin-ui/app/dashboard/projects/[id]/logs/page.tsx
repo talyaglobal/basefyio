@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -71,6 +71,12 @@ export default function ProjectLogsPage() {
   // pages the user is reading historical events and a live insert would push
   // their cursor around. Total + totalPages get bumped regardless so the
   // pagination header stays accurate.
+  // Stable refs so the realtime subscription doesn't re-subscribe on every state change
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const totalActivityRef = useRef(totalActivity);
+  totalActivityRef.current = totalActivity;
+
   useEffect(() => {
     if (loading || !project) return;
     const unsubscribe = subscribeKbRealtime(
@@ -94,8 +100,8 @@ export default function ProjectLogsPage() {
           actorName: undefined,
         };
         setTotalActivity((t) => t + 1);
-        setTotalPages((p) => Math.max(p, Math.ceil((totalActivity + 1) / PAGE_SIZE)));
-        if (page !== 1) return;
+        setTotalPages(() => Math.max(1, Math.ceil((totalActivityRef.current + 1) / PAGE_SIZE)));
+        if (pageRef.current !== 1) return;
         setActivity((prev) => {
           if (prev.some((p) => p.id === newItem.id)) return prev;
           return [newItem, ...prev].slice(0, PAGE_SIZE);
@@ -105,7 +111,7 @@ export default function ProjectLogsPage() {
     return () => {
       unsubscribe?.();
     };
-  }, [id, loading, project, page, totalActivity]);
+  }, [id, loading, project]);
 
   // Whenever the page number changes (after initial load), fetch that page.
   // Skip the very first render so we don't double-fetch alongside the initial

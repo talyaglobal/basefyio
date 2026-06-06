@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Terminal, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { getAccessToken, getRefreshToken } from '@/lib/auth';
+import { getAccessToken, getRefreshToken, clearTokens } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 
 function CliAuthorizeContent() {
@@ -18,7 +18,6 @@ function CliAuthorizeContent() {
   useEffect(() => {
     // If not authenticated, redirect to login and come back here afterward
     if (!getAccessToken()) {
-      const returnUrl = `/cli-authorize?cli_state=${cliState ?? ''}`;
       window.location.assign(`/login?cli_state=${encodeURIComponent(cliState ?? '')}`);
       return;
     }
@@ -33,7 +32,18 @@ function CliAuthorizeContent() {
         setPort(data.port);
         setStatus('ready');
       })
-      .catch(() => setStatus('error'));
+      .catch((err) => {
+        // If the session token is expired/invalid, clear it and redirect to
+        // login so the user re-authenticates automatically instead of seeing
+        // a dead-end error page.
+        const status = err?.response?.status ?? err?.status;
+        if (status === 401 || status === 403) {
+          clearTokens();
+          window.location.assign(`/login?cli_state=${encodeURIComponent(cliState ?? '')}`);
+          return;
+        }
+        setStatus('error');
+      });
   }, [cliState]);
 
   async function handleAllow() {

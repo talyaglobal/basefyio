@@ -129,8 +129,13 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       return;
     }
     setTakingScreenshot(true);
-    onOpenChange(false);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Hide the dialog overlay + content via CSS so html2canvas captures the
+    // page behind it, but keep the Dialog *open* so React state is preserved.
+    const portalEls = document.querySelectorAll<HTMLElement>('[data-radix-portal]');
+    portalEls.forEach((el) => { el.style.visibility = 'hidden'; });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
     try {
       const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(document.documentElement, {
@@ -151,7 +156,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     } catch {
       toast.error('Failed to capture screenshot');
     } finally {
-      onOpenChange(true);
+      portalEls.forEach((el) => { el.style.visibility = ''; });
       setTakingScreenshot(false);
     }
   }
