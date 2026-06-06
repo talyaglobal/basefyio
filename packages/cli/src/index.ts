@@ -293,4 +293,8 @@ secrets.command('unset <key>')
     await unsetSecret(key);
   });
 
-program.parse();
+program.parseAsync().then(() => {
+  // Ensure the process exits even when axios HTTP keep-alive connections
+  // are still open (they hold the event loop alive indefinitely).
+  setImmediate(() => process.exit(0));
+});

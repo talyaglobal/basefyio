@@ -295,10 +295,23 @@ export class ApiClient {
 
 export const apiClient = new ApiClient();
 
-export function handleApiError(error: any) {
+export async function handleApiError(error: any): Promise<never> {
   if (error instanceof AuthError) {
-    // AuthError already has the precise actionable message — print it once,
-    // no need for "API Error:" framing or duplicated "kb login" hint.
+    if (error.kind === 'SESSION_EXPIRED' || error.kind === 'NOT_LOGGED_IN') {
+      // Auto re-login: clear stale tokens, run the login flow, then tell the
+      // user to re-run the command instead of showing a dead-end error.
+      console.error(chalk.yellow('Session expired — launching login…'));
+      clearAuthTokens();
+      try {
+        const { loginCommand } = await import('../commands/login.js');
+        await loginCommand({});
+        console.log();
+        console.log(chalk.green('Re-authenticated! Please re-run your command.'));
+      } catch {
+        console.error(chalk.red('Automatic re-login failed. Run: kb login'));
+      }
+      process.exit(1);
+    }
     console.error(chalk.red(error.message));
     process.exit(1);
   }
@@ -310,9 +323,17 @@ export function handleApiError(error: any) {
       console.error(chalk.red(`API Error: ${message}`));
 
       if (error.response.status === 401) {
-        // We only reach here if the interceptor didn't already throw AuthError
-        // (i.e. the request was already a _retry). Surface the same hint.
-        console.error(chalk.yellow('Please run: kb login'));
+        console.error(chalk.yellow('Session expired — launching login…'));
+        clearAuthTokens();
+        try {
+          const { loginCommand } = await import('../commands/login.js');
+          await loginCommand({});
+          console.log();
+          console.log(chalk.green('Re-authenticated! Please re-run your command.'));
+        } catch {
+          console.error(chalk.red('Automatic re-login failed. Run: kb login'));
+        }
+        process.exit(1);
       }
     } else if (error.request) {
       console.error(chalk.red('Network error: Could not connect to Kolaybase API'));

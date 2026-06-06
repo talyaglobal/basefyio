@@ -145,7 +145,7 @@ export async function migrationStatus() {
     }
   } catch (err) {
     spinner.fail('Failed to get migration status');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -220,7 +220,7 @@ export async function migrationUp(options: UpOptions = {}) {
     success(`${applied_count} migration(s) applied`);
   } catch (err) {
     spinner.fail('Migration failed');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -297,6 +297,6 @@ export async function migrationDown(options: DownOptions = {}) {
     success(`${toRollback.length} migration(s) rolled back`);
   } catch (err) {
     spinner.fail('Rollback failed');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }

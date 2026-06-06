@@ -107,6 +107,6 @@ export async function initCommand(options: InitOptions) {
     console.log(chalk.gray('    kb gen types       — generate TypeScript types'));
     console.log(chalk.gray('    kb db push         — push a local schema'));
   } catch (err) {
-    handleApiError(err);
+    await handleApiError(err);
   }
 }

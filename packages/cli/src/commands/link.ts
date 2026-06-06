@@ -81,7 +81,7 @@ export async function linkCommand(options: LinkOptions) {
     success('Credentials saved to .env');
     console.log(chalk.gray('  Run  kb status  to see full connection details'));
   } catch (err) {
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 

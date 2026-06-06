@@ -47,7 +47,7 @@ export async function projectsCommand() {
     console.log(chalk.gray(`Total: ${projects.length} project(s)`));
   } catch (err) {
     spinner.fail('Failed to load projects');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -109,7 +109,7 @@ export async function createProject(options: CreateProjectOptions) {
     console.log(chalk.gray('To start working with this project:'));
     console.log(chalk.cyan('  kb init --link'));
   } catch (err) {
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -158,6 +158,6 @@ export async function deleteProject(projectId: string) {
     await apiClient.deleteProject(projectId);
     deleteSpinner.succeed('Project deleted successfully');
   } catch (err) {
-    handleApiError(err);
+    await handleApiError(err);
   }
 }

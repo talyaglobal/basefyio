@@ -87,7 +87,7 @@ ${tables.map((t: any) => `  ${t.table_name}: ${toPascalCase(t.table_name)};`).jo
     }
   } catch (err) {
     spinner.fail('Failed to generate types');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -125,7 +125,7 @@ export async function genClient(options: GenClientOptions) {
     success(`Written to ${chalk.cyan(outputDir)}`);
   } catch (err) {
     spinner.fail('Failed to generate client');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 

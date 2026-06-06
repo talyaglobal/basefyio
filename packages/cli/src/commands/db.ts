@@ -58,7 +58,7 @@ export async function dbPush() {
     success('Database is up to date');
   } catch (err) {
     spinner.fail('Failed to push schema');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -153,7 +153,7 @@ export async function dbPull() {
     }
   } catch (err) {
     spinner.fail('Failed to pull schema');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -223,7 +223,7 @@ export async function dbReset(options: ResetOptions) {
     }
   } catch (err) {
     spinner.fail('Failed to reset database');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -279,7 +279,7 @@ export async function dbSeed() {
     spinner.succeed('Database seeded successfully');
   } catch (err) {
     spinner.fail('Failed to seed database');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -370,7 +370,7 @@ export async function dbExecute(options: ExecuteOptions) {
     }
   } catch (err) {
     spinner.fail('Execution failed');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
@@ -433,7 +433,7 @@ export async function dbDump(options: DumpOptions) {
     }
   } catch (err) {
     spinner.fail('Failed to dump schema');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 

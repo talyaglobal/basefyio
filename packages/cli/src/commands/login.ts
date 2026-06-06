@@ -123,7 +123,7 @@ export async function loginCommand(options: LoginOptions) {
     if (msg.includes('cancelled')) {
       process.exit(1);
     }
-    handleApiError(err);
+    await handleApiError(err);
   } finally {
     handle.dispose();
   }

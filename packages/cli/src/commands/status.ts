@@ -67,7 +67,7 @@ export async function statusCommand(options: StatusOptions) {
     console.log();
   } catch (err) {
     spinner.fail('Could not fetch project');
-    handleApiError(err);
+    await handleApiError(err);
   }
 }
 
