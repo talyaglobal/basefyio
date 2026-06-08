@@ -1,6 +1,6 @@
-# Getting Started with Basefyio CLI
+# Getting Started with basefyio CLI
 
-Bu rehber, Basefyio CLI'yi kurup ilk projenizi oluşturmanız için adım adım talimatlar içerir.
+Bu rehber, basefyio CLI'yi kurup ilk projenizi oluşturmanız için adım adım talimatlar içerir.
 
 ## Ön Gereksinimler
 
@@ -13,7 +13,7 @@ Bu rehber, Basefyio CLI'yi kurup ilk projenizi oluşturmanız için adım adım 
 
 ### Adım 1: CLI'yi Kur
 
-Basefyio repository'sini klonlayın ve CLI'yi build edin:
+basefyio repository'sini klonlayın ve CLI'yi build edin:
 
 ```bash
 # Repository'yi klonla
@@ -49,7 +49,7 @@ basefyio/0.1.0
 
 Usage: basefyio [options] [command]
 
-Basefyio CLI - Manage your backend projects
+basefyio CLI - Manage your backend projects
 ...
 ```
 
@@ -57,7 +57,7 @@ Basefyio CLI - Manage your backend projects
 
 ### Adım 1: Platform'u Başlat
 
-Eğer lokal Basefyio platformu çalışmıyorsa, önce başlatın:
+Eğer lokal basefyio platformu çalışmıyorsa, önce başlatın:
 
 ```bash
 # Ana repository dizinine geri dön
@@ -309,7 +309,7 @@ open -a Docker
 sudo systemctl start docker
 ```
 
-### "Not in a Basefyio project"
+### "Not in a basefyio project"
 
 Proje initialize edin veya bir projeye link edin:
 ```bash

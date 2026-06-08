@@ -180,7 +180,7 @@ services:
       MINIO_PUBLIC_PORT: 443
       MINIO_PUBLIC_SSL: "true"
       RESEND_API_KEY: ${RESEND_API_KEY}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Basefyio <noreply@basefyio.com>}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
       REDIS_URL: redis://redis:6379
       APP_URL: https://app.${DOMAIN}

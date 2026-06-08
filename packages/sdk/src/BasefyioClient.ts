@@ -89,7 +89,7 @@ export class BasefyioClient {
 }
 
 /**
- * Create a new Basefyio client.
+ * Create a new basefyio client.
  *
  * @example
  * ```ts

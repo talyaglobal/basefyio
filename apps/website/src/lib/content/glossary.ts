@@ -42,7 +42,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
       { label: "Build vs. buy a backend", href: "/blog/build-vs-buy-backend" },
-      { label: "Basefyio vs. Supabase", href: "/compare/basefyio-vs-supabase" },
+      { label: "basefyio vs. Supabase", href: "/compare/basefyio-vs-supabase" },
     ],
   },
   {
@@ -59,7 +59,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     seeAlso: [
       { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
-      { label: "Basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
+      { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
   {
@@ -75,7 +75,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["rest-api", "row-level-security", "database-schema", "crud"],
     seeAlso: [
       { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
-      { label: "Basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
+      { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
   {
@@ -141,7 +141,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["oauth", "api-key", "rest-api"],
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
-      { label: "Use Basefyio with Next.js", href: "/integrations/nextjs" },
+      { label: "Use basefyio with Next.js", href: "/integrations/nextjs" },
     ],
   },
   {
@@ -157,7 +157,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["jwt", "backend-as-a-service", "api-key"],
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
-      { label: "Use Basefyio with React Native", href: "/integrations/react-native" },
+      { label: "Use basefyio with React Native", href: "/integrations/react-native" },
     ],
   },
   {
@@ -196,8 +196,8 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["connection-pooling", "backend-as-a-service", "database-migration"],
     seeAlso: [
-      { label: "Basefyio vs. Neon", href: "/compare/basefyio-vs-neon" },
-      { label: "Basefyio vs. Xata", href: "/compare/basefyio-vs-xata" },
+      { label: "basefyio vs. Neon", href: "/compare/basefyio-vs-neon" },
+      { label: "basefyio vs. Xata", href: "/compare/basefyio-vs-xata" },
     ],
   },
   {
@@ -285,8 +285,8 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["rest-api", "postgrest", "crud"],
     seeAlso: [
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
-      { label: "Basefyio vs. Nhost", href: "/compare/basefyio-vs-nhost" },
-      { label: "Basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
+      { label: "basefyio vs. Nhost", href: "/compare/basefyio-vs-nhost" },
+      { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
   {
@@ -326,7 +326,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["database-index", "database-schema", "rest-api"],
     seeAlso: [
-      { label: "Basefyio vs. Xata", href: "/compare/basefyio-vs-xata" },
+      { label: "basefyio vs. Xata", href: "/compare/basefyio-vs-xata" },
       { label: "Backend for analytics dashboards", href: "/use-cases/analytics-dashboards" },
     ],
   },

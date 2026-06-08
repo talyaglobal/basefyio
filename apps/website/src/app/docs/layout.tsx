@@ -6,16 +6,16 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
-  "Basefyio documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
+  "basefyio documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | Basefyio Docs",
-    default: "Documentation | Basefyio Docs",
+    template: "%s | basefyio Docs",
+    default: "Documentation | basefyio Docs",
   },
   description: docsDescription,
   openGraph: {
-    title: "Documentation | Basefyio Docs",
+    title: "Documentation | basefyio Docs",
     description: docsDescription,
   },
 };

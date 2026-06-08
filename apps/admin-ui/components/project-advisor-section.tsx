@@ -104,7 +104,7 @@ export function buildAdvisorItems(
       id: 'no-import',
       category: 'INTEGRATIONS',
       title: 'Import from Supabase',
-      body: 'Copy tables, auth users, and storage from your Supabase project into Basefyio for a hosted mirror.',
+      body: 'Copy tables, auth users, and storage from your Supabase project into basefyio for a hosted mirror.',
       cta: { label: 'Connection & import', href: `${basePath}/connect` },
     });
   }

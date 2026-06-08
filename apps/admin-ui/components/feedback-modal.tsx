@@ -202,10 +202,10 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const formTitle = isIssue ? 'Report an Issue' : 'Share an Idea';
   const formDescription = isIssue
     ? `Describe the problem you encountered. You can attach up to ${MAX_FILES} images or short videos.`
-    : `Suggest a feature or improvement for Basefyio. You can attach up to ${MAX_FILES} images or short videos.`;
+    : `Suggest a feature or improvement for basefyio. You can attach up to ${MAX_FILES} images or short videos.`;
   const placeholder = isIssue
     ? 'Describe the issue you encountered...'
-    : 'My idea for improving Basefyio is...';
+    : 'My idea for improving basefyio is...';
   const submitLabel = isIssue ? 'Send Report' : 'Send Idea';
 
   // ── Shared form for both Issue and Idea ──
@@ -352,7 +352,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
             >
               <Lightbulb className="h-8 w-8 text-amber-400" />
               <span className="text-sm font-semibold">Idea</span>
-              <span className="text-xs text-muted-foreground">to improve Basefyio</span>
+              <span className="text-xs text-muted-foreground">to improve basefyio</span>
             </button>
           </div>
         </DialogContent>

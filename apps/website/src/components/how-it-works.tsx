@@ -163,7 +163,7 @@ export function HowItWorks() {
           From init to connected &mdash; in one project.
         </h2>
         <p className="mt-5 max-w-sm text-muted-foreground">
-          Basefyio provisions every layer in a single run. You write one
+          basefyio provisions every layer in a single run. You write one
           connection string.
         </p>
         <div className="mt-10">

@@ -1,4 +1,4 @@
-# Basefyio
+# basefyio
 
 A production-grade, self-hosted, multi-tenant backend platform.  
 Each project gets its own PostgreSQL database and Keycloak authentication realm.
@@ -107,9 +107,9 @@ The UI runs on `http://localhost:3000`.
 
 Sign in at `http://localhost:3000/login` with your Keycloak master-realm admin credentials (default: `admin` / `admin`).
 
-## Basefyio CLI
+## basefyio CLI
 
-We provide a powerful CLI tool (similar to common hosted Postgres CLIs) for managing your Basefyio projects:
+We provide a powerful CLI tool (similar to common hosted Postgres CLIs) for managing your basefyio projects:
 
 ```bash
 # Install CLI globally
@@ -160,7 +160,7 @@ basefyio/
 │       │   └── ui/            # shadcn/ui primitives
 │       └── lib/               # API client, auth, types
 ├── packages/
-│   └── cli/                   # Basefyio CLI
+│   └── cli/                   # basefyio CLI
 │       ├── src/
 │       │   ├── commands/      # All CLI commands
 │       │   └── lib/           # Utilities and API client

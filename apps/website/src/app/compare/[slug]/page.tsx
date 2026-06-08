@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     path: `/compare/${c.slug}`,
     title: c.title,
     description: c.description,
-    keywords: [`Basefyio vs ${c.competitor}`, `${c.competitor} alternative`],
+    keywords: [`basefyio vs ${c.competitor}`, `${c.competitor} alternative`],
   });
 }
 
@@ -59,7 +59,7 @@ export default async function ComparisonPage({ params }: Params) {
         </header>
 
         <section className="mb-12 rounded-xl border border-border bg-accent/30 p-6">
-          <h2 className="text-lg font-semibold">How Basefyio is different</h2>
+          <h2 className="text-lg font-semibold">How basefyio is different</h2>
           <p className="mt-2 text-muted-foreground">{c.positioning}</p>
         </section>
 
@@ -73,7 +73,7 @@ export default async function ComparisonPage({ params }: Params) {
                 <tr className="border-b border-border bg-muted/50 text-left">
                   <th className="px-4 py-3 font-semibold">Feature</th>
                   <th className="px-4 py-3 font-semibold text-primary">
-                    Basefyio
+                    basefyio
                   </th>
                   <th className="px-4 py-3 font-semibold">{c.competitor}</th>
                 </tr>
@@ -123,7 +123,7 @@ export default async function ComparisonPage({ params }: Params) {
                 href={`/compare/${o.slug}`}
                 className="rounded-full border border-border px-4 py-1.5 text-sm transition-colors hover:border-primary/50 hover:bg-accent"
               >
-                Basefyio vs. {o.competitor}
+                basefyio vs. {o.competitor}
               </Link>
             ))}
           </div>
@@ -132,7 +132,7 @@ export default async function ComparisonPage({ params }: Params) {
         <section className="flex flex-col items-start gap-4 rounded-xl border border-border bg-accent/30 p-8 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold">
-              Try Basefyio for your next project
+              Try basefyio for your next project
             </h2>
             <p className="mt-1 text-muted-foreground">
               PostgreSQL, auth, storage, and a REST API — running in minutes.

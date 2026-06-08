@@ -6,21 +6,21 @@
  * the sitemap never drift out of sync.
  */
 export const SITE = {
-  name: "Basefyio",
+  name: "basefyio",
   /** Used by RSS <copyright> and JSON-LD publisher. */
-  legalName: "Basefyio",
+  legalName: "basefyio",
   locale: "en_US",
   /** BCP-47 language tag for HTML lang / JSON-LD inLanguage. */
   lang: "en",
   twitter: "@basefyio",
   defaultTitle:
-    "Basefyio — PostgreSQL BaaS & REST API for Developers",
+    "basefyio — PostgreSQL BaaS & REST API for Developers",
   defaultDescription:
-    "Basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
+    "basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
   /** Path (relative to site root) of the default social share image. */
   defaultOgImage: "/og-image.png",
   keywords: [
-    "Basefyio",
+    "basefyio",
     "backend as a service",
     "BaaS",
     "developer backend",
@@ -38,4 +38,4 @@ export const SITE = {
 } as const;
 
 /** Default author shown on blog posts that omit an explicit author. */
-export const DEFAULT_AUTHOR = "Basefyio Team";
+export const DEFAULT_AUTHOR = "basefyio Team";

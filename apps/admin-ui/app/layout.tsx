@@ -14,8 +14,8 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Basefyio — Open Source Backend Platform',
-    template: '%s | Basefyio',
+    default: 'basefyio — Open Source Backend Platform',
+    template: '%s | basefyio',
   },
   description:
     'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration. An open-source alternative to Firebase and Supabase.',
@@ -26,15 +26,15 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: 'website',
-    siteName: 'Basefyio',
-    title: 'Basefyio — Open Source Backend Platform',
+    siteName: 'basefyio',
+    title: 'basefyio — Open Source Backend Platform',
     description:
       'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
     url: SITE_URL,
   },
   twitter: {
     card: 'summary',
-    title: 'Basefyio — Open Source Backend Platform',
+    title: 'basefyio — Open Source Backend Platform',
     description:
       'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
   },

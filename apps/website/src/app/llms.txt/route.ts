@@ -4,7 +4,7 @@ import { createGeoProfile } from "@/lib/geo/profile";
 
 /**
  * /llms.txt — the curated, LLM-facing map of the site (see llmstxt.org).
- * Generative engines fetch this first to learn what Basefyio is and which
+ * Generative engines fetch this first to learn what basefyio is and which
  * pages to read. Built from the shared GEO profile via @basefyio/geo.
  */
 export const dynamic = "force-dynamic";

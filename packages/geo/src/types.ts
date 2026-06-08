@@ -10,7 +10,7 @@
 // ── Site profile ────────────────────────────────────────
 
 export interface GeoProfile {
-  /** Brand / product name, e.g. "Basefyio". */
+  /** Brand / product name, e.g. "basefyio". */
   name: string;
   /** Canonical origin, no trailing slash, e.g. "https://basefyio.com". */
   url: string;

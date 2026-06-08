@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
-import { subscribeBasefyioRealtime } from '@/lib/basefyio-realtime';
+import { subscribebasefyioRealtime } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 export const BASEFYIO_NOTIFY_EVENT = 'basefyio-notify-event';
@@ -62,7 +62,7 @@ function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function dispatchBasefyioNotification(payload: NotifyPayload) {
+export function dispatchbasefyioNotification(payload: NotifyPayload) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(BASEFYIO_NOTIFY_EVENT, { detail: payload }));
 }
@@ -208,7 +208,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentUserId || !feedbackNotificationsEnabled) return;
 
-    const unsubscribe = subscribeBasefyioRealtime(
+    const unsubscribe = subscribebasefyioRealtime(
       `user:${currentUserId}`,
       (event: RealtimeEventEnvelope) => {
         // Self-edits never produce a toast; the actor already knows what they did.

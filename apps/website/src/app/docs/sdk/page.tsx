@@ -10,7 +10,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: "SDK Reference",
     description: pageDescription,
     openGraph: {
-      title: "SDK Reference | Basefyio Docs",
+      title: "SDK Reference | basefyio Docs",
       description: pageDescription,
     },
   });
@@ -23,7 +23,7 @@ export default function SdkDocs() {
     <div>
       <h1>JavaScript / TypeScript SDK</h1>
       <p>
-        The Basefyio SDK provides a type-safe client for interacting with your
+        The basefyio SDK provides a type-safe client for interacting with your
         project&apos;s database, authentication, and storage from any JavaScript
         or TypeScript environment.
       </p>
@@ -44,7 +44,7 @@ const bf = createClient({
           <tr><th>Option</th><th>Type</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>apiUrl</code></td><td>string</td><td>Base URL of the Basefyio API</td></tr>
+          <tr><td><code>apiUrl</code></td><td>string</td><td>Base URL of the basefyio API</td></tr>
           <tr><td><code>projectId</code></td><td>string</td><td>Your project ID</td></tr>
           <tr><td><code>apiKey</code></td><td>string</td><td>Anon key (client-safe) or service key (server only)</td></tr>
           <tr><td><code>autoRefreshToken</code></td><td>boolean</td><td>Auto-refresh auth tokens (default: true)</td></tr>

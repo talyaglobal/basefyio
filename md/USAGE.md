@@ -1,4 +1,4 @@
-# Basefyio Usage Guide
+# basefyio Usage Guide
 cli install: npm install -g basefyio-cli
 sdk install: npm install basefyio-js
 ## CLI

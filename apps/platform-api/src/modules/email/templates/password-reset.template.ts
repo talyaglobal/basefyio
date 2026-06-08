@@ -17,7 +17,7 @@ export function passwordResetTemplate(data: PasswordResetData): string {
       <h1 class="greeting">Your account has been migrated</h1>
       <p class="text">
         Hi <strong>${data.username}</strong>, your account from <strong>${data.projectName}</strong> has been
-        migrated to Basefyio. A temporary password has been generated for you.
+        migrated to basefyio. A temporary password has been generated for you.
       </p>
 
       <div class="info-card">
@@ -68,7 +68,7 @@ export function passwordResetTemplate(data: PasswordResetData): string {
 
       <p class="text" style="font-size: 13px; color: #94a3b8;">
         If you did not expect this email, you can safely ignore it. Your account was created as part of
-        a project migration to Basefyio.
+        a project migration to basefyio.
       </p>
     </div>`;
 

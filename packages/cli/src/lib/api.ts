@@ -336,7 +336,7 @@ export async function handleApiError(error: any): Promise<never> {
         process.exit(1);
       }
     } else if (error.request) {
-      console.error(chalk.red('Network error: Could not connect to Basefyio API'));
+      console.error(chalk.red('Network error: Could not connect to basefyio API'));
       console.error(chalk.yellow(`Make sure the API is running at: ${getApiUrl()}`));
     } else {
       console.error(chalk.red(`Error: ${error.message}`));

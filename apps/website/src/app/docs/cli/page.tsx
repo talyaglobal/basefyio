@@ -3,14 +3,14 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Basefyio CLI (basefyio): login, projects, migrations, types, and terminal workflows.";
+  "basefyio CLI (basefyio): login, projects, migrations, types, and terminal workflows.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/cli", {
     title: "CLI Reference",
     description: pageDescription,
     openGraph: {
-      title: "CLI Reference | Basefyio Docs",
+      title: "CLI Reference | basefyio Docs",
       description: pageDescription,
     },
   });
@@ -23,7 +23,7 @@ export default function CliDocs() {
     <div>
       <h1>CLI Reference</h1>
       <p>
-        The Basefyio CLI lets you manage projects, push schemas, run
+        The basefyio CLI lets you manage projects, push schemas, run
         migrations, generate types, and more — all from your terminal.
       </p>
 
@@ -34,7 +34,7 @@ export default function CliDocs() {
       <h3>basefyio login</h3>
 
       <p>
-        Log in to your Basefyio account. The CLI opens your default browser,
+        Log in to your basefyio account. The CLI opens your default browser,
         where you authenticate via Keycloak. After signing in you are shown a
         confirmation page — click <strong>Allow access</strong> to connect the
         CLI to your account, or <strong>Cancel</strong> to abort. The browser

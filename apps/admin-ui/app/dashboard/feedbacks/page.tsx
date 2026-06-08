@@ -27,7 +27,7 @@ import {
   Image as ImageIcon,
   Video,
 } from 'lucide-react';
-import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
+import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
@@ -107,7 +107,7 @@ export default function FeedbacksPage() {
   useEffect(() => {
     if (!profile?.id) return;
     if (!isRealtimePhase1Enabled()) return;
-    const unsubscribe = subscribeBasefyioRealtime(`user:${profile.id}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribebasefyioRealtime(`user:${profile.id}`, (event: RealtimeEventEnvelope) => {
       if (event.actorUserId === profile.id) return;
       if (event.entityType === 'feedback' || event.entityType === 'feedback_comment') {
         void load();

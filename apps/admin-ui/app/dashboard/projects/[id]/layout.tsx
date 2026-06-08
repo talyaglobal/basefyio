@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
 import { ContextHelpPanel } from '@/components/context-help-panel';
-import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
+import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import {
@@ -239,7 +239,7 @@ export default function ProjectLayout({
     if (!id || projectLoading || !project) return;
     if (!isRealtimePhase1Enabled()) return;
     const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
-    const unsubscribe = subscribeBasefyioRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribebasefyioRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
       if (event.entityType !== 'project') return;
       // Skip self-triggered updates (UI already reflects the change)
       if (event.action === 'updated' && event.actorUserId === currentUserId) return;

@@ -10,7 +10,7 @@ const program = new Command();
 
 program
   .name('basefyio')
-  .description('Basefyio CLI — manage your Basefyio projects')
+  .description('basefyio CLI — manage your basefyio projects')
   .version(pkg.version);
 
 // ── Authentication ──────────────────────────────────────────
@@ -27,7 +27,7 @@ program.hook('preAction', async (thisCommand) => {
 
 program
   .command('login')
-  .description('Authenticate with the Basefyio platform')
+  .description('Authenticate with the basefyio platform')
   .option('--api-url <url>', 'Platform API URL (default: https://api.basefyio.com)')
   .action(async (options) => {
     const { loginCommand } = await import('./commands/login.js');
@@ -46,7 +46,7 @@ program
 
 program
   .command('init')
-  .description('Create a new Basefyio project and link it to the current directory')
+  .description('Create a new basefyio project and link it to the current directory')
   .option('-n, --name <name>', 'Project name')
   .action(async (options) => {
     const { initCommand } = await import('./commands/init.js');

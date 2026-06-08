@@ -1,4 +1,4 @@
-# Basefyio CLI - Build and Installation Guide
+# basefyio CLI - Build and Installation Guide
 
 ## Quick Start
 

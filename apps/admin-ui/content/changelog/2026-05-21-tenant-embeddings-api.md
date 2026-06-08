@@ -7,13 +7,13 @@ version: v1.1.1
 summary: Enable pgvector on your project database, store embeddings via a simple REST API, and add semantic search or RAG to your application in minutes.
 ---
 
-Until now, the AI-powered semantic search we shipped was limited to Basefyio's own admin dashboard — searching your SQL history, schemas, and activity logs. You couldn't use it to build AI features in **your** application.
+Until now, the AI-powered semantic search we shipped was limited to basefyio's own admin dashboard — searching your SQL history, schemas, and activity logs. You couldn't use it to build AI features in **your** application.
 
 That changes today.
 
 ## What's new?
 
-Every Basefyio project can now enable **pgvector** directly on its own database and use a new **Embeddings REST API** to store, search, and manage vector embeddings. This gives you everything you need to build:
+Every basefyio project can now enable **pgvector** directly on its own database and use a new **Embeddings REST API** to store, search, and manage vector embeddings. This gives you everything you need to build:
 
 - **Semantic search** — Find content by meaning, not exact keywords
 - **RAG (Retrieval-Augmented Generation)** — Feed relevant context to an LLM before it answers
@@ -37,7 +37,7 @@ That's it. Your project is now ready to accept embeddings.
 
 ## Storing embeddings
 
-Send your text content to the API. Basefyio generates the embedding vector automatically using OpenAI's `text-embedding-3-small` model.
+Send your text content to the API. basefyio generates the embedding vector automatically using OpenAI's `text-embedding-3-small` model.
 
 ```bash
 curl -X POST https://your-api.basefyio.com/rest/v1/embeddings \

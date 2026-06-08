@@ -5,14 +5,14 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Basefyio is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
+  "basefyio is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs", {
     title: "Documentation",
     description: pageDescription,
     openGraph: {
-      title: "Documentation | Basefyio Docs",
+      title: "Documentation | basefyio Docs",
       description: pageDescription,
     },
   });
@@ -35,7 +35,7 @@ export default function DocsOverview() {
     <div>
       <h1>Documentation</h1>
       <p>
-        Basefyio is a backend-as-a-service platform. It provides a PostgreSQL
+        basefyio is a backend-as-a-service platform. It provides a PostgreSQL
         database, authentication, file storage, and auto-generated REST API for
         every project you create.
       </p>
@@ -98,7 +98,7 @@ const { data: user } = await bf.auth.signUp({
       </p>
       <h3>Authentication</h3>
       <p>
-        Basefyio provides email/password sign-up, email verification, magic
+        basefyio provides email/password sign-up, email verification, magic
         links, password reset, and OAuth (Google, GitHub). All managed per
         project.
       </p>

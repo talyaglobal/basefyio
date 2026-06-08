@@ -1,11 +1,11 @@
 #!/bin/bash
-# Basefyio CLI Demo Script
+# basefyio CLI Demo Script
 # This script demonstrates the key features of the CLI
 
 set -e
 
 echo "════════════════════════════════════════════════════════"
-echo "  Basefyio CLI Demo"
+echo "  basefyio CLI Demo"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
@@ -30,9 +30,9 @@ info() {
 }
 
 # Check if CLI is installed
-step "Checking if Basefyio CLI is installed..."
+step "Checking if basefyio CLI is installed..."
 if ! command -v basefyio &> /dev/null; then
-    echo "Basefyio CLI is not installed."
+    echo "basefyio CLI is not installed."
     echo "Installing from local build..."
     cd "$(dirname "$0")"
     npm run build
@@ -52,7 +52,7 @@ basefyio --help
 
 # Login (skip in demo, show command)
 info "Next step would be: basefyio login"
-echo "This authenticates you with your Basefyio account."
+echo "This authenticates you with your basefyio account."
 
 # Init project (skip in demo, show command)
 info "To initialize a new project: basefyio init --name 'My Project'"

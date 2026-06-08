@@ -1,13 +1,13 @@
 ---
 date: 2026-06-08
 slug: basefyio-rebrand
-title: "Welcome to Basefyio — We Have a New Name"
+title: "Welcome to basefyio — We Have a New Name"
 kind: feature
 version: v2.0.0
-summary: Kolaybase is now Basefyio. New name, new domain, same powerful backend platform. All CLI commands, SDKs, and APIs have been updated.
+summary: Kolaybase is now basefyio. New name, new domain, same powerful backend platform. All CLI commands, SDKs, and APIs have been updated.
 ---
 
-We're excited to announce that **Kolaybase is now Basefyio**. This rebrand reflects our vision of making backend development effortless for developers everywhere.
+We're excited to announce that **Kolaybase is now basefyio**. This rebrand reflects our vision of making backend development effortless for developers everywhere.
 
 ---
 
@@ -42,9 +42,9 @@ npm install basefyio-js
 ```
 
 ```typescript
-import { BasefyioClient } from 'basefyio-js';
+import { basefyioClient } from 'basefyio-js';
 
-const client = new BasefyioClient({
+const client = new basefyioClient({
   projectId: 'your-project-id',
   anonKey: 'your-anon-key',
 });
@@ -77,5 +77,5 @@ All environment variable prefixes have changed from `KOLAYBASE_*` to `BASEFYIO_*
 1. **Update CLI**: Run `npm install -g basefyio-cli`
 2. **Update SDK**: Replace `kolaybase-js` with `basefyio-js` in your `package.json`
 3. **Update env vars**: Rename `KOLAYBASE_*` variables to `BASEFYIO_*`
-4. **Update imports**: `KolaybaseClient` is now `BasefyioClient`
+4. **Update imports**: `KolaybaseClient` is now `basefyioClient`
 5. **Update bookmarks**: The dashboard is now at `app.basefyio.com`

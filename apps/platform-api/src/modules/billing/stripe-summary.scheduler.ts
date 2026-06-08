@@ -128,12 +128,12 @@ export class StripeSummaryScheduler {
         html = stripeHtml;
       } else {
         const { baseLayout } = await import('../email/templates/base.template');
-        html = baseLayout(`<div class="body"><h1 class="greeting">Basefyio ${period} Report</h1>${platformStats}</div>`);
+        html = baseLayout(`<div class="body"><h1 class="greeting">basefyio ${period} Report</h1>${platformStats}</div>`);
       }
 
       await this.email.sendRawHtml(
         SUMMARY_RECIPIENT,
-        `Basefyio ${period} Report — ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+        `basefyio ${period} Report — ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
         html,
       );
 

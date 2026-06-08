@@ -1,4 +1,4 @@
-# Basefyio CLI - Quick Reference
+# basefyio CLI - Quick Reference
 
 ## Installation
 
@@ -10,7 +10,7 @@ npm install -g basefyio-cli
 
 | Command | Description |
 |---------|-------------|
-| `basefyio login` | Login to Basefyio |
+| `basefyio login` | Login to basefyio |
 | `basefyio init` | Initialize new project |
 | `basefyio start` | Start local environment |
 | `basefyio stop` | Stop local environment |

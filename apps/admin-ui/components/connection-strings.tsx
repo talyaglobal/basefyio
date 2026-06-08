@@ -123,13 +123,13 @@ function buildAiQuickConnectPrompt(
   frameworkPreset: FrameworkPreset,
 ): string {
   const stack = frameworkPresetLabel(frameworkPreset);
-  return `You are helping in the user's repo. Wire the app to Basefyio using ONLY the environment block below (real Basefyio URLs and keys — not fake placeholders).
+  return `You are helping in the user's repo. Wire the app to basefyio using ONLY the environment block below (real basefyio URLs and keys — not fake placeholders).
 
 ## 0) Authentication — read this first
 - Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local Keycloak requirement for login.
-- **Basefyio is the auth surface**: sign-in and API access go through Basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using Basefyio as the backend auth provider — the same hosted Keycloak that powers Basefyio is already behind that service; the app should consume Basefyio APIs/keys, not stand up a separate IdP.
-- **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported Basefyio auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at Basefyio URLs for auth unless the user explicitly asks for a custom low-level integration.
-- Do **not** tell the user to "provision Keycloak", import realms, or mirror Basefyio's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
+- **basefyio is the auth surface**: sign-in and API access go through basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using basefyio as the backend auth provider — the same hosted Keycloak that powers basefyio is already behind that service; the app should consume basefyio APIs/keys, not stand up a separate IdP.
+- **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported basefyio auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at basefyio URLs for auth unless the user explicitly asks for a custom low-level integration.
+- Do **not** tell the user to "provision Keycloak", import realms, or mirror basefyio's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
 
 ## 1) Append to .env or .env.local (copy exactly — each line is KEY=value with no quotes around values)
 ${envBlockOneLinePerVar}
@@ -142,12 +142,12 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 - From the project root, run their migration command (e.g. npx supabase db push, npm run db:push:basefyio, or prisma migrate). The machine must reach the Postgres host in those URLs.
 - Do not substitute hosts or passwords.
 
-## 4) REST / Basefyio API
+## 4) REST / basefyio API
 - **JS/TS (preferred):** use **basefyio-js** \`createClient\` with the env block; use \`basefyio.from(...)\` for tables and \`basefyio.auth\` for auth (same client).
 - **Raw HTTP (only if not using the SDK):** browser/client requests use the public URL + anon key from the block; send headers \`apikey\` and \`x-project-id\` with PROJECT_ID per API docs.
 - Service role key: server-side only; never expose to client bundles or public repos.
 
-## 5) Official documentation (learn Basefyio before inventing patterns)
+## 5) Official documentation (learn basefyio before inventing patterns)
 Use these public URLs for product behavior, SDK, CLI, and REST conventions. Prefer them over generic third-party BaaS guesses when they conflict:
 - Docs home / overview: https://basefyio.com/docs
 - API reference (REST, auth, headers, projects): https://basefyio.com/docs/api
@@ -157,7 +157,7 @@ Use these public URLs for product behavior, SDK, CLI, and REST conventions. Pref
 The user's live base URL, keys, and PROJECT_ID still come **only** from the env block in this prompt — docs explain *how* to use them, not replacement values.
 
 ## 6) CORS / CSP
-If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the Basefyio URLs to unrelated domains.
+If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the basefyio URLs to unrelated domains.
 
 ## 7) Do not
 Echo full secrets in your reply, invent fake values, or commit .env to git.`;
@@ -430,7 +430,7 @@ datasource db {
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          Basefyio Details
+          basefyio Details
         </button>
       </div>
 
@@ -723,7 +723,7 @@ datasource db {
           Authentication
         </h2>
         <p className="text-sm text-muted-foreground">
-          Sign-in for this project is handled by Basefyio (hosted auth behind the REST URL and keys
+          Sign-in for this project is handled by basefyio (hosted auth behind the REST URL and keys
           above). You do not run Keycloak in your own repo for normal integration.
         </p>
         <button
@@ -744,7 +744,7 @@ datasource db {
         {showKeycloakDetails ? (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Internal Basefyio identifiers for this project&apos;s realm. Expand only if you need
+              Internal basefyio identifiers for this project&apos;s realm. Expand only if you need
               them for support or advanced debugging — not required for app login wiring.
             </p>
             <CopyBlock

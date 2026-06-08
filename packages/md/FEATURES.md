@@ -1,4 +1,4 @@
-# Basefyio CLI - Complete Feature Summary
+# basefyio CLI - Complete Feature Summary
 
 ## ✅ Implemented Features
 
@@ -110,7 +110,7 @@
 
 ## 🎯 Feature parity with common hosted Postgres CLIs
 
-| Feature | Reference CLI | Basefyio CLI | Status |
+| Feature | Reference CLI | basefyio CLI | Status |
 |---------|--------------|---------------|--------|
 | Authentication | ✅ | ✅ | ✅ Complete |
 | Project Management | ✅ | ✅ | ✅ Complete |

@@ -1,4 +1,4 @@
-# Basefyio Website — SEO Engine
+# basefyio Website — SEO Engine
 
 This site has a full programmatic SEO engine. This doc explains how it works, how
 to add content, how to get pages indexed, and the keyword strategy behind the
@@ -131,10 +131,10 @@ cross-links to related terms, building a dense internal-link graph that lifts th
 whole section. This is the largest long-tail surface — expand it steadily with
 genuinely useful definitions.
 
-### Integrations (intent: "<framework> backend" / "Basefyio + X")
+### Integrations (intent: "<framework> backend" / "basefyio + X")
 
 The `/integrations/[slug]` pages target developers searching for "Next.js
-backend", "React backend", "use Basefyio with X". Each shows install, setup, and
+backend", "React backend", "use basefyio with X". Each shows install, setup, and
 usage with the real `basefyio-js` API. These pages are edited directly in
 `src/lib/content/integrations.ts` (they have framework-specific code, so there's
 no generator stub). Only add integrations where `basefyio-js` actually

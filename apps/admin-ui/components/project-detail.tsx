@@ -68,7 +68,7 @@ const DELETE_REASONS = [
   { code: 'support', label: 'I was not satisfied with the customer support I received.' },
   { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
   { code: 'too_expensive', label: 'Too expensive' },
-  { code: 'missing_feature', label: 'Basefyio is missing a specific feature I need.' },
+  { code: 'missing_feature', label: 'basefyio is missing a specific feature I need.' },
   { code: 'company_closed', label: 'My company went out of business or was acquired.' },
   { code: 'difficult', label: 'I found it difficult to use or build with.' },
   { code: 'none', label: 'None of the above' },

@@ -1,6 +1,6 @@
-# Basefyio CLI
+# basefyio CLI
 
-The official command-line interface for [Basefyio](https://github.com/fsipka/basefyio-new) - a self-hosted, multi-tenant backend platform.
+The official command-line interface for [basefyio](https://github.com/fsipka/basefyio-new) - a self-hosted, multi-tenant backend platform.
 
 ## Features
 
@@ -65,7 +65,7 @@ basefyio gen types
 
 #### `basefyio login`
 
-Login to your Basefyio account.
+Login to your basefyio account.
 
 ```bash
 basefyio login
@@ -75,7 +75,7 @@ basefyio login
 
 #### `basefyio init`
 
-Initialize a new Basefyio project in the current directory.
+Initialize a new basefyio project in the current directory.
 
 ```bash
 basefyio init
@@ -113,7 +113,7 @@ basefyio projects:delete abc-123-def
 
 #### `basefyio start`
 
-Start the local Basefyio development environment (Docker Compose).
+Start the local basefyio development environment (Docker Compose).
 
 ```bash
 basefyio start
@@ -308,7 +308,7 @@ SERVICE_KEY=...
 # Create project directory
 mkdir my-app && cd my-app
 
-# Login to Basefyio
+# Login to basefyio
 basefyio login
 
 # Initialize project
@@ -363,9 +363,9 @@ basefyio logs --sql
 
 The CLI automatically detects your environment:
 
-- If you're in a Basefyio project (has `.basefyio/` directory), it uses that configuration
-- Otherwise, it looks for a global Basefyio installation
-- Commands like `basefyio start` work from anywhere if Basefyio is installed
+- If you're in a basefyio project (has `.basefyio/` directory), it uses that configuration
+- Otherwise, it looks for a global basefyio installation
+- Commands like `basefyio start` work from anywhere if basefyio is installed
 
 ## Troubleshooting
 
@@ -377,7 +377,7 @@ Make sure Docker Desktop is running:
 docker ps
 ```
 
-### "Not in a Basefyio project"
+### "Not in a basefyio project"
 
 Initialize a project or link to an existing one:
 

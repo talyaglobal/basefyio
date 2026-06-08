@@ -29,7 +29,7 @@ export class ImportSupabaseDto {
   @IsNotEmpty()
   teamId: string;
 
-  /** Re-import into this Basefyio project instead of creating a new one. Must belong to teamId. */
+  /** Re-import into this basefyio project instead of creating a new one. Must belong to teamId. */
   @IsOptional()
   @IsUUID('4')
   existingProjectId?: string;

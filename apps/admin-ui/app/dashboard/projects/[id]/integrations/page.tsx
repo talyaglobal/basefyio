@@ -846,7 +846,7 @@ function VercelCard({
           <DialogHeader>
             <DialogTitle>Save Environment Variables</DialogTitle>
             <DialogDescription>
-              Would you like to sync your Basefyio project&apos;s environment variables
+              Would you like to sync your basefyio project&apos;s environment variables
               to the connected Vercel project? This will create or update the following
               variables for all environments (production, preview, development):
             </DialogDescription>

@@ -62,7 +62,7 @@ export default () => ({
 
   resend: {
     apiKey: process.env.RESEND_API_KEY || '',
-    fromEmail: process.env.RESEND_FROM_EMAIL || 'Basefyio <noreply@basefyio.com>',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'basefyio <noreply@basefyio.com>',
     replyTo: process.env.RESEND_REPLY_TO || 'support@basefyio.com',
   },
 

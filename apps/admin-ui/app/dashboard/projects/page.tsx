@@ -67,7 +67,7 @@ import {
   List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
-import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
+import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ const DELETE_REASONS = [
   { code: 'support', label: 'I was not satisfied with the customer support I received.' },
   { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
   { code: 'too_expensive', label: 'Too expensive' },
-  { code: 'missing_feature', label: 'Basefyio is missing a specific feature I need.' },
+  { code: 'missing_feature', label: 'basefyio is missing a specific feature I need.' },
   { code: 'company_closed', label: 'My company went out of business or was acquired.' },
   { code: 'difficult', label: 'I found it difficult to use or build with.' },
   { code: 'none', label: 'None of the above' },
@@ -355,7 +355,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
-    const unsubscribe = subscribeBasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
       if (event.entityType === 'project' || event.entityType === 'project_activity' || event.entityType === 'team') {
         void loadAllRef.current();

@@ -188,7 +188,7 @@ function LoginForm() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Basefyio</h1>
+          <h1 className="text-2xl font-bold tracking-tight">basefyio</h1>
           <p className="text-sm text-muted-foreground">
             Sign in to the control plane
           </p>

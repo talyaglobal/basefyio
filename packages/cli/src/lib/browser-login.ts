@@ -28,7 +28,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Basefyio CLI</title>
+  <title>basefyio CLI</title>
   <style>
     body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px;
            margin: 80px auto; text-align: center; color: #1f2937; }
@@ -46,7 +46,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
   <div id="countdown">This tab will try to close in <b id="t">3</b>s…</div>
   <button onclick="window.close()">Close tab</button>
   <p class="hint">
-    The <code>127.0.0.1</code> URL is normal — the Basefyio CLI runs a
+    The <code>127.0.0.1</code> URL is normal — the basefyio CLI runs a
     short-lived local server to receive the auth code from Keycloak.
     This is the OAuth 2.0 loopback flow (RFC 8252) used by every native CLI.
   </p>
@@ -78,7 +78,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 
 const ERROR_HTML = (msg: string) => `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Basefyio CLI</title></head>
+<head><meta charset="UTF-8"><title>basefyio CLI</title></head>
 <body style="font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center">
   <h2 style="color:#ef4444">Authentication failed</h2>
   <p>${escapeHtml(msg)}</p>

@@ -99,7 +99,7 @@ function CliAuthorizeContent() {
           <div className="text-center">
             <h1 className="text-xl font-semibold">Connect CLI to your account</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              The Basefyio CLI is requesting access to your account.
+              The basefyio CLI is requesting access to your account.
             </p>
           </div>
         </div>

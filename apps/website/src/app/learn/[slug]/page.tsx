@@ -97,7 +97,7 @@ export default async function TermPage({ params }: Params) {
         {t.seeAlso && t.seeAlso.length > 0 && (
           <section className="mt-12 rounded-xl border border-border bg-accent/30 p-6">
             <h2 className="mb-3 text-lg font-semibold">
-              {t.term} in Basefyio
+              {t.term} in basefyio
             </h2>
             <ul className="space-y-2">
               {t.seeAlso.map((link) => (
@@ -119,7 +119,7 @@ export default async function TermPage({ params }: Params) {
           <div>
             <h2 className="text-xl font-semibold">See it in practice</h2>
             <p className="mt-1 text-muted-foreground">
-              Basefyio gives you PostgreSQL, auth, storage, and a REST API in
+              basefyio gives you PostgreSQL, auth, storage, and a REST API in
               minutes.
             </p>
           </div>

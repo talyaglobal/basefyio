@@ -54,7 +54,7 @@ function CliConnectContent() {
         <div className="space-y-2">
           <h1 className="text-xl font-semibold">Connect CLI to your account</h1>
           <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            The Basefyio CLI is requesting access to your account. Allow it to manage
+            The basefyio CLI is requesting access to your account. Allow it to manage
             your projects from the terminal.
           </p>
         </div>

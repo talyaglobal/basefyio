@@ -10,14 +10,14 @@ import { getAllPosts } from "@/lib/content/blog";
 
 const TITLE = "Blog";
 const DESCRIPTION =
-  "Guides, tutorials, and engineering notes on building backends with Basefyio — PostgreSQL, auth, storage, REST APIs, SDK, and CLI.";
+  "Guides, tutorials, and engineering notes on building backends with basefyio — PostgreSQL, auth, storage, REST APIs, SDK, and CLI.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
     path: "/blog",
     title: TITLE,
     description: DESCRIPTION,
-    keywords: ["Basefyio blog", "backend tutorials", "PostgreSQL guides"],
+    keywords: ["basefyio blog", "backend tutorials", "PostgreSQL guides"],
   });
 }
 
@@ -37,7 +37,7 @@ export default async function BlogIndex() {
     <SiteShell>
       <JsonLd
         data={itemListSchema(
-          "Basefyio Blog",
+          "basefyio Blog",
           posts.map((p) => ({
             name: p.title,
             url: `${base}/blog/${p.slug}`,

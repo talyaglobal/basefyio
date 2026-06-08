@@ -4,19 +4,19 @@
 
 ## Motivation
 
-Basefyio currently supports only PostgreSQL. User feedback indicates that SQL-only databases cover roughly one-third of use cases. Many applications need a document/NoSQL store for:
+basefyio currently supports only PostgreSQL. User feedback indicates that SQL-only databases cover roughly one-third of use cases. Many applications need a document/NoSQL store for:
 
 - Flexible schemas (CMS content, user preferences, IoT telemetry)
 - Key-value access patterns (sessions, caches, feature flags)
 - Semi-structured data (logs, events, nested JSON documents)
 
-**Why CouchBase?** CouchBase uniquely bridges SQL and NoSQL — its N1QL query language uses SQL-like syntax, lowering the learning curve for developers already using PostgreSQL through Basefyio. It also offers built-in full-text search, key-value sub-millisecond reads, and eventing.
+**Why CouchBase?** CouchBase uniquely bridges SQL and NoSQL — its N1QL query language uses SQL-like syntax, lowering the learning curve for developers already using PostgreSQL through basefyio. It also offers built-in full-text search, key-value sub-millisecond reads, and eventing.
 
 ---
 
 ## Data Model Mapping
 
-| CouchBase Concept | Basefyio Equivalent | PostgreSQL Analogy |
+| CouchBase Concept | basefyio Equivalent | PostgreSQL Analogy |
 |---|---|---|
 | Cluster | Infrastructure | Server |
 | Bucket | Project-scoped container | Database |
@@ -190,4 +190,4 @@ bf.n1ql('SELECT * FROM sessions WHERE userId = $1', ['abc']);
 1. Should free-tier projects get a shared CouchBase cluster or no NoSQL at all?
 2. How to handle cross-store foreign keys (e.g. PostgreSQL user ID in CouchBase documents)?
 3. Should the N1QL editor share the same tab as SQL Editor or be a separate nav item?
-4. Naming: expose as "CouchBase" or rebrand as "Basefyio Documents" / "BasefyioDB"?
+4. Naming: expose as "CouchBase" or rebrand as "basefyio Documents" / "basefyioDB"?

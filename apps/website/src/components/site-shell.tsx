@@ -78,7 +78,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Basefyio
+            © {new Date().getFullYear()} basefyio
           </p>
         </div>
       </footer>

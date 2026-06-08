@@ -278,7 +278,7 @@ export default function AccountPage() {
       const granted = await requestBrowserPermission();
       if (!granted) return;
     }
-    new Notification('Basefyio', {
+    new Notification('basefyio', {
       body: 'Browser notifications are active for this account.',
       tag: 'basefyio-browser-notification-test',
     });

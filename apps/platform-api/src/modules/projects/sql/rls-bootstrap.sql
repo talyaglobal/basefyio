@@ -1,4 +1,4 @@
--- Basefyio RLS bootstrap (Supabase-compatible surface).
+-- basefyio RLS bootstrap (Supabase-compatible surface).
 -- Runs on each project database. Idempotent — safe to re-run.
 --
 -- Creates:
@@ -72,7 +72,7 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_
 -- exact return type. If we tried to redefine auth.uid() RETURNS text,
 -- Postgres rejects with "cannot change return type of existing
 -- function" and the bootstrap aborts. Skipping when present keeps
--- existing policies intact and treats Basefyio's helpers as a safe
+-- existing policies intact and treats basefyio's helpers as a safe
 -- default for fresh projects only.
 --
 -- These read the JWT claims that PublicApiService injects with

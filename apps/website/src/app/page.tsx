@@ -21,9 +21,9 @@ import {
 } from "@/lib/site-url";
 
 const ogTitle =
-  "Basefyio — The Open Source Supabase Alternative";
+  "basefyio — The Open Source Supabase Alternative";
 const ogDescription =
-  "Basefyio: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
+  "basefyio: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {
@@ -418,7 +418,7 @@ export default async function Home() {
         </div>
         <div className="mx-auto mt-12 flex max-w-6xl items-center justify-between border-t border-border pt-6">
           <span className="text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} Basefyio
+            &copy; {new Date().getFullYear()} basefyio
           </span>
           <a
             href="/llms.txt"

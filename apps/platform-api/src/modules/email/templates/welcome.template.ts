@@ -13,7 +13,7 @@ export function welcomeTemplate(data: WelcomeData): string {
         <div style="text-align: center;">
           <div class="icon-circle icon-green">&#127881;</div>
         </div>
-        <h1 class="greeting">Welcome to Basefyio, ${data.displayName}!</h1>
+        <h1 class="greeting">Welcome to basefyio, ${data.displayName}!</h1>
         <p class="text">
           Your account has been created successfully. You now have access to a
           powerful open-source backend platform with databases, authentication,

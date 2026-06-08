@@ -24,7 +24,7 @@ export async function HomeFaq() {
           Frequently asked questions
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-          What Basefyio is, how it compares, and how to get started.
+          What basefyio is, how it compares, and how to get started.
         </p>
 
         <dl className="mt-12 divide-y divide-border rounded-lg border border-border bg-card">

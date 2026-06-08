@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Basefyio landing: 3D particle background (Three.js + @react-three/fiber).
+ * basefyio landing: 3D particle background (Three.js + @react-three/fiber).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import React, { useMemo, useRef } from "react";

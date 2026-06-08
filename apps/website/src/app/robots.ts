@@ -7,7 +7,7 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
  *
  * Beyond the wildcard rule, we name each AI crawler (GPTBot, OAI-SearchBot,
  * ClaudeBot, PerplexityBot, Google-Extended, …) and allow it — stating intent
- * so Basefyio shows up in AI answers, and keeping the policy explicit if the
+ * so basefyio shows up in AI answers, and keeping the policy explicit if the
  * wildcard rule is ever tightened. Generated from @basefyio/geo.
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {

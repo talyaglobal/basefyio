@@ -65,10 +65,10 @@ export class AiService {
         })
       : [];
 
-    if (!this.isBasefyioScopedMessage(message, teamProjects.map((p) => p.name))) {
+    if (!this.isbasefyioScopedMessage(message, teamProjects.map((p) => p.name))) {
       return {
         reply:
-          'I only answer Basefyio questions for your active team projects. Ask about your project, SQL, auth, storage, backup/export, billing, team, or management.',
+          'I only answer basefyio questions for your active team projects. Ask about your project, SQL, auth, storage, backup/export, billing, team, or management.',
       };
     }
 
@@ -120,7 +120,7 @@ export class AiService {
     }
   }
 
-  private isBasefyioScopedMessage(
+  private isbasefyioScopedMessage(
     message: string,
     allowedProjectNames: string[],
   ): boolean {
@@ -184,7 +184,7 @@ export class AiService {
 - Explain in one line what each SQL block will do.`,
     };
 
-    let prompt = `You are the Basefyio AI assistant. Basefyio is a hosted PostgreSQL Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
+    let prompt = `You are the basefyio AI assistant. basefyio is a hosted PostgreSQL Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
 
 Active mode: ${mode.toUpperCase()}
 ${modeInstructions[mode]}
@@ -198,7 +198,7 @@ General rules:
 - Avoid suggesting destructive commands (e.g. DROP DATABASE, DROP ROLE) unless the user explicitly asks for danger-aware guidance.
 - Never say you cannot access or inspect the database — instead output concrete SQL the user can run in the platform.
 - When a table list is provided, tailor SQL to those tables, not generic examples.
-- You are strictly limited to Basefyio and the user's active team projects only. Refuse out-of-scope topics in one sentence.`;
+- You are strictly limited to basefyio and the user's active team projects only. Refuse out-of-scope topics in one sentence.`;
 
     if (context.projectName) {
       prompt += `\n\nActive project: "${context.projectName}"`;

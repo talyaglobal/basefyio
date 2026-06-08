@@ -1,4 +1,4 @@
-# Basefyio CLI Examples
+# basefyio CLI Examples
 
 Quick examples for common CLI workflows.
 

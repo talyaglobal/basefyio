@@ -2,7 +2,7 @@
 title: "Database Multi-Tenancy Patterns: Shared Schema vs. Database per Tenant"
 description: "Compare the main multi-tenancy patterns — shared schema with row-level security vs. a database per tenant — and how to choose for your SaaS on PostgreSQL."
 date: "2026-05-16"
-author: "Basefyio Team"
+author: "basefyio Team"
 tags: ["multi-tenancy", "PostgreSQL", "SaaS", "architecture"]
 ---
 
@@ -60,7 +60,7 @@ Each tenant gets a dedicated PostgreSQL database.
 | Maximum isolation / compliance | Database per tenant |
 
 Many platforms blend these — for example, a dedicated database per project plus
-row-level security inside it for per-user rules. That's the model Basefyio uses:
+row-level security inside it for per-user rules. That's the model basefyio uses:
 each project gets its own PostgreSQL database, and you still apply RLS within it.
 It's why the [backend for SaaS applications](/use-cases/saas-applications) starts
 isolated by default.

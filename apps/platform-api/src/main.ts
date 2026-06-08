@@ -35,7 +35,7 @@ async function bootstrap() {
       // All other origins are allowed because SDK endpoints (rest/v1, sql,
       // storage) are protected by apikey header validation (ApiKeyGuard),
       // not cookies. Rejecting unknown origins would block legitimate SDK
-      // users building browser apps against their Basefyio project.
+      // users building browser apps against their basefyio project.
       callback(null, true);
     },
     credentials: true,

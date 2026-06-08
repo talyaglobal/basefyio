@@ -192,7 +192,7 @@ export function stripeDailySummaryTemplate(data: StripeDailySummaryData): string
       ` : ''}
 
       <p class="text" style="margin-top: 32px; text-align: center; font-size: 12px; color: #94a3b8;">
-        This is an automated daily summary from Basefyio. View full details in the
+        This is an automated daily summary from basefyio. View full details in the
         <a href="https://dashboard.stripe.com" style="color: #2563eb; text-decoration: none;">Stripe Dashboard</a>
         or the <a href="https://app.basefyio.com/dashboard/management" style="color: #2563eb; text-decoration: none;">Management Panel</a>.
       </p>

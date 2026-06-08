@@ -7,10 +7,10 @@ import { api } from '@/lib/api';
 import {
   BASEFYIO_AI_SEND_EVENT,
   buildSqlRunErrorPrompt,
-  dispatchBasefyioAiMessage,
+  dispatchbasefyioAiMessage,
   type BasefyioAiSendDetail,
 } from '@/lib/basefyio-ai-events';
-import { dispatchBasefyioNotification } from '@/lib/notifications-context';
+import { dispatchbasefyioNotification } from '@/lib/notifications-context';
 import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
 import {
@@ -164,7 +164,7 @@ function getSuggestions(mode: AiMode, page?: string, hasTables?: boolean): strin
     if (hasTables) {
       return ['What tables exist?', 'How do I set up RLS?', 'When do I need indexes?'];
     }
-    return ['What can Basefyio do?', 'How do I connect to PostgreSQL?'];
+    return ['What can basefyio do?', 'How do I connect to PostgreSQL?'];
   }
   if (mode === 'plan') {
     if (hasTables) {
@@ -438,7 +438,7 @@ export function AiAssistant() {
         const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
         if (!openRef.current) {
-          dispatchBasefyioNotification({
+          dispatchbasefyioNotification({
             type: 'ai',
             title: 'AI replied',
             message: 'New AI response is ready in assistant.',
@@ -448,7 +448,7 @@ export function AiAssistant() {
         const { reply } = await api.ai.chat(trimmed, history, { ...ctx, mode });
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content: reply, mode }]);
         if (!openRef.current) {
-          dispatchBasefyioNotification({
+          dispatchbasefyioNotification({
             type: 'ai',
             title: 'AI replied',
             message: 'New AI response is ready in assistant.',
@@ -515,7 +515,7 @@ export function AiAssistant() {
         action: {
           label: 'Send to chat',
           onClick: () => {
-            dispatchBasefyioAiMessage({
+            dispatchbasefyioAiMessage({
               message: buildSqlRunErrorPrompt(sql, errMsg),
               mode: 'ask',
             });
@@ -570,7 +570,7 @@ export function AiAssistant() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold leading-tight truncate">
-              Basefyio AI
+              basefyio AI
               {context.projectName && (
                 <span className="ml-1.5 font-normal text-muted-foreground">· {context.projectName}</span>
               )}

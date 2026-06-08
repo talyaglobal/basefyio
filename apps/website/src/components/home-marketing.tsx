@@ -173,7 +173,7 @@ export function HomeMarketing() {
                 <span className="block">EVERY LAYER.</span>
               </h2>
               <p className="mt-6 text-muted-foreground">
-                Basefyio gives every app:
+                basefyio gives every app:
               </p>
               <div className="mt-6 flex flex-col gap-0">
                 <div className="layer-row">
@@ -300,7 +300,7 @@ export function HomeMarketing() {
                   Chat with your project &mdash; not just your tables
                 </h2>
                 <p className="mt-4 text-lg text-muted-foreground">
-                  Basefyio includes a smart AI that understands your schema and
+                  basefyio includes a smart AI that understands your schema and
                   project context. Ask in plain language: explore relationships,
                   catch risky patterns, get migration ideas, or summarize how
                   your API surface maps to the database.
@@ -493,12 +493,12 @@ export function HomeMarketing() {
               Four worlds, two universes.
             </h2>
             <p className="mt-5 max-w-xl text-muted-foreground">
-              Basefyio is merging the SaaS, mobile and data worlds into a single
+              basefyio is merging the SaaS, mobile and data worlds into a single
               backend &mdash; so one connection string powers your web product,
               your mobile app and your AI.
             </p>
             <p className="mt-4 text-base font-semibold text-amber-400">
-              Basefyio is able to handle every type of data &mdash; including MS
+              basefyio is able to handle every type of data &mdash; including MS
               Excel.
             </p>
           </ScrollReveal>
@@ -559,7 +559,7 @@ export function HomeMarketing() {
                   Any client stack
                 </Badge>
                 <CardTitle className="pt-2 text-2xl sm:text-3xl md:text-4xl">
-                  Use Basefyio with{" "}
+                  Use basefyio with{" "}
                   <span className="gradient-text">any framework</span>
                 </CardTitle>
                 <CardDescription className="mx-auto max-w-2xl text-base">

@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   buildSupabaseImportIssuePrompt,
-  dispatchBasefyioAiMessage,
+  dispatchbasefyioAiMessage,
 } from '@/lib/basefyio-ai-events';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -53,7 +53,7 @@ function AiFixButton({
       )}
       title="Open AI assistant with context for likely causes and fixes"
       onClick={() => {
-        dispatchBasefyioAiMessage({ message: prompt, mode: 'ask' });
+        dispatchbasefyioAiMessage({ message: prompt, mode: 'ask' });
         toast.message('AI assistant', { description: 'Opened with your import issue context.' });
       }}
     >

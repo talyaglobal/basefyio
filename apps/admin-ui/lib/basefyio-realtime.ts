@@ -12,7 +12,7 @@ export function isRealtimePhase1Enabled() {
   return true;
 }
 
-export function subscribeBasefyioRealtime(
+export function subscribebasefyioRealtime(
   channelName: string,
   onEvent: (event: RealtimeEventEnvelope) => void,
 ): (() => void) | null {

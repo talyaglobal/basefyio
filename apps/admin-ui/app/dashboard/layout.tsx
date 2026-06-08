@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
-import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
+import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 interface DashboardContextValue {
@@ -299,7 +299,7 @@ export default function DashboardLayout({
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
     let debounceTimer: ReturnType<typeof setTimeout>;
-    const unsubscribe = subscribeBasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 500);

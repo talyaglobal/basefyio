@@ -62,7 +62,7 @@ export class BillingService implements OnModuleInit {
 
     if (!next.stripeProductId) {
       const product = await this.stripe.createProduct(
-        `Basefyio ${next.displayName}`,
+        `basefyio ${next.displayName}`,
         `${next.displayName} plan — ${next.maxProjects || 'unlimited'} projects, ${next.dedicatedDb ? 'dedicated' : 'shared'} database`,
       );
       next = {
@@ -1481,7 +1481,7 @@ export class BillingService implements OnModuleInit {
       currentPeriodEnd: sub.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null,
       lines: [
         {
-          description: `Basefyio ${newPlan.displayName} (full month)`,
+          description: `basefyio ${newPlan.displayName} (full month)`,
           amount: newPlan.priceMonthly,
           currency: 'usd',
           proration: false,
@@ -1608,11 +1608,11 @@ export class BillingService implements OnModuleInit {
       try {
         if (updated.stripeProductId) {
           await this.stripe.getClient().products.update(updated.stripeProductId, {
-            name: `Basefyio ${updated.displayName}`,
+            name: `basefyio ${updated.displayName}`,
           });
         } else if (updated.priceMonthly > 0) {
           const product = await this.stripe.createProduct(
-            `Basefyio ${updated.displayName}`,
+            `basefyio ${updated.displayName}`,
             `${updated.displayName} plan`,
           );
           await this.prisma.plan.update({
@@ -1735,7 +1735,7 @@ export class BillingService implements OnModuleInit {
     if (this.stripe.isEnabled() && created.priceMonthly > 0) {
       try {
         const product = await this.stripe.createProduct(
-          `Basefyio ${created.displayName}`,
+          `basefyio ${created.displayName}`,
           `${created.displayName} plan`,
         );
         const price = await this.stripe.createPrice({

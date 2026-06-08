@@ -1,8 +1,8 @@
-# 🎉 Basefyio CLI - İNŞA TAMAMLANDI!
+# 🎉 basefyio CLI - İNŞA TAMAMLANDI!
 
 ## Özet
 
-Basefyio platformu için **production-ready**, **yaygın barındırılan Postgres CLI’larına benzer** güçlü bir komut satırı arayüzü oluşturduk.
+basefyio platformu için **production-ready**, **yaygın barındırılan Postgres CLI’larına benzer** güçlü bir komut satırı arayüzü oluşturduk.
 
 ## 📦 Oluşturulan Dosyalar
 
@@ -143,7 +143,7 @@ basefyio gen types
 
 ## 🎯 Barındırılan Postgres CLI ile Karşılaştırma
 
-| Özellik | Referans CLI | Basefyio CLI | Durum |
+| Özellik | Referans CLI | basefyio CLI | Durum |
 |---------|--------------|---------------|-------|
 | Authentication | ✅ | ✅ | **Tamamlandı** |
 | Project Management | ✅ | ✅ | **Tamamlandı** |
@@ -317,7 +317,7 @@ Oluşturulan tüm dokümantasyon:
 
 ## 🎊 Sonuç
 
-**Basefyio CLI başarıyla tamamlandı!** 
+**basefyio CLI başarıyla tamamlandı!** 
 
 Referans CLI seviyesinde, production-ready, developer-friendly bir CLI tool oluşturduk. Tüm core features implement edildi ve kapsamlı dokümantasyon hazırlandı.
 

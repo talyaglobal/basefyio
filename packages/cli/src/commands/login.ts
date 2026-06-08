@@ -83,7 +83,7 @@ export async function loginCommand(options: LoginOptions) {
     const tokens = await withTimeout(
       apiClient.cliExchange(exchangeCode, nonce(handle)),
       30_000,
-      'Token exchange with the Basefyio API timed out. The login callback succeeded ' +
+      'Token exchange with the basefyio API timed out. The login callback succeeded ' +
         'but the platform API did not respond. Try again or check your network.',
     );
     setAccessToken(tokens.accessToken);

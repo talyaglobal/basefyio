@@ -4,7 +4,7 @@
     "access": "public"
   },
   "version": "2.0.0",
-  "description": "Basefyio JavaScript/TypeScript SDK — database, auth & storage client",
+  "description": "basefyio JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

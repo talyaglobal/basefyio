@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * Applies the Basefyio RLS bootstrap (anon/authenticated/service_role roles
+ * Applies the basefyio RLS bootstrap (anon/authenticated/service_role roles
  * + auth.* helpers) to every ACTIVE project database that hasn't been
  * bootstrapped yet.
  *

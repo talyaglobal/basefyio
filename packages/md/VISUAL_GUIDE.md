@@ -1,4 +1,4 @@
-# 🎨 Basefyio CLI - Visual Guide
+# 🎨 basefyio CLI - Visual Guide
 
 ## 📦 Package Structure
 
@@ -143,7 +143,7 @@ basefyio (basefyio)
    ✓ Platform API
    ✓ Admin UI
    
-   ✓ Basefyio is running!
+   ✓ basefyio is running!
 
 5️⃣  Generate Code
    $ basefyio gen types

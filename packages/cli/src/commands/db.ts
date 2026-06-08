@@ -17,7 +17,7 @@ export async function dbPush() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -67,7 +67,7 @@ export async function dbPull() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -166,7 +166,7 @@ export async function dbReset(options: ResetOptions) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -232,7 +232,7 @@ export async function dbSeed() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -288,7 +288,7 @@ export async function dbDiff() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -317,7 +317,7 @@ export async function dbExecute(options: ExecuteOptions) {
 
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -383,7 +383,7 @@ export async function dbDump(options: DumpOptions) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -402,7 +402,7 @@ export async function dbDump(options: DumpOptions) {
         ORDER BY table_name
       `);
 
-      let dump = '-- Basefyio schema dump\n-- Generated: ' + new Date().toISOString() + '\n\n';
+      let dump = '-- basefyio schema dump\n-- Generated: ' + new Date().toISOString() + '\n\n';
 
       for (const t of tables) {
         const { rows: cols } = await client.query(`

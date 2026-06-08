@@ -227,21 +227,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     clearTokens();
     Cookies.remove('basefyio_active_team');
 
-    // Revoke tokens and clear Keycloak browser SSO so another Google/GitHub account can sign in.
+    // Revoke tokens server-side (fire-and-forget) then redirect to login.
+    // We intentionally do NOT follow the Keycloak logout URL to avoid
+    // showing Keycloak's "Do you want to log out?" confirmation page.
     if (refreshToken) {
-      const redirectUri =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/login`
-          : undefined;
-      try {
-        const res = await api.auth.logout(refreshToken, redirectUri, idToken);
-        if (res.logoutUrl) {
-          window.location.href = res.logoutUrl;
-          return;
-        }
-      } catch {
-        // fall through to /login
-      }
+      api.auth.logout(refreshToken, undefined, idToken).catch(() => {});
     }
 
     window.location.href = '/login';
@@ -256,7 +246,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
-          <span className="hidden text-lg font-bold gradient-text sm:inline">Basefyio</span>
+          <span className="hidden text-lg font-bold gradient-text sm:inline">basefyio</span>
         </Link>
 
         {/* Primary nav links */}

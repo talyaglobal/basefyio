@@ -1,8 +1,8 @@
-# Basefyio CLI - Project Overview
+# basefyio CLI - Project Overview
 
-## 🎯 What is Basefyio CLI?
+## 🎯 What is basefyio CLI?
 
-Basefyio CLI is a command-line interface tool for managing [Basefyio](https://github.com/fsipka/basefyio-new) projects. It provides a developer-friendly way to interact with the Basefyio platform, similar to popular hosted Postgres developer CLIs.
+basefyio CLI is a command-line interface tool for managing [basefyio](https://github.com/fsipka/basefyio-new) projects. It provides a developer-friendly way to interact with the basefyio platform, similar to popular hosted Postgres developer CLIs.
 
 ## 🚀 Key Features
 
@@ -82,7 +82,7 @@ packages/cli/
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  Basefyio CLI                      │
+│                  basefyio CLI                      │
 │                                                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐         │
 │  │ Commands │  │   API    │  │  Config  │         │

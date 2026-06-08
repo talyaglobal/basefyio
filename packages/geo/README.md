@@ -57,10 +57,10 @@ import {
 } from "@basefyio/geo";
 
 const profile: GeoProfile = {
-  name: "Basefyio",
+  name: "basefyio",
   url: "https://basefyio.com",
   summary:
-    "Basefyio is an open-source backend-as-a-service: hosted PostgreSQL, auth, storage, and an auto-generated REST API.",
+    "basefyio is an open-source backend-as-a-service: hosted PostgreSQL, auth, storage, and an auto-generated REST API.",
   offer: {
     price: "0",
     priceCurrency: "USD",
@@ -72,9 +72,9 @@ const profile: GeoProfile = {
   ],
   faqs: [
     {
-      question: "What is Basefyio?",
+      question: "What is basefyio?",
       answer:
-        "Basefyio is a self-hosted backend platform that gives each project its own PostgreSQL database, authentication realm, and auto-generated REST API.",
+        "basefyio is a self-hosted backend platform that gives each project its own PostgreSQL database, authentication realm, and auto-generated REST API.",
     },
   ],
 };
@@ -104,7 +104,7 @@ Q&A), `howtos`, `facts`, and an `offer` (for `SoftwareApplication`). See
 
 ## How the website uses it
 
-The Basefyio marketing site (`apps/website`) consumes this engine to serve
+The basefyio marketing site (`apps/website`) consumes this engine to serve
 `/llms.txt` and `/llms-full.txt`, to inject the AI-crawler policy into
 `robots.txt`, and to render an answer-first FAQ with `FAQPage` schema.
 

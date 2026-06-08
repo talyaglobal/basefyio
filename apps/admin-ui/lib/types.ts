@@ -584,7 +584,7 @@ export interface SupabaseImportRequest {
   databasePassword?: string;
   name: string;
   teamId: string;
-  /** When set, import runs into this existing Basefyio project (same DB/realm). */
+  /** When set, import runs into this existing basefyio project (same DB/realm). */
   existingProjectId?: string;
 }
 

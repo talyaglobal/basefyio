@@ -1,6 +1,6 @@
 # Architecture
 
-> Detailed architecture documentation for the Basefyio platform.
+> Detailed architecture documentation for the basefyio platform.
 
 Last updated: 2026-02-23
 
@@ -16,7 +16,7 @@ Last updated: 2026-02-23
 
 ## Overview
 
-Basefyio is a multi-tenant backend-as-a-service platform. It follows a control-plane / data-plane separation:
+basefyio is a multi-tenant backend-as-a-service platform. It follows a control-plane / data-plane separation:
 
 - **Control plane**: Admin UI + Platform API — manages projects, users, and infrastructure
 - **Data plane**: Per-project PostgreSQL databases and Keycloak realms — serves application data and auth

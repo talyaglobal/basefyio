@@ -1,6 +1,6 @@
 # Row Level Security (RLS)
 
-> Security model and policy-authoring guide for Basefyio project databases.
+> Security model and policy-authoring guide for basefyio project databases.
 
 Last updated: 2026-04-22
 
@@ -21,7 +21,7 @@ Last updated: 2026-04-22
 
 ## Overview
 
-Every Basefyio project database is bootstrapped to behave like Supabase's RLS surface: three dedicated Postgres roles (`anon`, `authenticated`, `service_role`), an `auth` schema with `uid() / jwt() / role() / email()` helpers, and a per-request role switch that pipes the caller's JWT claims into the session so policies can read them.
+Every basefyio project database is bootstrapped to behave like Supabase's RLS surface: three dedicated Postgres roles (`anon`, `authenticated`, `service_role`), an `auth` schema with `uid() / jwt() / role() / email()` helpers, and a per-request role switch that pipes the caller's JWT claims into the session so policies can read them.
 
 RLS enforcement happens at the database layer. The platform API is not trusted to filter rows by user; Postgres is. That means a correctly-written policy protects the data even if the API has a bug that leaks a record set.
 
@@ -109,7 +109,7 @@ Because the service role always bypasses RLS, we intentionally ignore any Bearer
 
 Postgres skips RLS when the session's current user is the table owner. That is why naive single-user setups need `ALTER TABLE ... FORCE ROW LEVEL SECURITY`: otherwise the application user is the owner, RLS is bypassed, and the policies are decorative.
 
-Basefyio avoids this trap by separating *connection identity* from *effective identity*:
+basefyio avoids this trap by separating *connection identity* from *effective identity*:
 
 - The connection logs in as the table owner (`basefyio_user_<slug>`) because only the owner can create tables, manage schema, and run migrations.
 - Immediately after `BEGIN`, the session runs `SET LOCAL ROLE anon | authenticated | service_role`. From that point on, the session's effective user is one of the non-owner roles.
@@ -119,7 +119,7 @@ Basefyio avoids this trap by separating *connection identity* from *effective id
 `FORCE ROW LEVEL SECURITY` is still useful in two niche cases:
 
 1. Tables that should block even their owner — usually audit logs or compliance tables. Add `FORCE` per-table.
-2. Admin ops that run as the owner but should still obey policies. Basefyio's public API never does this, but a migration script might.
+2. Admin ops that run as the owner but should still obey policies. basefyio's public API never does this, but a migration script might.
 
 If you do add `FORCE`, write a policy that explicitly re-allows the owner, otherwise your migrations will start failing. Example:
 
@@ -302,7 +302,7 @@ If the `authenticated` block returned both rows, RLS did *not* fire — check th
 
 ## Known Limitations
 
-- **Custom JWT claims must match policy expectations.** Basefyio's SDK mints tokens via the project's Keycloak realm. If you write a policy against `auth.jwt() ->> 'team_id'`, that claim must be present on every token. Configure it as a Keycloak client mapper.
+- **Custom JWT claims must match policy expectations.** basefyio's SDK mints tokens via the project's Keycloak realm. If you write a policy against `auth.jwt() ->> 'team_id'`, that claim must be present on every token. Configure it as a Keycloak client mapper.
 - **RLS does not protect the SQL editor or migrations.** Both run as the project owner, which bypasses policies by design. Treat `/sql` access and migration credentials as admin-level.
 - **Pooling and `SET LOCAL`.** `SET LOCAL` is bounded by the transaction, which matches the pool lifecycle safely. Never use `SET ROLE` (session-scoped) in a pooled connection — it would leak between requests.
 - **Indexes on claim columns.** Policies that filter by `auth.uid()` are only fast if the underlying column has an index. `CREATE INDEX ON todos (owner_id);` is almost always worth doing.

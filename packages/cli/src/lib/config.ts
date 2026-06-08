@@ -125,7 +125,7 @@ export function setApiUrl(url: string): void {
   userConfig.set('apiUrl', url);
 }
 
-// Write Basefyio variables into .env without touching existing content.
+// Write basefyio variables into .env without touching existing content.
 // Existing BASEFYIO_* keys are updated in-place; new ones are appended.
 export async function writeEnvFile(
   project: any,
@@ -180,7 +180,7 @@ export async function writeEnvFile(
   const newKeys = Object.keys(basefyioVars).filter((k) => !handled.has(k));
   if (newKeys.length) {
     updatedLines.push('');
-    updatedLines.push('# Basefyio — added by "basefyio init" / "basefyio link"');
+    updatedLines.push('# basefyio — added by "basefyio init" / "basefyio link"');
     for (const key of newKeys) {
       updatedLines.push(`${key}=${basefyioVars[key]}`);
     }
@@ -229,7 +229,7 @@ export async function getLocalEnv(): Promise<Record<string, string>> {
 export async function setLocalEnv(key: string, value: string): Promise<void> {
   const projectRoot = await getProjectRoot();
   if (!projectRoot) {
-    throw new Error('Not in a Basefyio project directory');
+    throw new Error('Not in a basefyio project directory');
   }
 
   const envPath = path.join(projectRoot, '.env');
@@ -263,7 +263,7 @@ export async function setLocalEnv(key: string, value: string): Promise<void> {
 export async function unsetLocalEnv(key: string): Promise<void> {
   const projectRoot = await getProjectRoot();
   if (!projectRoot) {
-    throw new Error('Not in a Basefyio project directory');
+    throw new Error('Not in a basefyio project directory');
   }
 
   const envPath = path.join(projectRoot, '.env');

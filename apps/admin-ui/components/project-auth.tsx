@@ -421,7 +421,7 @@ function ProvidersTab({
     <div className="space-y-6">
       <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
         <Info className="h-4 w-4 shrink-0" />
-        <p>Configure sign-in providers for your app. Users can sign in with enabled providers via Basefyio Auth SDK.</p>
+        <p>Configure sign-in providers for your app. Users can sign in with enabled providers via basefyio Auth SDK.</p>
       </div>
 
       {PROVIDER_DEFS.map((p) => (
@@ -811,7 +811,7 @@ function EmailTab({
           <Badge variant="secondary">Optional</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          By default, emails are sent via Basefyio&apos;s built-in email service.
+          By default, emails are sent via basefyio&apos;s built-in email service.
           Configure a custom provider to send emails from your own domain.
         </p>
 
@@ -822,7 +822,7 @@ function EmailTab({
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           >
-            <option value="">Platform Default (Basefyio)</option>
+            <option value="">Platform Default (basefyio)</option>
             <option value="smtp">Custom SMTP</option>
             <option value="resend">Resend</option>
             <option value="sendgrid">SendGrid</option>
@@ -954,7 +954,7 @@ function EmailTab({
         {!provider && (
           <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
             <Info className="h-4 w-4 shrink-0" />
-            <p>Emails are sent using Basefyio&apos;s built-in service. Select a provider above to use your own.</p>
+            <p>Emails are sent using basefyio&apos;s built-in service. Select a provider above to use your own.</p>
           </div>
         )}
       </div>

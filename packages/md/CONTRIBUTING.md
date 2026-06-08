@@ -1,6 +1,6 @@
-# Contributing to Basefyio CLI
+# Contributing to basefyio CLI
 
-Thank you for your interest in contributing to Basefyio CLI!
+Thank you for your interest in contributing to basefyio CLI!
 
 ## Development Setup
 

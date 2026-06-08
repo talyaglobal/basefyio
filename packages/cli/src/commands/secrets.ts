@@ -7,7 +7,7 @@ export async function listSecrets() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -45,7 +45,7 @@ export async function setSecret(key: string, value: string) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -65,7 +65,7 @@ export async function unsetSecret(key: string) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Basefyio project. Run: basefyio init');
+    error('Not in a basefyio project. Run: basefyio init');
     process.exit(1);
   }
 

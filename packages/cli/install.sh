@@ -1,11 +1,11 @@
 #!/bin/bash
-# Basefyio CLI Installation Script
+# basefyio CLI Installation Script
 
 set -e
 
 echo "╔════════════════════════════════════════════════════════╗"
 echo "║                                                        ║"
-echo "║         Basefyio CLI Installation Script             ║"
+echo "║         basefyio CLI Installation Script             ║"
 echo "║                                                        ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo ""

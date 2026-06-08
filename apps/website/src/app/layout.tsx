@@ -10,9 +10,9 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
 
 const defaultTitle =
-  "Basefyio — PostgreSQL BaaS & REST API for Developers";
+  "basefyio — PostgreSQL BaaS & REST API for Developers";
 const defaultDescription =
-  "Basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
+  "basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = await getSiteUrlFromRequest();
@@ -22,17 +22,17 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase,
     title: {
       default: defaultTitle,
-      template: "%s | Basefyio",
+      template: "%s | basefyio",
     },
     description: defaultDescription,
-    applicationName: "Basefyio",
+    applicationName: "basefyio",
     alternates: {
       types: {
-        "application/rss+xml": [{ url: "/feed.xml", title: "Basefyio Blog" }],
+        "application/rss+xml": [{ url: "/feed.xml", title: "basefyio Blog" }],
       },
     },
     keywords: [
-      "Basefyio",
+      "basefyio",
       "backend as a service",
       "BaaS",
       "developer backend",
@@ -47,12 +47,12 @@ export async function generateMetadata(): Promise<Metadata> {
       "no-code backend",
       "CLI database",
     ],
-    authors: [{ name: "Basefyio" }],
-    creator: "Basefyio",
+    authors: [{ name: "basefyio" }],
+    creator: "basefyio",
     openGraph: {
       type: "website",
       locale: "en_US",
-      siteName: "Basefyio",
+      siteName: "basefyio",
       url: siteUrl,
       title: defaultTitle,
       description: defaultDescription,

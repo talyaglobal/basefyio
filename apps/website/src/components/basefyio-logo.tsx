@@ -19,7 +19,7 @@ export function BasefyioLogo({
       <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
         <Database className="h-4 w-4" aria-hidden />
       </div>
-      <span className="text-lg font-bold gradient-text">Basefyio</span>
+      <span className="text-lg font-bold gradient-text">basefyio</span>
     </Link>
   );
 }

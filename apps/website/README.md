@@ -1,4 +1,4 @@
-# Basefyio marketing site (`apps/website`)
+# basefyio marketing site (`apps/website`)
 
 Next.js app for **basefyio.com**: landing, docs, SEO (metadata, Open Graph, JSON-LD, sitemap, robots).
 

@@ -38,7 +38,7 @@ export class EmailService {
 
   async sendSignupVerifyEmail(to: string, otp: string, firstName?: string) {
     const html = signupVerifyEmailTemplate({ email: to, otp, firstName });
-    return this.send({ to, subject: 'Verify your email to join Basefyio', html });
+    return this.send({ to, subject: 'Verify your email to join basefyio', html });
   }
 
   async sendWelcome(to: string, displayName: string) {
@@ -51,7 +51,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `Welcome to Basefyio, ${displayName}! 🚀`,
+      subject: `Welcome to basefyio, ${displayName}! 🚀`,
       html,
     });
   }
@@ -74,7 +74,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: 'New sign-in to your Basefyio account',
+      subject: 'New sign-in to your basefyio account',
       html,
     });
   }
@@ -101,7 +101,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `${inviterDisplay} invited you to join ${teamName} on Basefyio`,
+      subject: `${inviterDisplay} invited you to join ${teamName} on basefyio`,
       html,
     });
   }
@@ -142,7 +142,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: 'Reset your Basefyio password',
+      subject: 'Reset your basefyio password',
       html,
     });
   }
@@ -168,7 +168,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `Your ${projectName} account has been migrated to Basefyio`,
+      subject: `Your ${projectName} account has been migrated to basefyio`,
       html,
     });
   }
