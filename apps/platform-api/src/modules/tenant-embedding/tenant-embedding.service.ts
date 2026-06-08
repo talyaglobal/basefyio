@@ -145,13 +145,13 @@ export class TenantEmbeddingService {
     try {
       // Dedup check
       const existing = await pool.query<{ id: string }>(
-        `SELECT id FROM basefyio_embeddings WHERE content_hash = $1 AND namespace = $2`,
+        `SELECT id FROM kb_embeddings WHERE content_hash = $1 AND namespace = $2`,
         [hash, namespace],
       );
       if (existing.rows.length > 0) {
         const row = await pool.query<any>(
           `SELECT id, content_hash, namespace, content, metadata, token_count, created_at
-           FROM basefyio_embeddings WHERE id = $1`,
+           FROM kb_embeddings WHERE id = $1`,
           [existing.rows[0].id],
         );
         return this.mapRow(row.rows[0]);
@@ -163,7 +163,7 @@ export class TenantEmbeddingService {
 
       // Insert metadata row
       const insertResult = await pool.query<any>(
-        `INSERT INTO basefyio_embeddings (content_hash, namespace, content, metadata, token_count)
+        `INSERT INTO kb_embeddings (content_hash, namespace, content, metadata, token_count)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, content_hash, namespace, content, metadata, token_count, created_at`,
         [
@@ -178,7 +178,7 @@ export class TenantEmbeddingService {
 
       // Insert vector
       await pool.query(
-        `INSERT INTO basefyio_embeddings_store (id, embedding)
+        `INSERT INTO kb_embeddings_store (id, embedding)
          VALUES ($1, $2::vector)
          ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding`,
         [record.id, toVectorLiteral(embedding.vector)],
@@ -244,8 +244,8 @@ export class TenantEmbeddingService {
           e.content,
           e.metadata,
           (es.embedding <=> $1::vector) AS distance
-        FROM basefyio_embeddings_store es
-        JOIN basefyio_embeddings e ON e.id = es.id
+        FROM kb_embeddings_store es
+        JOIN kb_embeddings e ON e.id = es.id
         WHERE ${conditions.join(' AND ')}
         ORDER BY es.embedding <=> $1::vector
         LIMIT ${limitPlaceholder}
@@ -279,7 +279,7 @@ export class TenantEmbeddingService {
     const pool = this.projectPool(project);
     try {
       const result = await pool.query(
-        `DELETE FROM basefyio_embeddings WHERE id = ANY($1::uuid[])`,
+        `DELETE FROM kb_embeddings WHERE id = ANY($1::uuid[])`,
         [ids],
       );
       return result.rowCount ?? 0;
@@ -296,7 +296,7 @@ export class TenantEmbeddingService {
     const pool = this.projectPool(project);
     try {
       const result = await pool.query(
-        `DELETE FROM basefyio_embeddings WHERE namespace = $1`,
+        `DELETE FROM kb_embeddings WHERE namespace = $1`,
         [namespace],
       );
       return result.rowCount ?? 0;
@@ -333,7 +333,7 @@ export class TenantEmbeddingService {
       const pool = this.projectPool(project);
       try {
         const result = await pool.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM basefyio_embeddings`,
+          `SELECT COUNT(*) AS count FROM kb_embeddings`,
         );
         embeddingCount = parseInt(result.rows[0].count, 10);
       } catch {

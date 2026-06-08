@@ -33,7 +33,7 @@ import {
  * internal and short-lived (TTL'd by lifecycle policy externally, or by
  * cancellation/completion cleanup).
  */
-const STAGING_BUCKET = 'basefyio-platform-data-imports';
+const STAGING_BUCKET = 'kb-platform-data-imports';
 
 @Injectable()
 export class DataImportService {
@@ -55,8 +55,8 @@ export class DataImportService {
     @InjectQueue(DATA_IMPORT_QUEUE) private readonly queue: Queue,
     private readonly activity: ProjectActivityService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'basefyio';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'basefyio_secret';
+    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
     this.minio = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,

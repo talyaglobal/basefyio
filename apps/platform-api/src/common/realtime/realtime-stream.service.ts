@@ -59,7 +59,7 @@ export class RealtimeStreamService {
     for (const [, client] of RealtimeStreamService.clients) {
       const matched = Array.from(targets).some((ch) => client.channels.has(ch));
       if (!matched) continue;
-      client.res.write(`event: basefyio_event\n`);
+      client.res.write(`event: kb_event\n`);
       client.res.write(`data: ${payload}\n\n`);
     }
   }

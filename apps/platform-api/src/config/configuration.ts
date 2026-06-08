@@ -5,9 +5,9 @@ export default () => ({
   database: {
     host: process.env.POSTGRES_HOST || 'localhost',
     port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
-    user: process.env.POSTGRES_USER || 'basefyio',
-    password: process.env.POSTGRES_PASSWORD || 'basefyio_secret',
-    name: process.env.POSTGRES_DB || 'basefyio',
+    user: process.env.POSTGRES_USER || 'kolaybase',
+    password: process.env.POSTGRES_PASSWORD || 'kolaybase_secret',
+    name: process.env.POSTGRES_DB || 'kolaybase',
   },
 
   keycloak: {
@@ -16,7 +16,7 @@ export default () => ({
     adminUser: process.env.KEYCLOAK_ADMIN_USER || 'admin',
     adminPassword: process.env.KEYCLOAK_ADMIN_PASSWORD || 'admin',
     adminClientId: process.env.KEYCLOAK_ADMIN_CLIENT_ID || 'admin-cli',
-    /** Comma- or space-separated extra post-logout redirect URIs for basefyio-platform (production domains, etc.) */
+    /** Comma- or space-separated extra post-logout redirect URIs for kolaybase-platform (production domains, etc.) */
     postLogoutRedirectUrisExtra: process.env.KEYCLOAK_POST_LOGOUT_REDIRECT_URIS || '',
   },
 
@@ -24,8 +24,8 @@ export default () => ({
     endpoint: process.env.MINIO_ENDPOINT || 'localhost',
     port: parseInt(process.env.MINIO_PORT || '9000', 10),
     useSsl: process.env.MINIO_USE_SSL === 'true',
-    accessKey: process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || 'basefyio',
-    secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || 'basefyio_secret',
+    accessKey: process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || 'kolaybase',
+    secretKey: process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || 'kolaybase_secret',
     publicEndpoint: process.env.MINIO_PUBLIC_ENDPOINT || 'localhost',
     publicPort: parseInt(process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000', 10),
     publicSsl: process.env.MINIO_PUBLIC_SSL || 'false',
@@ -109,7 +109,7 @@ export default () => ({
 
   docker: {
     socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
-    network: process.env.DOCKER_NETWORK || 'v0-basefyio_default',
+    network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',
     pgImage: process.env.DOCKER_PG_IMAGE || 'pgvector/pgvector:pg16',
     minioImage: process.env.DOCKER_MINIO_IMAGE || 'minio/minio:latest',
   },

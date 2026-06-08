@@ -8,7 +8,7 @@
 --   * Default privileges so future tables owned by the project owner
 --     are visible to authenticated/service_role (RLS still applies).
 --
--- The project owner (basefyio_user_<slug>) remains the table owner, but
+-- The project owner (kb_user_<random>) remains the table owner, but
 -- PublicApiService sets LOCAL ROLE to anon / authenticated / service_role
 -- before each statement so RLS policies are enforced.
 
@@ -30,7 +30,7 @@ END$$;
 
 -- The project's login role needs to be able to SET ROLE to each of these.
 -- %KB_PROJECT_OWNER% is replaced by projects.service.ts with the sanitized
--- dbUser (e.g. basefyio_user_myproj).
+-- dbUser (e.g. kb_user_myproj).
 GRANT anon, authenticated, service_role TO "%KB_PROJECT_OWNER%";
 
 -- ─────────────────────────────────────────────────────────────

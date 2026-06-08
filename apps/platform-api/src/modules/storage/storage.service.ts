@@ -34,7 +34,7 @@ export interface BucketSummary {
 }
 
 /** Platform-wide bucket for user feedback screenshots / clips (not project-scoped). */
-const FEEDBACK_ATTACHMENTS_BUCKET = 'basefyio-platform-feedback';
+const FEEDBACK_ATTACHMENTS_BUCKET = 'kb-platform-feedback';
 
 @Injectable()
 export class StorageService {
@@ -50,8 +50,8 @@ export class StorageService {
     private readonly config: ConfigService,
     private readonly quota: QuotaService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'basefyio';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'basefyio_secret';
+    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
 
     this.client = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
@@ -75,7 +75,7 @@ export class StorageService {
   }
 
   private minioBucketName(projectSlug: string, bucketName: string): string {
-    return `basefyio-${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return `kb-${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
   /**
@@ -83,11 +83,11 @@ export class StorageService {
    * of {@link minioBucketName} for that slug (any logical bucket name).
    */
   private minioProjectPrefix(projectSlug: string): string {
-    return `basefyio-${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return `kb-${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
   /**
-   * Shared MinIO: bucket `basefyio-warebnb-2-docs` starts with `basefyio-warebnb-` so it was
+   * Shared MinIO: bucket `kb-warebnb-2-docs` starts with `kb-warebnb-` so it was
    * wrongly listed under slug `warebnb` as "2-docs" unless a sibling `warebnb-2`
    * row existed. Resolve owner by longest matching project prefix among all active projects.
    */
@@ -223,7 +223,7 @@ export class StorageService {
 
   /**
    * Delete MinIO buckets for this project that are not in the remote source list.
-   * Fixes ghost buckets like `2-docs` when physical name is `basefyio-{slug}-2-docs` (same
+   * Fixes ghost buckets like `2-docs` when physical name is `kb-{slug}-2-docs` (same
    * project prefix as `docs`) — listing logic cannot tell them apart without this cleanup.
    */
   async pruneProjectStorageBuckets(

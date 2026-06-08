@@ -34,7 +34,7 @@ export function subscribeBasefyioRealtime(
     });
     source = new EventSource(`/api/proxy/realtime/stream?${params.toString()}`);
 
-    source.addEventListener('basefyio_event', (raw) => {
+    source.addEventListener('kb_event', (raw) => {
       try {
         const evt = raw as MessageEvent<string>;
         const event = JSON.parse(evt.data) as RealtimeEventEnvelope;
