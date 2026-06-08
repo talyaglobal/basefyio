@@ -1,14 +1,13 @@
 {
-  "name": "kolaybase-cli",
+  "name": "basefyio-cli",
   "publishConfig": {
     "access": "public"
   },
   "version": "1.2.1",
-  "description": "Kolaybase CLI — manage your backend projects from the terminal",
+  "description": "Basefyio CLI — manage your backend projects from the terminal",
   "type": "module",
   "bin": {
-    "kb": "./dist/index.js",
-    "kolaybase": "./dist/index.js"
+    "basefyio": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -30,7 +29,7 @@
     "url": "https://github.com/fsipka/kolaybase-new/issues"
   },
   "keywords": [
-    "kolaybase",
+    "basefyio",
     "cli",
     "backend",
     "database",

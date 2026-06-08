@@ -1,4 +1,4 @@
-# Kolaybase CLI - Build and Installation Guide
+# Basefyio CLI - Build and Installation Guide
 
 ## Quick Start
 
@@ -23,25 +23,25 @@ This creates the `dist/` directory with compiled JavaScript files.
 npm link
 ```
 
-Now you can use `kb` command globally on your system.
+Now you can use `basefyio` command globally on your system.
 
 ### Test the CLI
 
 ```bash
 # Check version
-kb --version
+basefyio --version
 
 # Show help
-kb --help
+basefyio --help
 
 # Try a command
-kb status
+basefyio status
 ```
 
 ### Unlink when done
 
 ```bash
-npm unlink -g kolaybase-cli
+npm unlink -g basefyio-cli
 ```
 
 ## Development Workflow
@@ -57,7 +57,7 @@ npm run dev
 In another terminal, test your changes:
 
 ```bash
-kb <command>
+basefyio <command>
 ```
 
 ### Clean Build
@@ -81,40 +81,40 @@ The CLI is built with:
 ## Available Commands
 
 ### Authentication
-- `kb login` - Login to platform
+- `basefyio login` - Login to platform
 
 ### Project Management
-- `kb init` - Initialize project
-- `kb projects` - List projects
-- `kb projects:create` - Create project
-- `kb projects:delete <id>` - Delete project
-- `kb link` - Link to project
-- `kb unlink` - Unlink project
+- `basefyio init` - Initialize project
+- `basefyio projects` - List projects
+- `basefyio projects:create` - Create project
+- `basefyio projects:delete <id>` - Delete project
+- `basefyio link` - Link to project
+- `basefyio unlink` - Unlink project
 
 ### Development
-- `kb start` - Start local environment
-- `kb stop` - Stop environment
-- `kb status` - Show status
+- `basefyio start` - Start local environment
+- `basefyio stop` - Stop environment
+- `basefyio status` - Show status
 
 ### Database
-- `kb db push` - Push schema
-- `kb db pull` - Pull schema
-- `kb db reset` - Reset database
-- `kb db seed` - Seed database
-- `kb db diff` - Show differences
+- `basefyio db push` - Push schema
+- `basefyio db pull` - Pull schema
+- `basefyio db reset` - Reset database
+- `basefyio db seed` - Seed database
+- `basefyio db diff` - Show differences
 
 ### Code Generation
-- `kb gen types` - Generate types
-- `kb gen client` - Generate client
+- `basefyio gen types` - Generate types
+- `basefyio gen client` - Generate client
 
 ### Monitoring
-- `kb logs` - View logs
-- `kb logs --sql` - SQL audit logs
+- `basefyio logs` - View logs
+- `basefyio logs --sql` - SQL audit logs
 
 ### Secrets
-- `kb secrets list` - List secrets
-- `kb secrets set <key> <value>` - Set secret
-- `kb secrets unset <key>` - Remove secret
+- `basefyio secrets list` - List secrets
+- `basefyio secrets set <key> <value>` - Set secret
+- `basefyio secrets unset <key>` - Remove secret
 
 ## Publishing (For Maintainers)
 
@@ -140,8 +140,8 @@ npm publish --access public
 ### Verify Publication
 
 ```bash
-npm install -g kolaybase-cli
-kb --version
+npm install -g basefyio-cli
+basefyio --version
 ```
 
 ## Troubleshooting
@@ -149,7 +149,7 @@ kb --version
 ### Command not found after linking
 
 ```bash
-npm unlink -g kolaybase-cli
+npm unlink -g basefyio-cli
 npm link
 ```
 

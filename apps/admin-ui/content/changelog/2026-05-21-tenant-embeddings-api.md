@@ -7,13 +7,13 @@ version: v1.1.1
 summary: Enable pgvector on your project database, store embeddings via a simple REST API, and add semantic search or RAG to your application in minutes.
 ---
 
-Until now, the AI-powered semantic search we shipped was limited to Kolaybase's own admin dashboard — searching your SQL history, schemas, and activity logs. You couldn't use it to build AI features in **your** application.
+Until now, the AI-powered semantic search we shipped was limited to Basefyio's own admin dashboard — searching your SQL history, schemas, and activity logs. You couldn't use it to build AI features in **your** application.
 
 That changes today.
 
 ## What's new?
 
-Every Kolaybase project can now enable **pgvector** directly on its own database and use a new **Embeddings REST API** to store, search, and manage vector embeddings. This gives you everything you need to build:
+Every Basefyio project can now enable **pgvector** directly on its own database and use a new **Embeddings REST API** to store, search, and manage vector embeddings. This gives you everything you need to build:
 
 - **Semantic search** — Find content by meaning, not exact keywords
 - **RAG (Retrieval-Augmented Generation)** — Feed relevant context to an LLM before it answers
@@ -37,10 +37,10 @@ That's it. Your project is now ready to accept embeddings.
 
 ## Storing embeddings
 
-Send your text content to the API. Kolaybase generates the embedding vector automatically using OpenAI's `text-embedding-3-small` model.
+Send your text content to the API. Basefyio generates the embedding vector automatically using OpenAI's `text-embedding-3-small` model.
 
 ```bash
-curl -X POST https://your-api.kolaybase.com/rest/v1/embeddings \
+curl -X POST https://your-api.basefyio.com/rest/v1/embeddings \
   -H "apikey: YOUR_SERVICE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -63,7 +63,7 @@ Duplicate content within the same namespace is automatically deduplicated — se
 Store up to many items in a single call:
 
 ```bash
-curl -X POST https://your-api.kolaybase.com/rest/v1/embeddings/batch \
+curl -X POST https://your-api.basefyio.com/rest/v1/embeddings/batch \
   -H "apikey: YOUR_SERVICE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -82,7 +82,7 @@ curl -X POST https://your-api.kolaybase.com/rest/v1/embeddings/batch \
 This is where it gets powerful. Search by **meaning**, not keywords:
 
 ```bash
-curl -X POST https://your-api.kolaybase.com/rest/v1/embeddings/search \
+curl -X POST https://your-api.basefyio.com/rest/v1/embeddings/search \
   -H "apikey: YOUR_ANON_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -160,7 +160,7 @@ That's the entire RAG pipeline. Three API calls, no infrastructure to manage.
 Remove specific embeddings by ID:
 
 ```bash
-curl -X DELETE https://your-api.kolaybase.com/rest/v1/embeddings \
+curl -X DELETE https://your-api.basefyio.com/rest/v1/embeddings \
   -H "apikey: YOUR_SERVICE_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "ids": ["a1b2c3d4-...", "e5f6g7h8-..."] }'
@@ -169,7 +169,7 @@ curl -X DELETE https://your-api.kolaybase.com/rest/v1/embeddings \
 Or wipe an entire namespace (requires service key):
 
 ```bash
-curl -X DELETE https://your-api.kolaybase.com/rest/v1/embeddings/namespace \
+curl -X DELETE https://your-api.basefyio.com/rest/v1/embeddings/namespace \
   -H "apikey: YOUR_SERVICE_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "namespace": "old-docs" }'
@@ -213,7 +213,7 @@ Each project can optionally have its own OpenAI API key. If not set, the platfor
 Set it from the **AI / Embeddings** page in your project settings, or via the admin API:
 
 ```bash
-curl -X POST https://your-api.kolaybase.com/projects/YOUR_PROJECT_ID/embeddings/api-key \
+curl -X POST https://your-api.basefyio.com/projects/YOUR_PROJECT_ID/embeddings/api-key \
   -H "Authorization: Bearer YOUR_JWT" \
   -H "Content-Type: application/json" \
   -d '{ "apiKey": "sk-..." }'

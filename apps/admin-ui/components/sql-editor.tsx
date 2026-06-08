@@ -32,7 +32,7 @@ function createTab(index: number): SqlTab {
 }
 
 export function SqlEditor({ projectId }: SqlEditorProps) {
-  const storageKey = `kb_sql_editor_tabs_${projectId}`;
+  const storageKey = `basefyio_sql_editor_tabs_${projectId}`;
   const [tabs, setTabs] = useState<SqlTab[]>([createTab(1)]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [runningTabId, setRunningTabId] = useState<string | null>(null);

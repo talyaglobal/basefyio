@@ -1,6 +1,6 @@
-# Contributing to Kolaybase CLI
+# Contributing to Basefyio CLI
 
-Thank you for your interest in contributing to Kolaybase CLI!
+Thank you for your interest in contributing to Basefyio CLI!
 
 ## Development Setup
 
@@ -14,8 +14,8 @@ Thank you for your interest in contributing to Kolaybase CLI!
 
 ```bash
 # Clone the repository
-git clone https://github.com/fsipka/kolaybase-new.git
-cd v0-kolaybase/packages/cli
+git clone https://github.com/fsipka/basefyio-new.git
+cd v0-basefyio/packages/cli
 
 # Install dependencies
 npm install
@@ -34,11 +34,11 @@ npm link
 npm run dev
 
 # Test your changes
-kb --version
-kb <command>
+basefyio --version
+basefyio <command>
 
 # Unlink when done
-npm unlink -g kolaybase-cli
+npm unlink -g basefyio-cli
 ```
 
 ## Project Structure
@@ -207,7 +207,7 @@ Add entry under `[Unreleased]`:
 
 ```markdown
 ### Added
-- New command: `kb mycommand` - does something useful
+- New command: `basefyio mycommand` - does something useful
 ```
 
 ### Add Examples
@@ -219,10 +219,10 @@ Add practical examples to `EXAMPLES.md`:
 
 \`\`\`bash
 # Step 1
-kb mycommand --option value
+basefyio mycommand --option value
 
 # Step 2
-kb another-command
+basefyio another-command
 \`\`\`
 ```
 
@@ -244,7 +244,7 @@ kb another-command
    ```bash
    npm run build
    npm link
-   kb mycommand  # Test your changes
+   basefyio mycommand  # Test your changes
    ```
 
 5. **Commit with clear message**

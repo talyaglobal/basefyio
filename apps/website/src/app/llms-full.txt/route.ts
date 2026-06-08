@@ -1,11 +1,11 @@
-import { generateLlmsFullTxt } from "@kolaybase/geo";
+import { generateLlmsFullTxt } from "@basefyio/geo";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import { createGeoProfile } from "@/lib/geo/profile";
 
 /**
  * /llms-full.txt — the llms.txt map plus the inlined, answer-bearing content
- * (FAQs and how-tos) so an engine can quote Kolaybase verbatim without a second
- * fetch. Built from the shared GEO profile via @kolaybase/geo.
+ * (FAQs and how-tos) so an engine can quote Basefyio verbatim without a second
+ * fetch. Built from the shared GEO profile via @basefyio/geo.
  */
 export const dynamic = "force-dynamic";
 

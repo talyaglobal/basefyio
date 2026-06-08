@@ -1,4 +1,4 @@
-# Rebuild and restart Kolaybase app images (admin-ui + platform-api).
+# Rebuild and restart Basefyio app images (admin-ui + platform-api).
 # Run from repo root:  pwsh ./scripts/docker-rebuild-apps.ps1
 # Or from scripts/:    pwsh ./docker-rebuild-apps.ps1
 $ErrorActionPreference = "Stop"

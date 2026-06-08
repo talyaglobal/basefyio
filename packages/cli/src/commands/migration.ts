@@ -6,7 +6,7 @@ import { getProjectConfig } from '../lib/config.js';
 import { success, error, info, warning, createSpinner } from '../lib/ui.js';
 
 const MIGRATIONS_DIR = 'migrations';
-const TRACKING_TABLE = '_kb_migrations';
+const TRACKING_TABLE = '_basefyio_migrations';
 
 // ── Ensure tracking table exists ─────────────────────────────
 
@@ -70,7 +70,7 @@ async function getLocalMigrations(): Promise<string[]> {
 
 export async function migrationNew(name: string) {
   if (!name?.trim()) {
-    error('Provide a migration name:  kb migration new <name>');
+    error('Provide a migration name:  basefyio migration new <name>');
     process.exit(1);
   }
 
@@ -106,7 +106,7 @@ export async function migrationNew(name: string) {
 export async function migrationStatus() {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 
@@ -120,7 +120,7 @@ export async function migrationStatus() {
 
     if (!local.length) {
       info('No migration files found in ./migrations/');
-      console.log(chalk.gray('  Create one:  kb migration new <name>'));
+      console.log(chalk.gray('  Create one:  basefyio migration new <name>'));
       return;
     }
 
@@ -141,7 +141,7 @@ export async function migrationStatus() {
     console.log();
     console.log(chalk.gray(`  ${local.length} migration(s) — ${applied.size} applied, ${pendingCount} pending`));
     if (pendingCount > 0) {
-      console.log(chalk.gray('  Run  kb migration up  to apply pending migrations'));
+      console.log(chalk.gray('  Run  basefyio migration up  to apply pending migrations'));
     }
   } catch (err) {
     spinner.fail('Failed to get migration status');
@@ -157,7 +157,7 @@ interface UpOptions {
 export async function migrationUp(options: UpOptions = {}) {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 
@@ -211,7 +211,7 @@ export async function migrationUp(options: UpOptions = {}) {
       } catch (err: any) {
         sp.fail(`Failed: ${file}`);
         error(err.message || String(err));
-        error('Migration stopped. Fix the error and run  kb migration up  again.');
+        error('Migration stopped. Fix the error and run  basefyio migration up  again.');
         process.exit(1);
       }
     }
@@ -232,7 +232,7 @@ interface DownOptions {
 export async function migrationDown(options: DownOptions = {}) {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 

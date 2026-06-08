@@ -1,4 +1,4 @@
-# Kolaybase
+# Basefyio
 
 A production-grade, self-hosted, multi-tenant backend platform.  
 Each project gets its own PostgreSQL database and Keycloak authentication realm.
@@ -45,13 +45,13 @@ Each project gets its own PostgreSQL database and Keycloak authentication realm.
 
 ```bash
 # Install CLI
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 
 # Clone repository
-git clone <repo-url> kolaybase && cd kolaybase
+git clone <repo-url> basefyio && cd basefyio
 
 # Start everything with one command
-kb start
+basefyio start
 ```
 
 The CLI will:
@@ -68,7 +68,7 @@ Login at `http://localhost:3000/login` with credentials: `admin` / `admin`
 ### 1. Clone & configure
 
 ```bash
-git clone <repo-url> kolaybase && cd kolaybase
+git clone <repo-url> basefyio && cd basefyio
 cp .env.example .env
 ```
 
@@ -107,18 +107,18 @@ The UI runs on `http://localhost:3000`.
 
 Sign in at `http://localhost:3000/login` with your Keycloak master-realm admin credentials (default: `admin` / `admin`).
 
-## Kolaybase CLI
+## Basefyio CLI
 
-We provide a powerful CLI tool (similar to common hosted Postgres CLIs) for managing your Kolaybase projects:
+We provide a powerful CLI tool (similar to common hosted Postgres CLIs) for managing your Basefyio projects:
 
 ```bash
 # Install CLI globally
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 
 # Quick start
-kb login
-kb init
-kb start
+basefyio login
+basefyio init
+basefyio start
 ```
 
 **Key features:**
@@ -134,7 +134,7 @@ See [CLI documentation](./packages/cli/README.md) for details.
 ## Project Structure
 
 ```
-kolaybase/
+basefyio/
 ├── docker-compose.yml
 ├── scripts/
 │   └── init-db.sql
@@ -160,7 +160,7 @@ kolaybase/
 │       │   └── ui/            # shadcn/ui primitives
 │       └── lib/               # API client, auth, types
 ├── packages/
-│   └── cli/                   # Kolaybase CLI
+│   └── cli/                   # Basefyio CLI
 │       ├── src/
 │       │   ├── commands/      # All CLI commands
 │       │   └── lib/           # Utilities and API client
@@ -174,8 +174,8 @@ kolaybase/
 
 When you create a project, the platform:
 
-1. Creates a dedicated PostgreSQL database (`kb_<slug>`)
-2. Creates a Keycloak realm (`kb-<slug>`)
+1. Creates a dedicated PostgreSQL database (`basefyio_<slug>`)
+2. Creates a Keycloak realm (`basefyio-<slug>`)
 3. Provisions a public client (anon) and a confidential service client
 4. Returns `anonKey` and `serviceKey` for downstream use
 

@@ -136,8 +136,8 @@ ${bold('Usage')}
                                   --no-user      block on-demand browsing bots
 
 ${dim('Examples')}
-  geo audit https://kolaybase.com
-  geo audit kolaybase.com --json
+  geo audit https://basefyio.com
+  geo audit basefyio.com --json
   geo robots --no-training >> robots.txt
 `);
   return 0;

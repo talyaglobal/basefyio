@@ -67,7 +67,7 @@ import {
   List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -119,14 +119,14 @@ const DELETE_REASONS = [
   { code: 'support', label: 'I was not satisfied with the customer support I received.' },
   { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
   { code: 'too_expensive', label: 'Too expensive' },
-  { code: 'missing_feature', label: 'Kolaybase is missing a specific feature I need.' },
+  { code: 'missing_feature', label: 'Basefyio is missing a specific feature I need.' },
   { code: 'company_closed', label: 'My company went out of business or was acquired.' },
   { code: 'difficult', label: 'I found it difficult to use or build with.' },
   { code: 'none', label: 'None of the above' },
 ] as const;
 
 // ── Session state key ─────────────────────────────────────────────────────────
-const SESSION_KEY = 'kb_projects_state';
+const SESSION_KEY = 'basefyio_projects_state';
 
 interface ProjectsState {
   selectedFolder: string;
@@ -138,7 +138,7 @@ interface ProjectsState {
 }
 
 type ProjectsViewMode = 'grid' | 'list';
-const PROJECTS_VIEW_MODE_KEY = 'kb_projects_view_mode';
+const PROJECTS_VIEW_MODE_KEY = 'basefyio_projects_view_mode';
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -355,7 +355,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
-    const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribeBasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
       if (event.entityType === 'project' || event.entityType === 'project_activity' || event.entityType === 'team') {
         void loadAllRef.current();
@@ -1178,7 +1178,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {loadingTrash ? (
-                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
                     ))}
@@ -1190,7 +1190,7 @@ export default function ProjectsPage() {
                     <p className="text-xs mt-1">Deleted projects will appear here</p>
                   </div>
                 ) : (
-                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deletedProjects.map((project) => {
                       const displayName = project.name.replace(/_(\d+_)?deleted$/, '');
                       return (
@@ -1272,7 +1272,7 @@ export default function ProjectsPage() {
             <div className="p-6">
               {loading ? (
                 viewMode === 'grid' ? (
-                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {Array.from({ length: 6 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-48 animate-pulse" />
                     ))}
@@ -1291,7 +1291,7 @@ export default function ProjectsPage() {
                 />
               ) : (
                 viewMode === 'grid' ? (
-                  <div className="kb-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {filtered.map((project) => (
                       <DroppableProjectCard
                         key={project.id}

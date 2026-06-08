@@ -133,7 +133,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     (async () => {
       try {
         await api.teams.setActive(routeProject.teamId);
-        Cookies.set('kb_active_team', routeProject.teamId, { expires: 365 });
+        Cookies.set('basefyio_active_team', routeProject.teamId, { expires: 365 });
         onTeamChange(routeProject.teamId, { source: 'route-sync' });
       } catch {
         /* keep header label even if team switch fails */
@@ -184,7 +184,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   async function switchTeam(teamId: string) {
     try {
       await api.teams.setActive(teamId);
-      Cookies.set('kb_active_team', teamId, { expires: 365 });
+      Cookies.set('basefyio_active_team', teamId, { expires: 365 });
       onTeamChange(teamId, { source: 'user-switch' });
       setDropdownOpen(false);
       setProjectsMenuOpen(false);
@@ -200,7 +200,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       const team = await api.teams.create(newTeamName.trim());
       await api.teams.setActive(team.id);
       import('js-cookie').then(({ default: Cookies }) => {
-        Cookies.set('kb_active_team', team.id, { expires: 365 });
+        Cookies.set('basefyio_active_team', team.id, { expires: 365 });
       });
       onTeamChange(team.id, { source: 'user-switch' });
       setNewTeamName('');
@@ -225,7 +225,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
     // Clear local tokens and cookies before any async work so the UI
     // reflects the signed-out state immediately.
     clearTokens();
-    Cookies.remove('kb_active_team');
+    Cookies.remove('basefyio_active_team');
 
     // Revoke tokens and clear Keycloak browser SSO so another Google/GitHub account can sign in.
     if (refreshToken) {
@@ -256,7 +256,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>
-          <span className="hidden text-lg font-bold gradient-text sm:inline">Kolaybase</span>
+          <span className="hidden text-lg font-bold gradient-text sm:inline">Basefyio</span>
         </Link>
 
         {/* Primary nav links */}
@@ -666,7 +666,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   );
 }
 
-const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com';
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
 
 const docsLinks = [
   { label: 'Overview', href: '/docs', icon: Book },

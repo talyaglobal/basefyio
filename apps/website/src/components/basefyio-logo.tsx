@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { Database } from "lucide-react";
 
-type KolaybaseLogoProps = {
+type BasefyioLogoProps = {
   href?: string;
   className?: string;
 };
 
 /** Matches admin-ui header: gradient tile + Database icon + gradient wordmark. */
-export function KolaybaseLogo({
+export function BasefyioLogo({
   href = "/",
   className = "",
-}: KolaybaseLogoProps) {
+}: BasefyioLogoProps) {
   return (
     <Link
       href={href}
@@ -19,7 +19,7 @@ export function KolaybaseLogo({
       <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
         <Database className="h-4 w-4" aria-hidden />
       </div>
-      <span className="text-lg font-bold gradient-text">Kolaybase</span>
+      <span className="text-lg font-bold gradient-text">Basefyio</span>
     </Link>
   );
 }

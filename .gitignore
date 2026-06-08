@@ -25,8 +25,8 @@ coverage/
 prisma/*.db
 prisma/migrations/**/migration_lock.toml
 
-# Local project link (created by `kb link`)
-.kolaybase/
+# Local project link (created by `basefyio link`)
+.basefyio/
 
 # graphify knowledge graph output
 graphify-out/

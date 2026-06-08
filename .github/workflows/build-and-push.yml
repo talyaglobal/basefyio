@@ -27,7 +27,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/kolaybase-api
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/basefyio-api
           tags: |
             type=sha
             type=raw,value=latest
@@ -58,7 +58,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/kolaybase-ui
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/basefyio-ui
           tags: |
             type=sha
             type=raw,value=latest
@@ -91,7 +91,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/kolaybase-website
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/basefyio-website
           tags: |
             type=sha
             type=raw,value=latest
@@ -104,7 +104,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NEXT_PUBLIC_SITE_URL=https://kolaybase.com
+            NEXT_PUBLIC_SITE_URL=https://basefyio.com
 
   # ── Deploy (her production push'unda, build'lerden sonra) ──
   deploy:

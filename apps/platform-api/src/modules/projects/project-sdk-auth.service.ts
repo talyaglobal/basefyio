@@ -543,7 +543,7 @@ export class ProjectSdkAuthService {
 
     const from = rawCfg.senderEmail
       ? `${rawCfg.senderName || projectName} <${rawCfg.senderEmail}>`
-      : `${projectName} <noreply@kolaybase.com>`;
+      : `${projectName} <noreply@basefyio.com>`;
 
     await transporter.sendMail({
       from, to, subject,

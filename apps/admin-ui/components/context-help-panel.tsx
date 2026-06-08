@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils';
 import { getHelpForPath } from '@/lib/context-help-data';
 import type { HelpContent } from '@/lib/context-help-data';
 
-const STORAGE_KEY = 'kb_context_help_open';
-const DOCS_BASE = process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com';
+const STORAGE_KEY = 'basefyio_context_help_open';
+const DOCS_BASE = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
 
 function readStored(): boolean {
   if (typeof window === 'undefined') return false;

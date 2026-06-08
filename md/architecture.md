@@ -1,6 +1,6 @@
 # Architecture
 
-> Detailed architecture documentation for the Kolaybase platform.
+> Detailed architecture documentation for the Basefyio platform.
 
 Last updated: 2026-02-23
 
@@ -16,7 +16,7 @@ Last updated: 2026-02-23
 
 ## Overview
 
-Kolaybase is a multi-tenant backend-as-a-service platform. It follows a control-plane / data-plane separation:
+Basefyio is a multi-tenant backend-as-a-service platform. It follows a control-plane / data-plane separation:
 
 - **Control plane**: Admin UI + Platform API — manages projects, users, and infrastructure
 - **Data plane**: Per-project PostgreSQL databases and Keycloak realms — serves application data and auth
@@ -31,7 +31,7 @@ Kolaybase is a multi-tenant backend-as-a-service platform. It follows a control-
 | `projects` | CRUD, database provisioning, realm creation  |
 | `sql`      | Secure query execution against project DBs   |
 
-The API stores metadata in a central `kolaybase` PostgreSQL database via Prisma ORM.
+The API stores metadata in a central `basefyio` PostgreSQL database via Prisma ORM.
 
 ### Admin UI (Next.js)
 
@@ -48,8 +48,8 @@ Protected by middleware that checks for a valid JWT cookie.
 
 Each project consists of:
 
-1. **PostgreSQL database** — named `kb_<slug>`, created on the shared PostgreSQL server
-2. **Keycloak realm** — named `kb-<slug>`, with public + service clients
+1. **PostgreSQL database** — named `basefyio_<slug>`, created on the shared PostgreSQL server
+2. **Keycloak realm** — named `basefyio-<slug>`, with public + service clients
 
 Future additions:
 - PostgREST per project (auto-generated REST API)
@@ -71,7 +71,7 @@ Admin UI → POST /api/auth/login (username, password)
 ### Project User Authentication
 
 ```
-Client App → Keycloak realm (kb-<slug>) → OIDC / password grant
+Client App → Keycloak realm (basefyio-<slug>) → OIDC / password grant
            → JWT scoped to project realm
            → used for PostgREST / data-plane access (future)
 ```
@@ -81,10 +81,10 @@ Client App → Keycloak realm (kb-<slug>) → OIDC / password grant
 ### Creation
 
 1. Validate project name → generate slug
-2. `CREATE DATABASE "kb_<slug>"` on PostgreSQL
-3. Create Keycloak realm `kb-<slug>`
-4. Create public client (`kb-<slug>-anon`)
-5. Create confidential client (`kb-<slug>-service`) with secret
+2. `CREATE DATABASE "basefyio_<slug>"` on PostgreSQL
+3. Create Keycloak realm `basefyio-<slug>`
+4. Create public client (`basefyio-<slug>-anon`)
+5. Create confidential client (`basefyio-<slug>-service`) with secret
 6. Store metadata in `projects` table
 
 If Keycloak provisioning fails, the database is rolled back (dropped).
@@ -93,7 +93,7 @@ If Keycloak provisioning fails, the database is rolled back (dropped).
 
 1. Delete Keycloak realm (best-effort)
 2. Terminate active connections to project database
-3. `DROP DATABASE "kb_<slug>"`
+3. `DROP DATABASE "basefyio_<slug>"`
 4. Mark project as `DELETED` (soft delete in metadata)
 
 ## SQL Execution Pipeline

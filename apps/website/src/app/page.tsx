@@ -13,7 +13,7 @@ import {
   Server,
   GitBranch,
 } from "lucide-react";
-import { KolaybaseLogo } from "@/components/kolaybase-logo";
+import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
@@ -27,9 +27,9 @@ import {
 } from "@/lib/site-url";
 
 const ogTitle =
-  "Kolaybase — The Open Source Supabase Alternative";
+  "Basefyio — The Open Source Supabase Alternative";
 const ogDescription =
-  "Kolaybase: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
+  "Basefyio: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {
@@ -127,7 +127,7 @@ export default async function Home() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg transition-all duration-200">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <KolaybaseLogo />
+          <BasefyioLogo />
           <nav className="flex items-center gap-6">
             <Link
               href="#pricing"
@@ -136,7 +136,7 @@ export default async function Home() {
               Pricing
             </Link>
             <Link
-              href="#why-kolaybase"
+              href="#why-basefyio"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               Why us
@@ -383,10 +383,10 @@ export default async function Home() {
               </li>
               <li>
                 <Link
-                  href="#why-kolaybase"
+                  href="#why-basefyio"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  Why Kolaybase
+                  Why Basefyio
                 </Link>
               </li>
               <li>
@@ -509,10 +509,10 @@ export default async function Home() {
           </div>
           <div>
             <span className="text-sm font-semibold text-foreground">
-              Kolaybase
+              Basefyio
             </span>
             <p className="mt-3 text-sm text-muted-foreground">
-              © {new Date().getFullYear()} Kolaybase
+              © {new Date().getFullYear()} Basefyio
             </p>
           </div>
         </div>

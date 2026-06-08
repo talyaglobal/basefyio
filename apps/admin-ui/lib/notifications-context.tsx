@@ -4,10 +4,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
-import { subscribeKbRealtime } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
-export const KB_NOTIFY_EVENT = 'kb-notify-event';
+export const BASEFYIO_NOTIFY_EVENT = 'basefyio-notify-event';
 
 type AppNotificationType = 'ai' | 'import' | 'feedback';
 
@@ -62,9 +62,9 @@ function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function dispatchKbNotification(payload: NotifyPayload) {
+export function dispatchBasefyioNotification(payload: NotifyPayload) {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(KB_NOTIFY_EVENT, { detail: payload }));
+  window.dispatchEvent(new CustomEvent(BASEFYIO_NOTIFY_EVENT, { detail: payload }));
 }
 
 export function useNotifications() {
@@ -106,7 +106,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       try {
         const browserNotification = new Notification(payload.title, {
           body: payload.message,
-          tag: `kb-${payload.type}-${payload.href ?? ''}`,
+          tag: `basefyio-${payload.type}-${payload.href ?? ''}`,
         });
         if (payload.href) {
           browserNotification.onclick = () => {
@@ -152,8 +152,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!currentUserId || typeof window === 'undefined') return;
-    const browserPref = window.localStorage.getItem(`kb_browser_notifications_enabled_${currentUserId}`);
-    const feedbackPref = window.localStorage.getItem(`kb_feedback_notifications_enabled_${currentUserId}`);
+    const browserPref = window.localStorage.getItem(`basefyio_browser_notifications_enabled_${currentUserId}`);
+    const feedbackPref = window.localStorage.getItem(`basefyio_feedback_notifications_enabled_${currentUserId}`);
     setBrowserNotificationsEnabled(browserPref !== '0');
     setFeedbackNotificationsEnabled(feedbackPref !== '0');
   }, [currentUserId]);
@@ -162,7 +162,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     (enabled: boolean) => {
       setBrowserNotificationsEnabled(enabled);
       if (currentUserId && typeof window !== 'undefined') {
-        window.localStorage.setItem(`kb_browser_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
+        window.localStorage.setItem(`basefyio_browser_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
       }
     },
     [currentUserId],
@@ -172,7 +172,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     (enabled: boolean) => {
       setFeedbackNotificationsEnabled(enabled);
       if (currentUserId && typeof window !== 'undefined') {
-        window.localStorage.setItem(`kb_feedback_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
+        window.localStorage.setItem(`basefyio_feedback_notifications_enabled_${currentUserId}`, enabled ? '1' : '0');
       }
     },
     [currentUserId],
@@ -186,8 +186,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (detail.type === 'ai' || detail.type === 'import') return;
       addNotification(detail);
     };
-    window.addEventListener(KB_NOTIFY_EVENT, onAppNotify as EventListener);
-    return () => window.removeEventListener(KB_NOTIFY_EVENT, onAppNotify as EventListener);
+    window.addEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
+    return () => window.removeEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
   }, [addNotification]);
 
   useEffect(() => {
@@ -202,13 +202,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // /feedback/:id/history has been retired. The SSE payload from
   // FeedbackService carries `actorName`, `actorUserId`, `commentPreview` and
   // diff flags, which is everything the polling loop used to look up
-  // out-of-band. Set NEXT_PUBLIC_KB_REALTIME_DISABLE=1 to fall back to the
+  // out-of-band. Set NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE=1 to fall back to the
   // server-side polling state (the subscribe call returns null and no
   // notifications fire — better than waking up the browser unnecessarily).
   useEffect(() => {
     if (!currentUserId || !feedbackNotificationsEnabled) return;
 
-    const unsubscribe = subscribeKbRealtime(
+    const unsubscribe = subscribeBasefyioRealtime(
       `user:${currentUserId}`,
       (event: RealtimeEventEnvelope) => {
         // Self-edits never produce a toast; the actor already knows what they did.

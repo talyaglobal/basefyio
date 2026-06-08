@@ -5,7 +5,7 @@ import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshT
 /**
  * Proactively refresh the access token if it expires within the next 60 seconds.
  * Call this before any command that requires auth so the session stays alive
- * indefinitely (until explicit `kb logout`).
+ * indefinitely (until explicit `basefyio logout`).
  */
 export async function ensureFreshToken(): Promise<void> {
   const token = getAccessToken();
@@ -80,7 +80,7 @@ export class ApiClient {
 
     // Handle token refresh.
     //
-    // Subtle pitfalls we are guarding against (see "kb status re-login loop"
+    // Subtle pitfalls we are guarding against (see "basefyio status re-login loop"
     // incident report):
     //   * Don't call process.exit(1) from inside an interceptor — it kills
     //     the process before the calling command can present a coherent
@@ -109,7 +109,7 @@ export class ApiClient {
         if (!refreshToken) {
           // No refresh token saved → user really must log in.
           return Promise.reject(
-            new AuthError('NOT_LOGGED_IN', 'Not logged in. Run: kb login'),
+            new AuthError('NOT_LOGGED_IN', 'Not logged in. Run: basefyio login'),
           );
         }
 
@@ -156,7 +156,7 @@ export class ApiClient {
           return Promise.reject(
             new AuthError(
               'SESSION_EXPIRED',
-              `Session expired (${refreshStatus}: ${refreshMessage}). Run: kb login`,
+              `Session expired (${refreshStatus}: ${refreshMessage}). Run: basefyio login`,
             ),
           );
         }
@@ -165,7 +165,7 @@ export class ApiClient {
         return Promise.reject(
           new AuthError(
             'REFRESH_TRANSIENT',
-            `Could not refresh session (${refreshMessage}). Check your network and try again; if the problem persists, run: kb login`,
+            `Could not refresh session (${refreshMessage}). Check your network and try again; if the problem persists, run: basefyio login`,
           ),
         );
       },
@@ -308,7 +308,7 @@ export async function handleApiError(error: any): Promise<never> {
         console.log();
         console.log(chalk.green('Re-authenticated! Please re-run your command.'));
       } catch {
-        console.error(chalk.red('Automatic re-login failed. Run: kb login'));
+        console.error(chalk.red('Automatic re-login failed. Run: basefyio login'));
       }
       process.exit(1);
     }
@@ -331,12 +331,12 @@ export async function handleApiError(error: any): Promise<never> {
           console.log();
           console.log(chalk.green('Re-authenticated! Please re-run your command.'));
         } catch {
-          console.error(chalk.red('Automatic re-login failed. Run: kb login'));
+          console.error(chalk.red('Automatic re-login failed. Run: basefyio login'));
         }
         process.exit(1);
       }
     } else if (error.request) {
-      console.error(chalk.red('Network error: Could not connect to Kolaybase API'));
+      console.error(chalk.red('Network error: Could not connect to Basefyio API'));
       console.error(chalk.yellow(`Make sure the API is running at: ${getApiUrl()}`));
     } else {
       console.error(chalk.red(`Error: ${error.message}`));

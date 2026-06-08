@@ -6,21 +6,21 @@
  * the sitemap never drift out of sync.
  */
 export const SITE = {
-  name: "Kolaybase",
+  name: "Basefyio",
   /** Used by RSS <copyright> and JSON-LD publisher. */
-  legalName: "Kolaybase",
+  legalName: "Basefyio",
   locale: "en_US",
   /** BCP-47 language tag for HTML lang / JSON-LD inLanguage. */
   lang: "en",
-  twitter: "@kolaybase",
+  twitter: "@basefyio",
   defaultTitle:
-    "Kolaybase — PostgreSQL BaaS & REST API for Developers",
+    "Basefyio — PostgreSQL BaaS & REST API for Developers",
   defaultDescription:
-    "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
+    "Basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
   /** Path (relative to site root) of the default social share image. */
   defaultOgImage: "/og-image.png",
   keywords: [
-    "Kolaybase",
+    "Basefyio",
     "backend as a service",
     "BaaS",
     "developer backend",
@@ -38,4 +38,4 @@ export const SITE = {
 } as const;
 
 /** Default author shown on blog posts that omit an explicit author. */
-export const DEFAULT_AUTHOR = "Kolaybase Team";
+export const DEFAULT_AUTHOR = "Basefyio Team";

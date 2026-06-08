@@ -17,7 +17,7 @@ export async function dbPush() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -31,8 +31,8 @@ export async function dbPush() {
       spinner.fail('No schema file found');
       error('Could not find prisma/schema.prisma, db/schema.sql, or schema.sql');
       console.log('');
-      console.log('  To push SQL directly use:  kb db execute --file <file>');
-      console.log('  To apply migrations use:   kb migration up');
+      console.log('  To push SQL directly use:  basefyio db execute --file <file>');
+      console.log('  To apply migrations use:   basefyio migration up');
       process.exit(1);
     }
 
@@ -67,7 +67,7 @@ export async function dbPull() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -76,13 +76,13 @@ export async function dbPull() {
   try {
     const env = await getLocalEnv();
 
-    if (!env.DATABASE_URL && !env.KOLAYBASE_DATABASE_URL) {
+    if (!env.DATABASE_URL && !env.BASEFYIO_DATABASE_URL) {
       spinner.fail('DATABASE_URL not found');
-      error('Run  kb link  to refresh credentials');
+      error('Run  basefyio link  to refresh credentials');
       process.exit(1);
     }
 
-    const dbUrl = env.DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
+    const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL;
 
     // Check if Prisma is being used
     const prismaPath = path.join(process.cwd(), 'prisma', 'schema.prisma');
@@ -166,7 +166,7 @@ export async function dbReset(options: ResetOptions) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -216,7 +216,7 @@ export async function dbReset(options: ResetOptions) {
       success('All tables dropped');
       
       console.log();
-      info('To recreate schema, run: kb db push');
+      info('To recreate schema, run: basefyio db push');
     } finally {
       client.release();
       await pool.end();
@@ -232,7 +232,7 @@ export async function dbSeed() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -288,12 +288,12 @@ export async function dbDiff() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
   const env = await getLocalEnv();
-  const dbUrl = env.DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
+  const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL;
 
   info('Checking for schema differences...');
 
@@ -317,7 +317,7 @@ export async function dbExecute(options: ExecuteOptions) {
 
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -383,7 +383,7 @@ export async function dbDump(options: DumpOptions) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -402,7 +402,7 @@ export async function dbDump(options: DumpOptions) {
         ORDER BY table_name
       `);
 
-      let dump = '-- Kolaybase schema dump\n-- Generated: ' + new Date().toISOString() + '\n\n';
+      let dump = '-- Basefyio schema dump\n-- Generated: ' + new Date().toISOString() + '\n\n';
 
       for (const t of tables) {
         const { rows: cols } = await client.query(`

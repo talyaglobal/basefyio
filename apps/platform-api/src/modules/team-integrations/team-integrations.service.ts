@@ -298,7 +298,7 @@ export class TeamIntegrationsService {
       teamId,
       returnUrl: `${this.appUrl}/dashboard/team`,
     });
-    return `https://vercel.com/integrations/kolaybase/new?state=${state}`;
+    return `https://vercel.com/integrations/basefyio/new?state=${state}`;
   }
 
   async handleVercelCallback(code: string, state: string): Promise<string> {

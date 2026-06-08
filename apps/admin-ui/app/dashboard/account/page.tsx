@@ -278,9 +278,9 @@ export default function AccountPage() {
       const granted = await requestBrowserPermission();
       if (!granted) return;
     }
-    new Notification('Kolaybase', {
+    new Notification('Basefyio', {
       body: 'Browser notifications are active for this account.',
-      tag: 'kb-browser-notification-test',
+      tag: 'basefyio-browser-notification-test',
     });
     toast.success('Test browser notification sent');
   };
@@ -304,7 +304,7 @@ export default function AccountPage() {
         newPassword,
         isExternalAuth && canEditIdentity,
       );
-      Cookies.remove('kb_force_password_change', { path: '/' });
+      Cookies.remove('basefyio_force_password_change', { path: '/' });
       toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');

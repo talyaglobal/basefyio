@@ -11,10 +11,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Only accept the actual access token — the kb_logged_in marker is a lightweight
+  // Only accept the actual access token — the basefyio_logged_in marker is a lightweight
   // hint for the marketing site, not an auth credential.
-  const token = request.cookies.get('kb_access_token')?.value;
-  const forcePasswordChange = request.cookies.get('kb_force_password_change')?.value === '1';
+  const token = request.cookies.get('basefyio_access_token')?.value;
+  const forcePasswordChange = request.cookies.get('basefyio_force_password_change')?.value === '1';
 
   if (!token) {
     const loginUrl = new URL('/login', request.url);

@@ -15,7 +15,7 @@ export function inviteTemplate(data: InviteData): string {
     : 'Accept Invitation &rarr;';
 
   const nextStepText = data.isNewUser
-    ? `Create your free Kolaybase account and you'll automatically see
+    ? `Create your free Basefyio account and you'll automatically see
        the invitation to join <strong>${data.teamName}</strong>. Accept it
        from your dashboard and you're in!`
     : `Once you accept, you'll have access to all projects and resources
@@ -36,7 +36,7 @@ export function inviteTemplate(data: InviteData): string {
         <p class="text">
           Hello <strong>${data.invitedUsername}</strong>,
           <strong>${data.inviterUsername}</strong> has invited you to join the
-          <strong>${data.teamName}</strong> team on Kolaybase.
+          <strong>${data.teamName}</strong> team on Basefyio.
         </p>
 
         <div style="background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); border-radius: 12px; padding: 28px; margin: 24px 0; text-align: center;">

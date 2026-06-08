@@ -51,7 +51,7 @@ async function tryFetch(url: string): Promise<{ ok: boolean; text: string }> {
   try {
     const res = await fetch(url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'kolaybase-geo-audit/0.1 (+https://kolaybase.com)' },
+      headers: { 'user-agent': 'basefyio-geo-audit/0.1 (+https://basefyio.com)' },
     });
     const text = res.ok ? await res.text() : '';
     return { ok: res.ok, text };

@@ -5,7 +5,7 @@ import {
   type ProjectSupabaseImportLog,
 } from './types';
 
-const storageKey = (projectId: string) => `kb_supabase_import_log:${projectId}`;
+const storageKey = (projectId: string) => `basefyio_supabase_import_log:${projectId}`;
 
 /** Persist last completed import summary so Overview can show it even if API DB field is empty. */
 export function saveProjectSupabaseImportLog(

@@ -201,7 +201,7 @@ export class KeycloakAdminService implements OnModuleInit {
 
   private async ensurePlatformOAuthClient() {
     try {
-      const clientId = 'kolaybase-platform';
+      const clientId = 'basefyio-platform';
       const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
       const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
       const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
@@ -344,7 +344,7 @@ export class KeycloakAdminService implements OnModuleInit {
   }
 
   getPlatformOAuthClientId(): string {
-    return 'kolaybase-platform';
+    return 'basefyio-platform';
   }
 
   getEnabledPlatformProviders(): string[] {
@@ -491,8 +491,8 @@ export class KeycloakAdminService implements OnModuleInit {
 
     this.logger.log(`Clients created for realm "${realmName}"`);
 
-    const anonKey = `kb_anon_${randomBytes(32).toString('base64url')}`;
-    const serviceKey = `kb_service_${randomBytes(32).toString('base64url')}`;
+    const anonKey = `basefyio_anon_${randomBytes(32).toString('base64url')}`;
+    const serviceKey = `basefyio_service_${randomBytes(32).toString('base64url')}`;
     return { anonKey, serviceKey };
   }
 
@@ -777,7 +777,7 @@ export class KeycloakAdminService implements OnModuleInit {
     });
     const attributes = {
       ...(existing?.attributes || {}),
-      kb_force_password_change: [forceChangeOnFirstLogin ? 'true' : 'false'],
+      basefyio_force_password_change: [forceChangeOnFirstLogin ? 'true' : 'false'],
     };
     // If forceChangeOnFirstLogin is true, add UPDATE_PASSWORD to requiredActions
     const requiredActions = forceChangeOnFirstLogin ? ['UPDATE_PASSWORD'] : [];
@@ -804,7 +804,7 @@ export class KeycloakAdminService implements OnModuleInit {
     const user = await this.findPlatformUserByEmail(email);
     if (!user?.id) return false;
     const fullUser = await this.client.users.findOne({ realm: 'master', id: user.id });
-    return fullUser?.attributes?.kb_force_password_change?.[0] === 'true';
+    return fullUser?.attributes?.basefyio_force_password_change?.[0] === 'true';
   }
 
   async clearPlatformUserForcePasswordChange(userId: string, email?: string): Promise<void> {
@@ -813,7 +813,7 @@ export class KeycloakAdminService implements OnModuleInit {
     const existing = await this.client.users.findOne({ realm: 'master', id: resolvedId });
     const attributes = {
       ...(existing?.attributes || {}),
-      kb_force_password_change: ['false'],
+      basefyio_force_password_change: ['false'],
     };
     // Clear both the custom attribute and Keycloak's requiredActions
     await this.client.users.update(
@@ -826,7 +826,7 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     const resolvedId = await this.resolvePlatformUserId(userId, email);
     const user = await this.client.users.findOne({ realm: 'master', id: resolvedId });
-    return user?.attributes?.kb_force_password_change?.[0] === 'true';
+    return user?.attributes?.basefyio_force_password_change?.[0] === 'true';
   }
 
   async getPlatformUserAuthProviderById(
@@ -874,7 +874,7 @@ export class KeycloakAdminService implements OnModuleInit {
     }
 
     const attrs = user?.attributes as Record<string, string[]> | undefined;
-    const override = String(attrs?.kb_auth_provider_override?.[0] || '').toLowerCase();
+    const override = String(attrs?.basefyio_auth_provider_override?.[0] || '').toLowerCase();
     if (override === 'google' || override === 'github' || override === 'local') {
       return {
         authProvider: override,
@@ -966,7 +966,7 @@ export class KeycloakAdminService implements OnModuleInit {
     const existing = await this.client.users.findOne({ realm: 'master', id: resolvedId });
     const attributes = {
       ...(existing?.attributes || {}),
-      kb_auth_provider_override: [provider],
+      basefyio_auth_provider_override: [provider],
     };
     await this.client.users.update({ realm: 'master', id: resolvedId }, { attributes });
   }

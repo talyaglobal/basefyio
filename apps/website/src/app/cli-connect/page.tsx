@@ -29,7 +29,7 @@ function CliConnectContent() {
           <h1 className="text-xl font-semibold">Invalid request</h1>
           <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
             This link is missing required parameters. Please run{' '}
-            <code className="font-mono bg-muted px-1 rounded">kb login</code> again.
+            <code className="font-mono bg-muted px-1 rounded">basefyio login</code> again.
           </p>
         </div>
       </div>
@@ -54,7 +54,7 @@ function CliConnectContent() {
         <div className="space-y-2">
           <h1 className="text-xl font-semibold">Connect CLI to your account</h1>
           <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            The Kolaybase CLI is requesting access to your account. Allow it to manage
+            The Basefyio CLI is requesting access to your account. Allow it to manage
             your projects from the terminal.
           </p>
         </div>

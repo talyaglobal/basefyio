@@ -5,7 +5,7 @@ import { SITE } from "./site";
 export type BuildMetadataInput = {
   /** Absolute path on this site, e.g. "/blog/my-post". Used for canonical + OG url. */
   path: string;
-  /** Page title without the brand suffix; the layout template adds " | Kolaybase". */
+  /** Page title without the brand suffix; the layout template adds " | Basefyio". */
   title?: string;
   description?: string;
   /** Extra keywords merged on top of the site defaults. */

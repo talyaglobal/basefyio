@@ -17,7 +17,7 @@ export function signInTemplate(data: SignInData): string {
         <h1 class="greeting">New sign-in detected</h1>
         <p class="text">
           Hello <strong>${data.displayName}</strong>, we noticed a new sign-in to your
-          Kolaybase account. If this was you, no action is needed.
+          Basefyio account. If this was you, no action is needed.
         </p>
 
         <div class="info-card">

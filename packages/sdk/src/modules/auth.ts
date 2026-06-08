@@ -1,6 +1,6 @@
-import type { KolaybaseFetchClient } from '../lib/fetch.js';
+import type { BasefyioFetchClient } from '../lib/fetch.js';
 import type {
-  KolaybaseResponse,
+  BasefyioResponse,
   AuthTokens,
   SignUpCredentials,
   SignInCredentials,
@@ -23,18 +23,18 @@ import type {
 } from '../lib/types.js';
 
 export class AuthClient {
-  private http: KolaybaseFetchClient;
+  private http: BasefyioFetchClient;
   private session: Session | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners: Set<AuthChangeListener> = new Set();
   private autoRefresh: boolean;
 
-  constructor(http: KolaybaseFetchClient, autoRefresh = true) {
+  constructor(http: BasefyioFetchClient, autoRefresh = true) {
     this.http = http;
     this.autoRefresh = autoRefresh;
   }
 
-  async signUp(credentials: SignUpCredentials): Promise<KolaybaseResponse<AuthTokens>> {
+  async signUp(credentials: SignUpCredentials): Promise<BasefyioResponse<AuthTokens>> {
     try {
       const data = await this.http.json<AuthTokens>('/rest/v1/auth/signup', {
         method: 'POST',
@@ -47,7 +47,7 @@ export class AuthClient {
     }
   }
 
-  async signIn(credentials: SignInCredentials): Promise<KolaybaseResponse<AuthTokens>> {
+  async signIn(credentials: SignInCredentials): Promise<BasefyioResponse<AuthTokens>> {
     try {
       const data = await this.http.json<AuthTokens>('/rest/v1/auth/signin', {
         method: 'POST',
@@ -64,7 +64,7 @@ export class AuthClient {
     this.clearSession();
   }
 
-  async verifyEmail(otp: string): Promise<KolaybaseResponse<VerifyEmailResult>> {
+  async verifyEmail(otp: string): Promise<BasefyioResponse<VerifyEmailResult>> {
     try {
       const data = await this.http.json<VerifyEmailResult>('/rest/v1/auth/verify-email', {
         method: 'POST',
@@ -77,7 +77,7 @@ export class AuthClient {
     }
   }
 
-  async forgotPassword(email: string): Promise<KolaybaseResponse<ForgotPasswordResult>> {
+  async forgotPassword(email: string): Promise<BasefyioResponse<ForgotPasswordResult>> {
     try {
       const data = await this.http.json<ForgotPasswordResult>('/rest/v1/auth/forgot-password', {
         method: 'POST',
@@ -89,7 +89,7 @@ export class AuthClient {
     }
   }
 
-  async resetPassword(otp: string, newPassword: string): Promise<KolaybaseResponse<ResetPasswordResult>> {
+  async resetPassword(otp: string, newPassword: string): Promise<BasefyioResponse<ResetPasswordResult>> {
     try {
       const data = await this.http.json<ResetPasswordResult>('/rest/v1/auth/reset-password', {
         method: 'POST',
@@ -101,7 +101,7 @@ export class AuthClient {
     }
   }
 
-  async sendMagicLink(email: string): Promise<KolaybaseResponse<MagicLinkResult>> {
+  async sendMagicLink(email: string): Promise<BasefyioResponse<MagicLinkResult>> {
     try {
       const data = await this.http.json<MagicLinkResult>('/rest/v1/auth/magic-link', {
         method: 'POST',
@@ -113,7 +113,7 @@ export class AuthClient {
     }
   }
 
-  async verifyMagicLink(otp: string): Promise<KolaybaseResponse<MagicLinkVerifyResult>> {
+  async verifyMagicLink(otp: string): Promise<BasefyioResponse<MagicLinkVerifyResult>> {
     try {
       const data = await this.http.json<MagicLinkVerifyResult>('/rest/v1/auth/magic-link/verify', {
         method: 'POST',
@@ -125,7 +125,7 @@ export class AuthClient {
     }
   }
 
-  async changeEmail(newEmail: string): Promise<KolaybaseResponse<ChangeEmailResult>> {
+  async changeEmail(newEmail: string): Promise<BasefyioResponse<ChangeEmailResult>> {
     try {
       const data = await this.http.json<ChangeEmailResult>('/rest/v1/auth/change-email', {
         method: 'POST',
@@ -137,7 +137,7 @@ export class AuthClient {
     }
   }
 
-  async confirmChangeEmail(otp: string): Promise<KolaybaseResponse<ConfirmChangeEmailResult>> {
+  async confirmChangeEmail(otp: string): Promise<BasefyioResponse<ConfirmChangeEmailResult>> {
     try {
       const data = await this.http.json<ConfirmChangeEmailResult>('/rest/v1/auth/change-email/verify', {
         method: 'POST',
@@ -150,7 +150,7 @@ export class AuthClient {
     }
   }
 
-  async requestReauth(): Promise<KolaybaseResponse<ReauthResult>> {
+  async requestReauth(): Promise<BasefyioResponse<ReauthResult>> {
     try {
       const data = await this.http.json<ReauthResult>('/rest/v1/auth/reauth', {
         method: 'POST',
@@ -161,7 +161,7 @@ export class AuthClient {
     }
   }
 
-  async verifyReauth(otp: string): Promise<KolaybaseResponse<ReauthVerifyResult>> {
+  async verifyReauth(otp: string): Promise<BasefyioResponse<ReauthVerifyResult>> {
     try {
       const data = await this.http.json<ReauthVerifyResult>('/rest/v1/auth/reauth/verify', {
         method: 'POST',
@@ -173,7 +173,7 @@ export class AuthClient {
     }
   }
 
-  async inviteUser(email: string): Promise<KolaybaseResponse<InviteUserResult>> {
+  async inviteUser(email: string): Promise<BasefyioResponse<InviteUserResult>> {
     try {
       const data = await this.http.json<InviteUserResult>('/rest/v1/auth/invite', {
         method: 'POST',
@@ -188,7 +188,7 @@ export class AuthClient {
   async signInWithProvider(
     provider: OAuthProvider,
     options?: { redirectTo?: string },
-  ): Promise<KolaybaseResponse<OAuthRedirectResult>> {
+  ): Promise<BasefyioResponse<OAuthRedirectResult>> {
     try {
       const params = new URLSearchParams();
       if (options?.redirectTo) params.set('redirect_to', options.redirectTo);
@@ -228,7 +228,7 @@ export class AuthClient {
     return tokens;
   }
 
-  async getUser(): Promise<KolaybaseResponse<User>> {
+  async getUser(): Promise<BasefyioResponse<User>> {
     try {
       const data = await this.http.json<User>('/rest/v1/auth/me');
       if (this.session) {
@@ -248,7 +248,7 @@ export class AuthClient {
     return this.session?.accessToken ?? null;
   }
 
-  async refreshSession(): Promise<KolaybaseResponse<AuthTokens>> {
+  async refreshSession(): Promise<BasefyioResponse<AuthTokens>> {
     if (!this.session?.refreshToken) {
       return { data: null, error: { message: 'No refresh token available' } };
     }

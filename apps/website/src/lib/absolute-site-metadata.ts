@@ -3,7 +3,7 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 
 /**
  * Resolves `alternates.canonical` and `openGraph.url` to the real request origin
- * (e.g. https://kolaybase.com vs http://localhost:3002).
+ * (e.g. https://basefyio.com vs http://localhost:3002).
  *
  * Kept for the existing static pages (home, docs). New content pages should
  * prefer {@link import("./seo/metadata").buildMetadata} which produces the full

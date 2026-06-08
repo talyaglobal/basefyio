@@ -1,5 +1,5 @@
 {
-  "name": "@kolaybase/geo",
+  "name": "@basefyio/geo",
   "publishConfig": {
     "access": "public"
   },
@@ -37,12 +37,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/fsipka/kolaybase-new",
+    "url": "https://github.com/fsipka/basefyio-new",
     "directory": "packages/geo"
   },
-  "homepage": "https://github.com/fsipka/kolaybase-new/tree/main/packages/geo",
+  "homepage": "https://github.com/fsipka/basefyio-new/tree/main/packages/geo",
   "bugs": {
-    "url": "https://github.com/fsipka/kolaybase-new/issues"
+    "url": "https://github.com/fsipka/basefyio-new/issues"
   },
   "keywords": [
     "geo",
@@ -57,7 +57,7 @@
     "perplexity",
     "claude",
     "gemini",
-    "kolaybase"
+    "basefyio"
   ],
   "license": "MIT",
   "dependencies": {}

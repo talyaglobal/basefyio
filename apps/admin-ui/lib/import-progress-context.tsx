@@ -10,7 +10,7 @@ import {
 import { saveProjectSupabaseImportLog } from './import-log-storage';
 import { toast } from 'sonner';
 
-const STORAGE_KEY = 'kolaybase_active_import';
+const STORAGE_KEY = 'basefyio_active_import';
 
 export interface ActiveImport {
   jobId: string;

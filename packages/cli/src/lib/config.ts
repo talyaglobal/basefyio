@@ -20,7 +20,7 @@ export interface ProjectConfig {
 }
 
 const userConfig = new Conf<UserConfig>({
-  projectName: 'kolaybase',
+  projectName: 'basefyio',
   configName: 'config',
 });
 
@@ -29,7 +29,7 @@ export async function getProjectRoot(): Promise<string | null> {
   let currentDir = process.cwd();
   
   while (currentDir !== path.parse(currentDir).root) {
-    const configPath = path.join(currentDir, '.kolaybase');
+    const configPath = path.join(currentDir, '.basefyio');
     try {
       await fs.access(configPath);
       return currentDir;
@@ -46,7 +46,7 @@ export async function getProjectConfig(): Promise<ProjectConfig | null> {
   const projectRoot = await getProjectRoot();
   if (!projectRoot) return null;
 
-  const configPath = path.join(projectRoot, '.kolaybase', 'config.json');
+  const configPath = path.join(projectRoot, '.basefyio', 'config.json');
   
   try {
     const data = await fs.readFile(configPath, 'utf-8');
@@ -58,7 +58,7 @@ export async function getProjectConfig(): Promise<ProjectConfig | null> {
 
 export async function setProjectConfig(config: ProjectConfig): Promise<void> {
   const projectRoot = process.cwd();
-  const configDir = path.join(projectRoot, '.kolaybase');
+  const configDir = path.join(projectRoot, '.basefyio');
   const configPath = path.join(configDir, 'config.json');
 
   await fs.mkdir(configDir, { recursive: true });
@@ -78,7 +78,7 @@ export function clearUserConfig(): void {
   userConfig.clear();
 }
 
-export const DEFAULT_API_URL = 'https://api.kolaybase.com';
+export const DEFAULT_API_URL = 'https://api.basefyio.com';
 
 export function getApiUrl(): string {
   return userConfig.get('apiUrl') || DEFAULT_API_URL;
@@ -93,7 +93,7 @@ export function getAccessToken(): string | undefined {
  * refresh response can't silently delete the user's session — the previous
  * behaviour ("setAccessToken(undefined)" via conf.set) erased the stored
  * token and forced an immediate re-login on the next command. See the
- * `kb status` re-login loop incident.
+ * `basefyio status` re-login loop incident.
  */
 export function setAccessToken(token: string | undefined | null): void {
   if (!token || typeof token !== 'string') return;
@@ -125,8 +125,8 @@ export function setApiUrl(url: string): void {
   userConfig.set('apiUrl', url);
 }
 
-// Write Kolaybase variables into .env without touching existing content.
-// Existing KOLAYBASE_* keys are updated in-place; new ones are appended.
+// Write Basefyio variables into .env without touching existing content.
+// Existing BASEFYIO_* keys are updated in-place; new ones are appended.
 export async function writeEnvFile(
   project: any,
   connect?: { poolerUri: string; uri: string },
@@ -137,21 +137,21 @@ export async function writeEnvFile(
   const databaseUrl = connect?.poolerUri || fallbackDbUrl;
   const directUrl = connect?.uri || databaseUrl;
 
-  const kolaybaseVars: Record<string, string> = {
-    KOLAYBASE_PROJECT_ID: project.id,
-    KOLAYBASE_ANON_KEY: project.anonKey,
-    KOLAYBASE_SERVICE_KEY: project.serviceKey,
-    KOLAYBASE_API_URL: apiUrl,
-    KOLAYBASE_PROJECT_SLUG: project.slug,
-    KOLAYBASE_DB_HOST: project.dbHost,
-    KOLAYBASE_DB_PORT: String(project.dbPort),
-    KOLAYBASE_DB_NAME: project.dbName,
-    KOLAYBASE_DB_USER: project.dbUser,
-    KOLAYBASE_DB_PASSWORD: project.dbPassword,
-    KOLAYBASE_DATABASE_URL: databaseUrl,
+  const basefyioVars: Record<string, string> = {
+    BASEFYIO_PROJECT_ID: project.id,
+    BASEFYIO_ANON_KEY: project.anonKey,
+    BASEFYIO_SERVICE_KEY: project.serviceKey,
+    BASEFYIO_API_URL: apiUrl,
+    BASEFYIO_PROJECT_SLUG: project.slug,
+    BASEFYIO_DB_HOST: project.dbHost,
+    BASEFYIO_DB_PORT: String(project.dbPort),
+    BASEFYIO_DB_NAME: project.dbName,
+    BASEFYIO_DB_USER: project.dbUser,
+    BASEFYIO_DB_PASSWORD: project.dbPassword,
+    BASEFYIO_DATABASE_URL: databaseUrl,
     DATABASE_URL: databaseUrl,
     DIRECT_URL: directUrl,
-    KOLAYBASE_KEYCLOAK_REALM: project.keycloakRealm,
+    BASEFYIO_KEYCLOAK_REALM: project.keycloakRealm,
   };
 
   // Read existing .env (or start empty)
@@ -161,12 +161,12 @@ export async function writeEnvFile(
   const existingLines = existing.split('\n');
   const handled = new Set<string>();
 
-  // Update existing KOLAYBASE_* lines in-place
+  // Update existing BASEFYIO_* lines in-place
   const updatedLines = existingLines.map((line) => {
     const match = line.match(/^([A-Z0-9_]+)\s*=/);
-    if (match && kolaybaseVars[match[1]] !== undefined) {
+    if (match && basefyioVars[match[1]] !== undefined) {
       handled.add(match[1]);
-      return `${match[1]}=${kolaybaseVars[match[1]]}`;
+      return `${match[1]}=${basefyioVars[match[1]]}`;
     }
     return line;
   });
@@ -177,12 +177,12 @@ export async function writeEnvFile(
   }
 
   // Append any new keys not already present
-  const newKeys = Object.keys(kolaybaseVars).filter((k) => !handled.has(k));
+  const newKeys = Object.keys(basefyioVars).filter((k) => !handled.has(k));
   if (newKeys.length) {
     updatedLines.push('');
-    updatedLines.push('# Kolaybase — added by "kb init" / "kb link"');
+    updatedLines.push('# Basefyio — added by "basefyio init" / "basefyio link"');
     for (const key of newKeys) {
-      updatedLines.push(`${key}=${kolaybaseVars[key]}`);
+      updatedLines.push(`${key}=${basefyioVars[key]}`);
     }
   }
 
@@ -229,7 +229,7 @@ export async function getLocalEnv(): Promise<Record<string, string>> {
 export async function setLocalEnv(key: string, value: string): Promise<void> {
   const projectRoot = await getProjectRoot();
   if (!projectRoot) {
-    throw new Error('Not in a Kolaybase project directory');
+    throw new Error('Not in a Basefyio project directory');
   }
 
   const envPath = path.join(projectRoot, '.env');
@@ -263,7 +263,7 @@ export async function setLocalEnv(key: string, value: string): Promise<void> {
 export async function unsetLocalEnv(key: string): Promise<void> {
   const projectRoot = await getProjectRoot();
   if (!projectRoot) {
-    throw new Error('Not in a Kolaybase project directory');
+    throw new Error('Not in a Basefyio project directory');
   }
 
   const envPath = path.join(projectRoot, '.env');

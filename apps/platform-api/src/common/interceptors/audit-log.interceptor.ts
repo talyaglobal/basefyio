@@ -45,7 +45,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     const statusCode = input.metadataJson?.statusCode as number | undefined;
 
     const beforeSnapshot: Prisma.InputJsonValue = {
-      audit: 'kolaybase.http',
+      audit: 'basefyio.http',
       snapshot: 'before',
       note: 'HTTP access audit: no domain entity diff; request context is recorded in After.',
       action: input.action,
@@ -53,7 +53,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     };
 
     const afterSnapshot: Prisma.InputJsonValue = {
-      audit: 'kolaybase.http',
+      audit: 'basefyio.http',
       snapshot: 'after',
       method,
       path,

@@ -10,9 +10,9 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
 
 const defaultTitle =
-  "Kolaybase — PostgreSQL BaaS & REST API for Developers";
+  "Basefyio — PostgreSQL BaaS & REST API for Developers";
 const defaultDescription =
-  "Kolaybase: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
+  "Basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = await getSiteUrlFromRequest();
@@ -22,17 +22,17 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase,
     title: {
       default: defaultTitle,
-      template: "%s | Kolaybase",
+      template: "%s | Basefyio",
     },
     description: defaultDescription,
-    applicationName: "Kolaybase",
+    applicationName: "Basefyio",
     alternates: {
       types: {
-        "application/rss+xml": [{ url: "/feed.xml", title: "Kolaybase Blog" }],
+        "application/rss+xml": [{ url: "/feed.xml", title: "Basefyio Blog" }],
       },
     },
     keywords: [
-      "Kolaybase",
+      "Basefyio",
       "backend as a service",
       "BaaS",
       "developer backend",
@@ -47,12 +47,12 @@ export async function generateMetadata(): Promise<Metadata> {
       "no-code backend",
       "CLI database",
     ],
-    authors: [{ name: "Kolaybase" }],
-    creator: "Kolaybase",
+    authors: [{ name: "Basefyio" }],
+    creator: "Basefyio",
     openGraph: {
       type: "website",
       locale: "en_US",
-      siteName: "Kolaybase",
+      siteName: "Basefyio",
       url: siteUrl,
       title: defaultTitle,
       description: defaultDescription,

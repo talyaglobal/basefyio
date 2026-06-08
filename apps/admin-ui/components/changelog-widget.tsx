@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
 
-const STORAGE_KEY = 'kb_changelog_last_seen';
+const STORAGE_KEY = 'basefyio_changelog_last_seen';
 
 export function ChangelogWidget() {
   const [latestDate, setLatestDate] = useState<string | null>(null);

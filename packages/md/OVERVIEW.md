@@ -1,8 +1,8 @@
-# Kolaybase CLI - Project Overview
+# Basefyio CLI - Project Overview
 
-## 🎯 What is Kolaybase CLI?
+## 🎯 What is Basefyio CLI?
 
-Kolaybase CLI is a command-line interface tool for managing [Kolaybase](https://github.com/fsipka/kolaybase-new) projects. It provides a developer-friendly way to interact with the Kolaybase platform, similar to popular hosted Postgres developer CLIs.
+Basefyio CLI is a command-line interface tool for managing [Basefyio](https://github.com/fsipka/basefyio-new) projects. It provides a developer-friendly way to interact with the Basefyio platform, similar to popular hosted Postgres developer CLIs.
 
 ## 🚀 Key Features
 
@@ -82,7 +82,7 @@ packages/cli/
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  Kolaybase CLI                      │
+│                  Basefyio CLI                      │
 │                                                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐         │
 │  │ Commands │  │   API    │  │  Config  │         │
@@ -110,7 +110,7 @@ packages/cli/
 ### Example: Initialize Project
 
 ```
-User: kb init --name "My App"
+User: basefyio init --name "My App"
   │
   ├─> Check authentication (config.ts)
   ├─> Prompt for team selection (inquirer)
@@ -124,7 +124,7 @@ User: kb init --name "My App"
 ### Example: Start Environment
 
 ```
-User: kb start
+User: basefyio start
   │
   ├─> Detect project root (config.ts)
   ├─> Start Docker Compose (execa)
@@ -138,7 +138,7 @@ User: kb start
 
 ### Global Configuration
 ```
-~/.config/kolaybase/config.json
+~/.config/basefyio/config.json
 ├── apiUrl
 ├── accessToken
 ├── refreshToken
@@ -149,7 +149,7 @@ User: kb start
 
 ### Project Configuration
 ```
-.kolaybase/config.json
+.basefyio/config.json
 ├── projectId
 ├── projectName
 ├── projectSlug
@@ -241,7 +241,7 @@ npm publish --access public
 
 ### Docker Image (Future)
 ```bash
-docker pull kolaybase/cli:latest
+docker pull basefyio/cli:latest
 ```
 
 ## 🛣️ Roadmap
@@ -281,10 +281,10 @@ We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for:
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/fsipka/kolaybase-new/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/fsipka/kolaybase-new/discussions)
-- **Documentation**: [Full Docs](https://kolaybase.dev/docs)
-- **Email**: support@kolaybase.dev
+- **Issues**: [GitHub Issues](https://github.com/fsipka/basefyio-new/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fsipka/basefyio-new/discussions)
+- **Documentation**: [Full Docs](https://basefyio.dev/docs)
+- **Email**: support@basefyio.dev
 
 ## 📄 License
 
@@ -301,10 +301,10 @@ MIT License - see [LICENSE](./LICENSE) file
 **Ready to get started?**
 
 ```bash
-npm install -g kolaybase-cli
-kb login
-kb init
-kb start
+npm install -g basefyio-cli
+basefyio login
+basefyio init
+basefyio start
 ```
 
 Happy coding! 🚀

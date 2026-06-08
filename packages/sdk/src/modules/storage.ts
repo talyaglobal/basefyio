@@ -1,6 +1,6 @@
-import type { KolaybaseFetchClient } from '../lib/fetch.js';
+import type { BasefyioFetchClient } from '../lib/fetch.js';
 import type {
-  KolaybaseResponse,
+  BasefyioResponse,
   StorageBucket,
   StorageObject,
   UploadOptions,
@@ -10,11 +10,11 @@ import type {
 // ── Bucket-scoped API (kb.storage.from('avatars')) ──────
 
 export class StorageBucketApi {
-  private http: KolaybaseFetchClient;
+  private http: BasefyioFetchClient;
   private projectId: string;
   private bucket: string;
 
-  constructor(http: KolaybaseFetchClient, projectId: string, bucket: string) {
+  constructor(http: BasefyioFetchClient, projectId: string, bucket: string) {
     this.http = http;
     this.projectId = projectId;
     this.bucket = bucket;
@@ -24,7 +24,7 @@ export class StorageBucketApi {
     return `/projects/${this.projectId}/storage/buckets/${encodeURIComponent(this.bucket)}`;
   }
 
-  async list(prefix = ''): Promise<KolaybaseResponse<StorageObject[]>> {
+  async list(prefix = ''): Promise<BasefyioResponse<StorageObject[]>> {
     try {
       const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
       const data = await this.http.json<StorageObject[]>(`${this.basePath()}/objects${q}`);
@@ -38,7 +38,7 @@ export class StorageBucketApi {
     path: string,
     file: Blob | Uint8Array | ArrayBuffer,
     options?: UploadOptions,
-  ): Promise<KolaybaseResponse<StorageObject>> {
+  ): Promise<BasefyioResponse<StorageObject>> {
     try {
       const formData = new FormData();
       const fileName = path.split('/').pop() || 'file';
@@ -61,7 +61,7 @@ export class StorageBucketApi {
     }
   }
 
-  async download(path: string): Promise<KolaybaseResponse<Blob>> {
+  async download(path: string): Promise<BasefyioResponse<Blob>> {
     try {
       const { data } = await this.http.blob(
         `${this.basePath()}/objects/download?path=${encodeURIComponent(path)}`,
@@ -72,7 +72,7 @@ export class StorageBucketApi {
     }
   }
 
-  async createSignedUrl(path: string, options?: SignedUrlOptions): Promise<KolaybaseResponse<{ url: string; expiresIn: number }>> {
+  async createSignedUrl(path: string, options?: SignedUrlOptions): Promise<BasefyioResponse<{ url: string; expiresIn: number }>> {
     try {
       const expiry = options?.expiresIn ?? 3600;
       const data = await this.http.json<{ url: string; expiresIn: number }>(
@@ -84,7 +84,7 @@ export class StorageBucketApi {
     }
   }
 
-  async remove(paths: string[]): Promise<KolaybaseResponse<{ message: string }>> {
+  async remove(paths: string[]): Promise<BasefyioResponse<{ message: string }>> {
     try {
       const data = await this.http.json<{ message: string }>(`${this.basePath()}/objects`, {
         method: 'DELETE',
@@ -104,10 +104,10 @@ export class StorageBucketApi {
 // ── Storage Client ──────────────────────────────────────
 
 export class StorageClient {
-  private http: KolaybaseFetchClient;
+  private http: BasefyioFetchClient;
   private projectId: string;
 
-  constructor(http: KolaybaseFetchClient, projectId: string) {
+  constructor(http: BasefyioFetchClient, projectId: string) {
     this.http = http;
     this.projectId = projectId;
   }
@@ -120,7 +120,7 @@ export class StorageClient {
     return new StorageBucketApi(this.http, this.projectId, bucket);
   }
 
-  async listBuckets(): Promise<KolaybaseResponse<StorageBucket[]>> {
+  async listBuckets(): Promise<BasefyioResponse<StorageBucket[]>> {
     try {
       const data = await this.http.json<StorageBucket[]>(`${this.basePath()}/buckets`);
       return { data, error: null };
@@ -129,7 +129,7 @@ export class StorageClient {
     }
   }
 
-  async createBucket(name: string, options?: { public?: boolean }): Promise<KolaybaseResponse<StorageBucket>> {
+  async createBucket(name: string, options?: { public?: boolean }): Promise<BasefyioResponse<StorageBucket>> {
     try {
       const data = await this.http.json<StorageBucket>(`${this.basePath()}/buckets`, {
         method: 'POST',
@@ -141,7 +141,7 @@ export class StorageClient {
     }
   }
 
-  async deleteBucket(name: string): Promise<KolaybaseResponse<{ message: string }>> {
+  async deleteBucket(name: string): Promise<BasefyioResponse<{ message: string }>> {
     try {
       const data = await this.http.json<{ message: string }>(
         `${this.basePath()}/buckets/${encodeURIComponent(name)}`,
@@ -153,7 +153,7 @@ export class StorageClient {
     }
   }
 
-  async updateBucket(name: string, options: { public: boolean }): Promise<KolaybaseResponse<StorageBucket>> {
+  async updateBucket(name: string, options: { public: boolean }): Promise<BasefyioResponse<StorageBucket>> {
     try {
       const data = await this.http.json<StorageBucket>(
         `${this.basePath()}/buckets/${encodeURIComponent(name)}`,

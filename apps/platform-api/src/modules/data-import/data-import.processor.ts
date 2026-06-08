@@ -13,7 +13,7 @@ import { DATA_IMPORT_QUEUE } from '../queue/queue.module';
 import { streamRows, type FileFormat, WORKER_CHUNK_ROWS } from './lib/file-parser';
 import { castValue, type InferredType } from './lib/type-inferrer';
 
-const STAGING_BUCKET = 'kb-platform-data-imports';
+const STAGING_BUCKET = 'basefyio-platform-data-imports';
 
 /** Hard upper bound on captured bad rows. Keeps the report CSV manageable and
  *  caps memory: bad rows are buffered in-process and uploaded at the end. */
@@ -62,8 +62,8 @@ export class DataImportProcessor extends WorkerHost {
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,
       useSSL: this.config.get<boolean>('minio.useSsl') || false,
-      accessKey: this.config.get<string>('minio.accessKey') || 'kolaybase',
-      secretKey: this.config.get<string>('minio.secretKey') || 'kolaybase_secret',
+      accessKey: this.config.get<string>('minio.accessKey') || 'basefyio',
+      secretKey: this.config.get<string>('minio.secretKey') || 'basefyio_secret',
     });
   }
 

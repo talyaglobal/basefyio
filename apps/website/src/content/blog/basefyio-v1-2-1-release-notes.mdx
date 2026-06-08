@@ -1,8 +1,8 @@
 ---
-title: "Kolaybase v1.2.1: Faster CLI, Resilient Project Provisioning"
+title: "Basefyio v1.2.1: Faster CLI, Resilient Project Provisioning"
 description: "v1.2.1 brings a dramatically faster CLI startup, retry logic for Keycloak realm provisioning, and better error messages when things go wrong."
 date: "2026-06-02"
-author: "Kolaybase Team"
+author: "Basefyio Team"
 tags: ["release notes", "CLI", "reliability", "performance"]
 ---
 
@@ -25,11 +25,11 @@ anything appeared on screen.
   Only `commander` and Node builtins load at startup.
 - Enabled **code splitting** in the bundler (tsup). Each command is now its own
   chunk (~2–11 KB) instead of one monolithic file.
-- Parallelized heavy imports inside `kb login`: opening the browser, loading
+- Parallelized heavy imports inside `basefyio login`: opening the browser, loading
   the UI library (Ora/Boxen), and creating the API client all happen
   concurrently via `Promise.all`.
 
-The result: `kb --help` runs in under 80 ms. Every command feels snappier
+The result: `basefyio --help` runs in under 80 ms. Every command feels snappier
 because the work happens only when it's needed.
 
 ### Project creation is more resilient
@@ -70,11 +70,11 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 For the CLI:
 
 ```bash
-npm install -g kolaybase-cli@latest
+npm install -g basefyio-cli@latest
 ```
 
 ---
 
 Questions or feedback? Open an issue on
-[GitHub](https://github.com/fsipka/kolaybase-new/issues) or reach out at
-support@kolaybase.com.
+[GitHub](https://github.com/fsipka/basefyio-new/issues) or reach out at
+support@basefyio.com.

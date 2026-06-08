@@ -104,7 +104,7 @@ export function buildAdvisorItems(
       id: 'no-import',
       category: 'INTEGRATIONS',
       title: 'Import from Supabase',
-      body: 'Copy tables, auth users, and storage from your Supabase project into Kolaybase for a hosted mirror.',
+      body: 'Copy tables, auth users, and storage from your Supabase project into Basefyio for a hosted mirror.',
       cta: { label: 'Connection & import', href: `${basePath}/connect` },
     });
   }
@@ -230,7 +230,7 @@ export function ProjectAdvisorSection({
 
   return (
     <div className="space-y-4">
-      <div className="kb-grid-row-hover grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Status

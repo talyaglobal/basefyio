@@ -1,13 +1,13 @@
 import Cookies from 'js-cookie';
 import type { AuthTokens, UserInfo } from './types';
 
-const TOKEN_KEY = 'kb_access_token';
-const REFRESH_KEY = 'kb_refresh_token';
-const ID_TOKEN_KEY = 'kb_id_token';
-const AUTH_MARKER_KEY = 'kb_logged_in';
-const FORCE_PASSWORD_CHANGE_KEY = 'kb_force_password_change';
+const TOKEN_KEY = 'basefyio_access_token';
+const REFRESH_KEY = 'basefyio_refresh_token';
+const ID_TOKEN_KEY = 'basefyio_id_token';
+const AUTH_MARKER_KEY = 'basefyio_logged_in';
+const FORCE_PASSWORD_CHANGE_KEY = 'basefyio_force_password_change';
 
-/** Root domain for cross-subdomain cookies (e.g. `.kolaybase.com`). */
+/** Root domain for cross-subdomain cookies (e.g. `.basefyio.com`). */
 function getRootDomain(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   const hostname = window.location.hostname;
@@ -143,8 +143,8 @@ export function parseJwt(token: string): UserInfo | null {
 export function isAuthenticated(): boolean {
   const hasToken = !!getAccessToken();
   // Ensure the cross-domain marker cookie exists when the user is logged in.
-  // Existing sessions may have the old cookie scoped only to app.kolaybase.com;
-  // re-setting it on the root domain lets kolaybase.com detect the session.
+  // Existing sessions may have the old cookie scoped only to app.basefyio.com;
+  // re-setting it on the root domain lets basefyio.com detect the session.
   if (hasToken && typeof document !== 'undefined') {
     const rootDomain = getRootDomain();
     // Only re-set if we can detect a root domain (production) and the cookie

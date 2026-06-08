@@ -10,12 +10,12 @@ interface LogsOptions {
 export async function logsCommand(options: LogsOptions) {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 
   if (!isLoggedIn()) {
-    error('Not logged in. Run:  kb login');
+    error('Not logged in. Run:  basefyio login');
     process.exit(1);
   }
 
@@ -42,10 +42,10 @@ export async function logsCommand(options: LogsOptions) {
     const { getLocalEnv } = await import('../lib/config.js');
     const env = await getLocalEnv();
 
-    // Platform DB is the same host but database 'kolaybase'
+    // Platform DB is the same host but database 'basefyio'
     const host = env.DB_HOST || 'localhost';
     const port = env.DB_PORT || '5432';
-    const platformUrl = `postgresql://kolaybase:kolaybase_secret@${host}:${port}/kolaybase`;
+    const platformUrl = `postgresql://basefyio:basefyio_secret@${host}:${port}/basefyio`;
 
     const pool = new Pool({ connectionString: platformUrl });
     const client = await pool.connect();

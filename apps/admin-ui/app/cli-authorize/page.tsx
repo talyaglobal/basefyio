@@ -81,7 +81,7 @@ function CliAuthorizeContent() {
           <h1 className="text-lg font-semibold">Session expired or invalid</h1>
           <p className="text-sm text-muted-foreground">
             This CLI session has expired or is invalid. Run{' '}
-            <code className="font-mono bg-muted px-1 rounded text-xs">kb login</code> again to start a new session.
+            <code className="font-mono bg-muted px-1 rounded text-xs">basefyio login</code> again to start a new session.
           </p>
         </div>
       </div>
@@ -99,7 +99,7 @@ function CliAuthorizeContent() {
           <div className="text-center">
             <h1 className="text-xl font-semibold">Connect CLI to your account</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              The Kolaybase CLI is requesting access to your account.
+              The Basefyio CLI is requesting access to your account.
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
-# Getting Started with Kolaybase CLI
+# Getting Started with Basefyio CLI
 
-Bu rehber, Kolaybase CLI'yi kurup ilk projenizi oluşturmanız için adım adım talimatlar içerir.
+Bu rehber, Basefyio CLI'yi kurup ilk projenizi oluşturmanız için adım adım talimatlar içerir.
 
 ## Ön Gereksinimler
 
@@ -13,12 +13,12 @@ Bu rehber, Kolaybase CLI'yi kurup ilk projenizi oluşturmanız için adım adım
 
 ### Adım 1: CLI'yi Kur
 
-Kolaybase repository'sini klonlayın ve CLI'yi build edin:
+Basefyio repository'sini klonlayın ve CLI'yi build edin:
 
 ```bash
 # Repository'yi klonla
 git clone <your-repo-url>
-cd v0-kolaybase
+cd v0-basefyio
 
 # CLI dizinine git
 cd packages/cli
@@ -37,19 +37,19 @@ npm link
 
 ```bash
 # CLI'nin kurulu olduğunu kontrol et
-kb --version
+basefyio --version
 
 # Yardımı görüntüle
-kb --help
+basefyio --help
 ```
 
 Çıktı şöyle görünmeli:
 ```
-kb/0.1.0
+basefyio/0.1.0
 
-Usage: kb [options] [command]
+Usage: basefyio [options] [command]
 
-Kolaybase CLI - Manage your backend projects
+Basefyio CLI - Manage your backend projects
 ...
 ```
 
@@ -57,7 +57,7 @@ Kolaybase CLI - Manage your backend projects
 
 ### Adım 1: Platform'u Başlat
 
-Eğer lokal Kolaybase platformu çalışmıyorsa, önce başlatın:
+Eğer lokal Basefyio platformu çalışmıyorsa, önce başlatın:
 
 ```bash
 # Ana repository dizinine geri dön
@@ -81,13 +81,13 @@ npm run dev
 **VEYA** CLI ile tek komutta başlat:
 
 ```bash
-kb start
+basefyio start
 ```
 
 ### Adım 2: Giriş Yap
 
 ```bash
-kb login
+basefyio login
 ```
 
 Sizden kullanıcı adı ve şifre istenecek:
@@ -110,7 +110,7 @@ mkdir my-first-project
 cd my-first-project
 
 # Projeyi initialize et
-kb init --name "My First Project"
+basefyio init --name "My First Project"
 ```
 
 CLI şunları yapacak:
@@ -118,8 +118,8 @@ CLI şunları yapacak:
 2. Proje adını onaylayacak
 3. API üzerinden proje oluşturacak
 4. `.env` dosyası oluşturacak
-5. `.kolaybase/config.json` oluşturacak
-6. `KOLAYBASE.md` dosyası oluşturacak
+5. `.basefyio/config.json` oluşturacak
+6. `BASEFYIO.md` dosyası oluşturacak
 
 ### Adım 4: Database İşlemleri
 
@@ -158,13 +158,13 @@ model Post {
 #### Schema'yı Push Et
 
 ```bash
-kb db push
+basefyio db push
 ```
 
 ### Adım 5: TypeScript Tipleri Oluştur
 
 ```bash
-kb gen types --output ./types
+basefyio gen types --output ./types
 ```
 
 Bu komut `types/database.ts` dosyası oluşturacak:
@@ -195,17 +195,17 @@ export interface Post {
 ### Adım 6: API Client Oluştur
 
 ```bash
-kb gen client --lang typescript --output ./lib
+basefyio gen client --lang typescript --output ./lib
 ```
 
-Bu komut `lib/kolaybase.ts` dosyası oluşturacak.
+Bu komut `lib/basefyio.ts` dosyası oluşturacak.
 
 ### Adım 7: Client'ı Kullan
 
 Projenizde client'ı kullanın:
 
 ```typescript
-import { createClient } from './lib/kolaybase';
+import { createClient } from './lib/basefyio';
 
 const client = createClient({
   url: process.env.NEXT_PUBLIC_API_URL,
@@ -233,7 +233,7 @@ await client.table('users').update(
 ### Lokal Geliştirme Başlat
 
 ```bash
-kb start
+basefyio start
 ```
 
 Bu komut:
@@ -246,52 +246,52 @@ Bu komut:
 ### Durum Kontrol Et
 
 ```bash
-kb status
+basefyio status
 ```
 
 ### Logları İzle
 
 ```bash
 # Container loglarını izle
-kb logs --follow
+basefyio logs --follow
 
 # SQL query loglarını izle
-kb logs --sql --follow
+basefyio logs --sql --follow
 ```
 
 ### Database İşlemleri
 
 ```bash
 # Schema değişikliklerini push et
-kb db push
+basefyio db push
 
 # Remote schema'yı pull et
-kb db pull
+basefyio db pull
 
 # Database'i resetle
-kb db reset
+basefyio db reset
 
 # Seed data ekle
-kb db seed
+basefyio db seed
 ```
 
 ### Projelerinizi Görüntüle
 
 ```bash
-kb projects
+basefyio projects
 ```
 
 ## Sık Kullanılan Komutlar
 
 | Komut | Açıklama |
 |-------|----------|
-| `kb start` | Lokal ortamı başlat |
-| `kb stop` | Ortamı durdur |
-| `kb status` | Durum göster |
-| `kb db push` | Schema push et |
-| `kb gen types` | Tipler oluştur |
-| `kb logs` | Logları görüntüle |
-| `kb projects` | Projeleri listele |
+| `basefyio start` | Lokal ortamı başlat |
+| `basefyio stop` | Ortamı durdur |
+| `basefyio status` | Durum göster |
+| `basefyio db push` | Schema push et |
+| `basefyio gen types` | Tipler oluştur |
+| `basefyio logs` | Logları görüntüle |
+| `basefyio projects` | Projeleri listele |
 
 ## Sorun Giderme
 
@@ -309,28 +309,28 @@ open -a Docker
 sudo systemctl start docker
 ```
 
-### "Not in a Kolaybase project"
+### "Not in a Basefyio project"
 
 Proje initialize edin veya bir projeye link edin:
 ```bash
-kb init
+basefyio init
 # veya
-kb link
+basefyio link
 ```
 
 ### "Authentication failed"
 
 Tekrar giriş yapın:
 ```bash
-kb login
+basefyio login
 ```
 
 ### Port zaten kullanımda
 
 `.env` dosyasında portları değiştirin:
 ```bash
-kb secrets set POSTGRES_PORT 5433
-kb secrets set PLATFORM_API_PORT 4001
+basefyio secrets set POSTGRES_PORT 5433
+basefyio secrets set PLATFORM_API_PORT 4001
 ```
 
 ## Sonraki Adımlar

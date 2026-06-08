@@ -322,9 +322,9 @@ export class IntegrationsService {
     const restBaseUrl = `${publicBaseUrl}/api/proxy`;
 
     const vars: Record<string, string> = {
-      NEXT_PUBLIC_KOLAYBASE_URL: restBaseUrl,
-      NEXT_PUBLIC_KOLAYBASE_ANON_KEY: project.anonKey,
-      KOLAYBASE_SERVICE_ROLE_KEY: project.serviceKey,
+      NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
+      NEXT_PUBLIC_BASEFYIO_ANON_KEY: project.anonKey,
+      BASEFYIO_SERVICE_ROLE_KEY: project.serviceKey,
       DATABASE_URL: pooledUrl,
       DIRECT_URL: directUrl,
       PROJECT_ID: projectId,

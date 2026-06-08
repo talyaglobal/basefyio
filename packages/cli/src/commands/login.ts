@@ -65,7 +65,7 @@ export async function loginCommand(options: LoginOptions) {
   const hint180 = setTimeout(() => {
     spinner.text =
       'Still waiting (3+ minutes)… the session will time out at 5 minutes. ' +
-      'If stuck, press Ctrl+C and run kb login again.';
+      'If stuck, press Ctrl+C and run basefyio login again.';
   }, 180_000);
   hint180.unref();
 
@@ -83,7 +83,7 @@ export async function loginCommand(options: LoginOptions) {
     const tokens = await withTimeout(
       apiClient.cliExchange(exchangeCode, nonce(handle)),
       30_000,
-      'Token exchange with the Kolaybase API timed out. The login callback succeeded ' +
+      'Token exchange with the Basefyio API timed out. The login callback succeeded ' +
         'but the platform API did not respond. Try again or check your network.',
     );
     setAccessToken(tokens.accessToken);
@@ -108,7 +108,7 @@ export async function loginCommand(options: LoginOptions) {
       success(`Welcome, ${chalk.cyan(me.email)}`);
     }
 
-    console.log(chalk.gray('  Run  kb init  to create a project or  kb link  to connect to one'));
+    console.log(chalk.gray('  Run  basefyio init  to create a project or  basefyio link  to connect to one'));
   } catch (err: any) {
     clearTimeout(hint20);
     clearTimeout(hint60);
@@ -117,7 +117,7 @@ export async function loginCommand(options: LoginOptions) {
     const msg = err?.message || String(err);
     if (msg.toLowerCase().includes('timed out')) {
       console.error(chalk.red(msg));
-      console.error(chalk.yellow('Run  kb login  again to retry.'));
+      console.error(chalk.yellow('Run  basefyio login  again to retry.'));
       process.exit(1);
     }
     if (msg.includes('cancelled')) {

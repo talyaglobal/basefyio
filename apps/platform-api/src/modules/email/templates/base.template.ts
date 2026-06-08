@@ -6,7 +6,7 @@ export function baseLayout(content: string): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <title>Kolaybase</title>
+  <title>Basefyio</title>
   <!--[if mso]>
   <noscript>
     <xml>
@@ -180,8 +180,8 @@ export function baseLayout(content: string): string {
       ${content}
       <div class="footer">
         <p class="footer-text">
-          &copy; ${new Date().getFullYear()} Kolaybase. All rights reserved.<br />
-          <a href="https://kolaybase.com" class="footer-link">kolaybase.com</a>
+          &copy; ${new Date().getFullYear()} Basefyio. All rights reserved.<br />
+          <a href="https://basefyio.com" class="footer-link">basefyio.com</a>
         </p>
       </div>
     </div>

@@ -7,5 +7,5 @@ export async function logoutCommand() {
   clearAuthTokens();
   clearUserConfig();
   console.log(chalk.green('✔ Logged out successfully'));
-  console.log(chalk.gray('  Run  kb login  to sign in again'));
+  console.log(chalk.gray('  Run  basefyio login  to sign in again'));
 }

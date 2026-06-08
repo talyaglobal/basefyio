@@ -16,7 +16,7 @@ export function signupVerifyEmailTemplate(data: SignupVerifyEmailData): string {
         </div>
         <h1 class="greeting">Verify your email</h1>
         <p class="text">
-          ${greeting} You're signing up for <strong>Kolaybase</strong>.
+          ${greeting} You're signing up for <strong>Basefyio</strong>.
           Please enter the code below to verify your email and complete registration.
         </p>
 
@@ -30,7 +30,7 @@ export function signupVerifyEmailTemplate(data: SignupVerifyEmailData): string {
         <div class="divider"></div>
 
         <p class="text" style="font-size: 13px; color: #94a3b8;">
-          This code expires in 10 minutes. If you didn't sign up for Kolaybase, you can safely ignore this email.
+          This code expires in 10 minutes. If you didn't sign up for Basefyio, you can safely ignore this email.
         </p>
       </div>`;
 

@@ -92,7 +92,7 @@ export function clearLine(): void {
 export function printLogo(): void {
   const logo = `
 ${chalk.cyan('┌─────────────────────────────────────┐')}
-${chalk.cyan('│')}  ${chalk.bold.cyan('K O L A Y B A S E')}                ${chalk.cyan('│')}
+${chalk.cyan('│')}  ${chalk.bold.cyan('B A S E F Y I O')}                ${chalk.cyan('│')}
 ${chalk.cyan('│')}  ${chalk.gray('Backend-as-a-Service Platform')}    ${chalk.cyan('│')}
 ${chalk.cyan('└─────────────────────────────────────┘')}
   `;

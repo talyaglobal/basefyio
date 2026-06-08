@@ -123,13 +123,13 @@ function buildAiQuickConnectPrompt(
   frameworkPreset: FrameworkPreset,
 ): string {
   const stack = frameworkPresetLabel(frameworkPreset);
-  return `You are helping in the user's repo. Wire the app to Kolaybase using ONLY the environment block below (real Kolaybase URLs and keys — not fake placeholders).
+  return `You are helping in the user's repo. Wire the app to Basefyio using ONLY the environment block below (real Basefyio URLs and keys — not fake placeholders).
 
 ## 0) Authentication — read this first
 - Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local Keycloak requirement for login.
-- **Kolaybase is the auth surface**: sign-in and API access go through Kolaybase (the base URL and anon/service keys in the env block). Implement login and protected calls using Kolaybase as the backend auth provider — the same hosted Keycloak that powers Kolaybase is already behind that service; the app should consume Kolaybase APIs/keys, not stand up a separate IdP.
-- **JavaScript / TypeScript apps**: use the official **kolaybase-js** SDK (\`npm install kolaybase-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`kb.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported Kolaybase auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at Kolaybase URLs for auth unless the user explicitly asks for a custom low-level integration.
-- Do **not** tell the user to "provision Keycloak", import realms, or mirror Kolaybase's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
+- **Basefyio is the auth surface**: sign-in and API access go through Basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using Basefyio as the backend auth provider — the same hosted Keycloak that powers Basefyio is already behind that service; the app should consume Basefyio APIs/keys, not stand up a separate IdP.
+- **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported Basefyio auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at Basefyio URLs for auth unless the user explicitly asks for a custom low-level integration.
+- Do **not** tell the user to "provision Keycloak", import realms, or mirror Basefyio's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
 
 ## 1) Append to .env or .env.local (copy exactly — each line is KEY=value with no quotes around values)
 ${envBlockOneLinePerVar}
@@ -139,25 +139,25 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 
 ## 3) When the user asks you to run migrations
 - Ensure DATABASE_URL and DIRECT_URL are in .env (exactly as above).
-- From the project root, run their migration command (e.g. npx supabase db push, npm run db:push:kolaybase, or prisma migrate). The machine must reach the Postgres host in those URLs.
+- From the project root, run their migration command (e.g. npx supabase db push, npm run db:push:basefyio, or prisma migrate). The machine must reach the Postgres host in those URLs.
 - Do not substitute hosts or passwords.
 
-## 4) REST / Kolaybase API
-- **JS/TS (preferred):** use **kolaybase-js** \`createClient\` with the env block; use \`kb.from(...)\` for tables and \`kb.auth\` for auth (same client).
+## 4) REST / Basefyio API
+- **JS/TS (preferred):** use **basefyio-js** \`createClient\` with the env block; use \`basefyio.from(...)\` for tables and \`basefyio.auth\` for auth (same client).
 - **Raw HTTP (only if not using the SDK):** browser/client requests use the public URL + anon key from the block; send headers \`apikey\` and \`x-project-id\` with PROJECT_ID per API docs.
 - Service role key: server-side only; never expose to client bundles or public repos.
 
-## 5) Official documentation (learn Kolaybase before inventing patterns)
+## 5) Official documentation (learn Basefyio before inventing patterns)
 Use these public URLs for product behavior, SDK, CLI, and REST conventions. Prefer them over generic third-party BaaS guesses when they conflict:
-- Docs home / overview: https://kolaybase.com/docs
-- API reference (REST, auth, headers, projects): https://kolaybase.com/docs/api
-- JavaScript/TypeScript SDK: https://kolaybase.com/docs/sdk
-- CLI (kb login, link, projects): https://kolaybase.com/docs/cli
+- Docs home / overview: https://basefyio.com/docs
+- API reference (REST, auth, headers, projects): https://basefyio.com/docs/api
+- JavaScript/TypeScript SDK: https://basefyio.com/docs/sdk
+- CLI (basefyio login, link, projects): https://basefyio.com/docs/cli
 
 The user's live base URL, keys, and PROJECT_ID still come **only** from the env block in this prompt — docs explain *how* to use them, not replacement values.
 
 ## 6) CORS / CSP
-If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the Kolaybase URLs to unrelated domains.
+If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the Basefyio URLs to unrelated domains.
 
 ## 7) Do not
 Echo full secrets in your reply, invent fake values, or commit .env to git.`;
@@ -253,7 +253,7 @@ export function ConnectionStringsView({
 }: ConnectionStringsViewProps) {
   const [conn, setConn] = useState<ConnectionStrings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'raw' | 'kolaybase'>('raw');
+  const [activeTab, setActiveTab] = useState<'raw' | 'basefyio'>('raw');
   const [framework, setFramework] = useState<FrameworkPreset>('nextjs');
   const [rawEditorFormat, setRawEditorFormat] = useState<RawEditorFormat>('env');
   const [nextPassword, setNextPassword] = useState('');
@@ -325,41 +325,41 @@ datasource db {
   const baseVars = {
     DATABASE_URL: pooledUrl,
     DIRECT_URL: directUrl,
-    NEXT_PUBLIC_KOLAYBASE_URL: restBaseUrl,
-    NEXT_PUBLIC_KOLAYBASE_ANON_KEY: conn.anonKey,
-    KOLAYBASE_SERVICE_ROLE_KEY: conn.serviceKey,
+    NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
+    NEXT_PUBLIC_BASEFYIO_ANON_KEY: conn.anonKey,
+    BASEFYIO_SERVICE_ROLE_KEY: conn.serviceKey,
     PROJECT_ID: projectId,
   } as const;
 
   const frameworkVars: Record<FrameworkPreset, Record<string, string>> = {
     nextjs: {
-      NEXT_PUBLIC_KOLAYBASE_URL: baseVars.NEXT_PUBLIC_KOLAYBASE_URL,
-      NEXT_PUBLIC_KOLAYBASE_ANON_KEY: baseVars.NEXT_PUBLIC_KOLAYBASE_ANON_KEY,
-      KOLAYBASE_SERVICE_ROLE_KEY: baseVars.KOLAYBASE_SERVICE_ROLE_KEY,
+      NEXT_PUBLIC_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
+      NEXT_PUBLIC_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
+      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
       DATABASE_URL: baseVars.DATABASE_URL,
       DIRECT_URL: baseVars.DIRECT_URL,
       PROJECT_ID: baseVars.PROJECT_ID,
     },
     vite: {
-      VITE_KOLAYBASE_URL: baseVars.NEXT_PUBLIC_KOLAYBASE_URL,
-      VITE_KOLAYBASE_ANON_KEY: baseVars.NEXT_PUBLIC_KOLAYBASE_ANON_KEY,
-      KOLAYBASE_SERVICE_ROLE_KEY: baseVars.KOLAYBASE_SERVICE_ROLE_KEY,
+      VITE_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
+      VITE_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
+      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
       DATABASE_URL: baseVars.DATABASE_URL,
       DIRECT_URL: baseVars.DIRECT_URL,
       PROJECT_ID: baseVars.PROJECT_ID,
     },
     'react-native': {
-      EXPO_PUBLIC_KOLAYBASE_URL: baseVars.NEXT_PUBLIC_KOLAYBASE_URL,
-      EXPO_PUBLIC_KOLAYBASE_ANON_KEY: baseVars.NEXT_PUBLIC_KOLAYBASE_ANON_KEY,
-      KOLAYBASE_SERVICE_ROLE_KEY: baseVars.KOLAYBASE_SERVICE_ROLE_KEY,
+      EXPO_PUBLIC_BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
+      EXPO_PUBLIC_BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
+      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
       DATABASE_URL: baseVars.DATABASE_URL,
       DIRECT_URL: baseVars.DIRECT_URL,
       PROJECT_ID: baseVars.PROJECT_ID,
     },
     node: {
-      KOLAYBASE_URL: baseVars.NEXT_PUBLIC_KOLAYBASE_URL,
-      KOLAYBASE_ANON_KEY: baseVars.NEXT_PUBLIC_KOLAYBASE_ANON_KEY,
-      KOLAYBASE_SERVICE_ROLE_KEY: baseVars.KOLAYBASE_SERVICE_ROLE_KEY,
+      BASEFYIO_URL: baseVars.NEXT_PUBLIC_BASEFYIO_URL,
+      BASEFYIO_ANON_KEY: baseVars.NEXT_PUBLIC_BASEFYIO_ANON_KEY,
+      BASEFYIO_SERVICE_ROLE_KEY: baseVars.BASEFYIO_SERVICE_ROLE_KEY,
       DATABASE_URL: baseVars.DATABASE_URL,
       DIRECT_URL: baseVars.DIRECT_URL,
       PROJECT_ID: baseVars.PROJECT_ID,
@@ -422,15 +422,15 @@ datasource db {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('kolaybase')}
+          onClick={() => setActiveTab('basefyio')}
           className={cn(
             'rounded-md px-3 py-1.5 text-sm transition-colors',
-            activeTab === 'kolaybase'
+            activeTab === 'basefyio'
               ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          Kolaybase Details
+          Basefyio Details
         </button>
       </div>
 
@@ -540,7 +540,7 @@ datasource db {
                   </h3>
                   <p className="mt-0.5 text-xs text-violet-800/90 dark:text-violet-200/80">
                     Copy into your AI assistant. Wraps the exact ENV block above (byte-identical
-                    values) plus instructions on auth via kolaybase-js, migrations, REST/fetch
+                    values) plus instructions on auth via basefyio-js, migrations, REST/fetch
                     fallback, CORS/CSP, and safe handling of secrets.
                   </p>
                 </div>
@@ -573,7 +573,7 @@ datasource db {
         </section>
       )}
 
-      {activeTab === 'kolaybase' && (
+      {activeTab === 'basefyio' && (
       <>
       {/* Direct Database Connection (PgBouncer) */}
       <section className="space-y-3">
@@ -591,7 +591,7 @@ datasource db {
           value={conn.poolerUri}
           icon={Link2}
         />
-        <div className="kb-grid-row-hover grid gap-3 sm:grid-cols-2">
+        <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
           <CopyBlock
             label="Pooler Host"
             value={conn.poolerHost}
@@ -723,7 +723,7 @@ datasource db {
           Authentication
         </h2>
         <p className="text-sm text-muted-foreground">
-          Sign-in for this project is handled by Kolaybase (hosted auth behind the REST URL and keys
+          Sign-in for this project is handled by Basefyio (hosted auth behind the REST URL and keys
           above). You do not run Keycloak in your own repo for normal integration.
         </p>
         <button
@@ -744,7 +744,7 @@ datasource db {
         {showKeycloakDetails ? (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Internal Kolaybase identifiers for this project&apos;s realm. Expand only if you need
+              Internal Basefyio identifiers for this project&apos;s realm. Expand only if you need
               them for support or advanced debugging — not required for app login wiring.
             </p>
             <CopyBlock

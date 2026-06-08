@@ -5,7 +5,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/cli-connect", {
     title: "Connect CLI",
     description:
-      "Authorize the Kolaybase CLI to access your account from the terminal (browser flow).",
+      "Authorize the Basefyio CLI to access your account from the terminal (browser flow).",
     robots: {
       index: false,
       follow: false,

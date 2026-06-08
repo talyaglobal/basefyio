@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
 import { ContextHelpPanel } from '@/components/context-help-panel';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import {
@@ -33,8 +33,8 @@ import {
   Terminal,
 } from 'lucide-react';
 
-const SIDEBAR_MODE_KEY = 'kb_project_sidebar_mode';
-const SIDEBAR_WIDTH_KEY = 'kb_project_sidebar_width';
+const SIDEBAR_MODE_KEY = 'basefyio_project_sidebar_mode';
+const SIDEBAR_WIDTH_KEY = 'basefyio_project_sidebar_width';
 const SIDEBAR_COLLAPSED_PX = 52;
 const SIDEBAR_MIN_PX = 200;
 const SIDEBAR_MAX_PX = 440;
@@ -143,7 +143,7 @@ export default function ProjectLayout({
         for (const team of teams) {
           try {
             await api.teams.setActive(team.id);
-            Cookies.set('kb_active_team', team.id, { expires: 365, path: '/' });
+            Cookies.set('basefyio_active_team', team.id, { expires: 365, path: '/' });
             const loaded = await api.projects.get(projectId);
             return loaded;
           } catch {
@@ -239,7 +239,7 @@ export default function ProjectLayout({
     if (!id || projectLoading || !project) return;
     if (!isRealtimePhase1Enabled()) return;
     const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
-    const unsubscribe = subscribeKbRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribeBasefyioRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
       if (event.entityType !== 'project') return;
       // Skip self-triggered updates (UI already reflects the change)
       if (event.action === 'updated' && event.actorUserId === currentUserId) return;
@@ -414,7 +414,7 @@ export default function ProjectLayout({
                 Project logs
               </Link>
               <a
-                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
+                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com'}/docs`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -490,7 +490,7 @@ export default function ProjectLayout({
                 <ScrollText className="h-4 w-4" />
               </Link>
               <a
-                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://kolaybase.com'}/docs`}
+                href={`${process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com'}/docs`}
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Documentation"

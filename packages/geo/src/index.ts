@@ -1,5 +1,5 @@
 /**
- * @kolaybase/geo — Generative Engine Optimization toolkit.
+ * @basefyio/geo — Generative Engine Optimization toolkit.
  *
  * Build the assets AI answer engines need from a single {@link GeoProfile}
  * (llms.txt, JSON-LD, robots policy) and audit any URL for how well those

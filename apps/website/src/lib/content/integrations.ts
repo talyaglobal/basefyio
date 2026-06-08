@@ -2,11 +2,11 @@ import type { FaqItem } from "@/lib/seo/json-ld";
 
 /**
  * Data registry powering the programmatic `/integrations/[slug]` pages. Each
- * entry targets "Kolaybase + <framework>" / "<framework> backend" intent and
- * shows how to use the `kolaybase-js` SDK in that environment.
+ * entry targets "Basefyio + <framework>" / "<framework> backend" intent and
+ * shows how to use the `basefyio-js` SDK in that environment.
  *
  * The SDK is JavaScript/TypeScript only, so every integration here is a JS
- * runtime or framework where `kolaybase-js` actually runs — no fabricated SDKs.
+ * runtime or framework where `basefyio-js` actually runs — no fabricated SDKs.
  */
 export type IntegrationBenefit = { title: string; body: string };
 
@@ -31,32 +31,32 @@ export type Integration = {
   faqs: FaqItem[];
 };
 
-const INSTALL = "npm install kolaybase-js";
+const INSTALL = "npm install basefyio-js";
 
 export const INTEGRATIONS: Integration[] = [
   {
     slug: "nextjs",
     name: "Next.js",
     category: "Framework",
-    title: "Kolaybase + Next.js: PostgreSQL Backend for Your App",
+    title: "Basefyio + Next.js: PostgreSQL Backend for Your App",
     description:
-      "Use Kolaybase with Next.js for a PostgreSQL backend, auth, storage, and a REST API. Works in Server Components, Route Handlers, and the client with the kolaybase-js SDK.",
+      "Use Basefyio with Next.js for a PostgreSQL backend, auth, storage, and a REST API. Works in Server Components, Route Handlers, and the client with the basefyio-js SDK.",
     intro:
-      "Next.js handles the frontend and server rendering; Kolaybase gives it a backend — PostgreSQL, authentication, storage, and a REST API — without standing up your own server.",
+      "Next.js handles the frontend and server rendering; Basefyio gives it a backend — PostgreSQL, authentication, storage, and a REST API — without standing up your own server.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// lib/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// lib/basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: process.env.NEXT_PUBLIC_KOLAYBASE_PROJECT_ID!,
-  apiKey: process.env.NEXT_PUBLIC_KOLAYBASE_ANON_KEY!,
+  projectId: process.env.NEXT_PUBLIC_BASEFYIO_PROJECT_ID!,
+  apiKey: process.env.NEXT_PUBLIC_BASEFYIO_ANON_KEY!,
 });`,
     setupNote:
       "Use the public anon key (gated by row-level security) in the browser and Server Components. For trusted server-only code, use a service key from a non-public env variable instead.",
     usageTitle: "Fetch data in a Server Component",
     usage: `// app/posts/page.tsx
-import { kb } from "@/lib/kolaybase";
+import { kb } from "@/lib/basefyio";
 
 export default async function Posts() {
   const { data } = await kb
@@ -82,12 +82,12 @@ export default async function Posts() {
     ],
     faqs: [
       {
-        question: "Does Kolaybase work with the Next.js App Router?",
+        question: "Does Basefyio work with the Next.js App Router?",
         answer:
-          "Yes. The kolaybase-js SDK works in Server Components, Route Handlers, and Client Components. Use the public anon key on the client and a service key only in server-only code.",
+          "Yes. The basefyio-js SDK works in Server Components, Route Handlers, and Client Components. Use the public anon key on the client and a service key only in server-only code.",
       },
       {
-        question: "Where do I put my Kolaybase keys in Next.js?",
+        question: "Where do I put my Basefyio keys in Next.js?",
         answer:
           "Public anon keys go in NEXT_PUBLIC_ environment variables for client use. Keep service keys in non-public env variables, accessed only on the server.",
       },
@@ -97,25 +97,25 @@ export default async function Posts() {
     slug: "react",
     name: "React",
     category: "Framework",
-    title: "Kolaybase + React: A Backend for Your React App",
+    title: "Basefyio + React: A Backend for Your React App",
     description:
-      "Connect a React app to Kolaybase for PostgreSQL data, authentication, and storage via the kolaybase-js SDK — no custom backend required.",
+      "Connect a React app to Basefyio for PostgreSQL data, authentication, and storage via the basefyio-js SDK — no custom backend required.",
     intro:
-      "Give your React app a real backend. With kolaybase-js you query PostgreSQL, authenticate users, and store files directly from your components.",
+      "Give your React app a real backend. With basefyio-js you query PostgreSQL, authenticate users, and store files directly from your components.",
     install: INSTALL,
     setupTitle: "Create a shared client",
-    setup: `// src/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// src/basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: import.meta.env.VITE_KOLAYBASE_PROJECT_ID,
-  apiKey: import.meta.env.VITE_KOLAYBASE_ANON_KEY,
+  projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
+  apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
     setupNote:
       "Always use the client-safe anon key in the browser. Row-level security policies decide what each user can read or write.",
     usageTitle: "Load data in a component",
     usage: `import { useEffect, useState } from "react";
-import { kb } from "./kolaybase";
+import { kb } from "./basefyio";
 
 export function Posts() {
   const [posts, setPosts] = useState([]);
@@ -140,7 +140,7 @@ export function Posts() {
     ],
     faqs: [
       {
-        question: "Is it safe to use Kolaybase in the browser?",
+        question: "Is it safe to use Basefyio in the browser?",
         answer:
           "Yes, with the anon key and row-level security enabled. Policies run in the database, so users only ever read or write rows they're allowed to.",
       },
@@ -155,26 +155,26 @@ export function Posts() {
     slug: "vue",
     name: "Vue",
     category: "Framework",
-    title: "Kolaybase + Vue: PostgreSQL Backend for Vue Apps",
+    title: "Basefyio + Vue: PostgreSQL Backend for Vue Apps",
     description:
-      "Use Kolaybase with Vue 3 for a PostgreSQL backend, auth, and storage. The kolaybase-js SDK works cleanly with the Composition API.",
+      "Use Basefyio with Vue 3 for a PostgreSQL backend, auth, and storage. The basefyio-js SDK works cleanly with the Composition API.",
     intro:
-      "Pair Vue's reactivity with a Kolaybase backend. The kolaybase-js SDK fits naturally into composables for data, auth, and storage.",
+      "Pair Vue's reactivity with a Basefyio backend. The basefyio-js SDK fits naturally into composables for data, auth, and storage.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// src/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// src/basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: import.meta.env.VITE_KOLAYBASE_PROJECT_ID,
-  apiKey: import.meta.env.VITE_KOLAYBASE_ANON_KEY,
+  projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
+  apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
     setupNote:
       "Use the anon key in the browser; row-level security enforces access at the database.",
     usageTitle: "A data composable",
     usage: `// composables/usePosts.ts
 import { ref, onMounted } from "vue";
-import { kb } from "../kolaybase";
+import { kb } from "../basefyio";
 
 export function usePosts() {
   const posts = ref([]);
@@ -200,9 +200,9 @@ export function usePosts() {
     ],
     faqs: [
       {
-        question: "Does Kolaybase work with Nuxt?",
+        question: "Does Basefyio work with Nuxt?",
         answer:
-          "Yes. Nuxt is built on Vue, and kolaybase-js runs in both server and client contexts. Use the anon key on the client and a service key only in server routes.",
+          "Yes. Nuxt is built on Vue, and basefyio-js runs in both server and client contexts. Use the anon key on the client and a service key only in server routes.",
       },
       {
         question: "How do I track the logged-in user in Vue?",
@@ -215,26 +215,26 @@ export function usePosts() {
     slug: "sveltekit",
     name: "SvelteKit",
     category: "Framework",
-    title: "Kolaybase + SvelteKit: Backend for Svelte Apps",
+    title: "Basefyio + SvelteKit: Backend for Svelte Apps",
     description:
-      "Use Kolaybase with SvelteKit for PostgreSQL data, auth, and storage. The kolaybase-js SDK works in load functions, endpoints, and components.",
+      "Use Basefyio with SvelteKit for PostgreSQL data, auth, and storage. The basefyio-js SDK works in load functions, endpoints, and components.",
     intro:
-      "SvelteKit covers routing and rendering; Kolaybase covers the backend. Use kolaybase-js in load functions and server endpoints to fetch and mutate data.",
+      "SvelteKit covers routing and rendering; Basefyio covers the backend. Use basefyio-js in load functions and server endpoints to fetch and mutate data.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// src/lib/kolaybase.ts
-import { createClient } from "kolaybase-js";
-import { PUBLIC_KOLAYBASE_PROJECT_ID, PUBLIC_KOLAYBASE_ANON_KEY } from "$env/static/public";
+    setup: `// src/lib/basefyio.ts
+import { createClient } from "basefyio-js";
+import { PUBLIC_BASEFYIO_PROJECT_ID, PUBLIC_BASEFYIO_ANON_KEY } from "$env/static/public";
 
 export const kb = createClient({
-  projectId: PUBLIC_KOLAYBASE_PROJECT_ID,
-  apiKey: PUBLIC_KOLAYBASE_ANON_KEY,
+  projectId: PUBLIC_BASEFYIO_PROJECT_ID,
+  apiKey: PUBLIC_BASEFYIO_ANON_KEY,
 });`,
     setupNote:
       "Use PUBLIC_ env variables with the anon key for client/load code. Keep service keys in private env variables for server-only logic.",
     usageTitle: "Load data for a route",
     usage: `// src/routes/posts/+page.ts
-import { kb } from "$lib/kolaybase";
+import { kb } from "$lib/basefyio";
 
 export async function load() {
   const { data } = await kb.from("posts").select("id, title");
@@ -256,7 +256,7 @@ export async function load() {
     ],
     faqs: [
       {
-        question: "Can I use Kolaybase in SvelteKit server endpoints?",
+        question: "Can I use Basefyio in SvelteKit server endpoints?",
         answer:
           "Yes. Create a server-side client with a service key in +server.ts or +page.server.ts for trusted operations, and a public client for the browser.",
       },
@@ -271,24 +271,24 @@ export async function load() {
     slug: "react-native",
     name: "React Native",
     category: "Mobile",
-    title: "Kolaybase + React Native: Backend for Mobile Apps",
+    title: "Basefyio + React Native: Backend for Mobile Apps",
     description:
-      "Build iOS and Android apps on Kolaybase with React Native. The kolaybase-js SDK provides PostgreSQL data, auth, and storage over a REST API.",
+      "Build iOS and Android apps on Basefyio with React Native. The basefyio-js SDK provides PostgreSQL data, auth, and storage over a REST API.",
     intro:
-      "React Native apps need a backend they can call directly. kolaybase-js works in React Native to query PostgreSQL, authenticate users, and upload files.",
+      "React Native apps need a backend they can call directly. basefyio-js works in React Native to query PostgreSQL, authenticate users, and upload files.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: process.env.EXPO_PUBLIC_KOLAYBASE_PROJECT_ID!,
-  apiKey: process.env.EXPO_PUBLIC_KOLAYBASE_ANON_KEY!,
+  projectId: process.env.EXPO_PUBLIC_BASEFYIO_PROJECT_ID!,
+  apiKey: process.env.EXPO_PUBLIC_BASEFYIO_ANON_KEY!,
 });`,
     setupNote:
       "With Expo, use EXPO_PUBLIC_ env variables for the anon key. Secure user data with row-level security so the mobile client only sees permitted rows.",
     usageTitle: "Sign in and load data",
-    usage: `import { kb } from "./kolaybase";
+    usage: `import { kb } from "./basefyio";
 
 await kb.auth.signIn({ email, password });
 
@@ -312,7 +312,7 @@ const { data } = await kb
     ],
     faqs: [
       {
-        question: "Does kolaybase-js work in React Native and Expo?",
+        question: "Does basefyio-js work in React Native and Expo?",
         answer:
           "Yes. It's a standard JavaScript SDK using fetch, so it runs in React Native and Expo. Use public env variables for the anon key.",
       },
@@ -327,24 +327,24 @@ const { data } = await kb
     slug: "nodejs",
     name: "Node.js",
     category: "Runtime",
-    title: "Kolaybase + Node.js: Backend Data Access from the Server",
+    title: "Basefyio + Node.js: Backend Data Access from the Server",
     description:
-      "Use Kolaybase from Node.js for PostgreSQL queries, auth, and storage. Ideal for server-side logic, background jobs, and scripts with the kolaybase-js SDK.",
+      "Use Basefyio from Node.js for PostgreSQL queries, auth, and storage. Ideal for server-side logic, background jobs, and scripts with the basefyio-js SDK.",
     intro:
-      "From Node.js you can run trusted server-side logic against Kolaybase — background jobs, webhooks, scripts, and APIs — using a service key for full access.",
+      "From Node.js you can run trusted server-side logic against Basefyio — background jobs, webhooks, scripts, and APIs — using a service key for full access.",
     install: INSTALL,
     setupTitle: "Create a server client",
-    setup: `// kolaybase.js
-import { createClient } from "kolaybase-js";
+    setup: `// basefyio.js
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: process.env.KOLAYBASE_PROJECT_ID,
-  apiKey: process.env.KOLAYBASE_SERVICE_KEY, // server-only
+  projectId: process.env.BASEFYIO_PROJECT_ID,
+  apiKey: process.env.BASEFYIO_SERVICE_KEY, // server-only
 });`,
     setupNote:
       "On the server you can use a service key for trusted operations that bypass row-level security. Never expose a service key to the browser.",
     usageTitle: "Run a query or raw SQL",
-    usage: `import { kb } from "./kolaybase.js";
+    usage: `import { kb } from "./basefyio.js";
 
 // Query builder
 const { data } = await kb.from("users").select("id, email").eq("active", true);
@@ -369,7 +369,7 @@ const { data: stats } = await kb.sql(
     ],
     faqs: [
       {
-        question: "Can I run background jobs against Kolaybase?",
+        question: "Can I run background jobs against Basefyio?",
         answer:
           "Yes. Use a Node.js process with a service key to run scheduled jobs, process webhooks, or perform admin operations.",
       },
@@ -384,26 +384,26 @@ const { data: stats } = await kb.sql(
     slug: "astro",
     name: "Astro",
     category: "Framework",
-    title: "Kolaybase + Astro: A Backend for Content and Apps",
+    title: "Basefyio + Astro: A Backend for Content and Apps",
     description:
-      "Use Kolaybase with Astro to power dynamic data, auth, and storage. The kolaybase-js SDK works in Astro components and server endpoints.",
+      "Use Basefyio with Astro to power dynamic data, auth, and storage. The basefyio-js SDK works in Astro components and server endpoints.",
     intro:
-      "Astro is great for fast content sites with islands of interactivity. Kolaybase adds the dynamic backend — PostgreSQL, auth, and storage — when you need it.",
+      "Astro is great for fast content sites with islands of interactivity. Basefyio adds the dynamic backend — PostgreSQL, auth, and storage — when you need it.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// src/lib/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// src/lib/basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: import.meta.env.PUBLIC_KOLAYBASE_PROJECT_ID,
-  apiKey: import.meta.env.PUBLIC_KOLAYBASE_ANON_KEY,
+  projectId: import.meta.env.PUBLIC_BASEFYIO_PROJECT_ID,
+  apiKey: import.meta.env.PUBLIC_BASEFYIO_ANON_KEY,
 });`,
     setupNote:
       "Use PUBLIC_ env variables for the anon key. For server endpoints that need elevated access, use a service key from a non-public variable.",
     usageTitle: "Fetch data in a page",
     usage: `---
 // src/pages/posts.astro
-import { kb } from "../lib/kolaybase";
+import { kb } from "../lib/basefyio";
 const { data: posts } = await kb.from("posts").select("id, title");
 ---
 <ul>{posts?.map((p) => <li>{p.title}</li>)}</ul>`,
@@ -414,7 +414,7 @@ const { data: posts } = await kb.from("posts").select("id, title");
       },
       {
         title: "Add a backend incrementally",
-        body: "Keep Astro's content speed and reach for Kolaybase only where you need dynamic data.",
+        body: "Keep Astro's content speed and reach for Basefyio only where you need dynamic data.",
       },
       {
         title: "Auth and storage ready",
@@ -423,7 +423,7 @@ const { data: posts } = await kb.from("posts").select("id, title");
     ],
     faqs: [
       {
-        question: "Does Kolaybase work with Astro SSR and SSG?",
+        question: "Does Basefyio work with Astro SSR and SSG?",
         answer:
           "Yes. Call the SDK in component frontmatter or endpoints. For SSG, data is fetched at build time; for SSR, on each request.",
       },
@@ -438,25 +438,25 @@ const { data: posts } = await kb.from("posts").select("id, title");
     slug: "remix",
     name: "Remix",
     category: "Framework",
-    title: "Kolaybase + Remix: PostgreSQL Backend with Loaders and Actions",
+    title: "Basefyio + Remix: PostgreSQL Backend with Loaders and Actions",
     description:
-      "Use Kolaybase with Remix for PostgreSQL data, auth, and storage. The kolaybase-js SDK fits Remix loaders and actions for server-side data access.",
+      "Use Basefyio with Remix for PostgreSQL data, auth, and storage. The basefyio-js SDK fits Remix loaders and actions for server-side data access.",
     intro:
-      "Remix's loaders and actions are a natural home for backend calls. Use kolaybase-js server-side to read and mutate Kolaybase data on each request.",
+      "Remix's loaders and actions are a natural home for backend calls. Use basefyio-js server-side to read and mutate Basefyio data on each request.",
     install: INSTALL,
     setupTitle: "Create a server client",
-    setup: `// app/kolaybase.server.ts
-import { createClient } from "kolaybase-js";
+    setup: `// app/basefyio.server.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: process.env.KOLAYBASE_PROJECT_ID!,
-  apiKey: process.env.KOLAYBASE_ANON_KEY!,
+  projectId: process.env.BASEFYIO_PROJECT_ID!,
+  apiKey: process.env.BASEFYIO_ANON_KEY!,
 });`,
     setupNote:
       "Keep the client in a .server file so keys never reach the browser. Use a service key only for trusted operations.",
     usageTitle: "Load data in a route",
     usage: `// app/routes/posts.tsx
-import { kb } from "~/kolaybase.server";
+import { kb } from "~/basefyio.server";
 import { useLoaderData } from "@remix-run/react";
 
 export async function loader() {
@@ -475,7 +475,7 @@ export default function Posts() {
       },
       {
         title: "Mutations via actions",
-        body: "Use actions to insert and update Kolaybase data on form submissions.",
+        body: "Use actions to insert and update Basefyio data on form submissions.",
       },
       {
         title: "Full backend included",
@@ -484,7 +484,7 @@ export default function Posts() {
     ],
     faqs: [
       {
-        question: "Where should the Kolaybase client live in Remix?",
+        question: "Where should the Basefyio client live in Remix?",
         answer:
           "In a .server file so it's never bundled to the browser. Loaders and actions import it for data access.",
       },
@@ -499,26 +499,26 @@ export default function Posts() {
     slug: "nuxt",
     name: "Nuxt",
     category: "Framework",
-    title: "Kolaybase + Nuxt: PostgreSQL Backend for Nuxt Apps",
+    title: "Basefyio + Nuxt: PostgreSQL Backend for Nuxt Apps",
     description:
-      "Use Kolaybase with Nuxt 3 for a PostgreSQL backend, auth, and storage. The kolaybase-js SDK works in composables, server routes, and plugins.",
+      "Use Basefyio with Nuxt 3 for a PostgreSQL backend, auth, and storage. The basefyio-js SDK works in composables, server routes, and plugins.",
     intro:
-      "Nuxt handles rendering and routing on top of Vue; Kolaybase provides the backend — PostgreSQL, auth, and storage — through the kolaybase-js SDK on both server and client.",
+      "Nuxt handles rendering and routing on top of Vue; Basefyio provides the backend — PostgreSQL, auth, and storage — through the basefyio-js SDK on both server and client.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// utils/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// utils/basefyio.ts
+import { createClient } from "basefyio-js";
 
 const config = useRuntimeConfig();
 export const kb = createClient({
-  projectId: config.public.kolaybaseProjectId,
-  apiKey: config.public.kolaybaseAnonKey,
+  projectId: config.public.basefyioProjectId,
+  apiKey: config.public.basefyioAnonKey,
 });`,
     setupNote:
       "Expose the anon key via runtimeConfig.public for client use. For server routes that need elevated access, read a service key from the private runtimeConfig instead.",
     usageTitle: "Fetch data in a component",
     usage: `<script setup lang="ts">
-import { kb } from "~/utils/kolaybase";
+import { kb } from "~/utils/basefyio";
 
 const { data: posts } = await useAsyncData("posts", async () => {
   const { data } = await kb.from("posts").select("id, title");
@@ -541,12 +541,12 @@ const { data: posts } = await useAsyncData("posts", async () => {
     ],
     faqs: [
       {
-        question: "Does Kolaybase work with Nuxt 3 server routes?",
+        question: "Does Basefyio work with Nuxt 3 server routes?",
         answer:
           "Yes. Create a server-side client with a service key in /server/api routes for trusted operations, and a public client for the browser.",
       },
       {
-        question: "Where do Kolaybase keys go in Nuxt?",
+        question: "Where do Basefyio keys go in Nuxt?",
         answer:
           "Public anon keys go in runtimeConfig.public; service keys go in the private runtimeConfig, accessed only in server routes.",
       },
@@ -556,34 +556,34 @@ const { data: posts } = await useAsyncData("posts", async () => {
     slug: "angular",
     name: "Angular",
     category: "Framework",
-    title: "Kolaybase + Angular: A Backend for Angular Apps",
+    title: "Basefyio + Angular: A Backend for Angular Apps",
     description:
-      "Connect an Angular app to Kolaybase for PostgreSQL data, auth, and storage via the kolaybase-js SDK, wrapped in an injectable service.",
+      "Connect an Angular app to Basefyio for PostgreSQL data, auth, and storage via the basefyio-js SDK, wrapped in an injectable service.",
     intro:
-      "Give your Angular app a backend without building one. Wrap the kolaybase-js SDK in an injectable service and use it across components and resolvers.",
+      "Give your Angular app a backend without building one. Wrap the basefyio-js SDK in an injectable service and use it across components and resolvers.",
     install: INSTALL,
     setupTitle: "Create an injectable client",
-    setup: `// src/app/kolaybase.service.ts
+    setup: `// src/app/basefyio.service.ts
 import { Injectable } from "@angular/core";
-import { createClient } from "kolaybase-js";
+import { createClient } from "basefyio-js";
 import { environment } from "../environments/environment";
 
 @Injectable({ providedIn: "root" })
-export class Kolaybase {
+export class Basefyio {
   client = createClient({
-    projectId: environment.kolaybaseProjectId,
-    apiKey: environment.kolaybaseAnonKey,
+    projectId: environment.basefyioProjectId,
+    apiKey: environment.basefyioAnonKey,
   });
 }`,
     setupNote:
       "Put the anon key in environment.ts. Row-level security keeps it safe in the browser. Never ship a service key to an Angular bundle.",
     usageTitle: "Use the service in a component",
     usage: `import { Component, inject, signal } from "@angular/core";
-import { Kolaybase } from "./kolaybase.service";
+import { Basefyio } from "./basefyio.service";
 
 @Component({ selector: "app-posts", template: "..." })
 export class PostsComponent {
-  private kb = inject(Kolaybase);
+  private kb = inject(Basefyio);
   posts = signal<any[]>([]);
 
   async ngOnInit() {
@@ -607,7 +607,7 @@ export class PostsComponent {
     ],
     faqs: [
       {
-        question: "Is it safe to use Kolaybase in an Angular app?",
+        question: "Is it safe to use Basefyio in an Angular app?",
         answer:
           "Yes, with the anon key and row-level security enabled. Policies run in the database, so users only access rows they're permitted to.",
       },
@@ -622,25 +622,25 @@ export class PostsComponent {
     slug: "solidjs",
     name: "SolidJS",
     category: "Framework",
-    title: "Kolaybase + SolidJS: Backend for Solid Apps",
+    title: "Basefyio + SolidJS: Backend for Solid Apps",
     description:
-      "Use Kolaybase with SolidJS for PostgreSQL data, auth, and storage. The kolaybase-js SDK pairs cleanly with Solid resources and signals.",
+      "Use Basefyio with SolidJS for PostgreSQL data, auth, and storage. The basefyio-js SDK pairs cleanly with Solid resources and signals.",
     intro:
-      "SolidJS gives you fine-grained reactivity; Kolaybase gives it a backend. Load data with createResource and the kolaybase-js SDK.",
+      "SolidJS gives you fine-grained reactivity; Basefyio gives it a backend. Load data with createResource and the basefyio-js SDK.",
     install: INSTALL,
     setupTitle: "Create the client",
-    setup: `// src/kolaybase.ts
-import { createClient } from "kolaybase-js";
+    setup: `// src/basefyio.ts
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: import.meta.env.VITE_KOLAYBASE_PROJECT_ID,
-  apiKey: import.meta.env.VITE_KOLAYBASE_ANON_KEY,
+  projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
+  apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
     setupNote:
       "Use the anon key in the browser; row-level security enforces access at the database.",
     usageTitle: "Load data with a resource",
     usage: `import { createResource, For } from "solid-js";
-import { kb } from "./kolaybase";
+import { kb } from "./basefyio";
 
 export function Posts() {
   const [posts] = createResource(async () => {
@@ -665,7 +665,7 @@ export function Posts() {
     ],
     faqs: [
       {
-        question: "Does kolaybase-js work with SolidStart?",
+        question: "Does basefyio-js work with SolidStart?",
         answer:
           "Yes. SolidStart supports server and client code, and the SDK runs in both. Use the anon key on the client and a service key only in server functions.",
       },
@@ -680,25 +680,25 @@ export function Posts() {
     slug: "express",
     name: "Express",
     category: "Runtime",
-    title: "Kolaybase + Express: Backend Data Access in Node.js APIs",
+    title: "Basefyio + Express: Backend Data Access in Node.js APIs",
     description:
-      "Use Kolaybase from an Express server for PostgreSQL queries, auth, and storage. Ideal for custom APIs, webhooks, and trusted server-side logic.",
+      "Use Basefyio from an Express server for PostgreSQL queries, auth, and storage. Ideal for custom APIs, webhooks, and trusted server-side logic.",
     intro:
-      "Running an Express API? Use kolaybase-js server-side to read and write PostgreSQL data, with a service key for trusted operations that bypass row-level security.",
+      "Running an Express API? Use basefyio-js server-side to read and write PostgreSQL data, with a service key for trusted operations that bypass row-level security.",
     install: INSTALL,
     setupTitle: "Create a server client",
-    setup: `// kolaybase.js
-import { createClient } from "kolaybase-js";
+    setup: `// basefyio.js
+import { createClient } from "basefyio-js";
 
 export const kb = createClient({
-  projectId: process.env.KOLAYBASE_PROJECT_ID,
-  apiKey: process.env.KOLAYBASE_SERVICE_KEY, // server-only
+  projectId: process.env.BASEFYIO_PROJECT_ID,
+  apiKey: process.env.BASEFYIO_SERVICE_KEY, // server-only
 });`,
     setupNote:
       "Keep the service key on the server only. Use it for trusted operations; for anything reachable by the browser, use the anon key with row-level security.",
     usageTitle: "Use it in a route handler",
     usage: `import express from "express";
-import { kb } from "./kolaybase.js";
+import { kb } from "./basefyio.js";
 
 const app = express();
 
@@ -716,7 +716,7 @@ app.listen(3000);`,
       },
       {
         title: "Add a custom API surface",
-        body: "Expose your own endpoints with Express while Kolaybase handles the data layer.",
+        body: "Expose your own endpoints with Express while Basefyio handles the data layer.",
       },
       {
         title: "Raw SQL available",
@@ -725,9 +725,9 @@ app.listen(3000);`,
     ],
     faqs: [
       {
-        question: "Can I build a custom REST API over Kolaybase with Express?",
+        question: "Can I build a custom REST API over Basefyio with Express?",
         answer:
-          "Yes. Use Express for bespoke endpoints and business logic, and kolaybase-js with a service key for data access.",
+          "Yes. Use Express for bespoke endpoints and business logic, and basefyio-js with a service key for data access.",
       },
       {
         question: "Should I use the anon or service key in Express?",

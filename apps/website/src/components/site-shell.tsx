@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { KolaybaseLogo } from "@/components/kolaybase-logo";
+import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
@@ -27,7 +27,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-8">
-            <KolaybaseLogo />
+            <BasefyioLogo />
             <nav className="hidden items-center gap-6 md:flex">
               {NAV_LINKS.map((link) => (
                 <Link
@@ -59,7 +59,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <KolaybaseLogo />
+          <BasefyioLogo />
           <nav className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
             {NAV_LINKS.map((link) => (
               <Link
@@ -78,7 +78,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Kolaybase
+            © {new Date().getFullYear()} Basefyio
           </p>
         </div>
       </footer>

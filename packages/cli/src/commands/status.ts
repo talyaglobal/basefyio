@@ -10,12 +10,12 @@ interface StatusOptions {
 export async function statusCommand(options: StatusOptions) {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 
   if (!isLoggedIn()) {
-    error('Not logged in. Run:  kb login');
+    error('Not logged in. Run:  basefyio login');
     process.exit(1);
   }
 
@@ -62,7 +62,7 @@ export async function statusCommand(options: StatusOptions) {
 
     // ── Hint ─────────────────────────────────────────────
     if (!options.showKeys) {
-      console.log(chalk.gray('  Tip: use  kb status --show-keys  to reveal secrets'));
+      console.log(chalk.gray('  Tip: use  basefyio status --show-keys  to reveal secrets'));
     }
     console.log();
   } catch (err) {

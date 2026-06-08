@@ -68,7 +68,7 @@ const DELETE_REASONS = [
   { code: 'support', label: 'I was not satisfied with the customer support I received.' },
   { code: 'pricing_unpredictable', label: 'The pricing is unpredictable and hard to budget for.' },
   { code: 'too_expensive', label: 'Too expensive' },
-  { code: 'missing_feature', label: 'Kolaybase is missing a specific feature I need.' },
+  { code: 'missing_feature', label: 'Basefyio is missing a specific feature I need.' },
   { code: 'company_closed', label: 'My company went out of business or was acquired.' },
   { code: 'difficult', label: 'I found it difficult to use or build with.' },
   { code: 'none', label: 'None of the above' },
@@ -334,7 +334,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         vercelIntegration={vc ?? undefined}
       />
 
-      <div className="kb-grid-row-hover grid gap-5 md:grid-cols-3">
+      <div className="basefyio-grid-row-hover grid gap-5 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />

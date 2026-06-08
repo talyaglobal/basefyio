@@ -5,14 +5,14 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Kolaybase is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
+  "Basefyio is a backend-as-a-service platform. PostgreSQL, authentication, file storage, and auto-generated REST API for every project.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs", {
     title: "Documentation",
     description: pageDescription,
     openGraph: {
-      title: "Documentation | Kolaybase Docs",
+      title: "Documentation | Basefyio Docs",
       description: pageDescription,
     },
   });
@@ -22,7 +22,7 @@ function appPortalHostLabel(): string {
   try {
     return new URL(getAppPortalUrl()).host;
   } catch {
-    return "app.kolaybase.com";
+    return "app.basefyio.com";
   }
 }
 
@@ -35,7 +35,7 @@ export default function DocsOverview() {
     <div>
       <h1>Documentation</h1>
       <p>
-        Kolaybase is a backend-as-a-service platform. It provides a PostgreSQL
+        Basefyio is a backend-as-a-service platform. It provides a PostgreSQL
         database, authentication, file storage, and auto-generated REST API for
         every project you create.
       </p>
@@ -46,8 +46,8 @@ export default function DocsOverview() {
         <a href={signupUrl}>{appHost}</a>, create
         a project, and start building immediately.
       </p>
-      <pre><code>{`npm install kolaybase-js`}</code></pre>
-      <pre><code>{`import { createClient } from 'kolaybase-js'
+      <pre><code>{`npm install basefyio-js`}</code></pre>
+      <pre><code>{`import { createClient } from 'basefyio-js'
 
 const kb = createClient({
   apiUrl: '${apiUrl}',
@@ -98,7 +98,7 @@ const { data: user } = await kb.auth.signUp({
       </p>
       <h3>Authentication</h3>
       <p>
-        Kolaybase provides email/password sign-up, email verification, magic
+        Basefyio provides email/password sign-up, email verification, magic
         links, password reset, and OAuth (Google, GitHub). All managed per
         project.
       </p>

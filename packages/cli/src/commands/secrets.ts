@@ -7,7 +7,7 @@ export async function listSecrets() {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -17,7 +17,7 @@ export async function listSecrets() {
     if (Object.keys(env).length === 0) {
       info('No secrets configured');
       console.log();
-      console.log(chalk.gray('Add a secret with:'), chalk.cyan('kb secrets set KEY VALUE'));
+      console.log(chalk.gray('Add a secret with:'), chalk.cyan('basefyio secrets set KEY VALUE'));
       return;
     }
 
@@ -45,7 +45,7 @@ export async function setSecret(key: string, value: string) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 
@@ -65,7 +65,7 @@ export async function unsetSecret(key: string) {
 
   const config = await getProjectConfig();
   if (!config) {
-    error('Not in a Kolaybase project. Run: kb init');
+    error('Not in a Basefyio project. Run: basefyio init');
     process.exit(1);
   }
 

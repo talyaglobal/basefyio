@@ -27,9 +27,9 @@ export const USE_CASES: UseCase[] = [
     label: "SaaS apps",
     title: "The Backend for SaaS Applications — PostgreSQL, Auth & REST API",
     description:
-      "Build multi-tenant SaaS faster with Kolaybase: per-project PostgreSQL, row-level security, authentication, and an auto-generated REST API. Ship features, not plumbing.",
+      "Build multi-tenant SaaS faster with Basefyio: per-project PostgreSQL, row-level security, authentication, and an auto-generated REST API. Ship features, not plumbing.",
     intro:
-      "SaaS products live and die by their data model and access control. Kolaybase gives you a real PostgreSQL database with row-level security and auth built in, so multi-tenant isolation is enforced at the database — not bolted on in application code.",
+      "SaaS products live and die by their data model and access control. Basefyio gives you a real PostgreSQL database with row-level security and auth built in, so multi-tenant isolation is enforced at the database — not bolted on in application code.",
     benefits: [
       {
         title: "Tenant isolation with RLS",
@@ -56,14 +56,14 @@ create policy "members read their org's projects"
   using (org_id = auth.org_id());`,
     faqs: [
       {
-        question: "How does Kolaybase handle multi-tenancy?",
+        question: "How does Basefyio handle multi-tenancy?",
         answer:
           "You model tenants in your schema (e.g. an org_id column) and enforce isolation with PostgreSQL row-level security policies. The REST API and SDK respect these policies automatically.",
       },
       {
         question: "Can I bring my own auth provider?",
         answer:
-          "Kolaybase auth is built on Keycloak, which supports email, OAuth, and standard identity providers. Each project gets its own realm.",
+          "Basefyio auth is built on Keycloak, which supports email, OAuth, and standard identity providers. Each project gets its own realm.",
       },
     ],
   },
@@ -72,9 +72,9 @@ create policy "members read their org's projects"
     label: "Mobile apps",
     title: "A Backend for Mobile Apps — Instant REST API, Auth & Storage",
     description:
-      "Power your iOS, Android, or React Native app with Kolaybase: hosted PostgreSQL, authentication, file storage, and a REST API the SDK talks to directly. No server code to maintain.",
+      "Power your iOS, Android, or React Native app with Basefyio: hosted PostgreSQL, authentication, file storage, and a REST API the SDK talks to directly. No server code to maintain.",
     intro:
-      "Mobile apps need a backend, but you don't want to run servers for every endpoint. Kolaybase exposes your PostgreSQL data over a secure REST API your app calls directly, with auth and file storage included.",
+      "Mobile apps need a backend, but you don't want to run servers for every endpoint. Basefyio exposes your PostgreSQL data over a secure REST API your app calls directly, with auth and file storage included.",
     benefits: [
       {
         title: "Talk to your data directly",
@@ -101,9 +101,9 @@ create policy "members read their org's projects"
   .order("sent_at", { ascending: true });`,
     faqs: [
       {
-        question: "Does Kolaybase work with React Native and Flutter?",
+        question: "Does Basefyio work with React Native and Flutter?",
         answer:
-          "Yes. The REST API is plain HTTP/JSON, so any mobile framework can call it. The kolaybase-js SDK works in JavaScript and TypeScript environments including React Native.",
+          "Yes. The REST API is plain HTTP/JSON, so any mobile framework can call it. The basefyio-js SDK works in JavaScript and TypeScript environments including React Native.",
       },
       {
         question: "How do I secure data accessed from a mobile client?",
@@ -117,9 +117,9 @@ create policy "members read their org's projects"
     label: "E-commerce",
     title: "A Backend for E-commerce — Products, Orders, and Auth on PostgreSQL",
     description:
-      "Build an online store backend with Kolaybase: relational products and orders in PostgreSQL, transactional integrity, customer auth, and a REST API for your storefront.",
+      "Build an online store backend with Basefyio: relational products and orders in PostgreSQL, transactional integrity, customer auth, and a REST API for your storefront.",
     intro:
-      "E-commerce is relational by nature — products, variants, carts, orders, and customers all reference each other. Kolaybase gives you PostgreSQL with transactions and constraints, so your catalog and checkout stay consistent, plus auth and an API for the storefront.",
+      "E-commerce is relational by nature — products, variants, carts, orders, and customers all reference each other. Basefyio gives you PostgreSQL with transactions and constraints, so your catalog and checkout stay consistent, plus auth and an API for the storefront.",
     benefits: [
       {
         title: "Transactional checkout",
@@ -147,7 +147,7 @@ insert into order_items (order_id, product_id, qty)
 commit;`,
     faqs: [
       {
-        question: "Can Kolaybase handle inventory and orders consistently?",
+        question: "Can Basefyio handle inventory and orders consistently?",
         answer:
           "Yes. PostgreSQL transactions and constraints keep orders, line items, and inventory consistent, which is hard to guarantee on a document database.",
       },
@@ -163,9 +163,9 @@ commit;`,
     label: "Internal tools",
     title: "A Backend for Internal Tools — Instant API Over Your Data",
     description:
-      "Power dashboards, admin panels, and internal tools with Kolaybase: a real PostgreSQL database, an instant REST API, auth, and role-based access without building a backend.",
+      "Power dashboards, admin panels, and internal tools with Basefyio: a real PostgreSQL database, an instant REST API, auth, and role-based access without building a backend.",
     intro:
-      "Internal tools usually need the same thing: a database, an API over it, and access control — fast. Kolaybase turns a PostgreSQL schema into a secured REST API instantly, so you can focus on the tool's UI instead of plumbing.",
+      "Internal tools usually need the same thing: a database, an API over it, and access control — fast. Basefyio turns a PostgreSQL schema into a secured REST API instantly, so you can focus on the tool's UI instead of plumbing.",
     benefits: [
       {
         title: "Instant CRUD API",
@@ -192,7 +192,7 @@ commit;`,
   .group("plan");`,
     faqs: [
       {
-        question: "Is Kolaybase good for admin panels and dashboards?",
+        question: "Is Basefyio good for admin panels and dashboards?",
         answer:
           "Yes. The instant REST API over PostgreSQL is ideal for internal CRUD tools, and full SQL access makes reporting and aggregation straightforward.",
       },
@@ -208,9 +208,9 @@ commit;`,
     label: "AI apps",
     title: "A Backend for AI Applications — Postgres, Auth, and Storage for LLM Apps",
     description:
-      "Build AI and LLM applications on Kolaybase: store users, conversations, and documents in PostgreSQL, manage auth and file uploads, and serve it all through a REST API.",
+      "Build AI and LLM applications on Basefyio: store users, conversations, and documents in PostgreSQL, manage auth and file uploads, and serve it all through a REST API.",
     intro:
-      "AI apps still need a normal backend: user accounts, conversation history, uploaded documents, and usage tracking. Kolaybase handles that foundation — PostgreSQL, auth, storage, and a REST API — so you can focus on the model and the product.",
+      "AI apps still need a normal backend: user accounts, conversation history, uploaded documents, and usage tracking. Basefyio handles that foundation — PostgreSQL, auth, storage, and a REST API — so you can focus on the model and the product.",
     benefits: [
       {
         title: "Store chats and history",
@@ -237,12 +237,12 @@ commit;`,
 });`,
     faqs: [
       {
-        question: "Can I build a chatbot or LLM app backend on Kolaybase?",
+        question: "Can I build a chatbot or LLM app backend on Basefyio?",
         answer:
           "Yes. Store users, conversations, messages, and documents in PostgreSQL, handle auth and file uploads, and serve everything through the REST API while your app calls the model.",
       },
       {
-        question: "Does Kolaybase work for retrieval-augmented generation (RAG)?",
+        question: "Does Basefyio work for retrieval-augmented generation (RAG)?",
         answer:
           "You can store documents in object storage and their metadata in PostgreSQL. Since it's standard Postgres, you can use the broader ecosystem of extensions and tooling around it.",
       },
@@ -253,9 +253,9 @@ commit;`,
     label: "Chat & messaging",
     title: "A Backend for Chat & Messaging Apps on PostgreSQL",
     description:
-      "Build messaging and chat apps with Kolaybase: store conversations and messages in PostgreSQL, authenticate users, and serve message history through a fast REST API.",
+      "Build messaging and chat apps with Basefyio: store conversations and messages in PostgreSQL, authenticate users, and serve message history through a fast REST API.",
     intro:
-      "Messaging apps need durable, queryable history and solid access control. Kolaybase stores conversations and messages in PostgreSQL, authenticates users, and exposes message history over a REST API your client reads directly.",
+      "Messaging apps need durable, queryable history and solid access control. Basefyio stores conversations and messages in PostgreSQL, authenticates users, and exposes message history over a REST API your client reads directly.",
     benefits: [
       {
         title: "Durable message history",
@@ -282,9 +282,9 @@ commit;`,
   .order("sent_at", { ascending: true });`,
     faqs: [
       {
-        question: "Can Kolaybase power a chat app?",
+        question: "Can Basefyio power a chat app?",
         answer:
-          "Yes for storage, auth, and history over REST. Live push (realtime subscriptions) is on the roadmap; today many apps poll or pair Kolaybase with a realtime transport for delivery.",
+          "Yes for storage, auth, and history over REST. Live push (realtime subscriptions) is on the roadmap; today many apps poll or pair Basefyio with a realtime transport for delivery.",
       },
       {
         question: "How do I keep conversations private?",
@@ -298,9 +298,9 @@ commit;`,
     label: "Analytics dashboards",
     title: "A Backend for Analytics Dashboards — SQL Power on PostgreSQL",
     description:
-      "Build analytics dashboards on Kolaybase: aggregate data with full PostgreSQL SQL, expose metrics through a REST API, and control access with roles and row-level security.",
+      "Build analytics dashboards on Basefyio: aggregate data with full PostgreSQL SQL, expose metrics through a REST API, and control access with roles and row-level security.",
     intro:
-      "Dashboards live on aggregation — sums, group-bys, time buckets, and joins. Kolaybase gives you full PostgreSQL for those queries plus a REST API and access control, so you can ship metrics without standing up a separate analytics backend.",
+      "Dashboards live on aggregation — sums, group-bys, time buckets, and joins. Basefyio gives you full PostgreSQL for those queries plus a REST API and access control, so you can ship metrics without standing up a separate analytics backend.",
     benefits: [
       {
         title: "Real SQL aggregation",
@@ -327,7 +327,7 @@ from events
 group by 1;`,
     faqs: [
       {
-        question: "Can I build dashboards on Kolaybase?",
+        question: "Can I build dashboards on Basefyio?",
         answer:
           "Yes. Full PostgreSQL means you can write aggregation queries and views, then read them through the REST API to power charts and metrics.",
       },

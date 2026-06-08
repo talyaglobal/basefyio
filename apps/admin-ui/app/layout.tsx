@@ -9,13 +9,13 @@ import { NotificationsProvider } from '@/lib/notifications-context';
 import { GlobalErrorCatcher } from '@/components/global-error-catcher';
 import './globals.css';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.kolaybase.com';
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://kolaybase.com';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.basefyio.com';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Kolaybase — Open Source Backend Platform',
-    template: '%s | Kolaybase',
+    default: 'Basefyio — Open Source Backend Platform',
+    template: '%s | Basefyio',
   },
   description:
     'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration. An open-source alternative to Firebase and Supabase.',
@@ -26,15 +26,15 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: 'website',
-    siteName: 'Kolaybase',
-    title: 'Kolaybase — Open Source Backend Platform',
+    siteName: 'Basefyio',
+    title: 'Basefyio — Open Source Backend Platform',
     description:
       'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
     url: SITE_URL,
   },
   twitter: {
     card: 'summary',
-    title: 'Kolaybase — Open Source Backend Platform',
+    title: 'Basefyio — Open Source Backend Platform',
     description:
       'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
   },

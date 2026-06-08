@@ -1,5 +1,5 @@
 {
-  "name": "@kolaybase/platform-api",
+  "name": "@basefyio/platform-api",
   "version": "1.2.1",
   "private": true,
   "prisma": {

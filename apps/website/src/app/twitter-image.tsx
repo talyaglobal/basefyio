@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 
-export const alt = "Kolaybase — Backend as a Service";
+export const alt = "Basefyio — Backend as a Service";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -24,7 +24,7 @@ export default function TwitterImage() {
         }}
       >
         <div style={{ fontSize: 72, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          Kolaybase
+          Basefyio
         </div>
         <div
           style={{

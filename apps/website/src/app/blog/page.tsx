@@ -10,14 +10,14 @@ import { getAllPosts } from "@/lib/content/blog";
 
 const TITLE = "Blog";
 const DESCRIPTION =
-  "Guides, tutorials, and engineering notes on building backends with Kolaybase — PostgreSQL, auth, storage, REST APIs, SDK, and CLI.";
+  "Guides, tutorials, and engineering notes on building backends with Basefyio — PostgreSQL, auth, storage, REST APIs, SDK, and CLI.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
     path: "/blog",
     title: TITLE,
     description: DESCRIPTION,
-    keywords: ["Kolaybase blog", "backend tutorials", "PostgreSQL guides"],
+    keywords: ["Basefyio blog", "backend tutorials", "PostgreSQL guides"],
   });
 }
 
@@ -37,7 +37,7 @@ export default async function BlogIndex() {
     <SiteShell>
       <JsonLd
         data={itemListSchema(
-          "Kolaybase Blog",
+          "Basefyio Blog",
           posts.map((p) => ({
             name: p.title,
             url: `${base}/blog/${p.slug}`,

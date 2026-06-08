@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 interface DashboardContextValue {
@@ -75,12 +75,12 @@ export default function DashboardLayout({
   const [user, setUser] = useState<UserInfo | null>(null);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [viewTeamId, setViewTeamIdRaw] = useState<string>(() => {
-    if (typeof window !== 'undefined') return sessionStorage.getItem('kb_view_team') || 'all';
+    if (typeof window !== 'undefined') return sessionStorage.getItem('basefyio_view_team') || 'all';
     return 'all';
   });
   const setViewTeamId = (id: string) => {
     setViewTeamIdRaw(id);
-    sessionStorage.setItem('kb_view_team', id);
+    sessionStorage.setItem('basefyio_view_team', id);
   };
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -103,7 +103,7 @@ export default function DashboardLayout({
     pathname !== '/dashboard/projects';
 
   useEffect(() => {
-    const forcePasswordChange = Cookies.get('kb_force_password_change') === '1';
+    const forcePasswordChange = Cookies.get('basefyio_force_password_change') === '1';
     if (forcePasswordChange) {
       router.replace('/set-new-password');
       return;
@@ -132,13 +132,13 @@ export default function DashboardLayout({
           if (cancelled) return;
           setProfile(p);
           if (p.forcePasswordChange) {
-            Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
+            Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
             router.replace('/set-new-password');
           }
         })
         .catch(() => {});
 
-      const cachedTeam = Cookies.get('kb_active_team');
+      const cachedTeam = Cookies.get('basefyio_active_team');
 
       if (cachedTeam) {
         try {
@@ -151,14 +151,14 @@ export default function DashboardLayout({
           }
         } catch {}
         if (cancelled) return;
-        Cookies.remove('kb_active_team');
+        Cookies.remove('basefyio_active_team');
       }
 
       try {
         const { teamId } = await api.teams.getActive();
         if (!cancelled) {
           setActiveTeamId(teamId);
-          Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+          Cookies.set('basefyio_active_team', teamId, { expires: 365, path: '/' });
         }
       } catch {}
     }
@@ -249,7 +249,7 @@ export default function DashboardLayout({
 
   const handleTeamChange = useCallback((id: string) => {
     setActiveTeamId(id);
-    Cookies.set('kb_active_team', id, { expires: 365, path: '/' });
+    Cookies.set('basefyio_active_team', id, { expires: 365, path: '/' });
   }, []);
 
   const handleHeaderTeamChange = useCallback(
@@ -269,10 +269,10 @@ export default function DashboardLayout({
     api.auth.getProfile().then((p) => {
       setProfile(p);
       if (p.forcePasswordChange) {
-        Cookies.set('kb_force_password_change', '1', { expires: 7, path: '/' });
+        Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
         router.replace('/set-new-password');
       } else {
-        Cookies.remove('kb_force_password_change', { path: '/' });
+        Cookies.remove('basefyio_force_password_change', { path: '/' });
       }
       setUser((prev) =>
         prev ? { ...prev, email: p.email } : prev,
@@ -299,7 +299,7 @@ export default function DashboardLayout({
     if (!activeTeamId) return;
     if (!isRealtimePhase1Enabled()) return;
     let debounceTimer: ReturnType<typeof setTimeout>;
-    const unsubscribe = subscribeKbRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribeBasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 500);

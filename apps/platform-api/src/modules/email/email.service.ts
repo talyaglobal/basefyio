@@ -38,7 +38,7 @@ export class EmailService {
 
   async sendSignupVerifyEmail(to: string, otp: string, firstName?: string) {
     const html = signupVerifyEmailTemplate({ email: to, otp, firstName });
-    return this.send({ to, subject: 'Verify your email to join Kolaybase', html });
+    return this.send({ to, subject: 'Verify your email to join Basefyio', html });
   }
 
   async sendWelcome(to: string, displayName: string) {
@@ -51,7 +51,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `Welcome to Kolaybase, ${displayName}! 🚀`,
+      subject: `Welcome to Basefyio, ${displayName}! 🚀`,
       html,
     });
   }
@@ -74,7 +74,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: 'New sign-in to your Kolaybase account',
+      subject: 'New sign-in to your Basefyio account',
       html,
     });
   }
@@ -101,7 +101,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `${inviterDisplay} invited you to join ${teamName} on Kolaybase`,
+      subject: `${inviterDisplay} invited you to join ${teamName} on Basefyio`,
       html,
     });
   }
@@ -142,7 +142,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: 'Reset your Kolaybase password',
+      subject: 'Reset your Basefyio password',
       html,
     });
   }
@@ -168,7 +168,7 @@ export class EmailService {
 
     return this.send({
       to,
-      subject: `Your ${projectName} account has been migrated to Kolaybase`,
+      subject: `Your ${projectName} account has been migrated to Basefyio`,
       html,
     });
   }

@@ -27,7 +27,7 @@ import {
   Image as ImageIcon,
   Video,
 } from 'lucide-react';
-import { subscribeKbRealtime, isRealtimePhase1Enabled } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
@@ -45,8 +45,8 @@ function parseAttachments(raw: unknown): FeedbackAttachment[] {
 }
 
 const STATUS_OPTIONS = ['OPEN', 'IN_PROGRESS', 'DONE', 'CLOSED'] as const;
-const FEEDBACK_STATUS_FILTER_KEY = 'kb_feedbacks_status_filter';
-const FEEDBACK_TYPE_FILTER_KEY = 'kb_feedbacks_type_filter';
+const FEEDBACK_STATUS_FILTER_KEY = 'basefyio_feedbacks_status_filter';
+const FEEDBACK_TYPE_FILTER_KEY = 'basefyio_feedbacks_type_filter';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   OPEN: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Circle className="h-3 w-3" /> },
@@ -107,7 +107,7 @@ export default function FeedbacksPage() {
   useEffect(() => {
     if (!profile?.id) return;
     if (!isRealtimePhase1Enabled()) return;
-    const unsubscribe = subscribeKbRealtime(`user:${profile.id}`, (event: RealtimeEventEnvelope) => {
+    const unsubscribe = subscribeBasefyioRealtime(`user:${profile.id}`, (event: RealtimeEventEnvelope) => {
       if (event.actorUserId === profile.id) return;
       if (event.entityType === 'feedback' || event.entityType === 'feedback_comment') {
         void load();

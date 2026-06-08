@@ -1,4 +1,4 @@
-import type { KolaybaseError } from './types.js';
+import type { BasefyioError } from './types.js';
 
 export interface FetchOptions {
   method?: string;
@@ -6,7 +6,7 @@ export interface FetchOptions {
   body?: BodyInit | null;
 }
 
-export class KolaybaseFetchClient {
+export class BasefyioFetchClient {
   private baseUrl: string;
   private globalHeaders: Record<string, string>;
   private tokenAccessor: () => string | null;
@@ -53,7 +53,7 @@ export class KolaybaseFetchClient {
         const body = await res.json();
         message = body.message || message;
       } catch {}
-      const err: KolaybaseError = { message, status: res.status };
+      const err: BasefyioError = { message, status: res.status };
       throw err;
     }
 
@@ -90,7 +90,7 @@ export class KolaybaseFetchClient {
         const body = await res.json();
         message = body.message || message;
       } catch {}
-      throw { message, status: res.status } as KolaybaseError;
+      throw { message, status: res.status } as BasefyioError;
     }
 
     const data = await res.blob();

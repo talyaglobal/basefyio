@@ -1,6 +1,6 @@
-import { KolaybaseFetchClient } from './lib/fetch.js';
-import type { KolaybaseClientOptions, KolaybaseResponse } from './lib/types.js';
-import { KOLAYBASE_DEFAULT_API_URL } from './lib/types.js';
+import { BasefyioFetchClient } from './lib/fetch.js';
+import type { BasefyioClientOptions, BasefyioResponse } from './lib/types.js';
+import { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
 import { AuthClient } from './modules/auth.js';
 import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
@@ -14,30 +14,30 @@ function getEnv(key: string): string | undefined {
   return undefined;
 }
 
-export class KolaybaseClient {
+export class BasefyioClient {
   readonly auth: AuthClient;
   readonly storage: StorageClient;
 
   private db: DatabaseClient;
-  private http: KolaybaseFetchClient;
+  private http: BasefyioFetchClient;
   private projectId: string;
 
-  constructor(options: KolaybaseClientOptions = {}) {
-    const projectId = options.projectId || getEnv('KOLAYBASE_PROJECT_ID');
-    const apiKey = options.apiKey || getEnv('KOLAYBASE_ANON_KEY');
-    const apiUrl = (options.apiUrl || getEnv('KOLAYBASE_API_URL') || KOLAYBASE_DEFAULT_API_URL).replace(/\/+$/, '');
+  constructor(options: BasefyioClientOptions = {}) {
+    const projectId = options.projectId || getEnv('BASEFYIO_PROJECT_ID');
+    const apiKey = options.apiKey || getEnv('BASEFYIO_ANON_KEY');
+    const apiUrl = (options.apiUrl || getEnv('BASEFYIO_API_URL') || BASEFYIO_DEFAULT_API_URL).replace(/\/+$/, '');
 
     if (!projectId) {
-      throw new Error('Missing projectId. Pass it to createClient() or set KOLAYBASE_PROJECT_ID env variable.');
+      throw new Error('Missing projectId. Pass it to createClient() or set BASEFYIO_PROJECT_ID env variable.');
     }
     if (!apiKey) {
-      throw new Error('Missing apiKey. Pass it to createClient() or set KOLAYBASE_ANON_KEY env variable.');
+      throw new Error('Missing apiKey. Pass it to createClient() or set BASEFYIO_ANON_KEY env variable.');
     }
 
     const baseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
     this.projectId = projectId;
 
-    this.http = new KolaybaseFetchClient(
+    this.http = new BasefyioFetchClient(
       baseUrl,
       apiKey,
       options.headers ?? {},
@@ -69,7 +69,7 @@ export class KolaybaseClient {
    * @example
    * const { data } = await kb.sql('SELECT * FROM users WHERE id = 1')
    */
-  async sql<T = Record<string, unknown>>(query: string): Promise<KolaybaseResponse<T[]>> {
+  async sql<T = Record<string, unknown>>(query: string): Promise<BasefyioResponse<T[]>> {
     return this.db.sql<T>(query);
   }
 
@@ -89,19 +89,19 @@ export class KolaybaseClient {
 }
 
 /**
- * Create a new Kolaybase client.
+ * Create a new Basefyio client.
  *
  * @example
  * ```ts
- * import { createClient } from 'kolaybase-js'
+ * import { createClient } from 'basefyio-js'
  *
- * // Reads KOLAYBASE_PROJECT_ID and KOLAYBASE_ANON_KEY from .env automatically
+ * // Reads BASEFYIO_PROJECT_ID and BASEFYIO_ANON_KEY from .env automatically
  * const kb = createClient()
  *
  * // Or pass explicitly
  * const kb2 = createClient({ projectId: '...', apiKey: '...' })
  * ```
  */
-export function createClient(options?: KolaybaseClientOptions): KolaybaseClient {
-  return new KolaybaseClient(options);
+export function createClient(options?: BasefyioClientOptions): BasefyioClient {
+  return new BasefyioClient(options);
 }

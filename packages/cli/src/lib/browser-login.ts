@@ -28,7 +28,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Kolaybase CLI</title>
+  <title>Basefyio CLI</title>
   <style>
     body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px;
            margin: 80px auto; text-align: center; color: #1f2937; }
@@ -46,7 +46,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
   <div id="countdown">This tab will try to close in <b id="t">3</b>s…</div>
   <button onclick="window.close()">Close tab</button>
   <p class="hint">
-    The <code>127.0.0.1</code> URL is normal — the Kolaybase CLI runs a
+    The <code>127.0.0.1</code> URL is normal — the Basefyio CLI runs a
     short-lived local server to receive the auth code from Keycloak.
     This is the OAuth 2.0 loopback flow (RFC 8252) used by every native CLI.
   </p>
@@ -70,7 +70,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 
 const ERROR_HTML = (msg: string) => `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Kolaybase CLI</title></head>
+<head><meta charset="UTF-8"><title>Basefyio CLI</title></head>
 <body style="font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center">
   <h2 style="color:#ef4444">Authentication failed</h2>
   <p>${escapeHtml(msg)}</p>
@@ -104,7 +104,7 @@ export interface BrowserLoginHandle {
    * follow-up exchange has either succeeded or failed. Without it, the
    * 2-minute timeout keeps firing later, the SIGINT handler stays attached,
    * and the listening server may linger holding the port — which causes the
-   * next `kb login` to fail with EADDRINUSE on the OS-assigned port.
+   * next `basefyio login` to fail with EADDRINUSE on the OS-assigned port.
    */
   dispose: () => void;
 }

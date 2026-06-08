@@ -22,8 +22,8 @@ import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
 import { useDashboard } from '@/app/dashboard/layout';
 
-const COLLAPSED_KEY = 'kb_dashboard_nav_collapsed';
-const SIDEBAR_MODE_KEY = 'kb_dashboard_sidebar_mode';
+const COLLAPSED_KEY = 'basefyio_dashboard_nav_collapsed';
+const SIDEBAR_MODE_KEY = 'basefyio_dashboard_sidebar_mode';
 const EXPANDED_W = 220;
 const COLLAPSED_W = 52;
 type SidebarMode = 'auto' | 'open';
@@ -165,7 +165,7 @@ export function DashboardSidebar({
   async function switchTeam(teamId: string) {
     try {
       await api.teams.setActive(teamId);
-      Cookies.set('kb_active_team', teamId, { expires: 365, path: '/' });
+      Cookies.set('basefyio_active_team', teamId, { expires: 365, path: '/' });
       onTeamChange(teamId, { source: 'user-switch' });
       setTeamDropdownOpen(false);
       router.push('/dashboard/projects');

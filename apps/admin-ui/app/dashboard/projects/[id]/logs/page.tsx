@@ -17,7 +17,7 @@ import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { ProjectActivityTimeline } from '@/components/project-activity-timeline';
 import { ScrollText } from 'lucide-react';
-import { subscribeKbRealtime } from '@/lib/kb-realtime';
+import { subscribeBasefyioRealtime } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 const PAGE_SIZE = 50;
@@ -79,7 +79,7 @@ export default function ProjectLogsPage() {
 
   useEffect(() => {
     if (loading || !project) return;
-    const unsubscribe = subscribeKbRealtime(
+    const unsubscribe = subscribeBasefyioRealtime(
       `project:${id}`,
       (event: RealtimeEventEnvelope) => {
         if (event.entityType !== 'project_activity') return;

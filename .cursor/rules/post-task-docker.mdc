@@ -3,7 +3,7 @@ description: After completing tasks, rebuild and restart Docker Compose from rep
 alwaysApply: true
 ---
 
-# Docker after tasks (Kolaybase)
+# Docker after tasks (Basefyio)
 
 When you **finish** a user request that changed application code, configs consumed by containers, or Docker files, **run Docker from the repository root** so the stack matches the latest code:
 

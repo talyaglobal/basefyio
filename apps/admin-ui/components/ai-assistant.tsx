@@ -5,12 +5,12 @@ import { usePathname } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
-  KB_AI_SEND_EVENT,
+  BASEFYIO_AI_SEND_EVENT,
   buildSqlRunErrorPrompt,
-  dispatchKbAiMessage,
-  type KbAiSendDetail,
-} from '@/lib/kb-ai-events';
-import { dispatchKbNotification } from '@/lib/notifications-context';
+  dispatchBasefyioAiMessage,
+  type BasefyioAiSendDetail,
+} from '@/lib/basefyio-ai-events';
+import { dispatchBasefyioNotification } from '@/lib/notifications-context';
 import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
 import {
@@ -164,7 +164,7 @@ function getSuggestions(mode: AiMode, page?: string, hasTables?: boolean): strin
     if (hasTables) {
       return ['What tables exist?', 'How do I set up RLS?', 'When do I need indexes?'];
     }
-    return ['What can KolayBase do?', 'How do I connect to PostgreSQL?'];
+    return ['What can Basefyio do?', 'How do I connect to PostgreSQL?'];
   }
   if (mode === 'plan') {
     if (hasTables) {
@@ -186,7 +186,7 @@ export function AiAssistant() {
   // ── Visibility ──────────────────────────────────────────────────────────
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
-    return (localStorage.getItem('kb_ai_open') ?? 'true') === 'true';
+    return (localStorage.getItem('basefyio_ai_open') ?? 'true') === 'true';
   });
   const openRef = useRef(open);
   openRef.current = open;
@@ -194,7 +194,7 @@ export function AiAssistant() {
   // ── Resizable width ──────────────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return 380;
-    return parseInt(localStorage.getItem('kb_ai_width') || '380', 10);
+    return parseInt(localStorage.getItem('basefyio_ai_width') || '380', 10);
   });
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
@@ -217,7 +217,7 @@ export function AiAssistant() {
     const onUp = () => {
       if (isDragging.current) {
         isDragging.current = false;
-        localStorage.setItem('kb_ai_width', dragStartWidth.current.toString());
+        localStorage.setItem('basefyio_ai_width', dragStartWidth.current.toString());
       }
     };
     document.addEventListener('mousemove', onMove);
@@ -226,10 +226,10 @@ export function AiAssistant() {
   }, []);
 
   // ── Storage key: per user + per team ─────────────────────────────────────
-  // e.g. "kb_ai_sessions_abc123_team456"
+  // e.g. "basefyio_ai_sessions_abc123_team456"
   // null means we don't have user/team info yet — sessions are not persisted.
   const storageKey = profile?.id && activeTeamId
-    ? `kb_ai_sessions_${profile.id}_${activeTeamId}`
+    ? `basefyio_ai_sessions_${profile.id}_${activeTeamId}`
     : null;
 
   // Track the previous key so we know when to reload sessions
@@ -295,7 +295,7 @@ export function AiAssistant() {
   // ── Mode ─────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<AiMode>(() => {
     if (typeof window === 'undefined') return 'ask';
-    return (localStorage.getItem('kb_ai_mode') as AiMode) ?? 'ask';
+    return (localStorage.getItem('basefyio_ai_mode') as AiMode) ?? 'ask';
   });
   const [modeOpen, setModeOpen] = useState(false);
   const modeRef = useRef<HTMLDivElement>(null);
@@ -310,7 +310,7 @@ export function AiAssistant() {
 
   const changeMode = (m: AiMode) => {
     setMode(m);
-    localStorage.setItem('kb_ai_mode', m);
+    localStorage.setItem('basefyio_ai_mode', m);
     setModeOpen(false);
   };
 
@@ -438,7 +438,7 @@ export function AiAssistant() {
         const { content, agentSteps } = await runAgentLoop(trimmed, ctx, history);
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content, mode, agentSteps }]);
         if (!openRef.current) {
-          dispatchKbNotification({
+          dispatchBasefyioNotification({
             type: 'ai',
             title: 'AI replied',
             message: 'New AI response is ready in assistant.',
@@ -448,7 +448,7 @@ export function AiAssistant() {
         const { reply } = await api.ai.chat(trimmed, history, { ...ctx, mode });
         setMessages((p) => [...p, { id: genId(), role: 'assistant', content: reply, mode }]);
         if (!openRef.current) {
-          dispatchKbNotification({
+          dispatchBasefyioNotification({
             type: 'ai',
             title: 'AI replied',
             message: 'New AI response is ready in assistant.',
@@ -465,15 +465,15 @@ export function AiAssistant() {
 
   useEffect(() => {
     const onKbAiSend = (e: Event) => {
-      const detail = (e as CustomEvent<KbAiSendDetail>).detail;
+      const detail = (e as CustomEvent<BasefyioAiSendDetail>).detail;
       const msg = detail?.message?.trim();
       if (!msg) return;
       setOpen(true);
-      localStorage.setItem('kb_ai_open', 'true');
+      localStorage.setItem('basefyio_ai_open', 'true');
       const m = detail.mode;
       if (m === 'ask' || m === 'plan' || m === 'agent') {
         setMode(m);
-        localStorage.setItem('kb_ai_mode', m);
+        localStorage.setItem('basefyio_ai_mode', m);
       }
       const run = () => {
         void sendMessageRef.current(msg);
@@ -484,8 +484,8 @@ export function AiAssistant() {
         setTimeout(run, 0);
       }
     };
-    window.addEventListener(KB_AI_SEND_EVENT, onKbAiSend as EventListener);
-    return () => window.removeEventListener(KB_AI_SEND_EVENT, onKbAiSend as EventListener);
+    window.addEventListener(BASEFYIO_AI_SEND_EVENT, onKbAiSend as EventListener);
+    return () => window.removeEventListener(BASEFYIO_AI_SEND_EVENT, onKbAiSend as EventListener);
   }, []);
 
   const runSQL = useCallback(async (sql: string) => {
@@ -515,7 +515,7 @@ export function AiAssistant() {
         action: {
           label: 'Send to chat',
           onClick: () => {
-            dispatchKbAiMessage({
+            dispatchBasefyioAiMessage({
               message: buildSqlRunErrorPrompt(sql, errMsg),
               mode: 'ask',
             });
@@ -531,7 +531,7 @@ export function AiAssistant() {
   const hasProject = !!context.projectId;
 
   const toggle = () => {
-    setOpen((o) => { const n = !o; localStorage.setItem('kb_ai_open', n ? 'true' : 'false'); return n; });
+    setOpen((o) => { const n = !o; localStorage.setItem('basefyio_ai_open', n ? 'true' : 'false'); return n; });
   };
 
   // ── Closed state ──────────────────────────────────────────────────────────
@@ -570,7 +570,7 @@ export function AiAssistant() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold leading-tight truncate">
-              KolayBase AI
+              Basefyio AI
               {context.projectName && (
                 <span className="ml-1.5 font-normal text-muted-foreground">· {context.projectName}</span>
               )}

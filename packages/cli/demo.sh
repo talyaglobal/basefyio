@@ -1,11 +1,11 @@
 #!/bin/bash
-# Kolaybase CLI Demo Script
+# Basefyio CLI Demo Script
 # This script demonstrates the key features of the CLI
 
 set -e
 
 echo "════════════════════════════════════════════════════════"
-echo "  Kolaybase CLI Demo"
+echo "  Basefyio CLI Demo"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
@@ -30,9 +30,9 @@ info() {
 }
 
 # Check if CLI is installed
-step "Checking if Kolaybase CLI is installed..."
-if ! command -v kb &> /dev/null; then
-    echo "Kolaybase CLI is not installed."
+step "Checking if Basefyio CLI is installed..."
+if ! command -v basefyio &> /dev/null; then
+    echo "Basefyio CLI is not installed."
     echo "Installing from local build..."
     cd "$(dirname "$0")"
     npm run build
@@ -44,54 +44,54 @@ fi
 
 # Show version
 step "Checking CLI version..."
-kb --version
+basefyio --version
 
 # Show help
 step "Displaying available commands..."
-kb --help
+basefyio --help
 
 # Login (skip in demo, show command)
-info "Next step would be: kb login"
-echo "This authenticates you with your Kolaybase account."
+info "Next step would be: basefyio login"
+echo "This authenticates you with your Basefyio account."
 
 # Init project (skip in demo, show command)
-info "To initialize a new project: kb init --name 'My Project'"
+info "To initialize a new project: basefyio init --name 'My Project'"
 echo "This creates a new project and links it to your account."
 
 # Show status command
 step "Checking local environment status..."
-kb status || true
+basefyio status || true
 
 # Show projects command
-info "To list all projects: kb projects"
+info "To list all projects: basefyio projects"
 echo "This shows all projects in your account."
 
 # Database commands
 echo ""
 echo "Database Management:"
-echo "  kb db push    - Push schema to database"
-echo "  kb db pull    - Pull schema from database"
-echo "  kb db reset   - Reset database"
-echo "  kb db seed    - Seed database"
+echo "  basefyio db push    - Push schema to database"
+echo "  basefyio db pull    - Pull schema from database"
+echo "  basefyio db reset   - Reset database"
+echo "  basefyio db seed    - Seed database"
 
 # Code generation
 echo ""
 echo "Code Generation:"
-echo "  kb gen types              - Generate TypeScript types"
-echo "  kb gen client --lang ts   - Generate TypeScript client"
-echo "  kb gen client --lang py   - Generate Python client"
+echo "  basefyio gen types              - Generate TypeScript types"
+echo "  basefyio gen client --lang ts   - Generate TypeScript client"
+echo "  basefyio gen client --lang py   - Generate Python client"
 
 # Logs
 echo ""
 echo "Monitoring:"
-echo "  kb logs --follow          - Follow container logs"
-echo "  kb logs --sql --follow    - Follow SQL audit logs"
+echo "  basefyio logs --follow          - Follow container logs"
+echo "  basefyio logs --sql --follow    - Follow SQL audit logs"
 
 # Secrets
 echo ""
 echo "Secrets Management:"
-echo "  kb secrets list           - List all secrets"
-echo "  kb secrets set KEY VALUE  - Set a secret"
+echo "  basefyio secrets list           - List all secrets"
+echo "  basefyio secrets set KEY VALUE  - Set a secret"
 
 echo ""
 echo "════════════════════════════════════════════════════════"
@@ -99,12 +99,12 @@ echo "  Demo Complete!"
 echo "════════════════════════════════════════════════════════"
 echo ""
 echo "Try these commands:"
-echo "  1. kb login"
-echo "  2. kb init"
-echo "  3. kb start"
-echo "  4. kb status"
+echo "  1. basefyio login"
+echo "  2. basefyio init"
+echo "  3. basefyio start"
+echo "  4. basefyio status"
 echo ""
 echo "For more information:"
-echo "  kb --help"
-echo "  https://github.com/yourusername/v0-kolaybase"
+echo "  basefyio --help"
+echo "  https://github.com/yourusername/v0-basefyio"
 echo ""

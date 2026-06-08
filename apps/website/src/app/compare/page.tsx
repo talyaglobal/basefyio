@@ -8,16 +8,16 @@ import { itemListSchema } from "@/lib/seo/json-ld";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import { COMPARISONS } from "@/lib/content/comparisons";
 
-const TITLE = "Compare Kolaybase";
+const TITLE = "Compare Basefyio";
 const DESCRIPTION =
-  "Honest comparisons of Kolaybase with other backend platforms — Supabase, Firebase, and more. See how the PostgreSQL backend stacks up on isolation, queries, and lock-in.";
+  "Honest comparisons of Basefyio with other backend platforms — Supabase, Firebase, and more. See how the PostgreSQL backend stacks up on isolation, queries, and lock-in.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
     path: "/compare",
     title: TITLE,
     description: DESCRIPTION,
-    keywords: COMPARISONS.map((c) => `Kolaybase vs ${c.competitor}`),
+    keywords: COMPARISONS.map((c) => `Basefyio vs ${c.competitor}`),
   });
 }
 
@@ -28,7 +28,7 @@ export default async function CompareIndex() {
     <SiteShell>
       <JsonLd
         data={itemListSchema(
-          "Kolaybase Comparisons",
+          "Basefyio Comparisons",
           COMPARISONS.map((c) => ({
             name: c.title,
             url: `${base}/compare/${c.slug}`,
@@ -53,7 +53,7 @@ export default async function CompareIndex() {
                 <GitCompare className="h-5 w-5" aria-hidden />
               </div>
               <h2 className="mt-4 text-xl font-semibold tracking-tight">
-                Kolaybase vs. {c.competitor}
+                Basefyio vs. {c.competitor}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {c.intro}

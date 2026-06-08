@@ -10,13 +10,13 @@ interface InspectOptions {
 export async function inspectCommand(options: InspectOptions) {
   const config = await getProjectConfig();
   if (!config?.projectId) {
-    error('Not linked to a project. Run:  kb link  or  kb init');
+    error('Not linked to a project. Run:  basefyio link  or  basefyio init');
     process.exit(1);
   }
 
   const env = await getLocalEnv();
   if (!env.DATABASE_URL) {
-    error('DATABASE_URL not found in .env — run  kb link  to refresh credentials');
+    error('DATABASE_URL not found in .env — run  basefyio link  to refresh credentials');
     process.exit(1);
   }
 
@@ -53,7 +53,7 @@ async function inspectAll(pool: Pool) {
   spinner.stop();
 
   if (!rows.length) {
-    console.log(chalk.gray('  No tables found. Push a schema first:  kb db push'));
+    console.log(chalk.gray('  No tables found. Push a schema first:  basefyio db push'));
     return;
   }
 
@@ -76,7 +76,7 @@ async function inspectAll(pool: Pool) {
 
   console.log();
   console.log(chalk.gray(`  ${rows.length} table(s)`));
-  console.log(chalk.gray('  Inspect a table:  kb inspect --table <name>'));
+  console.log(chalk.gray('  Inspect a table:  basefyio inspect --table <name>'));
 }
 
 async function inspectTable(pool: Pool, tableName: string) {

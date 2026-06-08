@@ -57,8 +57,8 @@ export function softwareApplicationSchema(url: string): Thing {
       "REST API and PostgREST-style queries",
       "OAuth and email authentication",
       "Object storage",
-      "kolaybase-js SDK",
-      "kolaybase CLI",
+      "basefyio-js SDK",
+      "basefyio CLI",
     ],
     provider: { "@id": `${url}/#organization` },
   };

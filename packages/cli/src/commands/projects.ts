@@ -7,7 +7,7 @@ import { success, error, info, createSpinner, printTable, printHeader } from '..
 export async function projectsCommand() {
   if (!isLoggedIn()) {
     error('You must be logged in to view projects');
-    console.log(chalk.gray('Run: kb login'));
+    console.log(chalk.gray('Run: basefyio login'));
     process.exit(1);
   }
 
@@ -23,7 +23,7 @@ export async function projectsCommand() {
     if (!projects || projects.length === 0) {
       info('No projects found');
       console.log();
-      console.log(chalk.gray('Create your first project with:'), chalk.cyan('kb init'));
+      console.log(chalk.gray('Create your first project with:'), chalk.cyan('basefyio init'));
       return;
     }
 
@@ -59,7 +59,7 @@ interface CreateProjectOptions {
 export async function createProject(options: CreateProjectOptions) {
   if (!isLoggedIn()) {
     error('You must be logged in to create a project');
-    console.log(chalk.gray('Run: kb login'));
+    console.log(chalk.gray('Run: basefyio login'));
     process.exit(1);
   }
 
@@ -107,7 +107,7 @@ export async function createProject(options: CreateProjectOptions) {
     
     console.log();
     console.log(chalk.gray('To start working with this project:'));
-    console.log(chalk.cyan('  kb init --link'));
+    console.log(chalk.cyan('  basefyio init --link'));
   } catch (err) {
     await handleApiError(err);
   }
@@ -116,7 +116,7 @@ export async function createProject(options: CreateProjectOptions) {
 export async function deleteProject(projectId: string) {
   if (!isLoggedIn()) {
     error('You must be logged in to delete a project');
-    console.log(chalk.gray('Run: kb login'));
+    console.log(chalk.gray('Run: basefyio login'));
     process.exit(1);
   }
 

@@ -10,9 +10,9 @@
 // ── Site profile ────────────────────────────────────────
 
 export interface GeoProfile {
-  /** Brand / product name, e.g. "Kolaybase". */
+  /** Brand / product name, e.g. "Basefyio". */
   name: string;
-  /** Canonical origin, no trailing slash, e.g. "https://kolaybase.com". */
+  /** Canonical origin, no trailing slash, e.g. "https://basefyio.com". */
   url: string;
   /**
    * One- or two-sentence summary. This is the single most-cited line of copy

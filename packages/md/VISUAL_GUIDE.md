@@ -1,9 +1,9 @@
-# 🎨 Kolaybase CLI - Visual Guide
+# 🎨 Basefyio CLI - Visual Guide
 
 ## 📦 Package Structure
 
 ```
-kolaybase-cli v0.1.0
+basefyio-cli v0.1.0
 │
 ├── 📂 src/                     # Source code (3,500+ lines)
 │   ├── 📄 index.ts             # CLI entry point
@@ -49,7 +49,7 @@ kolaybase-cli v0.1.0
 ## 🎯 Command Map
 
 ```
-kb (kolaybase)
+basefyio (basefyio)
 │
 ├─ 🔐 login                     Authenticate
 │
@@ -111,17 +111,17 @@ kb (kolaybase)
 └─────────────────────────────────────────────────────────────┘
 
 1️⃣  Install CLI
-   $ npm install -g kolaybase-cli
+   $ npm install -g basefyio-cli
    ✓ CLI installed globally
 
 2️⃣  Login
-   $ kb login
+   $ basefyio login
    Username: admin
    Password: ****
    ✓ Welcome back, admin!
 
 3️⃣  Initialize Project
-   $ kb init --name "My App"
+   $ basefyio init --name "My App"
    ? Select a team: Personal Team
    ⠋ Creating project...
    ✓ Project created successfully!
@@ -131,11 +131,11 @@ kb (kolaybase)
    │                                │
    │ Name:     My App              │
    │ ID:       abc-123             │
-   │ Database: kb_my_app           │
+   │ Database: basefyio_my_app           │
    └────────────────────────────────┘
 
 4️⃣  Start Development
-   $ kb start
+   $ basefyio start
    ⠋ Starting infrastructure services...
    ✓ PostgreSQL
    ✓ Keycloak
@@ -143,16 +143,16 @@ kb (kolaybase)
    ✓ Platform API
    ✓ Admin UI
    
-   ✓ Kolaybase is running!
+   ✓ Basefyio is running!
 
 5️⃣  Generate Code
-   $ kb gen types
+   $ basefyio gen types
    ⠋ Generating types from database schema...
    ✓ Types generated successfully
    ✓ Written to types/database.ts
 
 6️⃣  Monitor
-   $ kb logs --follow
+   $ basefyio logs --follow
    [postgres] ready to accept connections
    [keycloak] Started Keycloak
    [api] Nest application listening on 4000
@@ -173,7 +173,7 @@ kb (kolaybase)
   Please check your credentials
   
 ✗ Port 5432 already in use
-  ℹ Change port in .env: kb secrets set POSTGRES_PORT 5433
+  ℹ Change port in .env: basefyio secrets set POSTGRES_PORT 5433
 ```
 
 ### Progress Indicators
@@ -298,8 +298,8 @@ kb (kolaybase)
 ```bash
 cd packages/cli
 npm install && npm run build && npm link
-kb --version
-kb --help
+basefyio --version
+basefyio --help
 ```
 
 **Happy coding! 🚀✨**

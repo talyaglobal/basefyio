@@ -232,7 +232,7 @@ export class PublicApiService {
    * Runs `fn` inside a transaction with SET LOCAL role and
    * request.jwt.claims populated. Any failure rolls back.
    *
-   * This is what enforces RLS: the project's DB owner role (e.g. `kb_user_<random>`)
+   * This is what enforces RLS: the project's DB owner role (e.g. `basefyio_user_<random>`)
    * owns the tables, but we drop down to anon / authenticated / service_role
    * before running the user's query so policies apply.
    *

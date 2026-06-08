@@ -60,7 +60,7 @@ export class ProjectArchiveImportService {
       throw new BadRequestException('teamId is required');
     }
 
-    const tmpRoot = await mkdtemp(join(tmpdir(), 'kb-zip-import-'));
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'basefyio-zip-import-'));
     const extractDir = join(tmpRoot, 'extracted');
     await mkdir(extractDir, { recursive: true });
 

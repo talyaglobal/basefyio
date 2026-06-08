@@ -10,7 +10,7 @@ import { USE_CASES } from "@/lib/content/use-cases";
 
 const TITLE = "Use Cases";
 const DESCRIPTION =
-  "See what teams build on Kolaybase — SaaS platforms, mobile app backends, internal tools, and more. PostgreSQL, auth, storage, and a REST API for every kind of product.";
+  "See what teams build on Basefyio — SaaS platforms, mobile app backends, internal tools, and more. PostgreSQL, auth, storage, and a REST API for every kind of product.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
@@ -28,7 +28,7 @@ export default async function UseCasesIndex() {
     <SiteShell>
       <JsonLd
         data={itemListSchema(
-          "Kolaybase Use Cases",
+          "Basefyio Use Cases",
           USE_CASES.map((u) => ({
             name: u.title,
             url: `${base}/use-cases/${u.slug}`,

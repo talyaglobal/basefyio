@@ -20,7 +20,7 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 
-const EXPORT_BUCKET = 'kb-platform-exports';
+const EXPORT_BUCKET = 'basefyio-platform-exports';
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()

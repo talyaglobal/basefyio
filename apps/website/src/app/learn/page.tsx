@@ -9,7 +9,7 @@ import { getTermsSorted } from "@/lib/content/glossary";
 
 const TITLE = "Learn — Backend & PostgreSQL Glossary";
 const DESCRIPTION =
-  "Clear definitions of backend, PostgreSQL, and API concepts — REST, row-level security, multi-tenancy, OAuth, ACID, and more. The Kolaybase glossary.";
+  "Clear definitions of backend, PostgreSQL, and API concepts — REST, row-level security, multi-tenancy, OAuth, ACID, and more. The Basefyio glossary.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
@@ -28,7 +28,7 @@ export default async function LearnIndex() {
     <SiteShell>
       <JsonLd
         data={itemListSchema(
-          "Kolaybase Glossary",
+          "Basefyio Glossary",
           terms.map((t) => ({
             name: t.term,
             url: `${base}/learn/${t.slug}`,

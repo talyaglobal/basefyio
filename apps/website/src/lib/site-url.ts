@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 
 /** Public production origin (no trailing slash). */
-export const PRODUCTION_SITE_URL = "https://kolaybase.com";
+export const PRODUCTION_SITE_URL = "https://basefyio.com";
 
 /**
  * Build-time / env-based URL for `metadataBase`, JSON-LD, and fallbacks.
@@ -39,10 +39,10 @@ function isLocalHostname(host: string): boolean {
 }
 
 /** Admin app / dashboard (no trailing slash). Override with `NEXT_PUBLIC_APP_URL`. */
-export const PRODUCTION_APP_URL = "https://app.kolaybase.com";
+export const PRODUCTION_APP_URL = "https://app.basefyio.com";
 
 /** Public REST API origin (no trailing slash). Override with `NEXT_PUBLIC_API_BASE_URL` or `NEXT_PUBLIC_API_URL`. */
-export const PRODUCTION_API_URL = "https://api.kolaybase.com";
+export const PRODUCTION_API_URL = "https://api.basefyio.com";
 
 export function getAppPortalUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim();

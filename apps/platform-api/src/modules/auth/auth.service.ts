@@ -39,7 +39,7 @@ export class AuthService {
   private readonly minioPublicEndpoint: string;
   private readonly minioPublicPort: number;
   private readonly minioPublicSsl: boolean;
-  private static readonly AVATAR_BUCKET = 'kb-platform-avatars';
+  private static readonly AVATAR_BUCKET = 'basefyio-platform-avatars';
   private static readonly MAX_FAILED_ATTEMPTS = 10;
   private static readonly CAPTCHA_AFTER_CONSECUTIVE_FAILED = 4;
   private static readonly CAPTCHA_TTL_MS = 5 * 60 * 1000;
@@ -108,8 +108,8 @@ export class AuthService {
     private readonly billing: BillingService,
     private readonly redis: RedisService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
+    const accessKey = this.config.get<string>('minio.accessKey') || 'basefyio';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'basefyio_secret';
     this.minioClient = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,
@@ -452,7 +452,7 @@ export class AuthService {
     }
 
     try {
-      const safeEmail = email || `${sub.slice(0, 8)}@kolaybase.local`;
+      const safeEmail = email || `${sub.slice(0, 8)}@basefyio.local`;
       const parsed = oauthName
         ? this.parseOAuthName(oauthName.givenName, oauthName.familyName, oauthName.name)
         : { firstName: null, lastName: null };

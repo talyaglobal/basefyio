@@ -1,5 +1,5 @@
 {
-  "name": "@kolaybase/website",
+  "name": "@basefyio/website",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
-    "@kolaybase/geo": "file:../../packages/geo",
+    "@basefyio/geo": "file:../../packages/geo",
     "@react-three/fiber": "^8.17.10",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.577.0",

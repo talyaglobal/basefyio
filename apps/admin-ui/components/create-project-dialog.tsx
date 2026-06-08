@@ -867,7 +867,7 @@ export function CreateProjectDialog({
                     <span className="font-medium text-foreground">
                       {reimportTarget.projectName}
                     </span>
-                    . Existing imported tables in Kolaybase are replaced when
+                    . Existing imported tables in Basefyio are replaced when
                     names match; auth and storage are synced again.
                   </>
                 ) : (
@@ -891,7 +891,7 @@ export function CreateProjectDialog({
                   </li>
                   <li>
                     If some tables still show 0 rows or permission errors, add the{' '}
-                    <strong>Database password</strong> (Settings → Database) so Kolaybase
+                    <strong>Database password</strong> (Settings → Database) so Basefyio
                     can copy data over a direct Postgres connection.
                   </li>
                   <li>
@@ -1178,7 +1178,7 @@ export function CreateProjectDialog({
               </div>
               <DialogDescription>
                 {reimportTarget
-                  ? 'Updating your existing Kolaybase project from Supabase. You can minimize this and continue working.'
+                  ? 'Updating your existing Basefyio project from Supabase. You can minimize this and continue working.'
                   : 'Please wait while your project is being imported. You can minimize this and continue working.'}
               </DialogDescription>
             </DialogHeader>
@@ -1258,7 +1258,7 @@ export function CreateProjectDialog({
                   if (
                     !confirm(
                       reimportJobRef.current
-                        ? 'Cancel re-import? Your Kolaybase project will remain; partially imported data may be incomplete.'
+                        ? 'Cancel re-import? Your Basefyio project will remain; partially imported data may be incomplete.'
                         : 'Cancel import? The project and all imported data will be deleted.',
                     )
                   )

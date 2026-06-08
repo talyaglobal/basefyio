@@ -640,7 +640,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   // ── Sidebar resize ────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('kb_table_editor_sidebar_width');
+      const saved = localStorage.getItem('basefyio_table_editor_sidebar_width');
       if (saved) return Math.max(160, Math.min(480, Number(saved)));
     }
     return 224;
@@ -667,7 +667,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       setSidebarWidth((w) => {
-        localStorage.setItem('kb_table_editor_sidebar_width', String(w));
+        localStorage.setItem('basefyio_table_editor_sidebar_width', String(w));
         return w;
       });
     }
@@ -679,7 +679,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [columnPanelOpen, setColumnPanelOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return localStorage.getItem('kb_table_editor_column_panel_open') === 'true';
+    return localStorage.getItem('basefyio_table_editor_column_panel_open') === 'true';
   });
 
   const [filterText, setFilterText] = useState('');
@@ -714,7 +714,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
    * open tabs). Keyed by projectId so opening Project A then switching to
    * Project B doesn't bleed each other's tabs together.
    */
-  const stateStorageKey = `kb_table_editor_state_${projectId}`;
+  const stateStorageKey = `basefyio_table_editor_state_${projectId}`;
 
   useEffect(() => {
     loadTables();
@@ -726,7 +726,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    localStorage.setItem('kb_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
+    localStorage.setItem('basefyio_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
   }, [columnPanelOpen]);
 
   // Persist active table + tab strip whenever they change. Skip the initial

@@ -1,79 +1,79 @@
-# Kolaybase CLI - Quick Reference
+# Basefyio CLI - Quick Reference
 
 ## Installation
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 ```
 
 ## Essential Commands
 
 | Command | Description |
 |---------|-------------|
-| `kb login` | Login to Kolaybase |
-| `kb init` | Initialize new project |
-| `kb start` | Start local environment |
-| `kb stop` | Stop local environment |
-| `kb status` | Show service status |
-| `kb projects` | List all projects |
-| `kb db push` | Push schema to database |
-| `kb db pull` | Pull schema from database |
-| `kb gen types` | Generate TypeScript types |
-| `kb logs` | View logs |
+| `basefyio login` | Login to Basefyio |
+| `basefyio init` | Initialize new project |
+| `basefyio start` | Start local environment |
+| `basefyio stop` | Stop local environment |
+| `basefyio status` | Show service status |
+| `basefyio projects` | List all projects |
+| `basefyio db push` | Push schema to database |
+| `basefyio db pull` | Pull schema from database |
+| `basefyio gen types` | Generate TypeScript types |
+| `basefyio logs` | View logs |
 
 ## Common Workflows
 
 ### Start a New Project
 
 ```bash
-kb login
-kb init --name "My App"
-kb start
-kb gen types
+basefyio login
+basefyio init --name "My App"
+basefyio start
+basefyio gen types
 ```
 
 ### Database Migration
 
 ```bash
 # Edit schema.prisma or SQL files
-kb db push
-kb gen types
+basefyio db push
+basefyio gen types
 git commit -am "Update schema"
 ```
 
 ### View Logs
 
 ```bash
-kb logs --follow           # Container logs
-kb logs --sql --follow     # SQL audit logs
+basefyio logs --follow           # Container logs
+basefyio logs --sql --follow     # SQL audit logs
 ```
 
 ### Manage Secrets
 
 ```bash
-kb secrets list
-kb secrets set API_KEY value
-kb secrets unset API_KEY
+basefyio secrets list
+basefyio secrets set API_KEY value
+basefyio secrets unset API_KEY
 ```
 
 ## Tips
 
-- Use `kb` or `kolaybase` (both work)
+- Use `basefyio` command
 - Add `--help` to any command for details
 - Most commands auto-detect your project
-- Use `kb status` to check health
+- Use `basefyio status` to check health
 
 ## Getting Help
 
 ```bash
-kb --help                  # List all commands
-kb <command> --help        # Command-specific help
+basefyio --help                  # List all commands
+basefyio <command> --help        # Command-specific help
 ```
 
 ## File Locations
 
-- Config: `~/.config/kolaybase/config.json`
-- Project: `.kolaybase/config.json`
+- Config: `~/.config/basefyio/config.json`
+- Project: `.basefyio/config.json`
 - Environment: `.env`
 
 ## Quick Troubleshooting
@@ -81,8 +81,8 @@ kb <command> --help        # Command-specific help
 | Issue | Solution |
 |-------|----------|
 | "Docker not running" | Start Docker Desktop |
-| "Not logged in" | Run `kb login` |
-| "Not in project" | Run `kb init` or `kb link` |
+| "Not logged in" | Run `basefyio login` |
+| "Not in project" | Run `basefyio init` or `basefyio link` |
 | "Port in use" | Change port in .env or stop other services |
 
 ---

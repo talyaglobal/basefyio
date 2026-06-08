@@ -150,7 +150,7 @@ export class ObservabilityService {
     }
 
     const defaultBefore: Prisma.InputJsonValue = {
-      audit: 'kolaybase.root_action',
+      audit: 'basefyio.root_action',
       snapshot: 'before',
       note: 'No explicit before state was supplied; use action, resource, and Metadata for context.',
       action: params.action,
@@ -158,7 +158,7 @@ export class ObservabilityService {
       resourceId: params.resourceId ?? null,
     };
     const defaultAfter: Prisma.InputJsonValue = {
-      audit: 'kolaybase.root_action',
+      audit: 'basefyio.root_action',
       snapshot: 'after',
       success: params.success,
       latencyMs: params.latencyMs,

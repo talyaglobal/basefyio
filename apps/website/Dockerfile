@@ -2,7 +2,7 @@ FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Build the @kolaybase/geo workspace package
+# Build the @basefyio/geo workspace package
 FROM base AS geo
 COPY packages/geo /geo
 RUN cd /geo && npm ci && npm run build
@@ -12,13 +12,13 @@ COPY apps/website/package.json ./
 # Remove the local file: dependency before installing — we'll link it manually
 RUN sed -i '/"@kolaybase\/geo"/d' package.json && npm install --ignore-scripts
 # Copy built geo package into node_modules
-COPY --from=geo /geo ./node_modules/@kolaybase/geo
+COPY --from=geo /geo ./node_modules/@basefyio/geo
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/website/ .
 
-ARG NEXT_PUBLIC_SITE_URL=https://kolaybase.com
+ARG NEXT_PUBLIC_SITE_URL=https://basefyio.com
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=G-7Q90HE6Z02

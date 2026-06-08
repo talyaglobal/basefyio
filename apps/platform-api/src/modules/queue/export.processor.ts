@@ -60,7 +60,7 @@ export interface ExportJobResult {
 })
 export class ExportProcessor extends WorkerHost {
   private readonly logger = new Logger(ExportProcessor.name);
-  private readonly exportBucket = 'kb-platform-exports';
+  private readonly exportBucket = 'basefyio-platform-exports';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -109,7 +109,7 @@ export class ExportProcessor extends WorkerHost {
       throw new NotFoundException('Project not found');
     }
 
-    const tempRoot = await mkdtemp(join(tmpdir(), 'kb-export-'));
+    const tempRoot = await mkdtemp(join(tmpdir(), 'basefyio-export-'));
     const dbDir = join(tempRoot, 'database');
     const authDir = join(tempRoot, 'auth');
     const storageDir = join(tempRoot, 'storage');

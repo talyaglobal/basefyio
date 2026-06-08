@@ -78,8 +78,8 @@ function LoginForm() {
         window.history.replaceState(null, '', '/login');
         toast.success('Welcome back');
         // Restore CLI state that was stashed before the OAuth redirect
-        const cliState = sessionStorage.getItem('kb_cli_state');
-        sessionStorage.removeItem('kb_cli_state');
+        const cliState = sessionStorage.getItem('basefyio_cli_state');
+        sessionStorage.removeItem('basefyio_cli_state');
         window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}` : '/dashboard');
         return;
       }
@@ -172,7 +172,7 @@ function LoginForm() {
     try {
       // Stash CLI state so we can restore it after the OAuth redirect
       const cliState = searchParams.get('cli_state');
-      if (cliState) sessionStorage.setItem('kb_cli_state', cliState);
+      if (cliState) sessionStorage.setItem('basefyio_cli_state', cliState);
       const { url } = await api.auth.getOAuthRedirect(provider, window.location.origin + '/login');
       window.location.href = url;
     } catch (err: any) {
@@ -188,7 +188,7 @@ function LoginForm() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Kolaybase</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Basefyio</h1>
           <p className="text-sm text-muted-foreground">
             Sign in to the control plane
           </p>

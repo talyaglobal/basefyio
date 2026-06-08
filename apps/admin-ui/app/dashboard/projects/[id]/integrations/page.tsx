@@ -846,15 +846,15 @@ function VercelCard({
           <DialogHeader>
             <DialogTitle>Save Environment Variables</DialogTitle>
             <DialogDescription>
-              Would you like to sync your Kolaybase project&apos;s environment variables
+              Would you like to sync your Basefyio project&apos;s environment variables
               to the connected Vercel project? This will create or update the following
               variables for all environments (production, preview, development):
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm font-mono space-y-1">
-            <p>NEXT_PUBLIC_KOLAYBASE_URL</p>
-            <p>NEXT_PUBLIC_KOLAYBASE_ANON_KEY</p>
-            <p className="text-amber-600 dark:text-amber-400">KOLAYBASE_SERVICE_ROLE_KEY</p>
+            <p>NEXT_PUBLIC_BASEFYIO_URL</p>
+            <p>NEXT_PUBLIC_BASEFYIO_ANON_KEY</p>
+            <p className="text-amber-600 dark:text-amber-400">BASEFYIO_SERVICE_ROLE_KEY</p>
             <p>DATABASE_URL</p>
             <p>DIRECT_URL</p>
             <p>PROJECT_ID</p>
@@ -954,7 +954,7 @@ export default function IntegrationsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="kb-grid-row-hover grid gap-6 lg:grid-cols-2">
+        <div className="basefyio-grid-row-hover grid gap-6 lg:grid-cols-2">
           <GitHubCard
             projectId={id}
             teamId={activeTeamId || ''}

@@ -1,4 +1,4 @@
-# @kolaybase/geo
+# @basefyio/geo
 
 **Generative Engine Optimization (GEO) toolkit.**
 
@@ -16,15 +16,15 @@ Zero runtime dependencies. ESM + CJS. Ships a `geo` CLI.
 ## Install
 
 ```bash
-npm install @kolaybase/geo
+npm install @basefyio/geo
 ```
 
 ## CLI
 
 ```bash
 # Score a live site for generative-engine readiness
-npx geo audit https://kolaybase.com
-npx geo audit kolaybase.com --json
+npx geo audit https://basefyio.com
+npx geo audit basefyio.com --json
 
 # List the AI crawlers the toolkit knows about (and what each is for)
 npx geo crawlers
@@ -54,13 +54,13 @@ import {
   renderRobotsRules,
   auditUrl,
   type GeoProfile,
-} from "@kolaybase/geo";
+} from "@basefyio/geo";
 
 const profile: GeoProfile = {
-  name: "Kolaybase",
-  url: "https://kolaybase.com",
+  name: "Basefyio",
+  url: "https://basefyio.com",
   summary:
-    "Kolaybase is an open-source backend-as-a-service: hosted PostgreSQL, auth, storage, and an auto-generated REST API.",
+    "Basefyio is an open-source backend-as-a-service: hosted PostgreSQL, auth, storage, and an auto-generated REST API.",
   offer: {
     price: "0",
     priceCurrency: "USD",
@@ -72,9 +72,9 @@ const profile: GeoProfile = {
   ],
   faqs: [
     {
-      question: "What is Kolaybase?",
+      question: "What is Basefyio?",
       answer:
-        "Kolaybase is a self-hosted backend platform that gives each project its own PostgreSQL database, authentication realm, and auto-generated REST API.",
+        "Basefyio is a self-hosted backend platform that gives each project its own PostgreSQL database, authentication realm, and auto-generated REST API.",
     },
   ],
 };
@@ -91,7 +91,7 @@ const faq = faqSchema(profile);       // FAQPage
 const robots = renderRobotsRules(aiCrawlerRules({ allowTraining: false }));
 
 // 4. Audit a live URL
-const report = await auditUrl("https://kolaybase.com");
+const report = await auditUrl("https://basefyio.com");
 console.log(report.score, report.grade, report.recommendations);
 ```
 
@@ -104,7 +104,7 @@ Q&A), `howtos`, `facts`, and an `offer` (for `SoftwareApplication`). See
 
 ## How the website uses it
 
-The Kolaybase marketing site (`apps/website`) consumes this engine to serve
+The Basefyio marketing site (`apps/website`) consumes this engine to serve
 `/llms.txt` and `/llms-full.txt`, to inject the AI-crawler policy into
 `robots.txt`, and to render an answer-first FAQ with `FAQPage` schema.
 

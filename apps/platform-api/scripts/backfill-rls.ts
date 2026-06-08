@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * Applies the Kolaybase RLS bootstrap (anon/authenticated/service_role roles
+ * Applies the Basefyio RLS bootstrap (anon/authenticated/service_role roles
  * + auth.* helpers) to every ACTIVE project database that hasn't been
  * bootstrapped yet.
  *
@@ -39,7 +39,7 @@ async function main() {
 
   const cfgHost = process.env.POSTGRES_HOST || 'localhost';
   const cfgPort = Number(process.env.POSTGRES_PORT || 5432);
-  const cfgUser = process.env.POSTGRES_USER || 'kolaybase';
+  const cfgUser = process.env.POSTGRES_USER || 'basefyio';
   const cfgPass = process.env.POSTGRES_PASSWORD || '';
 
   // Using $queryRawUnsafe so this script works before `prisma generate`

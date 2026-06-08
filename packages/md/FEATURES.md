@@ -1,4 +1,4 @@
-# Kolaybase CLI - Complete Feature Summary
+# Basefyio CLI - Complete Feature Summary
 
 ## ✅ Implemented Features
 
@@ -21,7 +21,7 @@
 - [x] Project metadata management
 
 ### 🐳 Local Development Environment
-- [x] One-command environment startup (`kb start`)
+- [x] One-command environment startup (`basefyio start`)
 - [x] Docker Compose integration
 - [x] Infrastructure services (PostgreSQL, Keycloak, MinIO)
 - [x] Platform API auto-start
@@ -110,7 +110,7 @@
 
 ## 🎯 Feature parity with common hosted Postgres CLIs
 
-| Feature | Reference CLI | Kolaybase CLI | Status |
+| Feature | Reference CLI | Basefyio CLI | Status |
 |---------|--------------|---------------|--------|
 | Authentication | ✅ | ✅ | ✅ Complete |
 | Project Management | ✅ | ✅ | ✅ Complete |
@@ -214,8 +214,8 @@
 
 - **Issues**: GitHub Issues
 - **Discussions**: GitHub Discussions
-- **Email**: support@kolaybase.dev
-- **Docs**: https://kolaybase.dev/docs/cli
+- **Email**: support@basefyio.dev
+- **Docs**: https://basefyio.dev/docs/cli
 
 ---
 

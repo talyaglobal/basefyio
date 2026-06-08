@@ -2,17 +2,17 @@ import type { RealtimeEventEnvelope } from './realtime-types';
 import { getAccessToken } from './auth';
 
 /**
- * Realtime is on by default. The legacy NEXT_PUBLIC_KB_REALTIME_PHASE1 opt-in
- * is still recognised but ignored when the new NEXT_PUBLIC_KB_REALTIME_DISABLE
- * kill switch is set. Set NEXT_PUBLIC_KB_REALTIME_DISABLE=1 to fall back to
+ * Realtime is on by default. The legacy NEXT_PUBLIC_BASEFYIO_REALTIME_PHASE1 opt-in
+ * is still recognised but ignored when the new NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE
+ * kill switch is set. Set NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE=1 to fall back to
  * the polling notification path without a redeploy.
  */
 export function isRealtimePhase1Enabled() {
-  if (process.env.NEXT_PUBLIC_KB_REALTIME_DISABLE === '1') return false;
+  if (process.env.NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE === '1') return false;
   return true;
 }
 
-export function subscribeKbRealtime(
+export function subscribeBasefyioRealtime(
   channelName: string,
   onEvent: (event: RealtimeEventEnvelope) => void,
 ): (() => void) | null {
@@ -34,7 +34,7 @@ export function subscribeKbRealtime(
     });
     source = new EventSource(`/api/proxy/realtime/stream?${params.toString()}`);
 
-    source.addEventListener('kb_event', (raw) => {
+    source.addEventListener('basefyio_event', (raw) => {
       try {
         const evt = raw as MessageEvent<string>;
         const event = JSON.parse(evt.data) as RealtimeEventEnvelope;

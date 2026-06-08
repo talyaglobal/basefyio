@@ -1,6 +1,6 @@
 # Row Level Security (RLS)
 
-> Security model and policy-authoring guide for Kolaybase project databases.
+> Security model and policy-authoring guide for Basefyio project databases.
 
 Last updated: 2026-04-22
 
@@ -21,7 +21,7 @@ Last updated: 2026-04-22
 
 ## Overview
 
-Every Kolaybase project database is bootstrapped to behave like Supabase's RLS surface: three dedicated Postgres roles (`anon`, `authenticated`, `service_role`), an `auth` schema with `uid() / jwt() / role() / email()` helpers, and a per-request role switch that pipes the caller's JWT claims into the session so policies can read them.
+Every Basefyio project database is bootstrapped to behave like Supabase's RLS surface: three dedicated Postgres roles (`anon`, `authenticated`, `service_role`), an `auth` schema with `uid() / jwt() / role() / email()` helpers, and a per-request role switch that pipes the caller's JWT claims into the session so policies can read them.
 
 RLS enforcement happens at the database layer. The platform API is not trusted to filter rows by user; Postgres is. That means a correctly-written policy protects the data even if the API has a bug that leaks a record set.
 
@@ -36,7 +36,7 @@ Who the system defends against, and how:
 | Client using anon key + legitimate user JWT       | Connects as `authenticated`; `auth.uid()` is the verified `sub`.     |
 | Client with leaked service key                    | Connects as `service_role` (`BYPASSRLS`). Service keys must be treated as root. |
 | Buggy policy that returns too many rows           | Defense in depth: API-level filters still apply; audit logs capture it. |
-| Direct Postgres access as `kb_user_<slug>`        | Owner bypasses RLS. Compromise of the owner credential == full data access (expected). |
+| Direct Postgres access as `basefyio_user_<slug>`        | Owner bypasses RLS. Compromise of the owner credential == full data access (expected). |
 
 The service role key is equivalent to a Postgres superuser for that project. Never embed it in a browser, mobile app, or untrusted client.
 
@@ -61,7 +61,7 @@ The seeding SQL lives in `apps/platform-api/src/modules/projects/sql/rls-bootstr
 | `anon`           | false          | via policy     | via policy (usually denied)  | Public traffic hitting `/rest/v1/...` with only anon key |
 | `authenticated`  | false          | via policy     | via policy                   | User-logged-in traffic: anon key + Bearer JWT   |
 | `service_role`   | **true**       | all rows       | all rows                     | Trusted server code with the service key        |
-| `kb_user_<slug>` | false          | as table owner | as table owner               | Project owner; RLS skipped for owned tables by default (only reachable with DB admin credentials) |
+| `basefyio_user_<slug>` | false          | as table owner | as table owner               | Project owner; RLS skipped for owned tables by default (only reachable with DB admin credentials) |
 
 `anon` and `authenticated` **are not superusers**. Without a policy that allows an action, that action is blocked.
 
@@ -109,9 +109,9 @@ Because the service role always bypasses RLS, we intentionally ignore any Bearer
 
 Postgres skips RLS when the session's current user is the table owner. That is why naive single-user setups need `ALTER TABLE ... FORCE ROW LEVEL SECURITY`: otherwise the application user is the owner, RLS is bypassed, and the policies are decorative.
 
-Kolaybase avoids this trap by separating *connection identity* from *effective identity*:
+Basefyio avoids this trap by separating *connection identity* from *effective identity*:
 
-- The connection logs in as the table owner (`kb_user_<slug>`) because only the owner can create tables, manage schema, and run migrations.
+- The connection logs in as the table owner (`basefyio_user_<slug>`) because only the owner can create tables, manage schema, and run migrations.
 - Immediately after `BEGIN`, the session runs `SET LOCAL ROLE anon | authenticated | service_role`. From that point on, the session's effective user is one of the non-owner roles.
 - RLS applies to non-owners. Policies on `anon` and `authenticated` are enforced.
 - `SET LOCAL ROLE` is scoped to the transaction, so the connection returns to the owner identity on `COMMIT` / `ROLLBACK` and the connection can be pooled safely.
@@ -119,13 +119,13 @@ Kolaybase avoids this trap by separating *connection identity* from *effective i
 `FORCE ROW LEVEL SECURITY` is still useful in two niche cases:
 
 1. Tables that should block even their owner — usually audit logs or compliance tables. Add `FORCE` per-table.
-2. Admin ops that run as the owner but should still obey policies. Kolaybase's public API never does this, but a migration script might.
+2. Admin ops that run as the owner but should still obey policies. Basefyio's public API never does this, but a migration script might.
 
 If you do add `FORCE`, write a policy that explicitly re-allows the owner, otherwise your migrations will start failing. Example:
 
 ```sql
 ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
-CREATE POLICY audit_log_owner ON audit_log FOR ALL TO "kb_user_myproj" USING (true) WITH CHECK (true);
+CREATE POLICY audit_log_owner ON audit_log FOR ALL TO "basefyio_user_myproj" USING (true) WITH CHECK (true);
 ```
 
 ## auth.* Helpers
@@ -267,7 +267,7 @@ ORDER BY rolname;
 \df auth.*
 
 -- Control-plane stamp present
--- (run this against the control-plane `kolaybase` DB)
+-- (run this against the control-plane `basefyio` DB)
 SELECT slug, rls_bootstrapped_at
 FROM projects
 WHERE status = 'ACTIVE'
@@ -302,7 +302,7 @@ If the `authenticated` block returned both rows, RLS did *not* fire — check th
 
 ## Known Limitations
 
-- **Custom JWT claims must match policy expectations.** Kolaybase's SDK mints tokens via the project's Keycloak realm. If you write a policy against `auth.jwt() ->> 'team_id'`, that claim must be present on every token. Configure it as a Keycloak client mapper.
+- **Custom JWT claims must match policy expectations.** Basefyio's SDK mints tokens via the project's Keycloak realm. If you write a policy against `auth.jwt() ->> 'team_id'`, that claim must be present on every token. Configure it as a Keycloak client mapper.
 - **RLS does not protect the SQL editor or migrations.** Both run as the project owner, which bypasses policies by design. Treat `/sql` access and migration credentials as admin-level.
 - **Pooling and `SET LOCAL`.** `SET LOCAL` is bounded by the transaction, which matches the pool lifecycle safely. Never use `SET ROLE` (session-scoped) in a pooled connection — it would leak between requests.
 - **Indexes on claim columns.** Policies that filter by `auth.uid()` are only fast if the underlying column has an index. `CREATE INDEX ON todos (owner_id);` is almost always worth doing.

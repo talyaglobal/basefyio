@@ -111,7 +111,7 @@ export default function DashboardChangelogPage() {
       <div className="relative">
         <h1 className="mb-2 text-2xl font-bold">Changelog</h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Latest updates, new features, and improvements to Kolaybase.
+          Latest updates, new features, and improvements to Basefyio.
         </p>
 
         {loading ? (

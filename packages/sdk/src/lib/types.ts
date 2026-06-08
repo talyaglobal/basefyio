@@ -1,13 +1,13 @@
 // ── Client options ──────────────────────────────────────
 
-export const KOLAYBASE_DEFAULT_API_URL = 'https://api.kolaybase.com';
+export const BASEFYIO_DEFAULT_API_URL = 'https://api.basefyio.com';
 
-export interface KolaybaseClientOptions {
-  /** Platform API URL. Defaults to KOLAYBASE_API_URL env or https://api.kolaybase.com */
+export interface BasefyioClientOptions {
+  /** Platform API URL. Defaults to BASEFYIO_API_URL env or https://api.basefyio.com */
   apiUrl?: string;
-  /** Project ID. Defaults to KOLAYBASE_PROJECT_ID env. */
+  /** Project ID. Defaults to BASEFYIO_PROJECT_ID env. */
   projectId?: string;
-  /** Anon or service key. Defaults to KOLAYBASE_ANON_KEY env. */
+  /** Anon or service key. Defaults to BASEFYIO_ANON_KEY env. */
   apiKey?: string;
   autoRefreshToken?: boolean;
   headers?: Record<string, string>;
@@ -15,12 +15,12 @@ export interface KolaybaseClientOptions {
 
 // ── Generic response wrapper ────────────────────────────
 
-export interface KolaybaseResponse<T> {
+export interface BasefyioResponse<T> {
   data: T | null;
-  error: KolaybaseError | null;
+  error: BasefyioError | null;
 }
 
-export interface KolaybaseError {
+export interface BasefyioError {
   message: string;
   status?: number;
   code?: string;

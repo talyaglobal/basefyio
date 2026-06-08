@@ -1,10 +1,10 @@
 {
-  "name": "kolaybase-js",
+  "name": "basefyio-js",
   "publishConfig": {
     "access": "public"
   },
   "version": "0.4.0",
-  "description": "Kolaybase JavaScript/TypeScript SDK — database, auth & storage client",
+  "description": "Basefyio JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -32,15 +32,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/fsipka/kolaybase-new",
+    "url": "https://github.com/fsipka/basefyio-new",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/fsipka/kolaybase-new/tree/main/packages/sdk",
+  "homepage": "https://github.com/fsipka/basefyio-new/tree/main/packages/sdk",
   "bugs": {
-    "url": "https://github.com/fsipka/kolaybase-new/issues"
+    "url": "https://github.com/fsipka/basefyio-new/issues"
   },
   "keywords": [
-    "kolaybase",
+    "basefyio",
     "baas",
     "database",
     "storage",

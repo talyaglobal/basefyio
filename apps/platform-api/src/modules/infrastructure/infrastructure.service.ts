@@ -38,7 +38,7 @@ export class InfrastructureService implements OnModuleInit {
   async onModuleInit() {
     const socketPath = this.config.get<string>('docker.socketPath');
     this.networkName =
-      this.config.get<string>('docker.network') || 'v0-kolaybase_default';
+      this.config.get<string>('docker.network') || 'v0-basefyio_default';
     this.pgImage =
       this.config.get<string>('docker.pgImage') || 'postgres:16-alpine';
     this.minioImage =
@@ -77,8 +77,8 @@ export class InfrastructureService implements OnModuleInit {
       );
     }
 
-    const containerName = `kb-pg-${opts.projectSlug}`;
-    const volumeName = `kb-pg-${opts.projectSlug}-data`;
+    const containerName = `basefyio-pg-${opts.projectSlug}`;
+    const volumeName = `basefyio-pg-${opts.projectSlug}-data`;
     const adminUser = 'postgres';
     const adminPassword = randomBytes(24).toString('base64url');
 
@@ -88,9 +88,9 @@ export class InfrastructureService implements OnModuleInit {
       await this.docker.createVolume({
         Name: volumeName,
         Labels: {
-          'com.kolaybase.managed': 'true',
-          'com.kolaybase.type': 'postgres-data',
-          'com.kolaybase.owner': opts.projectId,
+          'com.basefyio.managed': 'true',
+          'com.basefyio.type': 'postgres-data',
+          'com.basefyio.owner': opts.projectId,
         },
       });
     } catch (err: any) {
@@ -106,9 +106,9 @@ export class InfrastructureService implements OnModuleInit {
         `POSTGRES_DB=postgres`,
       ],
       Labels: {
-        'com.kolaybase.managed': 'true',
-        'com.kolaybase.type': 'postgres',
-        'com.kolaybase.owner': opts.projectId,
+        'com.basefyio.managed': 'true',
+        'com.basefyio.type': 'postgres',
+        'com.basefyio.owner': opts.projectId,
       },
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },
@@ -187,9 +187,9 @@ export class InfrastructureService implements OnModuleInit {
       );
     }
 
-    const containerName = `kb-minio-${opts.teamSlug}`;
-    const volumeName = `kb-minio-${opts.teamSlug}-data`;
-    const accessKey = `kb-${opts.teamSlug}`;
+    const containerName = `basefyio-minio-${opts.teamSlug}`;
+    const volumeName = `basefyio-minio-${opts.teamSlug}-data`;
+    const accessKey = `basefyio-${opts.teamSlug}`;
     const secretKey = randomBytes(32).toString('base64url');
 
     this.logger.log(`Provisioning dedicated MinIO: ${containerName}`);
@@ -198,9 +198,9 @@ export class InfrastructureService implements OnModuleInit {
       await this.docker.createVolume({
         Name: volumeName,
         Labels: {
-          'com.kolaybase.managed': 'true',
-          'com.kolaybase.type': 'minio-data',
-          'com.kolaybase.owner': opts.teamId,
+          'com.basefyio.managed': 'true',
+          'com.basefyio.type': 'minio-data',
+          'com.basefyio.owner': opts.teamId,
         },
       });
     } catch (err: any) {
@@ -216,9 +216,9 @@ export class InfrastructureService implements OnModuleInit {
         `MINIO_ROOT_PASSWORD=${secretKey}`,
       ],
       Labels: {
-        'com.kolaybase.managed': 'true',
-        'com.kolaybase.type': 'minio',
-        'com.kolaybase.owner': opts.teamId,
+        'com.basefyio.managed': 'true',
+        'com.basefyio.type': 'minio',
+        'com.basefyio.owner': opts.teamId,
       },
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },

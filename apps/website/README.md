@@ -1,6 +1,6 @@
-# Kolaybase marketing site (`apps/website`)
+# Basefyio marketing site (`apps/website`)
 
-Next.js app for **kolaybase.com**: landing, docs, SEO (metadata, Open Graph, JSON-LD, sitemap, robots).
+Next.js app for **basefyio.com**: landing, docs, SEO (metadata, Open Graph, JSON-LD, sitemap, robots).
 
 ## Development
 

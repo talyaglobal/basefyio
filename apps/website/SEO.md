@@ -1,4 +1,4 @@
-# Kolaybase Website — SEO Engine
+# Basefyio Website — SEO Engine
 
 This site has a full programmatic SEO engine. This doc explains how it works, how
 to add content, how to get pages indexed, and the keyword strategy behind the
@@ -57,16 +57,16 @@ real, specific, accurate content. Keep competitor claims honest and current.
 
 Pages won't get traffic until search engines find and index them.
 
-1. **Google Search Console** — add and verify `kolaybase.com`.
+1. **Google Search Console** — add and verify `basefyio.com`.
    - Verify via DNS, or set `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` (already wired
      in `src/app/layout.tsx`) to the meta-tag token.
 2. **Submit the sitemap** — in Search Console → Sitemaps, submit
-   `https://kolaybase.com/sitemap.xml`.
+   `https://basefyio.com/sitemap.xml`.
 3. **Request indexing** for key pages (home, top comparisons) via the URL
    Inspection tool to speed up first crawl.
 4. **Bing Webmaster Tools** — repeat 1–2 for Bing (you can import from Search
    Console).
-5. **Verify robots** — `https://kolaybase.com/robots.txt` should allow `/` and
+5. **Verify robots** — `https://basefyio.com/robots.txt` should allow `/` and
    list the sitemap (it does).
 6. **Confirm canonicals** — each page should have a single self-referential
    canonical (handled by `buildMetadata`).
@@ -84,19 +84,19 @@ The pages are organized by search intent. Highest commercial intent first.
 
 | Page | Primary keywords |
 | --- | --- |
-| `/compare/kolaybase-vs-supabase` | supabase alternative, kolaybase vs supabase |
-| `/compare/kolaybase-vs-firebase` | firebase alternative, sql vs nosql backend |
-| `/compare/kolaybase-vs-neon` | neon alternative, serverless postgres backend |
-| `/compare/kolaybase-vs-appwrite` | appwrite alternative, open source baas |
-| `/compare/kolaybase-vs-pocketbase` | pocketbase alternative, postgres vs sqlite backend |
-| `/compare/kolaybase-vs-nhost` | nhost alternative, rest vs graphql backend |
-| `/compare/kolaybase-vs-render` | render alternative, backend hosting |
-| `/compare/kolaybase-vs-aws-amplify` | aws amplify alternative, no lock-in backend |
-| `/compare/kolaybase-vs-convex` | convex alternative, postgres vs convex |
-| `/compare/kolaybase-vs-hasura` | hasura alternative, rest vs graphql engine |
-| `/compare/kolaybase-vs-directus` | directus alternative, headless data platform |
-| `/compare/kolaybase-vs-strapi` | strapi alternative, headless cms backend |
-| `/compare/kolaybase-vs-xata` | xata alternative, serverless postgres platform |
+| `/compare/basefyio-vs-supabase` | supabase alternative, basefyio vs supabase |
+| `/compare/basefyio-vs-firebase` | firebase alternative, sql vs nosql backend |
+| `/compare/basefyio-vs-neon` | neon alternative, serverless postgres backend |
+| `/compare/basefyio-vs-appwrite` | appwrite alternative, open source baas |
+| `/compare/basefyio-vs-pocketbase` | pocketbase alternative, postgres vs sqlite backend |
+| `/compare/basefyio-vs-nhost` | nhost alternative, rest vs graphql backend |
+| `/compare/basefyio-vs-render` | render alternative, backend hosting |
+| `/compare/basefyio-vs-aws-amplify` | aws amplify alternative, no lock-in backend |
+| `/compare/basefyio-vs-convex` | convex alternative, postgres vs convex |
+| `/compare/basefyio-vs-hasura` | hasura alternative, rest vs graphql engine |
+| `/compare/basefyio-vs-directus` | directus alternative, headless data platform |
+| `/compare/basefyio-vs-strapi` | strapi alternative, headless cms backend |
+| `/compare/basefyio-vs-xata` | xata alternative, serverless postgres platform |
 
 ### Use-case pages (intent: "backend for X")
 
@@ -114,7 +114,7 @@ The pages are organized by search intent. Highest commercial intent first.
 
 | Post | Primary keywords |
 | --- | --- |
-| getting-started-with-kolaybase | postgresql backend, baas getting started |
+| getting-started-with-basefyio | postgresql backend, baas getting started |
 | rest-api-on-postgresql-without-boilerplate | postgresql rest api, postgrest |
 | build-vs-buy-backend | build vs buy backend, baas vs custom |
 | postgresql-row-level-security-guide | postgresql row level security, rls policy |
@@ -131,13 +131,13 @@ cross-links to related terms, building a dense internal-link graph that lifts th
 whole section. This is the largest long-tail surface — expand it steadily with
 genuinely useful definitions.
 
-### Integrations (intent: "<framework> backend" / "Kolaybase + X")
+### Integrations (intent: "<framework> backend" / "Basefyio + X")
 
 The `/integrations/[slug]` pages target developers searching for "Next.js
-backend", "React backend", "use Kolaybase with X". Each shows install, setup, and
-usage with the real `kolaybase-js` API. These pages are edited directly in
+backend", "React backend", "use Basefyio with X". Each shows install, setup, and
+usage with the real `basefyio-js` API. These pages are edited directly in
 `src/lib/content/integrations.ts` (they have framework-specific code, so there's
-no generator stub). Only add integrations where `kolaybase-js` actually
+no generator stub). Only add integrations where `basefyio-js` actually
 runs — the SDK is JavaScript/TypeScript.
 
 ### How to expand

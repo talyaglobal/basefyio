@@ -140,10 +140,10 @@
   }
 
   /* ── Grid list hover (card / tile grids) ───────────────── */
-  .kb-grid-row-hover > * {
+  .basefyio-grid-row-hover > * {
     @apply transition-colors duration-200;
   }
-  .kb-grid-row-hover > *:hover {
+  .basefyio-grid-row-hover > *:hover {
     @apply bg-accent/55 dark:bg-accent/30;
   }
 }

@@ -11,7 +11,7 @@ interface LinkOptions {
 
 export async function linkCommand(options: LinkOptions) {
   if (!isLoggedIn()) {
-    error('Not logged in. Run:  kb login');
+    error('Not logged in. Run:  basefyio login');
     process.exit(1);
   }
 
@@ -34,7 +34,7 @@ export async function linkCommand(options: LinkOptions) {
       allProjects.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
 
       if (!allProjects.length) {
-        error('No projects found. Create one first:  kb init');
+        error('No projects found. Create one first:  basefyio init');
         process.exit(1);
       }
 
@@ -79,7 +79,7 @@ export async function linkCommand(options: LinkOptions) {
     console.log(`    ${chalk.gray('Realm')}         ${project.keycloakRealm}`);
     console.log();
     success('Credentials saved to .env');
-    console.log(chalk.gray('  Run  kb status  to see full connection details'));
+    console.log(chalk.gray('  Run  basefyio status  to see full connection details'));
   } catch (err) {
     await handleApiError(err);
   }
@@ -87,7 +87,7 @@ export async function linkCommand(options: LinkOptions) {
 
 export async function unlinkProject() {
   try {
-    await fs.rm('.kolaybase', { recursive: true, force: true });
+    await fs.rm('.basefyio', { recursive: true, force: true });
     success('Project unlinked');
   } catch (err: any) {
     error(`Failed to unlink: ${err.message}`);

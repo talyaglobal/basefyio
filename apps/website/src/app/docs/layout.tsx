@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Book, Code, Terminal, Server } from "lucide-react";
-import { KolaybaseLogo } from "@/components/kolaybase-logo";
+import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
-  "Kolaybase documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
+  "Basefyio documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | Kolaybase Docs",
-    default: "Documentation | Kolaybase Docs",
+    template: "%s | Basefyio Docs",
+    default: "Documentation | Basefyio Docs",
   },
   description: docsDescription,
   openGraph: {
-    title: "Documentation | Kolaybase Docs",
+    title: "Documentation | Basefyio Docs",
     description: docsDescription,
   },
 };
@@ -36,7 +36,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex min-w-0 items-center gap-6">
-            <KolaybaseLogo href="/" />
+            <BasefyioLogo href="/" />
             <span className="text-sm text-muted-foreground">/</span>
             <Link
               href="/docs"

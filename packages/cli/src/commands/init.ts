@@ -11,7 +11,7 @@ interface InitOptions {
 
 export async function initCommand(options: InitOptions) {
   if (!isLoggedIn()) {
-    error('Not logged in. Run:  kb login');
+    error('Not logged in. Run:  basefyio login');
     process.exit(1);
   }
 
@@ -20,8 +20,8 @@ export async function initCommand(options: InitOptions) {
     warning(`This directory is already linked to project "${existingConfig.projectName}"`);
     console.log(chalk.gray(`  ID: ${existingConfig.projectId}`));
     console.log();
-    console.log(chalk.gray('  To link to a different project run:  kb link'));
-    console.log(chalk.gray('  To unlink first:                     kb unlink'));
+    console.log(chalk.gray('  To link to a different project run:  basefyio link'));
+    console.log(chalk.gray('  To unlink first:                     basefyio unlink'));
     return;
   }
 
@@ -98,14 +98,14 @@ export async function initCommand(options: InitOptions) {
     console.log(`    ${chalk.gray('Database')}      ${project.dbName}`);
     console.log(`    ${chalk.gray('Realm')}         ${project.keycloakRealm}`);
     console.log();
-    success('Configuration saved to .kolaybase/config.json');
+    success('Configuration saved to .basefyio/config.json');
     success('Credentials saved to .env');
     console.log();
     console.log(chalk.gray('  Next steps:'));
-    console.log(chalk.gray('    kb status          — view full connection details'));
-    console.log(chalk.gray('    kb inspect         — list database tables'));
-    console.log(chalk.gray('    kb gen types       — generate TypeScript types'));
-    console.log(chalk.gray('    kb db push         — push a local schema'));
+    console.log(chalk.gray('    basefyio status          — view full connection details'));
+    console.log(chalk.gray('    basefyio inspect         — list database tables'));
+    console.log(chalk.gray('    basefyio gen types       — generate TypeScript types'));
+    console.log(chalk.gray('    basefyio db push         — push a local schema'));
   } catch (err) {
     await handleApiError(err);
   }

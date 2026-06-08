@@ -9,14 +9,14 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'u
 const program = new Command();
 
 program
-  .name('kb')
-  .description('Kolaybase CLI — manage your Kolaybase projects')
+  .name('basefyio')
+  .description('Basefyio CLI — manage your Basefyio projects')
   .version(pkg.version);
 
 // ── Authentication ──────────────────────────────────────────
 
 // Proactively refresh the access token before every command so the CLI session
-// stays alive until the user explicitly runs `kb logout`.
+// stays alive until the user explicitly runs `basefyio logout`.
 program.hook('preAction', async (thisCommand) => {
   const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
   // Skip refresh for login/logout — they manage tokens themselves
@@ -27,8 +27,8 @@ program.hook('preAction', async (thisCommand) => {
 
 program
   .command('login')
-  .description('Authenticate with the Kolaybase platform')
-  .option('--api-url <url>', 'Platform API URL (default: https://api.kolaybase.com)')
+  .description('Authenticate with the Basefyio platform')
+  .option('--api-url <url>', 'Platform API URL (default: https://api.basefyio.com)')
   .action(async (options) => {
     const { loginCommand } = await import('./commands/login.js');
     await loginCommand(options);
@@ -46,7 +46,7 @@ program
 
 program
   .command('init')
-  .description('Create a new Kolaybase project and link it to the current directory')
+  .description('Create a new Basefyio project and link it to the current directory')
   .option('-n, --name <name>', 'Project name')
   .action(async (options) => {
     const { initCommand } = await import('./commands/init.js');
@@ -249,7 +249,7 @@ migration
 
 program
   .command('push')
-  .description('Shortcut for: kb db push')
+  .description('Shortcut for: basefyio db push')
   .action(async () => {
     const { dbPush } = await import('./commands/db.js');
     await dbPush();

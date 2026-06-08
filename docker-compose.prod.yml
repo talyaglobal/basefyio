@@ -28,7 +28,7 @@ services:
       - web
       - internal
     labels:
-      # Traefik dashboard at traefik.kolaybase.com (optional, protect with basicauth)
+      # Traefik dashboard at traefik.basefyio.com (optional, protect with basicauth)
       - traefik.enable=true
       - traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)
       - traefik.http.routers.dashboard.entrypoints=websecure
@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: kolaybase
+      POSTGRES_DB: basefyio
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
@@ -119,14 +119,14 @@ services:
       - internal
       - web
     labels:
-      # MinIO S3 API — storage.kolaybase.com
+      # MinIO S3 API — storage.basefyio.com
       - traefik.enable=true
       - traefik.http.routers.minio-api.rule=Host(`storage.${DOMAIN}`)
       - traefik.http.routers.minio-api.entrypoints=websecure
       - traefik.http.routers.minio-api.tls.certresolver=le
       - traefik.http.routers.minio-api.service=minio-api
       - traefik.http.services.minio-api.loadbalancer.server.port=9000
-      # MinIO Console — minio-console.kolaybase.com
+      # MinIO Console — minio-console.basefyio.com
       - traefik.http.routers.minio-console.rule=Host(`minio-console.${DOMAIN}`)
       - traefik.http.routers.minio-console.entrypoints=websecure
       - traefik.http.routers.minio-console.tls.certresolver=le
@@ -155,17 +155,17 @@ services:
   # ── Applications (pulled from GHCR) ────────────────────
 
   platform-api:
-    image: ghcr.io/${GHCR_OWNER}/kolaybase-api:latest
+    image: ghcr.io/${GHCR_OWNER}/basefyio-api:latest
     restart: always
     environment:
       PORT: 4000
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/basefyio
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: kolaybase
+      POSTGRES_DB: basefyio
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_PUBLIC_URL: https://auth.${DOMAIN}
       KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER}
@@ -180,8 +180,8 @@ services:
       MINIO_PUBLIC_PORT: 443
       MINIO_PUBLIC_SSL: "true"
       RESEND_API_KEY: ${RESEND_API_KEY}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Kolaybase <noreply@kolaybase.com>}
-      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@kolaybase.com}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Basefyio <noreply@basefyio.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
       REDIS_URL: redis://redis:6379
       APP_URL: https://app.${DOMAIN}
       CORS_ORIGIN: "*"
@@ -210,7 +210,7 @@ services:
       GOOGLE_ANALYTICS_PROPERTY_ID: ${GOOGLE_ANALYTICS_PROPERTY_ID:-}
       GOOGLE_MARKETING_IMPERSONATE_EMAIL: ${GOOGLE_MARKETING_IMPERSONATE_EMAIL:-}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-      DOCKER_NETWORK: ${DOCKER_NETWORK:-kolaybase_default}
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-basefyio_default}
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
     volumes:
       - pgbouncer_config:/etc/pgbouncer
@@ -235,7 +235,7 @@ services:
       - traefik.http.services.api.loadbalancer.server.port=4000
 
   admin-ui:
-    image: ghcr.io/${GHCR_OWNER}/kolaybase-ui:latest
+    image: ghcr.io/${GHCR_OWNER}/basefyio-ui:latest
     restart: always
     environment:
       HOSTNAME: 0.0.0.0
@@ -255,7 +255,7 @@ services:
       - traefik.http.services.ui.loadbalancer.server.port=3000
 
   website:
-    image: ghcr.io/${GHCR_OWNER}/kolaybase-website:latest
+    image: ghcr.io/${GHCR_OWNER}/basefyio-website:latest
     restart: always
     environment:
       HOSTNAME: 0.0.0.0

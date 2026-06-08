@@ -1,6 +1,6 @@
-import type { KolaybaseFetchClient } from '../lib/fetch.js';
+import type { BasefyioFetchClient } from '../lib/fetch.js';
 import type {
-  KolaybaseResponse,
+  BasefyioResponse,
   SqlResult,
   TableInfo,
   ColumnInfo,
@@ -99,8 +99,8 @@ export class OrConditionBuilder {
 
 type Operation = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
 
-export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<KolaybaseResponse<T[]>> {
-  private http: KolaybaseFetchClient;
+export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<BasefyioResponse<T[]>> {
+  private http: BasefyioFetchClient;
   private projectId: string;
   private _table: string;
   private _op: Operation = 'select';
@@ -117,7 +117,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
   private _single = false;
   private _count: 'exact' | null = null;
 
-  constructor(http: KolaybaseFetchClient, projectId: string, table: string) {
+  constructor(http: BasefyioFetchClient, projectId: string, table: string) {
     this.http = http;
     this.projectId = projectId;
     this._table = table;
@@ -425,7 +425,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
 
   // ── Execution ────────────────────────────────────────
 
-  private async execute(): Promise<KolaybaseResponse<T[]>> {
+  private async execute(): Promise<BasefyioResponse<T[]>> {
     try {
       const sql = this.toSQL();
       const result = await this.http.json<SqlResult>('/sql/execute', {
@@ -437,7 +437,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
 
       if (this._single) {
         if (rows.length === 0) {
-          return { data: null, error: null } as KolaybaseResponse<T[]>;
+          return { data: null, error: null } as BasefyioResponse<T[]>;
         }
         return { data: rows[0] as any, error: null };
       }
@@ -448,8 +448,8 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
     }
   }
 
-  then<TResult1 = KolaybaseResponse<T[]>, TResult2 = never>(
-    onfulfilled?: ((value: KolaybaseResponse<T[]>) => TResult1 | PromiseLike<TResult1>) | null,
+  then<TResult1 = BasefyioResponse<T[]>, TResult2 = never>(
+    onfulfilled?: ((value: BasefyioResponse<T[]>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
     return this.execute().then(onfulfilled, onrejected);
@@ -459,10 +459,10 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ko
 // ── Database Client ────────────────────────────────────
 
 export class DatabaseClient {
-  private http: KolaybaseFetchClient;
+  private http: BasefyioFetchClient;
   private projectId: string;
 
-  constructor(http: KolaybaseFetchClient, projectId: string) {
+  constructor(http: BasefyioFetchClient, projectId: string) {
     this.http = http;
     this.projectId = projectId;
   }
@@ -478,7 +478,7 @@ export class DatabaseClient {
    * directly into the query string, as this creates SQL injection vulnerabilities.
    * Always validate and sanitize any dynamic values before including them.**
    */
-  async sql<T = Record<string, unknown>>(query: string): Promise<KolaybaseResponse<T[]>> {
+  async sql<T = Record<string, unknown>>(query: string): Promise<BasefyioResponse<T[]>> {
     try {
       const result = await this.http.json<SqlResult>('/sql/execute', {
         method: 'POST',
@@ -490,7 +490,7 @@ export class DatabaseClient {
     }
   }
 
-  async listTables(): Promise<KolaybaseResponse<TableInfo[]>> {
+  async listTables(): Promise<BasefyioResponse<TableInfo[]>> {
     try {
       const data = await this.http.json<TableInfo[]>(`/projects/${this.projectId}/tables`);
       return { data, error: null };
@@ -499,7 +499,7 @@ export class DatabaseClient {
     }
   }
 
-  async getColumns(table: string): Promise<KolaybaseResponse<ColumnInfo[]>> {
+  async getColumns(table: string): Promise<BasefyioResponse<ColumnInfo[]>> {
     try {
       const data = await this.http.json<ColumnInfo[]>(`/projects/${this.projectId}/tables/${encodeURIComponent(table)}/columns`);
       return { data, error: null };

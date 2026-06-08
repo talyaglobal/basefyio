@@ -12,7 +12,7 @@ import {
 import { api } from '@/lib/api';
 import type { ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 
-const STORAGE_KEY = 'kolaybase_active_exports';
+const STORAGE_KEY = 'basefyio_active_exports';
 
 export interface ActiveExport {
   jobId: string;

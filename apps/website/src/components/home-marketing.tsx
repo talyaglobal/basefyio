@@ -89,20 +89,20 @@ export function HomeMarketing() {
       {/* PostgREST comparison */}
       <section
         className="relative px-6 py-16 md:py-24"
-        id="why-kolaybase"
+        id="why-basefyio"
       >
         <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
         <div className="relative mx-auto max-w-6xl">
           <div className="mx-auto max-w-3xl text-center">
             <Badge variant="outline" className="mb-4">
-              Kolaybase vs PostgREST
+              Basefyio vs PostgREST
             </Badge>
             <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
               Familiar syntax.{" "}
               <span className="gradient-text">Complete platform.</span>
             </h2>
             <p className="mt-5 text-lg text-muted-foreground">
-              If you know PostgREST or Supabase, you already know Kolaybase.
+              If you know PostgREST or Supabase, you already know Basefyio.
               Same query syntax — but with auth, storage, dashboard, and
               multi-project isolation built in. No gluing 5 services together.
             </p>
@@ -119,7 +119,7 @@ export function HomeMarketing() {
                 PostgREST
               </div>
               <div className="border-b border-l border-border bg-primary/5 px-4 py-3 text-center font-semibold text-primary">
-                Kolaybase
+                Basefyio
               </div>
               {/* Rows */}
               {[
@@ -160,7 +160,7 @@ export function HomeMarketing() {
           </div>
 
           <p className="mx-auto mt-6 max-w-2xl text-center text-sm text-muted-foreground">
-            PostgREST is open-source and excellent at what it does. Kolaybase
+            PostgREST is open-source and excellent at what it does. Basefyio
             adds the complete app platform on top — so you can ship faster
             without assembling infrastructure yourself.
           </p>
@@ -183,7 +183,7 @@ export function HomeMarketing() {
                 Chat with your project—not just your tables
               </h2>
               <p className="mt-4 text-lg text-muted-foreground">
-                Kolaybase includes a smart AI that understands your schema and
+                Basefyio includes a smart AI that understands your schema and
                 project context. Ask in plain language: explore relationships,
                 catch risky patterns, get migration ideas, or summarize how your
                 API surface maps to the database—without exporting diagrams or
@@ -403,11 +403,11 @@ export function HomeMarketing() {
                 Any client stack
               </Badge>
               <CardTitle className="pt-2 text-2xl sm:text-3xl md:text-4xl">
-                Use Kolaybase with{" "}
+                Use Basefyio with{" "}
                 <span className="gradient-text">any framework</span>
               </CardTitle>
               <CardDescription className="mx-auto max-w-2xl text-base">
-                Use your favorite stack. Kolaybase speaks standard HTTP — no
+                Use your favorite stack. Basefyio speaks standard HTTP — no
                 proprietary SDK required. Works with any language, any framework.
               </CardDescription>
             </CardHeader>
@@ -540,7 +540,7 @@ export function HomeMarketing() {
                   From idea to production — in minutes
                 </h2>
                 <p className="mt-4 text-lg text-muted-foreground">
-                  Stop configuring infrastructure. Kolaybase gives you a
+                  Stop configuring infrastructure. Basefyio gives you a
                   database, auth, storage, and API — create a project and
                   start building your app immediately. Open-source and
                   self-hostable.

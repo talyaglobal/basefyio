@@ -46,7 +46,7 @@ export default function SetNewPasswordPage() {
       .getProfile()
       .then((profile) => {
         if (!profile.forcePasswordChange) {
-          Cookies.remove('kb_force_password_change', { path: '/' });
+          Cookies.remove('basefyio_force_password_change', { path: '/' });
           router.replace('/dashboard');
           return;
         }
@@ -68,7 +68,7 @@ export default function SetNewPasswordPage() {
     setSaving(true);
     try {
       await api.auth.completeForcedPasswordChange(newPassword);
-      Cookies.remove('kb_force_password_change', { path: '/' });
+      Cookies.remove('basefyio_force_password_change', { path: '/' });
       toast.success('Password updated. Redirecting to dashboard...');
       router.replace('/dashboard');
     } catch (err: any) {

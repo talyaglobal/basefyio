@@ -1,6 +1,6 @@
-# Kolaybase CLI
+# Basefyio CLI
 
-The official command-line interface for [Kolaybase](https://github.com/fsipka/kolaybase-new) - a self-hosted, multi-tenant backend platform.
+The official command-line interface for [Basefyio](https://github.com/fsipka/basefyio-new) - a self-hosted, multi-tenant backend platform.
 
 ## Features
 
@@ -18,14 +18,14 @@ The official command-line interface for [Kolaybase](https://github.com/fsipka/ko
 ### NPM
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/fsipka/kolaybase-new.git
-cd v0-kolaybase/packages/cli
+git clone https://github.com/fsipka/basefyio-new.git
+cd v0-basefyio/packages/cli
 npm install
 npm run build
 npm link
@@ -36,7 +36,7 @@ npm link
 ### 1. Login
 
 ```bash
-kb login
+basefyio login
 ```
 
 ### 2. Initialize a new project
@@ -44,221 +44,221 @@ kb login
 ```bash
 mkdir my-project
 cd my-project
-kb init
+basefyio init
 ```
 
 ### 3. Start local development
 
 ```bash
-kb start
+basefyio start
 ```
 
 ### 4. Generate TypeScript types
 
 ```bash
-kb gen types
+basefyio gen types
 ```
 
 ## Commands
 
 ### Authentication
 
-#### `kb login`
+#### `basefyio login`
 
-Login to your Kolaybase account.
+Login to your Basefyio account.
 
 ```bash
-kb login
+basefyio login
 ```
 
 ### Project Management
 
-#### `kb init`
+#### `basefyio init`
 
-Initialize a new Kolaybase project in the current directory.
+Initialize a new Basefyio project in the current directory.
 
 ```bash
-kb init
-kb init --name "My Project"
-kb init --link  # Link to existing project
+basefyio init
+basefyio init --name "My Project"
+basefyio init --link  # Link to existing project
 ```
 
-#### `kb projects`
+#### `basefyio projects`
 
 List all your projects.
 
 ```bash
-kb projects
-kb projects:list
+basefyio projects
+basefyio projects:list
 ```
 
-#### `kb projects:create`
+#### `basefyio projects:create`
 
 Create a new project.
 
 ```bash
-kb projects:create
-kb projects:create --name "My Project" --description "My awesome project"
+basefyio projects:create
+basefyio projects:create --name "My Project" --description "My awesome project"
 ```
 
-#### `kb projects:delete <projectId>`
+#### `basefyio projects:delete <projectId>`
 
 Delete a project (requires confirmation).
 
 ```bash
-kb projects:delete abc-123-def
+basefyio projects:delete abc-123-def
 ```
 
 ### Local Development
 
-#### `kb start`
+#### `basefyio start`
 
-Start the local Kolaybase development environment (Docker Compose).
+Start the local Basefyio development environment (Docker Compose).
 
 ```bash
-kb start
-kb start --no-ui    # Skip starting Admin UI
-kb start --no-api   # Skip starting Platform API
+basefyio start
+basefyio start --no-ui    # Skip starting Admin UI
+basefyio start --no-api   # Skip starting Platform API
 ```
 
-#### `kb stop`
+#### `basefyio stop`
 
 Stop the local development environment.
 
 ```bash
-kb stop
+basefyio stop
 ```
 
-#### `kb status`
+#### `basefyio status`
 
 Show the status of local services.
 
 ```bash
-kb status
+basefyio status
 ```
 
 ### Database Management
 
-#### `kb db push`
+#### `basefyio db push`
 
 Push local schema changes to the remote database.
 
 ```bash
-kb db push
+basefyio db push
 ```
 
-#### `kb db pull`
+#### `basefyio db pull`
 
 Pull remote schema to local (introspection).
 
 ```bash
-kb db pull
+basefyio db pull
 ```
 
-#### `kb db reset`
+#### `basefyio db reset`
 
 Reset the database (drops all tables).
 
 ```bash
-kb db reset
-kb db reset --force  # Skip confirmation
+basefyio db reset
+basefyio db reset --force  # Skip confirmation
 ```
 
-#### `kb db seed`
+#### `basefyio db seed`
 
 Seed the database with initial data.
 
 ```bash
-kb db seed
+basefyio db seed
 ```
 
-#### `kb db diff`
+#### `basefyio db diff`
 
 Show schema differences between local and remote.
 
 ```bash
-kb db diff
+basefyio db diff
 ```
 
 ### Code Generation
 
-#### `kb gen types`
+#### `basefyio gen types`
 
 Generate TypeScript types from database schema.
 
 ```bash
-kb gen types
-kb gen types --output ./types
+basefyio gen types
+basefyio gen types --output ./types
 ```
 
-#### `kb gen client`
+#### `basefyio gen client`
 
 Generate API client for your project.
 
 ```bash
-kb gen client
-kb gen client --lang typescript --output ./lib
-kb gen client --lang javascript
-kb gen client --lang python
+basefyio gen client
+basefyio gen client --lang typescript --output ./lib
+basefyio gen client --lang javascript
+basefyio gen client --lang python
 ```
 
 ### Logs
 
-#### `kb logs`
+#### `basefyio logs`
 
 View container logs.
 
 ```bash
-kb logs
-kb logs --follow         # Follow log output
-kb logs --tail 100       # Show last 100 lines
-kb logs --sql            # Show SQL audit logs
+basefyio logs
+basefyio logs --follow         # Follow log output
+basefyio logs --tail 100       # Show last 100 lines
+basefyio logs --sql            # Show SQL audit logs
 ```
 
 ### Secrets Management
 
-#### `kb secrets list`
+#### `basefyio secrets list`
 
 List all environment secrets.
 
 ```bash
-kb secrets list
+basefyio secrets list
 ```
 
-#### `kb secrets set <key> <value>`
+#### `basefyio secrets set <key> <value>`
 
 Set an environment secret.
 
 ```bash
-kb secrets set API_KEY my-secret-key
-kb secrets set DATABASE_URL postgresql://...
+basefyio secrets set API_KEY my-secret-key
+basefyio secrets set DATABASE_URL postgresql://...
 ```
 
-#### `kb secrets unset <key>`
+#### `basefyio secrets unset <key>`
 
 Remove an environment secret.
 
 ```bash
-kb secrets unset API_KEY
+basefyio secrets unset API_KEY
 ```
 
 ### Project Linking
 
-#### `kb link`
+#### `basefyio link`
 
 Link current directory to a remote project.
 
 ```bash
-kb link
-kb link --project-id abc-123
+basefyio link
+basefyio link --project-id abc-123
 ```
 
-#### `kb unlink`
+#### `basefyio unlink`
 
 Unlink current directory from remote project.
 
 ```bash
-kb unlink
+basefyio unlink
 ```
 
 ## Configuration
@@ -266,8 +266,8 @@ kb unlink
 ### Global Configuration
 
 Global configuration is stored in:
-- **macOS/Linux**: `~/.config/kolaybase/config.json`
-- **Windows**: `%APPDATA%\kolaybase\config.json`
+- **macOS/Linux**: `~/.config/basefyio/config.json`
+- **Windows**: `%APPDATA%\basefyio\config.json`
 
 Contains:
 - API URL
@@ -276,7 +276,7 @@ Contains:
 
 ### Project Configuration
 
-Project-specific configuration is stored in `.kolaybase/config.json`:
+Project-specific configuration is stored in `.basefyio/config.json`:
 
 ```json
 {
@@ -308,20 +308,20 @@ SERVICE_KEY=...
 # Create project directory
 mkdir my-app && cd my-app
 
-# Login to Kolaybase
-kb login
+# Login to Basefyio
+basefyio login
 
 # Initialize project
-kb init --name "My App"
+basefyio init --name "My App"
 
 # Start local environment
-kb start
+basefyio start
 
 # Generate types
-kb gen types
+basefyio gen types
 
 # Generate client
-kb gen client --lang typescript
+basefyio gen client --lang typescript
 ```
 
 ### Work with an existing project
@@ -332,13 +332,13 @@ git clone https://github.com/me/my-app.git
 cd my-app
 
 # Link to remote project
-kb link
+basefyio link
 
 # Start local environment
-kb start
+basefyio start
 
 # Pull latest schema
-kb db pull
+basefyio db pull
 ```
 
 ### Database workflow
@@ -347,25 +347,25 @@ kb db pull
 # Make schema changes in Prisma or SQL files
 
 # Push to database
-kb db push
+basefyio db push
 
 # Generate updated types
-kb gen types
+basefyio gen types
 
 # Seed with data
-kb db seed
+basefyio db seed
 
 # View SQL logs
-kb logs --sql
+basefyio logs --sql
 ```
 
 ## Environment Detection
 
 The CLI automatically detects your environment:
 
-- If you're in a Kolaybase project (has `.kolaybase/` directory), it uses that configuration
-- Otherwise, it looks for a global Kolaybase installation
-- Commands like `kb start` work from anywhere if Kolaybase is installed
+- If you're in a Basefyio project (has `.basefyio/` directory), it uses that configuration
+- Otherwise, it looks for a global Basefyio installation
+- Commands like `basefyio start` work from anywhere if Basefyio is installed
 
 ## Troubleshooting
 
@@ -377,14 +377,14 @@ Make sure Docker Desktop is running:
 docker ps
 ```
 
-### "Not in a Kolaybase project"
+### "Not in a Basefyio project"
 
 Initialize a project or link to an existing one:
 
 ```bash
-kb init
+basefyio init
 # or
-kb link
+basefyio link
 ```
 
 ### "Authentication failed"
@@ -392,7 +392,7 @@ kb link
 Check your credentials and API URL:
 
 ```bash
-kb login
+basefyio login
 ```
 
 ### "Could not connect to API"
@@ -400,8 +400,8 @@ kb login
 Make sure the Platform API is running:
 
 ```bash
-kb start
-kb status
+basefyio start
+basefyio status
 ```
 
 ## Development
@@ -424,7 +424,7 @@ npm run dev
 
 ```bash
 npm link
-kb --version
+basefyio --version
 ```
 
 ## Contributing

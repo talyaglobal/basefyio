@@ -1,49 +1,49 @@
-# Kolaybase Usage Guide
-cli install: npm install -g kolaybase-cli
-sdk install: npm install kolaybase-js
+# Basefyio Usage Guide
+cli install: npm install -g basefyio-cli
+sdk install: npm install basefyio-js
 ## CLI
 
 ```bash
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 ```
 
 ```bash
-kb login                # Sign in to your account
-kb init                 # Create a new project
-kb link                 # Link to an existing project
-kb status               # Show current project info
-kb projects             # List all projects
-kb db inspect           # Inspect database tables
-kb db dump              # Dump database schema
+basefyio login                # Sign in to your account
+basefyio init                 # Create a new project
+basefyio link                 # Link to an existing project
+basefyio status               # Show current project info
+basefyio projects             # List all projects
+basefyio db inspect           # Inspect database tables
+basefyio db dump              # Dump database schema
 ```
 
 Self-hosted users can specify a custom API URL:
 
 ```bash
-kb login --api-url https://api.myserver.com
+basefyio login --api-url https://api.myserver.com
 ```
 
 ## SDK
 
 ```bash
-npm install kolaybase-js
+npm install basefyio-js
 ```
 
 ### Setup
 
-After `kb link` or `kb init`, your `.env` will contain:
+After `basefyio link` or `basefyio init`, your `.env` will contain:
 
 ```
-KOLAYBASE_PROJECT_ID=...
-KOLAYBASE_ANON_KEY=...
-KOLAYBASE_SERVICE_KEY=...
-KOLAYBASE_API_URL=https://api.kolaybase.com
+BASEFYIO_PROJECT_ID=...
+BASEFYIO_ANON_KEY=...
+BASEFYIO_SERVICE_KEY=...
+BASEFYIO_API_URL=https://api.basefyio.com
 ```
 
 The SDK reads these automatically:
 
 ```js
-import { createClient } from 'kolaybase-js'
+import { createClient } from 'basefyio-js'
 
 const kb = createClient()   // reads from .env
 

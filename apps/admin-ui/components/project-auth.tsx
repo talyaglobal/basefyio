@@ -106,7 +106,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 
       {/* Realm stats */}
       {realm && (
-        <div className="kb-grid-row-hover grid gap-4 sm:grid-cols-3">
+        <div className="basefyio-grid-row-hover grid gap-4 sm:grid-cols-3">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Shield className="h-4 w-4" />
@@ -421,7 +421,7 @@ function ProvidersTab({
     <div className="space-y-6">
       <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
         <Info className="h-4 w-4 shrink-0" />
-        <p>Configure sign-in providers for your app. Users can sign in with enabled providers via Kolaybase Auth SDK.</p>
+        <p>Configure sign-in providers for your app. Users can sign in with enabled providers via Basefyio Auth SDK.</p>
       </div>
 
       {PROVIDER_DEFS.map((p) => (
@@ -612,7 +612,7 @@ function SettingsTab({
         </h3>
         <ToggleSetting
           label="Allow self-signup"
-          description="Users can create accounts via SDK (kb.auth.signUp)"
+          description="Users can create accounts via SDK (client.auth.signUp)"
           checked={selfSignup}
           onChange={setSelfSignup}
         />
@@ -811,7 +811,7 @@ function EmailTab({
           <Badge variant="secondary">Optional</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          By default, emails are sent via Kolaybase&apos;s built-in email service.
+          By default, emails are sent via Basefyio&apos;s built-in email service.
           Configure a custom provider to send emails from your own domain.
         </p>
 
@@ -822,7 +822,7 @@ function EmailTab({
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           >
-            <option value="">Platform Default (Kolaybase)</option>
+            <option value="">Platform Default (Basefyio)</option>
             <option value="smtp">Custom SMTP</option>
             <option value="resend">Resend</option>
             <option value="sendgrid">SendGrid</option>
@@ -954,7 +954,7 @@ function EmailTab({
         {!provider && (
           <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
             <Info className="h-4 w-4 shrink-0" />
-            <p>Emails are sent using Kolaybase&apos;s built-in service. Select a provider above to use your own.</p>
+            <p>Emails are sent using Basefyio&apos;s built-in service. Select a provider above to use your own.</p>
           </div>
         )}
       </div>
@@ -1056,11 +1056,11 @@ function TemplateEditorDialog({
   const previewVars: Record<string, string> = {
     '{{otp}}': '482917',
     '{{project_name}}': 'My App',
-    '{{verify_url}}': 'https://api.kolaybase.com/rest/v1/auth/verify-email-callback?otp=482917',
+    '{{verify_url}}': 'https://api.basefyio.com/rest/v1/auth/verify-email-callback?otp=482917',
     '{{email}}': 'user@example.com',
-    '{{invite_url}}': 'https://api.kolaybase.com/rest/v1/auth/invite-callback?otp=482917',
-    '{{magic_link_url}}': 'https://api.kolaybase.com/rest/v1/auth/magic-link-callback?otp=482917',
-    '{{confirm_url}}': 'https://api.kolaybase.com/rest/v1/auth/change-email-callback?otp=482917',
+    '{{invite_url}}': 'https://api.basefyio.com/rest/v1/auth/invite-callback?otp=482917',
+    '{{magic_link_url}}': 'https://api.basefyio.com/rest/v1/auth/magic-link-callback?otp=482917',
+    '{{confirm_url}}': 'https://api.basefyio.com/rest/v1/auth/change-email-callback?otp=482917',
     '{{new_email}}': 'newemail@example.com',
   };
 
@@ -1206,59 +1206,59 @@ function ToggleSetting({
 function SdkCodeBlock() {
   const [copied, setCopied] = useState(false);
 
-  const code = `import { createClient } from 'kolaybase-js'
+  const code = `import { createClient } from 'basefyio-js'
 
-const kb = createClient({
+const client = createClient({
   projectId: 'YOUR_PROJECT_ID',
   apiKey: 'YOUR_ANON_KEY',
 })
 
 // Sign up
-const { data, error } = await kb.auth.signUp({
+const { data, error } = await client.auth.signUp({
   email: 'user@example.com',
   password: 'securepass',
 })
 
 // Verify email (6-digit OTP from email)
-await kb.auth.verifyEmail('123456')
+await client.auth.verifyEmail('123456')
 
 // Sign in
-await kb.auth.signIn({
+await client.auth.signIn({
   email: 'user@example.com',
   password: 'securepass',
 })
 
 // Magic link (passwordless)
-await kb.auth.sendMagicLink('user@example.com')
-await kb.auth.verifyMagicLink('123456')
+await client.auth.sendMagicLink('user@example.com')
+await client.auth.verifyMagicLink('123456')
 
 // Change email
-await kb.auth.changeEmail('new@example.com')
-await kb.auth.confirmChangeEmail('123456')
+await client.auth.changeEmail('new@example.com')
+await client.auth.confirmChangeEmail('123456')
 
 // Forgot password
-await kb.auth.forgotPassword('user@example.com')
+await client.auth.forgotPassword('user@example.com')
 
 // Reset password
-await kb.auth.resetPassword('123456', 'newSecurePass')
+await client.auth.resetPassword('123456', 'newSecurePass')
 
 // Reauthentication (for sensitive actions)
-await kb.auth.requestReauth()
-await kb.auth.verifyReauth('123456')
+await client.auth.requestReauth()
+await client.auth.verifyReauth('123456')
 
 // OAuth sign in (Google, GitHub)
-await kb.auth.signInWithProvider('google', {
+await client.auth.signInWithProvider('google', {
   redirectTo: window.location.origin,
 })
 
 // Handle OAuth callback (on redirect page)
-kb.auth.handleProviderCallback()
+client.auth.handleProviderCallback()
 
 // Invite user (requires service_role key)
-await kb.auth.inviteUser('newuser@example.com')
+await client.auth.inviteUser('newuser@example.com')
 
 // Get current user
-const { data: user } = await kb.auth.getUser()`;
+const { data: user } = await client.auth.getUser()`;
 
   function handleCopy() {
     navigator.clipboard.writeText(code);

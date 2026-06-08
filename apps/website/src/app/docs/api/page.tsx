@@ -3,14 +3,14 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "Kolaybase REST API: authentication headers, PostgREST-style queries, storage, and project-scoped endpoints.";
+  "Basefyio REST API: authentication headers, PostgREST-style queries, storage, and project-scoped endpoints.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/api", {
     title: "API Reference",
     description: pageDescription,
     openGraph: {
-      title: "API Reference | Kolaybase Docs",
+      title: "API Reference | Basefyio Docs",
       description: pageDescription,
     },
   });
@@ -23,7 +23,7 @@ export default function ApiDocs() {
     <div>
       <h1>API Reference</h1>
       <p>
-        The Kolaybase REST API is available at{" "}
+        The Basefyio REST API is available at{" "}
         <code>
           {apiRoot}/api
         </code>

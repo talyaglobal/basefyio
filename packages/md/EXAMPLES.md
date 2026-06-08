@@ -1,4 +1,4 @@
-# Kolaybase CLI Examples
+# Basefyio CLI Examples
 
 Quick examples for common CLI workflows.
 
@@ -8,16 +8,16 @@ Quick examples for common CLI workflows.
 
 ```bash
 # Install CLI
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 
 # Login
-kb login
+basefyio login
 
 # Create a new project
-kb init --name "My First Project"
+basefyio init --name "My First Project"
 
 # Start development
-kb start
+basefyio start
 ```
 
 ## Project Management
@@ -26,12 +26,12 @@ kb start
 
 ```bash
 # Create projects for different environments
-kb projects:create --name "my-app-dev"
-kb projects:create --name "my-app-staging"
-kb projects:create --name "my-app-prod"
+basefyio projects:create --name "my-app-dev"
+basefyio projects:create --name "my-app-staging"
+basefyio projects:create --name "my-app-prod"
 
 # List all projects
-kb projects
+basefyio projects
 ```
 
 ### Switch Between Projects
@@ -39,11 +39,11 @@ kb projects
 ```bash
 # In project directory 1
 cd ~/projects/my-app-dev
-kb link --project-id abc-123
+basefyio link --project-id abc-123
 
 # In project directory 2
 cd ~/projects/my-app-prod
-kb link --project-id xyz-789
+basefyio link --project-id xyz-789
 ```
 
 ## Database Workflows
@@ -54,10 +54,10 @@ kb link --project-id xyz-789
 # 1. Make changes to schema.prisma or SQL files
 
 # 2. Push changes to database
-kb db push
+basefyio db push
 
 # 3. Generate types
-kb gen types
+basefyio gen types
 
 # 4. Commit changes
 git add .
@@ -68,23 +68,23 @@ git commit -m "Add users table"
 
 ```bash
 # Reset database
-kb db reset --force
+basefyio db reset --force
 
 # Push schema
-kb db push
+basefyio db push
 
 # Seed with data
-kb db seed
+basefyio db seed
 ```
 
 ### Pull Schema from Production
 
 ```bash
 # Link to production project
-kb link --project-id prod-id
+basefyio link --project-id prod-id
 
 # Pull schema
-kb db pull
+basefyio db pull
 
 # Save to version control
 git add prisma/schema.prisma
@@ -97,22 +97,22 @@ git commit -m "Update schema from production"
 
 ```bash
 # Generate database types
-kb gen types --output ./types
+basefyio gen types --output ./types
 
 # Generate TypeScript client
-kb gen client --lang typescript --output ./lib
+basefyio gen client --lang typescript --output ./lib
 
 # Generate Python client for backend
-kb gen client --lang python --output ./python-api/lib
+basefyio gen client --lang python --output ./python-api/lib
 ```
 
 ### Example: Using Generated Client
 
-After running `kb gen client`:
+After running `basefyio gen client`:
 
 ```typescript
-// lib/kolaybase.ts is generated
-import { createClient } from './lib/kolaybase';
+// lib/basefyio.ts is generated
+import { createClient } from './lib/basefyio';
 
 const client = createClient({
   url: process.env.NEXT_PUBLIC_API_URL,
@@ -135,10 +135,10 @@ await client.table('users').insert({
 
 ```bash
 # Terminal 1: Start infrastructure
-kb start
+basefyio start
 
 # Terminal 2: Watch logs
-kb logs --follow
+basefyio logs --follow
 
 # Terminal 3: Development
 cd my-app
@@ -149,14 +149,14 @@ npm run dev
 
 ```bash
 # Start only infrastructure (no UI/API)
-kb start --no-ui --no-api
+basefyio start --no-ui --no-api
 
 # In your API directory
 cd apps/my-api
 npm run dev
 
 # View SQL logs in another terminal
-kb logs --sql --follow
+basefyio logs --sql --follow
 ```
 
 ## Secrets Management
@@ -165,14 +165,14 @@ kb logs --sql --follow
 
 ```bash
 # Set database credentials
-kb secrets set DATABASE_URL postgresql://user:pass@host:5432/db
+basefyio secrets set DATABASE_URL postgresql://user:pass@host:5432/db
 
 # Set API keys
-kb secrets set STRIPE_SECRET_KEY sk_test_...
-kb secrets set SENDGRID_API_KEY SG....
+basefyio secrets set STRIPE_SECRET_KEY sk_test_...
+basefyio secrets set SENDGRID_API_KEY SG....
 
 # List all secrets (sensitive values masked)
-kb secrets list
+basefyio secrets list
 ```
 
 ### Share Secrets Between Environments
@@ -180,12 +180,12 @@ kb secrets list
 ```bash
 # Export from dev
 cd my-app-dev
-kb secrets list > secrets.txt
+basefyio secrets list > secrets.txt
 
 # Import to staging (manually)
 cd my-app-staging
-kb secrets set KEY1 value1
-kb secrets set KEY2 value2
+basefyio secrets set KEY1 value1
+basefyio secrets set KEY2 value2
 ```
 
 ## CI/CD Integration
@@ -207,17 +207,17 @@ jobs:
       - uses: actions/checkout@v2
       
       - name: Install KB CLI
-        run: npm install -g kolaybase-cli
+        run: npm install -g basefyio-cli
       
       - name: Login
         run: |
-          echo "${{ secrets.KB_ACCESS_TOKEN }}" | kb login
+          echo "${{ secrets.KB_ACCESS_TOKEN }}" | basefyio login
       
       - name: Link to production project
-        run: kb link --project-id ${{ secrets.KB_PROJECT_ID }}
+        run: basefyio link --project-id ${{ secrets.KB_PROJECT_ID }}
       
       - name: Push database changes
-        run: kb db push
+        run: basefyio db push
       
       - name: Run migrations
         run: npm run migrate
@@ -229,7 +229,7 @@ jobs:
 FROM node:20-alpine
 
 # Install KB CLI
-RUN npm install -g kolaybase-cli
+RUN npm install -g basefyio-cli
 
 # Copy app
 WORKDIR /app
@@ -241,7 +241,7 @@ RUN npm install
 # Login and link (using build args)
 ARG KB_ACCESS_TOKEN
 ARG KB_PROJECT_ID
-RUN kb link --project-id $KB_PROJECT_ID
+RUN basefyio link --project-id $KB_PROJECT_ID
 
 CMD ["npm", "start"]
 ```
@@ -252,33 +252,33 @@ CMD ["npm", "start"]
 
 ```bash
 # 1. Install CLI
-npm install -g kolaybase-cli
+npm install -g basefyio-cli
 
 # 2. Login with team credentials
-kb login
+basefyio login
 
 # 3. Clone project repository
 git clone https://github.com/team/project.git
 cd project
 
 # 4. Link to shared project
-kb link
+basefyio link
 
 # 5. Start development
-kb start
+basefyio start
 ```
 
 ### Share Project Access
 
 ```bash
 # Team lead creates project
-kb projects:create --name "Team Project"
+basefyio projects:create --name "Team Project"
 
 # Share project ID with team
-kb projects  # Copy project ID
+basefyio projects  # Copy project ID
 
 # Team members link to it
-kb link --project-id <shared-project-id>
+basefyio link --project-id <shared-project-id>
 ```
 
 ## Monitoring and Debugging
@@ -287,41 +287,41 @@ kb link --project-id <shared-project-id>
 
 ```bash
 # All container logs
-kb logs --follow
+basefyio logs --follow
 
 # SQL queries only
-kb logs --sql --follow
+basefyio logs --sql --follow
 
 # Last 100 lines
-kb logs --tail 100
+basefyio logs --tail 100
 ```
 
 ### Debug Database Issues
 
 ```bash
 # Check current status
-kb status
+basefyio status
 
 # Reset and start fresh
-kb db reset --force
-kb db push
+basefyio db reset --force
+basefyio db push
 
 # View recent SQL errors
-kb logs --sql --tail 50
+basefyio logs --sql --tail 50
 ```
 
 ### Monitor Service Health
 
 ```bash
 # Check all services
-kb status
+basefyio status
 
 # Restart if needed
-kb stop
-kb start
+basefyio stop
+basefyio start
 
 # View specific service logs
-kb logs
+basefyio logs
 ```
 
 ## Advanced Workflows
@@ -330,43 +330,43 @@ kb logs
 
 ```bash
 # Create separate projects for microservices
-kb projects:create --name "users-service"
-kb projects:create --name "payments-service"
-kb projects:create --name "notifications-service"
+basefyio projects:create --name "users-service"
+basefyio projects:create --name "payments-service"
+basefyio projects:create --name "notifications-service"
 
 # In each service directory, link to its project
-cd services/users && kb link --project-id users-id
-cd services/payments && kb link --project-id payments-id
+cd services/users && basefyio link --project-id users-id
+cd services/payments && basefyio link --project-id payments-id
 ```
 
 ### Schema Versioning
 
 ```bash
 # Before major schema change
-kb db pull > schema-backup-$(date +%Y%m%d).sql
+basefyio db pull > schema-backup-$(date +%Y%m%d).sql
 
 # Make changes
 # ... edit schema ...
 
 # Push with caution
-kb db push
+basefyio db push
 
 # If something goes wrong, restore
-kb db reset --force
-kb db push < schema-backup-20260223.sql
+basefyio db reset --force
+basefyio db push < schema-backup-20260223.sql
 ```
 
 ### Custom SQL Scripts
 
 ```bash
 # Run custom migration
-kb db push < migrations/001-add-indexes.sql
+basefyio db push < migrations/001-add-indexes.sql
 
 # Run data transformation
-kb db push < scripts/transform-data.sql
+basefyio db push < scripts/transform-data.sql
 
 # Verify
-kb logs --sql
+basefyio logs --sql
 ```
 
 ## Tips and Tricks
@@ -375,10 +375,10 @@ kb logs --sql
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-alias kbs='kb start'
-alias kbst='kb stop'
-alias kbl='kb logs --follow'
-alias kbp='kb db push && kb gen types'
+alias kbs='basefyio start'
+alias kbst='basefyio stop'
+alias kbl='basefyio logs --follow'
+alias kbp='basefyio db push && basefyio gen types'
 ```
 
 ### Quick Project Switch
@@ -387,8 +387,8 @@ alias kbp='kb db push && kb gen types'
 # Create a shell function
 kbswitch() {
   cd ~/projects/$1
-  kb link
-  kb start
+  basefyio link
+  basefyio start
 }
 
 # Usage
@@ -399,17 +399,17 @@ kbswitch my-app-dev
 
 ```bash
 # Always pull schema before reset
-kb db pull
-kb db reset --force
-kb db push
+basefyio db pull
+basefyio db reset --force
+basefyio db push
 ```
 
 ### Check Everything is Working
 
 ```bash
 # Quick health check script
-kb status && \
-kb logs --tail 10 && \
+basefyio status && \
+basefyio logs --tail 10 && \
 echo "✓ All systems operational"
 ```
 
@@ -423,7 +423,7 @@ lsof -ti:5432 | xargs kill -9
 lsof -ti:8080 | xargs kill -9
 
 # Or change ports in .env
-kb secrets set POSTGRES_PORT 5433
+basefyio secrets set POSTGRES_PORT 5433
 ```
 
 ### Docker Out of Memory
@@ -440,8 +440,8 @@ docker system prune -a
 
 ```bash
 # Re-link to project
-kb link --project-id <your-project-id>
+basefyio link --project-id <your-project-id>
 
 # Verify connection
-kb status
+basefyio status
 ```

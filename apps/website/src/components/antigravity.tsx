@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Kolaybase landing: 3D particle background (Three.js + @react-three/fiber).
+ * Basefyio landing: 3D particle background (Three.js + @react-three/fiber).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import React, { useMemo, useRef } from "react";
