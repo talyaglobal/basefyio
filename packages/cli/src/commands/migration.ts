@@ -6,7 +6,7 @@ import { getProjectConfig } from '../lib/config.js';
 import { success, error, info, warning, createSpinner } from '../lib/ui.js';
 
 const MIGRATIONS_DIR = 'migrations';
-const TRACKING_TABLE = '_kb_migrations';
+const TRACKING_TABLE = '_bf_migrations';
 
 // ── Ensure tracking table exists ─────────────────────────────
 

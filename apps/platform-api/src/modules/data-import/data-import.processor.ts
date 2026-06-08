@@ -13,7 +13,7 @@ import { DATA_IMPORT_QUEUE } from '../queue/queue.module';
 import { streamRows, type FileFormat, WORKER_CHUNK_ROWS } from './lib/file-parser';
 import { castValue, type InferredType } from './lib/type-inferrer';
 
-const STAGING_BUCKET = 'kb-platform-data-imports';
+const STAGING_BUCKET = 'bf-platform-data-imports';
 
 /** Hard upper bound on captured bad rows. Keeps the report CSV manageable and
  *  caps memory: bad rows are buffered in-process and uploaded at the end. */

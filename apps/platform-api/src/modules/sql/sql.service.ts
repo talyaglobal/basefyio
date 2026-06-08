@@ -87,7 +87,7 @@ export class SqlService {
     let total: number | null = null;
     let totalIsApprox = false;
     if (isSelectShape) {
-      runQuery = `SELECT * FROM (${stripped}) AS _kb_paged LIMIT ${limit} OFFSET ${offset}`;
+      runQuery = `SELECT * FROM (${stripped}) AS _bf_paged LIMIT ${limit} OFFSET ${offset}`;
     } else {
       runQuery = query;
     }
@@ -110,7 +110,7 @@ export class SqlService {
 
       if (isSelectShape && opts?.countTotal) {
         try {
-          const countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _kb_paged_count LIMIT 10001) sub`;
+          const countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`;
           const c = await client.query(countSql);
           const raw = Number(c.rows[0]?.total ?? 0);
           totalIsApprox = raw > 10000;

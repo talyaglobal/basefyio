@@ -4,15 +4,16 @@ import {
   Bot,
   Check,
   Code2,
+  Database,
   Globe2,
-  Layers,
-  LayoutDashboard,
+  Key,
+  Lock,
   MessageSquare,
-  Minus,
-  PackageOpen,
+  Server,
+  Shield,
   Sparkles,
+  Table2,
   Wand2,
-  X,
   Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { getAppSignupUrl } from "@/lib/site-url";
+import { ScrollReveal } from "@/components/scroll-reveal";
+import { HowItWorks } from "@/components/how-it-works";
 
 const frameworks = [
   "React",
@@ -44,547 +47,592 @@ const frameworks = [
   "Go",
 ] as const;
 
-const audienceBadges = ["SaaS", "Internal tools", "Mobile apps", "AI products"] as const;
+const FEATURES = [
+  {
+    icon: Database,
+    title: "PostgreSQL Database",
+    desc: "Every project gets its own PostgreSQL database. Full SQL power, no shared tables, no noisy neighbors.",
+    pills: ["Postgres", "PostgREST", "Row-level auth"],
+    band: "base.db",
+  },
+  {
+    icon: Lock,
+    title: "Authentication",
+    desc: "Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and JWT — ready out of the box.",
+    pills: ["Keycloak", "OAuth", "JWT"],
+    band: "base.auth",
+  },
+  {
+    icon: Zap,
+    title: "Instant REST API",
+    desc: "Create a table, get a REST API instantly. PostgREST-compatible filters, pagination, and sorting — no code needed.",
+    pills: ["PostgREST", "Auto-gen", "Filters"],
+    band: "base.api",
+  },
+  {
+    icon: Shield,
+    title: "Storage & CDN",
+    desc: "S3-compatible object storage with edge CDN. Upload, manage, and serve files with automatic optimization.",
+    pills: ["S3-compatible", "Edge CDN", "Resumable"],
+    band: "base.storage",
+  },
+] as const;
+
+const COMING_SOON = [
+  {
+    icon: "📰",
+    title: "Headless CMS",
+    desc: "Content modelling baked into your project — structured content, media and localisation served over the same REST API.",
+    pills: ["Content API", "Media", "i18n"],
+    band: "base.cms",
+  },
+  {
+    icon: "📱",
+    title: "NoSQL for Mobile",
+    desc: "An offline-first document store that syncs to your Postgres — mobile apps work offline and converge automatically.",
+    pills: ["Offline-first", "Sync", "Document DB"],
+    band: "base.mobile",
+  },
+  {
+    icon: "📊",
+    title: "Microsoft Integration",
+    desc: "Import and sync MS Excel, SharePoint and Microsoft 365 data straight into your project — every data type, one backend.",
+    pills: ["Excel", "Microsoft 365", "SharePoint"],
+    band: "base.msft",
+  },
+] as const;
 
 export function HomeMarketing() {
   return (
     <>
-      {/* Social proof strip */}
-      <section
-        className="relative border-y border-border px-6 py-12 md:py-14"
-        aria-labelledby="trusted-heading"
-      >
-        <div className="absolute inset-0 bg-brand-gradient-subtle" aria-hidden />
-        <div className="noise-overlay z-[1] opacity-40" aria-hidden />
-        <div className="relative z-10 mx-auto max-w-6xl">
-          <Card className="overflow-hidden border-primary/15 bg-card/80 shadow-medium backdrop-blur-sm">
-            <CardHeader className="pb-4 text-center md:pb-6">
-              <Badge variant="accent" className="mx-auto w-fit gap-1.5 px-3 py-1">
-                <Sparkles className="h-3 w-3" />
-                Production-ready
-              </Badge>
-              <CardTitle
-                id="trusted-heading"
-                className="mx-auto max-w-2xl pt-2 text-xl font-bold tracking-tight sm:text-2xl"
-              >
-                Ship your app, not your infrastructure
-              </CardTitle>
-              <CardDescription className="mx-auto max-w-2xl text-base">
-                Database, auth, storage, and API — managed from a single
-                dashboard. Focus on building your product, not configuring
-                servers.
-              </CardDescription>
-            </CardHeader>
-            <CardFooter className="flex flex-wrap justify-center gap-2 py-6 md:gap-3">
-              {audienceBadges.map((label) => (
-                <Badge key={label} variant="secondary" className="px-3 py-1">
-                  {label}
-                </Badge>
-              ))}
-            </CardFooter>
-          </Card>
-        </div>
-      </section>
-
-      {/* PostgREST comparison */}
-      <section
-        className="relative px-6 py-16 md:py-24"
-        id="why-basefyio"
-      >
-        <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
+      {/* ============ HOW IT WORKS ============ */}
+      <section className="relative px-6 py-20 md:py-28" id="how">
+        <div className="absolute inset-0 bg-gradient-radial from-primary/[0.04] via-transparent to-transparent" />
         <div className="relative mx-auto max-w-6xl">
-          <div className="mx-auto max-w-3xl text-center">
-            <Badge variant="outline" className="mb-4">
-              Basefyio vs PostgREST
-            </Badge>
-            <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
-              Familiar syntax.{" "}
-              <span className="gradient-text">Complete platform.</span>
-            </h2>
-            <p className="mt-5 text-lg text-muted-foreground">
-              If you know PostgREST or Supabase, you already know Basefyio.
-              Same query syntax — but with auth, storage, dashboard, and
-              multi-project isolation built in. No gluing 5 services together.
-            </p>
-          </div>
-
-          {/* Comparison table */}
-          <div className="mx-auto mt-14 max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-soft">
-            <div className="grid grid-cols-[1fr_120px_120px] gap-0 text-sm sm:grid-cols-[1fr_140px_140px]">
-              {/* Header */}
-              <div className="border-b border-border bg-muted/50 px-5 py-3 font-semibold text-foreground">
-                Feature
-              </div>
-              <div className="border-b border-l border-border bg-muted/50 px-4 py-3 text-center font-semibold text-muted-foreground">
-                PostgREST
-              </div>
-              <div className="border-b border-l border-border bg-primary/5 px-4 py-3 text-center font-semibold text-primary">
-                Basefyio
-              </div>
-              {/* Rows */}
-              {[
-                { feature: "PostgREST-compatible query syntax", pg: true, kb: true },
-                { feature: "Multi-tenant database isolation", pg: false, kb: true },
-                { feature: "Built-in authentication (Keycloak)", pg: false, kb: true },
-                { feature: "Automatic RLS with JWT context", pg: "manual", kb: true },
-                { feature: "Connection pooling (built-in)", pg: false, kb: true },
-                { feature: "Object storage (S3-compatible)", pg: false, kb: true },
-                { feature: "Visual schema editor", pg: false, kb: true },
-                { feature: "REST API Explorer in dashboard", pg: false, kb: true },
-                { feature: "Per-project API keys", pg: false, kb: true },
-                { feature: "No extra containers per project", pg: false, kb: true },
-              ].map(({ feature, pg, kb }, i) => (
-                <div key={feature} className="contents">
-                  <div className={cn("px-5 py-3 text-muted-foreground", i % 2 === 0 ? "bg-muted/20" : "")}>
-                    {feature}
-                  </div>
-                  <div className={cn("flex items-center justify-center border-l border-border px-4 py-3", i % 2 === 0 ? "bg-muted/20" : "")}>
-                    {pg === true ? (
-                      <Check className="h-4 w-4 text-emerald-500" />
-                    ) : pg === "manual" ? (
-                      <Minus className="h-4 w-4 text-amber-500" />
-                    ) : (
-                      <X className="h-4 w-4 text-muted-foreground/40" />
-                    )}
-                  </div>
-                  <div className={cn("flex items-center justify-center border-l border-border px-4 py-3", i % 2 === 0 ? "bg-primary/[0.03]" : "bg-primary/[0.01]")}>
-                    {kb === true ? (
-                      <Check className="h-4 w-4 text-primary" />
-                    ) : (
-                      <X className="h-4 w-4 text-muted-foreground/40" />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="mx-auto mt-6 max-w-2xl text-center text-sm text-muted-foreground">
-            PostgREST is open-source and excellent at what it does. Basefyio
-            adds the complete app platform on top — so you can ship faster
-            without assembling infrastructure yourself.
-          </p>
+          <ScrollReveal>
+            <HowItWorks />
+          </ScrollReveal>
         </div>
       </section>
 
-      {/* AI assistant */}
+      {/* ============ FEATURES (4 cards) ============ */}
+      <section className="relative px-6 py-20 md:py-28" id="features">
+        <div className="mx-auto max-w-6xl">
+          <ScrollReveal>
+            <span className="section-label">One project, every layer</span>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Everything your app needs. Nothing it doesn&apos;t.
+            </h2>
+          </ScrollReveal>
+
+          <div className="mt-12 grid gap-5 sm:grid-cols-2">
+            {FEATURES.map((f, i) => {
+              const Icon = f.icon;
+              return (
+                <ScrollReveal key={f.title} delay={i % 2 === 0 ? 0 : 1}>
+                  <div className="landing-feature-card h-full">
+                    <div className="feature-icon">
+                      <Icon className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="text-xl font-semibold tracking-tight">
+                      {f.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                      {f.desc}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {f.pills.map((p) => (
+                        <span key={p} className="feat-pill-tag">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="feature-bottom-band">{f.band}</div>
+                  </div>
+                </ScrollReveal>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ LAYERS SPOTLIGHT ============ */}
       <section
-        className="border-t border-border px-6 py-16 md:py-24"
+        className="relative overflow-hidden px-6 py-20 md:py-28"
+        id="layers"
+        style={{
+          background:
+            "linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--card)) 100%)",
+        }}
+      >
+        <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-12 lg:items-center lg:gap-16">
+          <div className="lg:col-span-5">
+            <ScrollReveal>
+              <h2 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+                <span className="block text-muted-foreground">ONE PROJECT.</span>
+                <span className="block">EVERY LAYER.</span>
+              </h2>
+              <p className="mt-6 text-muted-foreground">
+                Basefyio gives every app:
+              </p>
+              <div className="mt-6 flex flex-col gap-0">
+                <div className="layer-row">
+                  <span className="layer-key">Postgres + REST</span>
+                  <span className="layer-val">relational data, instant API</span>
+                </div>
+                <div className="layer-row">
+                  <span className="layer-key">Authentication</span>
+                  <span className="layer-val">Keycloak, OAuth, JWT</span>
+                </div>
+                <div className="layer-row">
+                  <span className="layer-key">Storage</span>
+                  <span className="layer-val">files, assets, edge CDN</span>
+                </div>
+                <div className="layer-row">
+                  <span className="layer-key">AI Assistant</span>
+                  <span className="layer-val">schema-aware project AI</span>
+                </div>
+              </div>
+              <p className="mt-6 text-sm text-muted-foreground">
+                One provisioning call. One connection string. One dashboard.
+              </p>
+            </ScrollReveal>
+          </div>
+
+          <div className="lg:col-span-7">
+            <ScrollReveal delay={1}>
+              <div className="landing-code-block">
+                <div>
+                  <span className="tok-key">import</span>
+                  {" { basefyio } "}
+                  <span className="tok-key">from</span>{" "}
+                  <span className="tok-str">&apos;@basefyio/sdk&apos;</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                  <span className="tok-key">const</span>{" "}
+                  <span className="tok-var">db</span> = basefyio.
+                  <span className="tok-prop">db</span>
+                  {"           "}
+                  <span className="tok-com">{"// postgres + REST"}</span>
+                </div>
+                <div>
+                  <span className="tok-key">const</span>{" "}
+                  <span className="tok-var">auth</span> = basefyio.
+                  <span className="tok-prop">auth</span>
+                  {"       "}
+                  <span className="tok-com">{"// keycloak + OAuth"}</span>
+                </div>
+                <div>
+                  <span className="tok-key">const</span>{" "}
+                  <span className="tok-var">storage</span> = basefyio.
+                  <span className="tok-prop">storage</span>
+                  {"  "}
+                  <span className="tok-com">{"// s3 + cdn"}</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                  <span className="tok-com">
+                    {"// query your data with full PostgREST syntax"}
+                  </span>
+                </div>
+                <div>
+                  <span className="tok-key">const</span>{" "}
+                  <span className="tok-var">users</span> ={" "}
+                  <span className="tok-key">await</span> db.
+                  <span className="tok-fn">from</span>(
+                  <span className="tok-str">&apos;users&apos;</span>)
+                </div>
+                <div>
+                  {"  ."}
+                  <span className="tok-fn">select</span>(
+                  <span className="tok-str">&apos;id, name, email&apos;</span>)
+                </div>
+                <div>
+                  {"  ."}
+                  <span className="tok-fn">eq</span>(
+                  <span className="tok-str">&apos;active&apos;</span>,{" "}
+                  <span className="tok-var">true</span>)
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                  <span className="tok-com">
+                    {"// ask the project AI — understands your schema"}
+                  </span>
+                </div>
+                <div>
+                  <span className="tok-key">const</span>{" "}
+                  <span className="tok-var">insight</span> ={" "}
+                  <span className="tok-key">await</span> basefyio.
+                  <span className="tok-fn">ai</span>({"{"})
+                </div>
+                <div>
+                  {"  "}
+                  <span className="tok-prop">prompt</span>:{" "}
+                  <span className="tok-str">
+                    &quot;which tables reference users.id?&quot;
+                  </span>
+                </div>
+                <div>
+                  {"}"})
+                  <span className="code-cursor-blink" />
+                </div>
+              </div>
+            </ScrollReveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ============ AI ASSISTANT ============ */}
+      <section
+        className="border-t border-border px-6 py-20 md:py-28"
         id="ai-assistant"
       >
         <div className="mx-auto max-w-6xl">
           <div className="grid gap-10 lg:grid-cols-2 lg:items-stretch lg:gap-12">
             <div className="flex flex-col justify-center">
-              <Badge variant="accent" className="w-fit gap-1.5 px-3 py-1">
-                <Wand2 className="h-3.5 w-3.5" />
-                Intelligent assistant
-              </Badge>
-              <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-                Chat with your project—not just your tables
-              </h2>
-              <p className="mt-4 text-lg text-muted-foreground">
-                Basefyio includes a smart AI that understands your schema and
-                project context. Ask in plain language: explore relationships,
-                catch risky patterns, get migration ideas, or summarize how your
-                API surface maps to the database—without exporting diagrams or
-                pasting SQL into a generic chatbot.
-              </p>
-              <ul className="mt-8 space-y-3 text-sm">
-                {[
-                  "Natural-language Q&A over your data model and REST surface",
-                  "Suggestions for indexes, relations, and consistency checks",
-                  "Faster onboarding: new teammates ask the assistant instead of spelunking docs",
-                ].map((item) => (
-                  <li key={item} className="flex gap-3">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-                      <Check className="h-3 w-3" />
-                    </span>
-                    <span className="text-muted-foreground">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <Card className="flex flex-col overflow-hidden border-primary/20 bg-gradient-to-b from-card to-muted/20 shadow-medium">
-              <CardHeader className="space-y-1 border-b border-border bg-muted/30 pb-4">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-subtle">
-                    <Bot className="h-4 w-4" />
-                  </div>
-                  Project assistant
-                  <Badge variant="secondary" className="ml-auto text-[10px] uppercase">
-                    Live context
-                  </Badge>
-                </div>
-                <CardDescription>
-                  Example conversation—your real project stays private.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col gap-3 pt-6">
-                <div className="flex gap-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-3 text-sm shadow-subtle">
-                    Which tables reference{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-                      users.id
-                    </code>{" "}
-                    and are missing an index on the FK?
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="rounded-2xl rounded-tl-sm border border-primary/20 bg-primary/5 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
-                    <span className="font-medium text-foreground">
-                      Found 2 inbound FKs:
-                    </span>{" "}
-                    <code className="rounded bg-muted/80 px-1 font-mono text-xs">
-                      orders.customer_id
-                    </code>
-                    ,{" "}
-                    <code className="rounded bg-muted/80 px-1 font-mono text-xs">
-                      sessions.user_id
-                    </code>
-                    . Neither has a covering index—want suggested{" "}
-                    <code className="rounded bg-muted/80 px-1 font-mono text-xs">
-                      CREATE INDEX
-                    </code>{" "}
-                    statements?
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-3 text-sm shadow-subtle">
-                    Yes—optimize for our read-heavy dashboard queries.
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter className="border-t border-border bg-muted/20 py-4">
-                <p className="text-xs text-muted-foreground">
-                  The assistant reasons over your project context in the
-                  dashboard—so answers stay relevant to{" "}
-                  <span className="font-medium text-foreground">your</span>{" "}
-                  schema, not generic Postgres trivia.
-                </p>
-              </CardFooter>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* REST API engine — live examples */}
-      <section className="border-t border-border px-6 py-16 md:py-24" id="rest-engine">
-        <div className="mx-auto max-w-6xl">
-          <div className="mx-auto max-w-3xl text-center mb-14">
-            <Badge variant="outline" className="mb-4 gap-1.5">
-              <Code2 className="h-3.5 w-3.5" />
-              REST API
-            </Badge>
-            <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              Every table is an API endpoint.{" "}
-              <span className="gradient-text">Instantly.</span>
-            </h2>
-            <p className="mt-4 text-lg text-muted-foreground">
-              Create a table in the dashboard — your API is live instantly.
-              Standard HTTP, standard JSON. No code generation, no deploy
-              step, no waiting. Just build your app.
-            </p>
-          </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* SELECT example */}
-            <Card className="overflow-hidden border-border/80 shadow-subtle">
-              <CardHeader className="border-b border-border bg-muted/30 py-3 px-5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold font-mono bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">GET</span>
-                  <span className="text-xs text-muted-foreground font-mono">/rest/v1/products</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                  <code className="text-muted-foreground">
-                    {"curl '/rest/v1/products"}{"\n"}
-                    {"  ?select=id,name,price"}{"\n"}
-                    {"  &category=eq.electronics"}{"\n"}
-                    {"  &price=lt.500"}{"\n"}
-                    {"  &order=price.asc&limit=20' \\"}{"\n"}
-                    {"  -H \"apikey: YOUR_ANON_KEY\""}
-                  </code>
-                </pre>
-              </CardContent>
-            </Card>
-            {/* INSERT example */}
-            <Card className="overflow-hidden border-border/80 shadow-subtle">
-              <CardHeader className="border-b border-border bg-muted/30 py-3 px-5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold font-mono bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">POST</span>
-                  <span className="text-xs text-muted-foreground font-mono">/rest/v1/products</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                  <code className="text-muted-foreground">
-                    {"curl -X POST '/rest/v1/products' \\"}{"\n"}
-                    {"  -H \"apikey: YOUR_SERVICE_KEY\" \\"}{"\n"}
-                    {"  -H \"Content-Type: application/json\" \\"}{"\n"}
-                    {"  -H \"Prefer: return=representation\" \\"}{"\n"}
-                    {"  -d '{\"name\": \"Widget\", \"price\": 29.99}'"}
-                  </code>
-                </pre>
-              </CardContent>
-            </Card>
-            {/* UPDATE example */}
-            <Card className="overflow-hidden border-border/80 shadow-subtle">
-              <CardHeader className="border-b border-border bg-muted/30 py-3 px-5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold font-mono bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">PATCH</span>
-                  <span className="text-xs text-muted-foreground font-mono">/rest/v1/products?id=eq.42</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                  <code className="text-muted-foreground">
-                    {"curl -X PATCH '/rest/v1/products?id=eq.42' \\"}{"\n"}
-                    {"  -H \"apikey: YOUR_SERVICE_KEY\" \\"}{"\n"}
-                    {"  -H \"Content-Type: application/json\" \\"}{"\n"}
-                    {"  -d '{\"price\": 24.99}'"}
-                  </code>
-                </pre>
-              </CardContent>
-            </Card>
-            {/* DELETE example */}
-            <Card className="overflow-hidden border-border/80 shadow-subtle">
-              <CardHeader className="border-b border-border bg-muted/30 py-3 px-5">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold font-mono bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">DELETE</span>
-                  <span className="text-xs text-muted-foreground font-mono">/rest/v1/products?id=eq.42</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                  <code className="text-muted-foreground">
-                    {"curl -X DELETE '/rest/v1/products?id=eq.42' \\"}{"\n"}
-                    {"  -H \"apikey: YOUR_SERVICE_KEY\""}
-                  </code>
-                </pre>
-              </CardContent>
-            </Card>
-          </div>
-          <p className="mt-8 text-center text-sm text-muted-foreground">
-            Full filter reference:{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">eq</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">neq</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">gt</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">gte</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">lt</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">lte</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">like</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">ilike</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">is</code>{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">in</code>
-            {" "}— plus <code className="bg-muted px-1.5 py-0.5 rounded text-xs">order</code>,{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">limit</code>,{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">offset</code>,{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">select</code>.
-          </p>
-        </div>
-      </section>
-
-      {/* Framework row */}
-      <section className="border-t border-border bg-muted/15 px-6 py-16 md:py-24">
-        <div className="mx-auto max-w-6xl">
-          <Card className="border-border/80 bg-card/90 shadow-soft">
-            <CardHeader className="text-center">
-              <Badge variant="outline" className="mx-auto">
-                Any client stack
-              </Badge>
-              <CardTitle className="pt-2 text-2xl sm:text-3xl md:text-4xl">
-                Use Basefyio with{" "}
-                <span className="gradient-text">any framework</span>
-              </CardTitle>
-              <CardDescription className="mx-auto max-w-2xl text-base">
-                Use your favorite stack. Basefyio speaks standard HTTP — no
-                proprietary SDK required. Works with any language, any framework.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pb-8">
-              <div className="flex flex-wrap justify-center gap-2 md:gap-2.5">
-                {frameworks.map((name) => (
-                  <Badge
-                    key={name}
-                    variant="secondary"
-                    className={cn(
-                      "cursor-default px-4 py-2 text-sm font-medium transition-colors",
-                      "hover:border-primary/30 hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    {name}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      {/* Platform line */}
-      <section className="border-t border-border px-6 py-16 md:py-24">
-        <div className="mx-auto max-w-5xl">
-          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-muted/40 via-card to-card shadow-soft">
-            <CardHeader className="text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/25">
-                <Globe2 className="h-7 w-7 text-primary" aria-hidden />
-              </div>
-              <CardTitle className="mt-4 text-balance text-2xl sm:text-3xl md:text-4xl">
-                One platform. Not five glued together.
-              </CardTitle>
-              <CardDescription className="mx-auto max-w-2xl text-base text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  Built as a single product, not a bundle.
-                </span>{" "}
-                Database, auth, storage, and API designed to work together from
-                day one. No integration headaches, no version conflicts, no
-                surprise bills from five different vendors.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
-      </section>
-
-      {/* Dashboard productivity */}
-      <section className="border-t border-border bg-muted/10 px-6 py-16 md:py-24">
-        <div className="mx-auto max-w-6xl">
-          <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
-            <div>
-              <Badge variant="secondary" className="gap-1.5">
-                <LayoutDashboard className="h-3.5 w-3.5" />
-                Stay in one place
-              </Badge>
-              <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-                Build visually. Drop into SQL when you need it.
-              </h2>
-              <p className="mt-4 text-lg text-muted-foreground">
-                A dashboard that feels like a modern app, not a database admin
-                tool. Create tables like a spreadsheet, manage users with a
-                click, explore your API visually — with full SQL power underneath.
-              </p>
-              <Separator className="my-8" />
-              <ul className="space-y-4 text-sm">
-                {[
-                  "Table editor that feels like a spreadsheet — full CRUD, no SQL required",
-                  "User management, OAuth providers, and API keys — all in one place",
-                  "Row-level security that works out of the box — no policy writing on day one",
-                ].map((item) => (
-                  <li key={item} className="flex gap-3">
-                    <Check className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                    <span className="text-muted-foreground">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <Card className="shadow-medium">
-              <CardHeader className="pb-4">
-                <div className="flex flex-wrap gap-2">
-                  {["Table editor", "SQL when you need it", "API & keys"].map(
-                    (tab, i) => (
-                      <Badge
-                        key={tab}
-                        variant={i === 0 ? "default" : "secondary"}
-                        className="px-3 py-1.5"
-                      >
-                        {tab}
-                      </Badge>
-                    ),
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 rounded-lg border border-dashed border-border bg-muted/40 p-5 text-left">
-                  <p className="font-semibold text-foreground">Create table</p>
-                  <p className="text-sm text-muted-foreground">
-                    Name columns, set types, link relations—then hit save. Your
-                    REST surface updates automatically.
-                  </p>
-                  <Separator />
-                  <p className="text-xs text-muted-foreground">
-                    No deploy step for the backend. No &quot;functions
-                    deploy&quot; detour before your first row.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-border px-6 py-16 md:py-24">
-        <div className="mx-auto max-w-6xl">
-          <Card className="overflow-hidden border-primary/25 bg-gradient-to-br from-primary/[0.12] via-card to-card shadow-medium">
-            <div className="noise-overlay opacity-30" aria-hidden />
-            <div className="relative grid gap-10 p-8 md:grid-cols-2 md:items-center md:gap-12 md:p-12">
-              <div>
-                <div className="flex items-center gap-2 text-primary">
-                  <div className="rounded-lg bg-primary/15 p-2 ring-1 ring-primary/25">
-                    <PackageOpen className="h-5 w-5" />
-                  </div>
-                  <span className="text-sm font-semibold uppercase tracking-wide">
-                    Ready for production
-                  </span>
-                </div>
-                <h2 className="mt-4 text-balance text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
-                  From idea to production — in minutes
+              <ScrollReveal>
+                <Badge variant="accent" className="w-fit gap-1.5 px-3 py-1">
+                  <Wand2 className="h-3.5 w-3.5" />
+                  Intelligent assistant
+                </Badge>
+                <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
+                  Chat with your project &mdash; not just your tables
                 </h2>
                 <p className="mt-4 text-lg text-muted-foreground">
-                  Stop configuring infrastructure. Basefyio gives you a
-                  database, auth, storage, and API — create a project and
-                  start building your app immediately. Open-source and
-                  self-hostable.
+                  Basefyio includes a smart AI that understands your schema and
+                  project context. Ask in plain language: explore relationships,
+                  catch risky patterns, get migration ideas, or summarize how
+                  your API surface maps to the database.
                 </p>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Link
-                    href={getAppSignupUrl()}
-                    className={buttonVariants({ size: "lg" })}
-                  >
-                    Start Building
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                  <Link
-                    href="/docs"
-                    className={buttonVariants({ variant: "outline", size: "lg" })}
-                  >
-                    Documentation
-                  </Link>
-                </div>
-              </div>
-              <Card className="border-border/80 bg-background/90 shadow-subtle backdrop-blur-sm">
-                <CardHeader>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Code2 className="h-4 w-4 text-primary" />
-                    What&apos;s included
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <ul className="mt-8 space-y-3 text-sm">
                   {[
-                    "PostgreSQL database per project — fully isolated",
-                    "Authentication with email, Google, GitHub & more",
-                    "Instant REST API — create a table, get an endpoint",
-                    "File storage — upload, manage, serve with CDN",
-                    "Dashboard — tables, auth, API explorer, backups, AI assistant",
+                    "Natural-language Q&A over your data model and REST surface",
+                    "Suggestions for indexes, relations, and consistency checks",
+                    "Faster onboarding: new teammates ask the assistant instead of spelunking docs",
                   ].map((item) => (
-                    <p key={item} className="flex gap-2">
-                      <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
-                      {item}
-                    </p>
+                    <li key={item} className="flex gap-3">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <span className="text-muted-foreground">{item}</span>
+                    </li>
                   ))}
-                </CardContent>
-              </Card>
+                </ul>
+              </ScrollReveal>
             </div>
-          </Card>
+
+            <ScrollReveal delay={1}>
+              <Card className="flex h-full flex-col overflow-hidden border-primary/20 bg-gradient-to-b from-card to-muted/20 shadow-medium">
+                <CardHeader className="space-y-1 border-b border-border bg-muted/30 pb-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-subtle">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    Project assistant
+                    <Badge
+                      variant="secondary"
+                      className="ml-auto text-[10px] uppercase"
+                    >
+                      Live context
+                    </Badge>
+                  </div>
+                  <CardDescription>
+                    Example conversation &mdash; your real project stays private.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-3 pt-6">
+                  <div className="flex gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-3 text-sm shadow-subtle">
+                      Which tables reference{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                        users.id
+                      </code>{" "}
+                      and are missing an index on the FK?
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="rounded-2xl rounded-tl-sm border border-primary/20 bg-primary/5 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        Found 2 inbound FKs:
+                      </span>{" "}
+                      <code className="rounded bg-muted/80 px-1 font-mono text-xs">
+                        orders.customer_id
+                      </code>
+                      ,{" "}
+                      <code className="rounded bg-muted/80 px-1 font-mono text-xs">
+                        sessions.user_id
+                      </code>
+                      . Neither has a covering index &mdash; want suggested{" "}
+                      <code className="rounded bg-muted/80 px-1 font-mono text-xs">
+                        CREATE INDEX
+                      </code>{" "}
+                      statements?
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-3 text-sm shadow-subtle">
+                      Yes &mdash; optimize for our read-heavy dashboard queries.
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="border-t border-border bg-muted/20 py-4">
+                  <p className="text-xs text-muted-foreground">
+                    The assistant reasons over your project context in the
+                    dashboard &mdash; so answers stay relevant to{" "}
+                    <span className="font-medium text-foreground">your</span>{" "}
+                    schema, not generic Postgres trivia.
+                  </p>
+                </CardFooter>
+              </Card>
+            </ScrollReveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ============ REST API ENGINE ============ */}
+      <section
+        className="border-t border-border px-6 py-20 md:py-28"
+        id="rest-engine"
+      >
+        <div className="mx-auto max-w-6xl">
+          <ScrollReveal>
+            <div className="mx-auto mb-14 max-w-3xl text-center">
+              <Badge variant="outline" className="mb-4 gap-1.5">
+                <Code2 className="h-3.5 w-3.5" />
+                REST API
+              </Badge>
+              <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl">
+                Every table is an API endpoint.{" "}
+                <span className="gradient-text">Instantly.</span>
+              </h2>
+              <p className="mt-4 text-lg text-muted-foreground">
+                Create a table in the dashboard &mdash; your API is live
+                instantly. Standard HTTP, standard JSON. No code generation, no
+                deploy step.
+              </p>
+            </div>
+          </ScrollReveal>
+          <div className="grid gap-5 md:grid-cols-2">
+            {[
+              {
+                method: "GET",
+                path: "/rest/v1/products",
+                color:
+                  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+                code: `curl '/rest/v1/products\n  ?select=id,name,price\n  &category=eq.electronics\n  &price=lt.500\n  &order=price.asc&limit=20' \\\n  -H "apikey: YOUR_ANON_KEY"`,
+              },
+              {
+                method: "POST",
+                path: "/rest/v1/products",
+                color:
+                  "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
+                code: `curl -X POST '/rest/v1/products' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '{"name": "Widget", "price": 29.99}'`,
+              },
+              {
+                method: "PATCH",
+                path: "/rest/v1/products?id=eq.42",
+                color:
+                  "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+                code: `curl -X PATCH '/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"price": 24.99}'`,
+              },
+              {
+                method: "DELETE",
+                path: "/rest/v1/products?id=eq.42",
+                color:
+                  "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+                code: `curl -X DELETE '/rest/v1/products?id=eq.42' \\\n  -H "apikey: YOUR_SERVICE_KEY"`,
+              },
+            ].map((ex, i) => (
+              <ScrollReveal key={ex.method} delay={i % 2 === 0 ? 0 : 1}>
+                <Card className="h-full overflow-hidden border-border/80 shadow-subtle">
+                  <CardHeader className="border-b border-border bg-muted/30 px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded px-2 py-0.5 text-xs font-bold font-mono",
+                          ex.color,
+                        )}
+                      >
+                        {ex.method}
+                      </span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {ex.path}
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+                      <code className="text-muted-foreground whitespace-pre">
+                        {ex.code}
+                      </code>
+                    </pre>
+                  </CardContent>
+                </Card>
+              </ScrollReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ COMING SOON ============ */}
+      <section className="relative px-6 py-20 md:py-28" id="coming">
+        <div className="mx-auto max-w-6xl">
+          <ScrollReveal>
+            <span className="section-label">Coming soon &middot; roadmap</span>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Four worlds, two universes.
+            </h2>
+            <p className="mt-5 max-w-xl text-muted-foreground">
+              Basefyio is merging the SaaS, mobile and data worlds into a single
+              backend &mdash; so one connection string powers your web product,
+              your mobile app and your AI.
+            </p>
+            <p className="mt-4 text-base font-semibold text-amber-400">
+              Basefyio is able to handle every type of data &mdash; including MS
+              Excel.
+            </p>
+          </ScrollReveal>
+
+          <ScrollReveal delay={1}>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <span className="world-tag">SaaS world</span>
+              <span className="world-plus">+</span>
+              <span className="world-tag">Mobile world</span>
+              <span className="world-plus">+</span>
+              <span className="world-tag">Data world</span>
+              <span className="world-plus">+</span>
+              <span className="world-tag">MS365 world</span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="universe-tag">Structured Data</span>
+              <span className="text-lg font-bold text-muted-foreground">
+                &times;
+              </span>
+              <span className="universe-tag">Unstructured Data</span>
+            </div>
+          </ScrollReveal>
+
+          <div className="mt-10 grid gap-5 sm:grid-cols-3">
+            {COMING_SOON.map((c, i) => (
+              <ScrollReveal key={c.title} delay={i as 0 | 1 | 2}>
+                <div className="landing-feature-card relative h-full">
+                  <span className="soon-badge-tag">Coming soon</span>
+                  <div className="feature-icon text-2xl">{c.icon}</div>
+                  <h3 className="text-xl font-semibold tracking-tight">
+                    {c.title}
+                  </h3>
+                  <p className="mt-2 min-h-[72px] text-sm text-muted-foreground leading-relaxed">
+                    {c.desc}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {c.pills.map((p) => (
+                      <span key={p} className="feat-pill-tag">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="feature-bottom-band">{c.band}</div>
+                </div>
+              </ScrollReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ FRAMEWORK ROW ============ */}
+      <section className="border-t border-border bg-muted/10 px-6 py-20 md:py-28">
+        <div className="mx-auto max-w-6xl">
+          <ScrollReveal>
+            <Card className="border-border/80 bg-card/90 shadow-soft">
+              <CardHeader className="text-center">
+                <Badge variant="outline" className="mx-auto">
+                  Any client stack
+                </Badge>
+                <CardTitle className="pt-2 text-2xl sm:text-3xl md:text-4xl">
+                  Use Basefyio with{" "}
+                  <span className="gradient-text">any framework</span>
+                </CardTitle>
+                <CardDescription className="mx-auto max-w-2xl text-base">
+                  Standard HTTP &mdash; no proprietary SDK required. Works with
+                  any language, any framework.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pb-8">
+                <div className="flex flex-wrap justify-center gap-2 md:gap-2.5">
+                  {frameworks.map((name) => (
+                    <Badge
+                      key={name}
+                      variant="secondary"
+                      className={cn(
+                        "cursor-default px-4 py-2 text-sm font-medium transition-colors",
+                        "hover:border-primary/30 hover:bg-accent hover:text-accent-foreground",
+                      )}
+                    >
+                      {name}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </ScrollReveal>
+        </div>
+      </section>
+
+      {/* ============ STUDENT OFFER STRIP ============ */}
+      <div className="offer-strip-landing">
+        <div className="mx-auto max-w-6xl px-6">
+          <ScrollReveal>
+            <div className="offer-inner">
+              <p className="offer-text">
+                &#x1F393; 90% off for high-school &amp; college students,
+                teachers and research assistants!
+              </p>
+              <Link
+                href={getAppSignupUrl()}
+                className="inline-flex shrink-0 items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90"
+              >
+                Validate ID &rarr;
+              </Link>
+            </div>
+          </ScrollReveal>
+        </div>
+      </div>
+
+      {/* ============ FINAL CTA ============ */}
+      <section className="final-cta-glow relative overflow-hidden px-6 py-20 md:py-28">
+        <div className="relative mx-auto max-w-4xl text-center">
+          <ScrollReveal>
+            <h2 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+              Your backend is{" "}
+              <span className="gradient-text">one command away.</span>
+            </h2>
+            <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
+              No glue code. No five vendors. One project for Postgres, auth,
+              storage and instant API.
+            </p>
+          </ScrollReveal>
+          <ScrollReveal delay={1}>
+            <Link
+              href={getAppSignupUrl()}
+              className="mt-10 inline-flex h-14 items-center gap-2 rounded-xl bg-primary px-8 text-base font-bold text-primary-foreground shadow-medium transition-all hover:opacity-90 active:scale-[0.98]"
+            >
+              <Zap className="h-5 w-5" />
+              Start building for free &rarr;
+            </Link>
+            <p className="mt-5 text-xs text-muted-foreground">
+              No credit card required &middot; Free tier &middot; Self-hostable
+            </p>
+          </ScrollReveal>
         </div>
       </section>
     </>

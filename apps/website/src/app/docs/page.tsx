@@ -49,17 +49,17 @@ export default function DocsOverview() {
       <pre><code>{`npm install basefyio-js`}</code></pre>
       <pre><code>{`import { createClient } from 'basefyio-js'
 
-const kb = createClient({
+const bf = createClient({
   apiUrl: '${apiUrl}',
   projectId: 'your-project-id',
   apiKey: 'your-anon-key',
 })
 
 // Query data
-const { data, error } = await kb.from('posts').select()
+const { data, error } = await bf.from('posts').select()
 
 // Sign up a user
-const { data: user } = await kb.auth.signUp({
+const { data: user } = await bf.auth.signUp({
   email: 'user@example.com',
   password: 'securepassword',
 })`}</code></pre>

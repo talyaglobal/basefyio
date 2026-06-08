@@ -67,7 +67,7 @@ const basefyio = createClient({
   apiKey: process.env.BASEFYIO_ANON_KEY!,
 });
 
-const { data, error } = await kb
+const { data, error } = await bf
   .from("todos")
   .select("*")
   .eq("done", false)

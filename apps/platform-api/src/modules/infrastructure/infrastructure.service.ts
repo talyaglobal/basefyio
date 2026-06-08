@@ -77,8 +77,8 @@ export class InfrastructureService implements OnModuleInit {
       );
     }
 
-    const containerName = `kb-pg-${opts.projectSlug}`;
-    const volumeName = `kb-pg-${opts.projectSlug}-data`;
+    const containerName = `bf-pg-${opts.projectSlug}`;
+    const volumeName = `bf-pg-${opts.projectSlug}-data`;
     const adminUser = 'postgres';
     const adminPassword = randomBytes(24).toString('base64url');
 
@@ -187,9 +187,9 @@ export class InfrastructureService implements OnModuleInit {
       );
     }
 
-    const containerName = `kb-minio-${opts.teamSlug}`;
-    const volumeName = `kb-minio-${opts.teamSlug}-data`;
-    const accessKey = `kb-${opts.teamSlug}`;
+    const containerName = `bf-minio-${opts.teamSlug}`;
+    const volumeName = `bf-minio-${opts.teamSlug}-data`;
+    const accessKey = `bf-${opts.teamSlug}`;
     const secretKey = randomBytes(32).toString('base64url');
 
     this.logger.log(`Provisioning dedicated MinIO: ${containerName}`);

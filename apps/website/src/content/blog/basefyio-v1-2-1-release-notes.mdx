@@ -14,7 +14,7 @@ project creation no longer fails silently when Keycloak has a transient hiccup.
 
 ### CLI startup is now near-instant
 
-Previously, running any `kb` command loaded the entire dependency tree
+Previously, running any `bf` command loaded the entire dependency tree
 upfront — Inquirer, pg, Ora, Boxen, Axios, and more — even if the command
 only needed a fraction of those modules. That added noticeable latency before
 anything appeared on screen.

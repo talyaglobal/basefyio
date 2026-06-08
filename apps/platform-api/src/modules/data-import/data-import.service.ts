@@ -33,7 +33,7 @@ import {
  * internal and short-lived (TTL'd by lifecycle policy externally, or by
  * cancellation/completion cleanup).
  */
-const STAGING_BUCKET = 'kb-platform-data-imports';
+const STAGING_BUCKET = 'bf-platform-data-imports';
 
 @Injectable()
 export class DataImportService {

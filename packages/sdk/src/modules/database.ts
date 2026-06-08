@@ -222,7 +222,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
    *
    * @example
    * // WHERE ... AND ("status" = 'active' OR "role" = 'admin')
-   * kb.from('users')
+   * bf.from('users')
    *   .select()
    *   .or((q) => q.eq('status', 'active').eq('role', 'admin'))
    */

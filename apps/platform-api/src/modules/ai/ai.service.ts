@@ -128,7 +128,7 @@ export class AiService {
     if (allowedProjectNames.some((name) => m.includes(name.toLowerCase()))) {
       return true;
     }
-    const kbKeywords = [
+    const bfKeywords = [
       'basefyio',
       'project',
       'team',
@@ -156,7 +156,7 @@ export class AiService {
       'policy',
       'migration',
     ];
-    return kbKeywords.some((k) => m.includes(k));
+    return bfKeywords.some((k) => m.includes(k));
   }
 
   private buildSystemPrompt(context: AiContext): string {

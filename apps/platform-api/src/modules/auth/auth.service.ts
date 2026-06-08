@@ -39,7 +39,7 @@ export class AuthService {
   private readonly minioPublicEndpoint: string;
   private readonly minioPublicPort: number;
   private readonly minioPublicSsl: boolean;
-  private static readonly AVATAR_BUCKET = 'kb-platform-avatars';
+  private static readonly AVATAR_BUCKET = 'bf-platform-avatars';
   private static readonly MAX_FAILED_ATTEMPTS = 10;
   private static readonly CAPTCHA_AFTER_CONSECUTIVE_FAILED = 4;
   private static readonly CAPTCHA_TTL_MS = 5 * 60 * 1000;

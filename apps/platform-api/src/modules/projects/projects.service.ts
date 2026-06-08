@@ -127,7 +127,7 @@ export class ProjectsService {
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));
     const { dbName, dbUser } = await this.uniqueDatabaseNameAndUser();
     const dbPassword = randomBytes(24).toString('base64url');
-    const realmName = `kb-${slug}`;
+    const realmName = `bf-${slug}`;
     const dbHost = this.config.get<string>('database.host')!;
     const dbPort = this.config.get<number>('database.port')!;
 
@@ -838,7 +838,7 @@ export class ProjectsService {
     }
 
     // Derive the original DB name / user / realm from the archived names
-    // e.g. "kb_usgourmet_del1234567890" → "kb_usgourmet"
+    // e.g. "bf_usgourmet_del1234567890" → "bf_usgourmet"
     const originalDbName = project.dbName.replace(/_del\d+$/, '');
     const originalDbUser = project.dbUser.replace(/_del\d+$/, '');
     const originalRealm  = project.keycloakRealm.replace(/_del\d+$/, '');
@@ -1585,7 +1585,7 @@ export class ProjectsService {
     if (!/^[a-z0-9_]+$/.test(sanitizedUser)) {
       throw new BadRequestException('Invalid project owner identifier');
     }
-    const sql = template.replace(/%KB_PROJECT_OWNER%/g, sanitizedUser);
+    const sql = template.replace(/%BF_PROJECT_OWNER%/g, sanitizedUser);
 
     const client = await pool.connect();
     try {
@@ -1604,8 +1604,8 @@ export class ProjectsService {
     for (let attempt = 0; attempt < 64; attempt += 1) {
       const nameToken = randomBytes(8).toString('hex');
       const userToken = randomBytes(8).toString('hex');
-      const dbName = `kb_${nameToken}`;
-      const dbUser = `kb_user_${userToken}`;
+      const dbName = `bf_${nameToken}`;
+      const dbUser = `bf_user_${userToken}`;
       const clash = await this.prisma.project.findFirst({
         where: { OR: [{ dbName }, { dbUser }] },
         select: { id: true },

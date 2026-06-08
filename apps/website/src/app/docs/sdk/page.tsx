@@ -34,7 +34,7 @@ export default function SdkDocs() {
       <h2>Initialization</h2>
       <pre><code>{`import { createClient } from 'basefyio-js'
 
-const kb = createClient({
+const bf = createClient({
   apiUrl: '${apiUrl}',
   projectId: 'your-project-id',
   apiKey: 'your-anon-key',
@@ -57,34 +57,34 @@ const kb = createClient({
 
       <h3>Query Builder</h3>
       <p>
-        <code>kb.from(table)</code> returns a chainable query builder.
+        <code>bf.from(table)</code> returns a chainable query builder.
       </p>
       <pre><code>{`// Select all posts
-const { data, error } = await kb.from('posts').select()
+const { data, error } = await bf.from('posts').select()
 
 // Select specific columns with filters
-const { data } = await kb.from('posts')
+const { data } = await bf.from('posts')
   .select('id, title, created_at')
   .eq('status', 'published')
   .order('created_at', { ascending: false })
   .limit(10)
 
 // Insert
-const { data } = await kb.from('posts')
+const { data } = await bf.from('posts')
   .insert({ title: 'Hello', body: 'World' })
 
 // Update
-const { data } = await kb.from('posts')
+const { data } = await bf.from('posts')
   .update({ title: 'Updated' })
   .eq('id', 1)
 
 // Delete
-const { error } = await kb.from('posts')
+const { error } = await bf.from('posts')
   .delete()
   .eq('id', 1)
 
 // Upsert
-const { data } = await kb.from('posts')
+const { data } = await bf.from('posts')
   .upsert({ id: 1, title: 'Upserted' }, { onConflict: 'id' })`}</code></pre>
 
       <h3>Filters</h3>
@@ -124,68 +124,68 @@ const { data } = await kb.from('posts')
       </table>
 
       <h3>Raw SQL</h3>
-      <pre><code>{`const { data, error } = await kb.sql('SELECT COUNT(*) FROM users')
+      <pre><code>{`const { data, error } = await bf.sql('SELECT COUNT(*) FROM users')
 
-const { data } = await kb.listTables()
-const { data } = await kb.getColumns('posts')`}</code></pre>
+const { data } = await bf.listTables()
+const { data } = await bf.getColumns('posts')`}</code></pre>
 
       {/* ── Auth ────────────────────────────────────── */}
       <h2>Authentication</h2>
       <p>
-        All auth methods are under <code>kb.auth</code>.
+        All auth methods are under <code>bf.auth</code>.
       </p>
 
       <h3>Sign Up &amp; Sign In</h3>
       <pre><code>{`// Sign up
-const { data, error } = await kb.auth.signUp({
+const { data, error } = await bf.auth.signUp({
   email: 'user@example.com',
   password: 'securepassword',
 })
 
 // Sign in
-const { data, error } = await kb.auth.signIn({
+const { data, error } = await bf.auth.signIn({
   email: 'user@example.com',
   password: 'securepassword',
 })
 
 // Sign out
-await kb.auth.signOut()`}</code></pre>
+await bf.auth.signOut()`}</code></pre>
 
       <h3>Email Verification</h3>
       <pre><code>{`// User receives OTP via email after sign up
-const { data, error } = await kb.auth.verifyEmail('123456')`}</code></pre>
+const { data, error } = await bf.auth.verifyEmail('123456')`}</code></pre>
 
       <h3>Password Reset</h3>
       <pre><code>{`// Request reset
-await kb.auth.forgotPassword('user@example.com')
+await bf.auth.forgotPassword('user@example.com')
 
 // Reset with OTP
-await kb.auth.resetPassword('123456', 'newpassword')`}</code></pre>
+await bf.auth.resetPassword('123456', 'newpassword')`}</code></pre>
 
       <h3>Magic Link</h3>
       <pre><code>{`// Send magic link
-await kb.auth.sendMagicLink('user@example.com')
+await bf.auth.sendMagicLink('user@example.com')
 
 // Verify (from email link)
-const { data } = await kb.auth.verifyMagicLink('otp-from-url')`}</code></pre>
+const { data } = await bf.auth.verifyMagicLink('otp-from-url')`}</code></pre>
 
       <h3>OAuth</h3>
       <pre><code>{`// Redirect to Google
-const { data } = await kb.auth.signInWithProvider('google', {
+const { data } = await bf.auth.signInWithProvider('google', {
   redirectTo: 'https://myapp.com/auth/callback',
 })
 // data.url → redirect user to this URL
 
 // On callback page
-const { data, error } = await kb.auth.handleProviderCallback()`}</code></pre>
+const { data, error } = await bf.auth.handleProviderCallback()`}</code></pre>
 
       <h3>Session Management</h3>
-      <pre><code>{`const user = await kb.auth.getUser()
-const session = await kb.auth.getSession()
-const token = kb.auth.getAccessToken()
+      <pre><code>{`const user = await bf.auth.getUser()
+const session = await bf.auth.getSession()
+const token = bf.auth.getAccessToken()
 
 // Listen to auth changes
-kb.auth.onAuthStateChange((event, session) => {
+bf.auth.onAuthStateChange((event, session) => {
   // event: 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED'
 })`}</code></pre>
 
@@ -208,24 +208,24 @@ kb.auth.onAuthStateChange((event, session) => {
       {/* ── Storage ─────────────────────────────────── */}
       <h2>Storage</h2>
       <p>
-        S3-compatible file storage via <code>kb.storage</code>.
+        S3-compatible file storage via <code>bf.storage</code>.
       </p>
 
       <h3>Bucket Management</h3>
       <pre><code>{`// List buckets
-const { data } = await kb.storage.listBuckets()
+const { data } = await bf.storage.listBuckets()
 
 // Create bucket
-await kb.storage.createBucket('avatars', { public: true })
+await bf.storage.createBucket('avatars', { public: true })
 
 // Delete bucket
-await kb.storage.deleteBucket('avatars')
+await bf.storage.deleteBucket('avatars')
 
 // Update bucket
-await kb.storage.updateBucket('avatars', { public: false })`}</code></pre>
+await bf.storage.updateBucket('avatars', { public: false })`}</code></pre>
 
       <h3>File Operations</h3>
-      <pre><code>{`const bucket = kb.storage.from('avatars')
+      <pre><code>{`const bucket = bf.storage.from('avatars')
 
 // Upload
 const { data, error } = await bucket.upload(

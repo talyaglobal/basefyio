@@ -375,24 +375,24 @@ basefyio logs --sql
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-alias kbs='basefyio start'
-alias kbst='basefyio stop'
-alias kbl='basefyio logs --follow'
-alias kbp='basefyio db push && basefyio gen types'
+alias bfs='basefyio start'
+alias bfst='basefyio stop'
+alias bfl='basefyio logs --follow'
+alias bfp='basefyio db push && basefyio gen types'
 ```
 
 ### Quick Project Switch
 
 ```bash
 # Create a shell function
-kbswitch() {
+bfswitch() {
   cd ~/projects/$1
   basefyio link
   basefyio start
 }
 
 # Usage
-kbswitch my-app-dev
+bfswitch my-app-dev
 ```
 
 ### Backup Before Destructive Operations

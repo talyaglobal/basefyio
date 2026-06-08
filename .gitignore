@@ -31,3 +31,16 @@ prisma/migrations/**/migration_lock.toml
 # graphify knowledge graph output
 graphify-out/
 .graphify/
+
+# IDE and AI agent configs (keep local only)
+.cursor/
+.codex/
+.agents/
+.gemini/
+.idea/
+.vscode/
+
+# Archives and binaries
+*.zip
+*.tar.gz
+*.rar

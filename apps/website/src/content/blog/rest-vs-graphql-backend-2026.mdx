@@ -43,7 +43,7 @@ API removes that: your PostgreSQL schema becomes the API, with filtering and
 related-table embedding built in.
 
 ```ts
-const { data } = await kb
+const { data } = await bf
   .from("posts")
   .select("id, title, author:authors(name)")
   .eq("published", true)

@@ -53,7 +53,7 @@ export class BasefyioClient {
    * Start building a query on a table.
    *
    * @example
-   * const { data } = await kb.from('users').select('*').eq('active', true)
+   * const { data } = await bf.from('users').select('*').eq('active', true)
    */
   from<T = Record<string, unknown>>(table: string): QueryBuilder<T> {
     return this.db.from<T>(table);
@@ -67,7 +67,7 @@ export class BasefyioClient {
    * Always validate and sanitize any dynamic values before including them.**
    *
    * @example
-   * const { data } = await kb.sql('SELECT * FROM users WHERE id = 1')
+   * const { data } = await bf.sql('SELECT * FROM users WHERE id = 1')
    */
   async sql<T = Record<string, unknown>>(query: string): Promise<BasefyioResponse<T[]>> {
     return this.db.sql<T>(query);
@@ -96,10 +96,10 @@ export class BasefyioClient {
  * import { createClient } from 'basefyio-js'
  *
  * // Reads BASEFYIO_PROJECT_ID and BASEFYIO_ANON_KEY from .env automatically
- * const kb = createClient()
+ * const bf= createClient()
  *
  * // Or pass explicitly
- * const kb2 = createClient({ projectId: '...', apiKey: '...' })
+ * const bf2 = createClient({ projectId: '...', apiKey: '...' })
  * ```
  */
 export function createClient(options?: BasefyioClientOptions): BasefyioClient {

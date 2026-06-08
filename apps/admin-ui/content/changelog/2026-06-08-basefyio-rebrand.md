@@ -23,7 +23,7 @@ All services now live under **basefyio.com**:
 
 ### New CLI command
 
-The CLI command has changed from `kb` to `basefyio`:
+The CLI command has changed from `kb` to `basefyio` (or `bf` for short):
 
 ```bash
 basefyio login

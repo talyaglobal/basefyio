@@ -123,19 +123,19 @@ Extend the SQL Editor page with a mode toggle: "PostgreSQL | N1QL". Reuse the sa
 ### Layer 4: SDK Extension (basefyio-js)
 
 ```typescript
-const kb = createClient({ apiUrl, projectId, apiKey });
+const bf = createClient({ apiUrl, projectId, apiKey });
 
 // Existing relational API (unchanged)
-kb.from('users').select('*').eq('id', 5);
+bf.from('users').select('*').eq('id', 5);
 
 // New document API
-kb.doc('sessions').get('session_abc123');
-kb.doc('sessions').insert({ userId: '...', data: { ... } });
-kb.doc('sessions').list().eq('userId', 'abc').limit(10);
-kb.doc('sessions').remove('session_abc123');
+bf.doc('sessions').get('session_abc123');
+bf.doc('sessions').insert({ userId: '...', data: { ... } });
+bf.doc('sessions').list().eq('userId', 'abc').limit(10);
+bf.doc('sessions').remove('session_abc123');
 
 // Raw N1QL query
-kb.n1ql('SELECT * FROM sessions WHERE userId = $1', ['abc']);
+bf.n1ql('SELECT * FROM sessions WHERE userId = $1', ['abc']);
 ```
 
 ---

@@ -8,7 +8,7 @@
 --   * Default privileges so future tables owned by the project owner
 --     are visible to authenticated/service_role (RLS still applies).
 --
--- The project owner (kb_user_<random>) remains the table owner, but
+-- The project owner (bf_user_<random>) remains the table owner, but
 -- PublicApiService sets LOCAL ROLE to anon / authenticated / service_role
 -- before each statement so RLS policies are enforced.
 
@@ -29,31 +29,31 @@ BEGIN
 END$$;
 
 -- The project's login role needs to be able to SET ROLE to each of these.
--- %KB_PROJECT_OWNER% is replaced by projects.service.ts with the sanitized
--- dbUser (e.g. kb_user_myproj).
-GRANT anon, authenticated, service_role TO "%KB_PROJECT_OWNER%";
+-- %BF_PROJECT_OWNER% is replaced by projects.service.ts with the sanitized
+-- dbUser (e.g. bf_user_myproj).
+GRANT anon, authenticated, service_role TO "%BF_PROJECT_OWNER%";
 
 -- ─────────────────────────────────────────────────────────────
 -- 2. Schema + grants
 -- ─────────────────────────────────────────────────────────────
-CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION "%KB_PROJECT_OWNER%";
+CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION "%BF_PROJECT_OWNER%";
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth   TO anon, authenticated, service_role;
 
 -- Default privileges for objects created by the project owner going forward.
 -- (Existing tables will also be backfilled below.)
-ALTER DEFAULT PRIVILEGES FOR ROLE "%KB_PROJECT_OWNER%" IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
   ON TABLES TO authenticated, service_role;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE "%KB_PROJECT_OWNER%" IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT SELECT ON TABLES TO anon;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE "%KB_PROJECT_OWNER%" IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO authenticated, service_role;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE "%KB_PROJECT_OWNER%" IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 
 -- Apply to tables that already exist in this project.
@@ -169,11 +169,11 @@ DECLARE
 BEGIN
   -- Run inside a sub-block so we always RESET ROLE before exiting.
   BEGIN
-    SET LOCAL ROLE "%KB_PROJECT_OWNER%";
+    SET LOCAL ROLE "%BF_PROJECT_OWNER%";
     FOREACH target IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
       BEGIN
         EXECUTE format('SET LOCAL ROLE %I', target);
-        EXECUTE format('SET LOCAL ROLE %I', '%KB_PROJECT_OWNER%');
+        EXECUTE format('SET LOCAL ROLE %I', '%BF_PROJECT_OWNER%');
       EXCEPTION WHEN insufficient_privilege OR undefined_object THEN
         failed := failed || target;
       END;
@@ -188,7 +188,7 @@ BEGIN
     RAISE EXCEPTION
       'rls-bootstrap sentinel failed: project owner "%" cannot SET ROLE to: %. '
       'Check that the roles exist (pg_roles) and that GRANT membership succeeded.',
-      '%KB_PROJECT_OWNER%', array_to_string(failed, ', ')
+      '%BF_PROJECT_OWNER%', array_to_string(failed, ', ')
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 END$sentinel$;

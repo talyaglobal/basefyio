@@ -94,7 +94,7 @@ create policy "members read their org's projects"
       },
     ],
     codeTitle: "Fetch a user's data from the app",
-    code: `const { data } = await kb
+    code: `const { data } = await bf
   .from("messages")
   .select("id, body, sent_at")
   .eq("conversation_id", conversationId)
@@ -185,7 +185,7 @@ commit;`,
       },
     ],
     codeTitle: "Query data for an admin dashboard",
-    code: `const { data } = await kb
+    code: `const { data } = await bf
   .from("signups")
   .select("plan, count:id.count()")
   .gte("created_at", "2026-01-01")
@@ -230,7 +230,7 @@ commit;`,
       },
     ],
     codeTitle: "Save a conversation turn",
-    code: `await kb.from("messages").insert({
+    code: `await bf.from("messages").insert({
   conversation_id: conversationId,
   role: "user",
   content: prompt,
@@ -275,7 +275,7 @@ commit;`,
       },
     ],
     codeTitle: "Load a conversation's messages",
-    code: `const { data } = await kb
+    code: `const { data } = await bf
   .from("messages")
   .select("id, sender_id, body, sent_at")
   .eq("conversation_id", conversationId)

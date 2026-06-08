@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 
-const AUTH_MARKER_KEY = "kb_logged_in";
+const AUTH_MARKER_KEY = "bf_logged_in";
 
 export async function AuthNav({ appUrl }: { appUrl: string }) {
   const cookieStore = await cookies();

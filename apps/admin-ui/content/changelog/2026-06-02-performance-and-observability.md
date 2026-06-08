@@ -9,7 +9,7 @@ summary: CLI startup is near-instant with code splitting, Keycloak realm creatio
 
 ## CLI Performance
 
-Every `kb` command now starts in under 80ms thanks to lazy module loading and code splitting. The browser opens in parallel with module imports during `kb login`, so you see output faster.
+Every `bf` command now starts in under 80ms thanks to lazy module loading and code splitting. The browser opens in parallel with module imports during `bf login`, so you see output faster.
 
 ## Keycloak Resilience
 

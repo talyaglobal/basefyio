@@ -7,7 +7,8 @@
   "description": "Basefyio CLI — manage your backend projects from the terminal",
   "type": "module",
   "bin": {
-    "basefyio": "./dist/index.js"
+    "basefyio": "./dist/index.js",
+    "bf": "./dist/index.js"
   },
   "files": [
     "dist"

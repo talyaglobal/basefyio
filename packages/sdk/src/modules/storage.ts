@@ -7,7 +7,7 @@ import type {
   SignedUrlOptions,
 } from '../lib/types.js';
 
-// ── Bucket-scoped API (kb.storage.from('avatars')) ──────
+// ── Bucket-scoped API (bf.storage.from('avatars')) ──────
 
 export class StorageBucketApi {
   private http: BasefyioFetchClient;

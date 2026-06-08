@@ -80,7 +80,7 @@ async function main() {
       failed++;
       continue;
     }
-    const sql = template.replace(/%KB_PROJECT_OWNER%/g, sanitizedUser);
+    const sql = template.replace(/%BF_PROJECT_OWNER%/g, sanitizedUser);
 
     const onSharedHost = p.db_host === cfgHost && Number(p.db_port) === cfgPort;
     if (!onSharedHost) {

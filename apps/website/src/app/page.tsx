@@ -1,17 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  Database,
-  Shield,
-  Zap,
-  Table2,
-  Mail,
-  Key,
   ArrowRight,
   Check,
-  Lock,
-  Server,
-  GitBranch,
+  Zap,
 } from "lucide-react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -19,6 +11,8 @@ import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
 import { HomeFaq } from "@/components/home-faq";
 import { AuthNav } from "@/components/auth-nav";
+import { TerminalCard } from "@/components/terminal-card";
+import { ScrollReveal } from "@/components/scroll-reveal";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import {
   getAppPortalUrl,
@@ -125,161 +119,137 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg transition-all duration-200">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+      {/* ============ NAV ============ */}
+      <header className="fixed left-0 right-0 top-0 z-50 border-b border-transparent bg-transparent backdrop-blur-none transition-all duration-300 [&.scrolled]:border-border [&.scrolled]:bg-card/80 [&.scrolled]:backdrop-blur-lg [&.scrolled]:shadow-sm">
+        <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <BasefyioLogo />
-          <nav className="flex items-center gap-6">
+          <div className="flex items-center gap-6">
+            <Link
+              href="#features"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+            >
+              Features
+            </Link>
+            <Link
+              href="#how"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline"
+            >
+              How it works
+            </Link>
             <Link
               href="#pricing"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
               Pricing
             </Link>
             <Link
-              href="#why-basefyio"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Why us
-            </Link>
-            <Link
-              href="#ai-assistant"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              AI
-            </Link>
-            <Link
               href="/docs"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
               Docs
             </Link>
-            <Link
-              href="#faq"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              FAQ
-            </Link>
             <AuthNav appUrl={appRoot} />
             <ThemeToggle />
+            <span className="hidden items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary lg:inline-flex">
+              <Check className="h-3 w-3" />
+              No credit card
+            </span>
             <Link
               href={appSignup}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90 active:scale-[0.98]"
             >
-              Get Started Free
+              Start free &rarr;
             </Link>
-          </nav>
-        </div>
+          </div>
+        </nav>
       </header>
 
+      {/* ============ HERO ============ */}
       <HomeHero>
-        <div className="mx-auto max-w-4xl text-center">
-          <div className="animate-fade-in mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm font-medium text-primary motion-reduce:animate-none">
-            <Zap className="h-3.5 w-3.5" />
-            The open-source Supabase alternative
+        <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-12">
+          <div className="text-left lg:col-span-6">
+            <div className="landing-pill mb-7 animate-fade-in motion-reduce:animate-none">
+              <span className="pulse-dot" />
+              30 days free trial
+            </div>
+            <h1 className="animate-fade-in text-4xl font-bold leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
+              The complete backend for{" "}
+              <span className="gradient-text relative">
+                data &amp; apps.
+                <span className="absolute bottom-[-2px] left-0 right-0 h-0.5 rounded bg-primary" />
+              </span>
+            </h1>
+            <div className="animate-fade-in mt-7 max-w-md [animation-delay:160ms] motion-reduce:animate-none">
+              <p className="font-mono text-sm text-muted-foreground">
+                postgres &middot; postgREST &middot; auth &middot; storage
+                &middot; ai assistant
+              </p>
+              <p className="mt-2 text-base text-muted-foreground">
+                &mdash; provisioned as one project, one connection string, fully
+                under your control.
+              </p>
+            </div>
+            <p className="animate-fade-in mt-5 text-[15px] font-semibold text-amber-400 [animation-delay:200ms] motion-reduce:animate-none">
+              Welcome developers, vibecoders, CXOs, students &amp; young
+              entrepreneurs!
+            </p>
+            <div className="animate-fade-in mt-8 flex flex-wrap items-center gap-3 [animation-delay:240ms] motion-reduce:animate-none">
+              <Link
+                href={appSignup}
+                className="inline-flex h-12 items-center gap-2 rounded-lg bg-primary px-6 text-base font-bold text-primary-foreground shadow-medium transition-all hover:opacity-90 active:scale-[0.98]"
+              >
+                <Zap className="h-4 w-4" />
+                Start building
+                <span className="ml-1 rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground">
+                  FREE
+                </span>
+              </Link>
+              <Link
+                href="/docs"
+                className="inline-flex h-12 items-center rounded-lg border border-border px-6 text-base font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+              >
+                Read the docs &nearr;
+              </Link>
+            </div>
+            <div className="animate-fade-in mt-5 flex flex-wrap gap-5 text-sm text-muted-foreground [animation-delay:300ms] motion-reduce:animate-none">
+              {["30-day free trial", "No credit card", "Cancel anytime"].map(
+                (t) => (
+                  <span key={t} className="flex items-center gap-2">
+                    <Check className="h-3 w-3 text-primary" />
+                    {t}
+                  </span>
+                ),
+              )}
+            </div>
           </div>
-          <h1 className="animate-fade-in text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl [animation-delay:80ms] motion-reduce:animate-none">
-            Build apps faster with{" "}
-            <span className="gradient-text">your own database</span>
-          </h1>
-          <p className="animate-fade-in mx-auto mt-6 max-w-2xl text-balance text-center text-lg leading-relaxed text-muted-foreground [animation-delay:160ms] motion-reduce:animate-none">
-            PostgreSQL database, authentication, file storage, and instant REST
-            API — all in one platform. Create a project and start building
-            your app in minutes, not weeks.
-          </p>
-          <div className="animate-fade-in mt-10 flex flex-col justify-center gap-4 [animation-delay:240ms] motion-reduce:animate-none sm:flex-row">
-            <Link
-              href={appSignup}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-6 text-base font-semibold text-primary-foreground shadow-subtle transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-            >
-              Start Building
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              href={appRoot}
-              className="inline-flex h-12 items-center justify-center rounded-md border border-border bg-background/80 px-6 text-base font-medium text-foreground backdrop-blur-sm transition-colors duration-150 hover:bg-accent"
-            >
-              View Dashboard
-            </Link>
+
+          <div className="animate-fade-in lg:col-span-6 [animation-delay:200ms] motion-reduce:animate-none">
+            <TerminalCard />
           </div>
         </div>
       </HomeHero>
 
-      <section className="relative px-6 pb-20 pt-10 md:pb-24 md:pt-12">
-        <div className="absolute inset-0 bg-gradient-radial from-primary/[0.06] via-transparent to-transparent" />
-        <div className="relative mx-auto max-w-6xl">
-          <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-            Everything your app needs. One platform.
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-            Database, auth, storage, and API — integrated from day one.
-            Like Supabase and Firebase, but open-source and self-hostable.
-          </p>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                icon: Database,
-                title: "PostgreSQL Database",
-                desc: "Every project gets its own PostgreSQL database. Full SQL power, no shared tables, no noisy neighbors.",
-              },
-              {
-                icon: Lock,
-                title: "Authentication",
-                desc: "Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and JWT — ready out of the box.",
-              },
-              {
-                icon: Zap,
-                title: "Instant REST API",
-                desc: "Create a table, get a REST API instantly. PostgREST-compatible filters, pagination, and sorting — no code needed.",
-              },
-              {
-                icon: Server,
-                title: "Realtime & Subscriptions",
-                desc: "Listen to database changes in real-time. Build live dashboards, chat apps, and collaborative tools effortlessly.",
-              },
-              {
-                icon: Table2,
-                title: "Table Editor",
-                desc: "Design your schema visually. Add columns, set types, create relations — like a spreadsheet that generates APIs.",
-              },
-              {
-                icon: Shield,
-                title: "Row-Level Security",
-                desc: "Fine-grained access control at the database level. Users only see their own data — enforced automatically.",
-              },
-              {
-                icon: GitBranch,
-                title: "Integrations",
-                desc: "Connect GitHub for migrations, Vercel for deployments. One-click backups and restore from the dashboard.",
-              },
-              {
-                icon: Mail,
-                title: "Email & Notifications",
-                desc: "Built-in transactional emails for verification, password reset, and invites. Works with Resend, SendGrid, or custom SMTP.",
-              },
-              {
-                icon: Key,
-                title: "API Keys & Security",
-                desc: "Anon key for your frontend, service key for your server. Per-project scoping with automatic role mapping.",
-              },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div
-                key={title}
-                className="group relative rounded-lg border border-border bg-card p-6 shadow-subtle transition-all duration-200 hover:border-primary/35 hover:shadow-soft"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-md bg-secondary text-primary">
-                  <Icon className="h-6 w-6" />
-                </div>
-                <h3 className="mt-4 text-lg font-semibold">{title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{desc}</p>
-                <div className="absolute inset-x-0 bottom-0 h-0.5 rounded-b-lg bg-gradient-to-r from-transparent via-primary to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
-              </div>
-            ))}
+      {/* ============ PROOF BAR ============ */}
+      <div className="proof-bar">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="proof-items">
+            <span>Self-hostable</span>
+            <span className="proof-sep">&middot;</span>
+            <span>Open Source</span>
+            <span className="proof-sep">&middot;</span>
+            <span>GDPR-ready</span>
+            <span className="proof-sep">&middot;</span>
+            <span>Sovereign infra</span>
+            <span className="proof-sep">&middot;</span>
+            <span>Per-project isolation</span>
           </div>
         </div>
-      </section>
+      </div>
 
+      {/* ============ MARKETING SECTIONS ============ */}
       <HomeMarketing />
 
+      {/* ============ PRICING ============ */}
       <section
         id="pricing"
         className="relative overflow-hidden px-6 py-24"
@@ -287,68 +257,77 @@ export default async function Home() {
         <div className="absolute inset-0 bg-brand-gradient-subtle" />
         <div className="noise-overlay z-[1] opacity-50" aria-hidden />
         <div className="relative z-10 mx-auto max-w-6xl">
-          <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-            Simple, transparent pricing
-          </h2>
-          <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground">
-            Start free, scale as you grow. No hidden fees.
-          </p>
+          <ScrollReveal>
+            <span className="section-label text-center block">Pricing</span>
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              Start free. Scale when you ship.
+            </h2>
+            <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground">
+              Simple, transparent pricing. No hidden fees.
+            </p>
+          </ScrollReveal>
 
-          <div className="mt-16 grid gap-6 lg:grid-cols-3">
-            {plans.map((plan) => {
+          <div className="mt-14 grid gap-5 lg:grid-cols-3">
+            {plans.map((plan, i) => {
               const featured = plan.name.toLowerCase() === "pro";
               const features = planFeatures(plan);
               return (
-                <div
-                  key={plan.id}
-                  className={`relative flex flex-col rounded-2xl bg-card p-8 shadow-subtle ${
-                    featured
-                      ? "border-2 border-primary shadow-soft"
-                      : "border border-border"
-                  }`}
-                >
-                  {featured && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
-                      Most Popular
-                    </div>
-                  )}
-                  <h3 className="text-lg font-semibold">{plan.displayName}</h3>
-                  <div className="mt-4">
-                    <span className="text-4xl font-bold">
-                      ${(plan.priceMonthly / 100).toFixed(0)}
-                    </span>
-                    <span className="text-muted-foreground">/mo</span>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {plan.priceMonthly === 0
-                      ? "Perfect for hobby projects and learning."
-                      : "Scale your project with higher limits and resources."}
-                  </p>
-                  <ul className="mt-6 flex-1 space-y-3 text-sm">
-                    {features.map((f) => (
-                      <li key={f} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <span className="text-muted-foreground">{f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <Link
-                    href={`${appSignup}?plan=${encodeURIComponent(plan.name)}`}
-                    className={`mt-8 inline-flex items-center justify-center rounded-xl px-6 py-3 text-sm transition-colors ${
+                <ScrollReveal key={plan.id} delay={i as 0 | 1 | 2}>
+                  <div
+                    className={`relative flex h-full flex-col rounded-xl bg-card p-7 shadow-subtle ${
                       featured
-                        ? "bg-primary font-semibold text-primary-foreground shadow-subtle hover:opacity-90"
-                        : "border border-border font-medium text-foreground hover:bg-accent"
+                        ? "border-2 border-primary shadow-medium"
+                        : "border border-border"
                     }`}
                   >
-                    {plan.priceMonthly === 0
-                      ? "Get Started Free"
-                      : `Get Started with ${plan.displayName}`}
-                  </Link>
-                </div>
+                    {featured && (
+                      <div className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-0.5 text-xs font-bold text-primary-foreground">
+                        &#9733; Most Popular
+                      </div>
+                    )}
+                    <h3 className="text-sm font-semibold">{plan.displayName}</h3>
+                    <div className="mt-4">
+                      <span className="text-4xl font-bold tracking-tight">
+                        ${(plan.priceMonthly / 100).toFixed(0)}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {" "}
+                        /mo
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {plan.priceMonthly === 0
+                        ? "Free to try"
+                        : "14-day trial"}
+                    </p>
+                    <ul className="mt-6 flex-1 space-y-3 text-sm">
+                      {features.map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <span className="font-mono text-xs text-muted-foreground">
+                            +
+                          </span>
+                          <span className="text-muted-foreground">{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      href={`${appSignup}?plan=${encodeURIComponent(plan.name)}`}
+                      className={`mt-8 inline-flex w-full items-center justify-center rounded-lg px-6 py-3 text-sm font-medium transition-all ${
+                        featured
+                          ? "bg-primary font-bold text-primary-foreground shadow-subtle hover:opacity-90"
+                          : "border border-border text-foreground hover:bg-accent"
+                      }`}
+                    >
+                      {plan.priceMonthly === 0
+                        ? "Get started"
+                        : `Start trial`}
+                    </Link>
+                  </div>
+                </ScrollReveal>
               );
             })}
             {plans.length === 0 && (
-              <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground lg:col-span-3">
+              <div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground lg:col-span-3">
                 Pricing plans are temporarily unavailable.
               </div>
             )}
@@ -356,167 +335,121 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* ============ FAQ ============ */}
       <HomeFaq />
 
+      {/* ============ FOOTER ============ */}
       <footer className="border-t border-border px-6 py-16">
         <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 sm:grid-cols-4">
           <div>
-            <span className="text-sm font-semibold text-foreground">
-              Product
-            </span>
-            <ul className="mt-3 space-y-2">
-              <li>
-                <Link
-                  href={appRoot}
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Dashboard
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="#pricing"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Pricing
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="#why-basefyio"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Why Basefyio
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="#ai-assistant"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  AI assistant
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={appSignup}
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Sign Up
-                </Link>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-foreground">Docs</span>
-            <ul className="mt-3 space-y-2">
-              <li>
-                <Link
-                  href="/docs/api"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  API Reference
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/docs/sdk"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  SDK
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/docs/cli"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  CLI
-                </Link>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-foreground">
-              Resources
-            </span>
-            <ul className="mt-3 space-y-2">
-              <li>
-                <Link
-                  href="/docs"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Documentation
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/blog"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Blog
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/compare"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Compare
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/use-cases"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Use cases
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/integrations"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Integrations
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/learn"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Learn
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="#faq"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  FAQ
-                </Link>
-              </li>
-              <li>
-                <a
-                  href="/llms.txt"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  llms.txt
-                </a>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-foreground">
-              Basefyio
-            </span>
-            <p className="mt-3 text-sm text-muted-foreground">
-              © {new Date().getFullYear()} Basefyio
+            <BasefyioLogo />
+            <p className="mt-4 max-w-[200px] text-xs text-muted-foreground leading-relaxed">
+              The all-in-one backend for data &amp; apps.
+            </p>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Part of the fyio platform
             </p>
           </div>
+          <div>
+            <span className="section-label mb-4">Product</span>
+            <ul className="space-y-2">
+              {[
+                { href: "#features", label: "Features" },
+                { href: "#how", label: "How it works" },
+                { href: "#layers", label: "Layers" },
+                { href: "#pricing", label: "Pricing" },
+                { href: appSignup, label: "Sign Up" },
+              ].map((l) => (
+                <li key={l.label}>
+                  <Link
+                    href={l.href}
+                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <span className="section-label mb-4">Resources</span>
+            <ul className="space-y-2">
+              {[
+                { href: "/docs", label: "Documentation" },
+                { href: "/docs/api", label: "API Reference" },
+                { href: "/docs/sdk", label: "SDK" },
+                { href: "/blog", label: "Blog" },
+                { href: "/compare", label: "Compare" },
+                { href: "/use-cases", label: "Use cases" },
+                { href: "/integrations", label: "Integrations" },
+                { href: "/learn", label: "Learn" },
+                { href: "#faq", label: "FAQ" },
+              ].map((l) => (
+                <li key={l.label}>
+                  <Link
+                    href={l.href}
+                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <span className="section-label mb-4">Legal</span>
+            <ul className="space-y-2">
+              {[
+                { href: "#", label: "Privacy" },
+                { href: "#", label: "Terms" },
+                { href: "#", label: "KVKK" },
+              ].map((l) => (
+                <li key={l.label}>
+                  <Link
+                    href={l.href}
+                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <div className="mx-auto mt-12 flex max-w-6xl items-center justify-between border-t border-border pt-6">
+          <span className="text-xs text-muted-foreground">
+            &copy; {new Date().getFullYear()} Basefyio
+          </span>
+          <a
+            href="/llms.txt"
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            llms.txt
+          </a>
         </div>
       </footer>
+
+      {/* Nav scroll behavior */}
+      <NavScrollScript />
     </div>
+  );
+}
+
+function NavScrollScript() {
+  return (
+    <script
+      dangerouslySetInnerHTML={{
+        __html: `(function(){
+  var nav = document.querySelector('header');
+  if (!nav) return;
+  function onScroll() {
+    if (window.scrollY > 8) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();`,
+      }}
+    />
   );
 }

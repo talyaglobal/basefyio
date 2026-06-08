@@ -60,7 +60,7 @@ export interface ExportJobResult {
 })
 export class ExportProcessor extends WorkerHost {
   private readonly logger = new Logger(ExportProcessor.name);
-  private readonly exportBucket = 'kb-platform-exports';
+  private readonly exportBucket = 'bf-platform-exports';
 
   constructor(
     private readonly prisma: PrismaService,

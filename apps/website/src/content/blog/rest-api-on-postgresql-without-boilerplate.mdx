@@ -41,7 +41,7 @@ GET /articles?status=eq.published&order=created_at.desc&limit=20
 The same query through the SDK:
 
 ```ts
-const { data } = await kb
+const { data } = await bf
   .from("articles")
   .select("id, title, author:authors(name)")
   .eq("status", "published")

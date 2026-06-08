@@ -45,57 +45,57 @@ The SDK reads these automatically:
 ```js
 import { createClient } from 'basefyio-js'
 
-const kb = createClient()   // reads from .env
+const bf = createClient()   // reads from .env
 
 // or pass explicitly
-const kb2 = createClient({ projectId: '...', apiKey: '...' })
+const bf2 = createClient({ projectId: '...', apiKey: '...' })
 ```
 
 ### Auth
 
 ```js
-await kb.auth.signUp({ email: 'alice@example.com', password: 'secret' })
-await kb.auth.signIn({ email: 'alice@example.com', password: 'secret' })
+await bf.auth.signUp({ email: 'alice@example.com', password: 'secret' })
+await bf.auth.signIn({ email: 'alice@example.com', password: 'secret' })
 
-const { data: user } = await kb.auth.getUser()
+const { data: user } = await bf.auth.getUser()
 ```
 
 ### Database
 
 ```js
 // Query builder
-const { data } = await kb.from('todos').select('*').eq('done', true).order('id')
+const { data } = await bf.from('todos').select('*').eq('done', true).order('id')
 
 // Insert
-await kb.from('todos').insert({ title: 'New task', done: false })
+await bf.from('todos').insert({ title: 'New task', done: false })
 
 // Update
-await kb.from('todos').update({ done: true }).eq('id', 1)
+await bf.from('todos').update({ done: true }).eq('id', 1)
 
 // Delete
-await kb.from('todos').delete().eq('id', 1)
+await bf.from('todos').delete().eq('id', 1)
 
 // Raw SQL
-await kb.sql('SELECT count(*) FROM todos')
+await bf.sql('SELECT count(*) FROM todos')
 ```
 
 ### Storage
 
 ```js
 // Create bucket
-await kb.storage.createBucket('avatars', { public: true })
+await bf.storage.createBucket('avatars', { public: true })
 
 // Upload
 const file = new Blob(['hello'], { type: 'text/plain' })
-await kb.storage.from('avatars').upload('hello.txt', file)
+await bf.storage.from('avatars').upload('hello.txt', file)
 
 // List files
-const { data } = await kb.storage.from('avatars').list()
+const { data } = await bf.storage.from('avatars').list()
 
 // Get signed URL
-const { data: { url } } = await kb.storage.from('avatars').createSignedUrl('hello.txt')
+const { data: { url } } = await bf.storage.from('avatars').createSignedUrl('hello.txt')
 
 // Delete
-await kb.storage.from('avatars').remove(['hello.txt'])
+await bf.storage.from('avatars').remove(['hello.txt'])
 ```
 

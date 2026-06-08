@@ -48,7 +48,7 @@ export const INTEGRATIONS: Integration[] = [
     setup: `// lib/basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: process.env.NEXT_PUBLIC_BASEFYIO_PROJECT_ID!,
   apiKey: process.env.NEXT_PUBLIC_BASEFYIO_ANON_KEY!,
 });`,
@@ -56,10 +56,10 @@ export const kb = createClient({
       "Use the public anon key (gated by row-level security) in the browser and Server Components. For trusted server-only code, use a service key from a non-public env variable instead.",
     usageTitle: "Fetch data in a Server Component",
     usage: `// app/posts/page.tsx
-import { kb } from "@/lib/basefyio";
+import { bf } from "@/lib/basefyio";
 
 export default async function Posts() {
-  const { data } = await kb
+  const { data } = await bf
     .from("posts")
     .select("id, title")
     .order("created_at", { ascending: false });
@@ -77,7 +77,7 @@ export default async function Posts() {
       },
       {
         title: "Auth included",
-        body: "Add sign-in with kb.auth and scope data with row-level security.",
+        body: "Add sign-in with bf.auth and scope data with row-level security.",
       },
     ],
     faqs: [
@@ -107,7 +107,7 @@ export default async function Posts() {
     setup: `// src/basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
   apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
@@ -115,12 +115,12 @@ export const kb = createClient({
       "Always use the client-safe anon key in the browser. Row-level security policies decide what each user can read or write.",
     usageTitle: "Load data in a component",
     usage: `import { useEffect, useState } from "react";
-import { kb } from "./basefyio";
+import { bf } from "./basefyio";
 
 export function Posts() {
   const [posts, setPosts] = useState([]);
   useEffect(() => {
-    kb.from("posts").select("id, title").then(({ data }) => setPosts(data ?? []));
+    bf.from("posts").select("id, title").then(({ data }) => setPosts(data ?? []));
   }, []);
   return <ul>{posts.map((p) => <li key={p.id}>{p.title}</li>)}</ul>;
 }`,
@@ -131,7 +131,7 @@ export function Posts() {
       },
       {
         title: "Built-in auth state",
-        body: "Use kb.auth.onAuthStateChange to react to sign-in and sign-out in your UI.",
+        body: "Use bf.auth.onAuthStateChange to react to sign-in and sign-out in your UI.",
       },
       {
         title: "Secured by the database",
@@ -147,7 +147,7 @@ export function Posts() {
       {
         question: "Can I build a custom auth hook?",
         answer:
-          "Yes. Wrap kb.auth.getUser and kb.auth.onAuthStateChange in a React context to expose the current user across your app.",
+          "Yes. Wrap bf.auth.getUser and bf.auth.onAuthStateChange in a React context to expose the current user across your app.",
       },
     ],
   },
@@ -165,7 +165,7 @@ export function Posts() {
     setup: `// src/basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
   apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
@@ -174,12 +174,12 @@ export const kb = createClient({
     usageTitle: "A data composable",
     usage: `// composables/usePosts.ts
 import { ref, onMounted } from "vue";
-import { kb } from "../basefyio";
+import { bf } from "../basefyio";
 
 export function usePosts() {
   const posts = ref([]);
   onMounted(async () => {
-    const { data } = await kb.from("posts").select("id, title");
+    const { data } = await bf.from("posts").select("id, title");
     posts.value = data ?? [];
   });
   return { posts };
@@ -207,7 +207,7 @@ export function usePosts() {
       {
         question: "How do I track the logged-in user in Vue?",
         answer:
-          "Create a composable around kb.auth.getUser and kb.auth.onAuthStateChange and provide it app-wide.",
+          "Create a composable around bf.auth.getUser and bf.auth.onAuthStateChange and provide it app-wide.",
       },
     ],
   },
@@ -226,7 +226,7 @@ export function usePosts() {
 import { createClient } from "basefyio-js";
 import { PUBLIC_BASEFYIO_PROJECT_ID, PUBLIC_BASEFYIO_ANON_KEY } from "$env/static/public";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: PUBLIC_BASEFYIO_PROJECT_ID,
   apiKey: PUBLIC_BASEFYIO_ANON_KEY,
 });`,
@@ -234,10 +234,10 @@ export const kb = createClient({
       "Use PUBLIC_ env variables with the anon key for client/load code. Keep service keys in private env variables for server-only logic.",
     usageTitle: "Load data for a route",
     usage: `// src/routes/posts/+page.ts
-import { kb } from "$lib/basefyio";
+import { bf } from "$lib/basefyio";
 
 export async function load() {
-  const { data } = await kb.from("posts").select("id, title");
+  const { data } = await bf.from("posts").select("id, title");
   return { posts: data ?? [] };
 }`,
     benefits: [
@@ -251,7 +251,7 @@ export async function load() {
       },
       {
         title: "Auth and storage included",
-        body: "kb.auth and kb.storage cover sign-in and file uploads out of the box.",
+        body: "bf.auth and bf.storage cover sign-in and file uploads out of the box.",
       },
     ],
     faqs: [
@@ -281,18 +281,18 @@ export async function load() {
     setup: `// basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: process.env.EXPO_PUBLIC_BASEFYIO_PROJECT_ID!,
   apiKey: process.env.EXPO_PUBLIC_BASEFYIO_ANON_KEY!,
 });`,
     setupNote:
       "With Expo, use EXPO_PUBLIC_ env variables for the anon key. Secure user data with row-level security so the mobile client only sees permitted rows.",
     usageTitle: "Sign in and load data",
-    usage: `import { kb } from "./basefyio";
+    usage: `import { bf } from "./basefyio";
 
-await kb.auth.signIn({ email, password });
+await bf.auth.signIn({ email, password });
 
-const { data } = await kb
+const { data } = await bf
   .from("messages")
   .select("id, body, sent_at")
   .order("sent_at", { ascending: true });`,
@@ -303,7 +303,7 @@ const { data } = await kb
       },
       {
         title: "Auth built in",
-        body: "Email, OAuth, and magic-link sign-in via kb.auth, with sessions handled for you.",
+        body: "Email, OAuth, and magic-link sign-in via bf.auth, with sessions handled for you.",
       },
       {
         title: "Files with signed URLs",
@@ -337,20 +337,20 @@ const { data } = await kb
     setup: `// basefyio.js
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: process.env.BASEFYIO_PROJECT_ID,
   apiKey: process.env.BASEFYIO_SERVICE_KEY, // server-only
 });`,
     setupNote:
       "On the server you can use a service key for trusted operations that bypass row-level security. Never expose a service key to the browser.",
     usageTitle: "Run a query or raw SQL",
-    usage: `import { kb } from "./basefyio.js";
+    usage: `import { bf } from "./basefyio.js";
 
 // Query builder
-const { data } = await kb.from("users").select("id, email").eq("active", true);
+const { data } = await bf.from("users").select("id, email").eq("active", true);
 
 // Or raw SQL for reports (sanitize any dynamic input!)
-const { data: stats } = await kb.sql(
+const { data: stats } = await bf.sql(
   "select plan, count(*) from subscriptions group by plan",
 );`,
     benefits: [
@@ -360,7 +360,7 @@ const { data: stats } = await kb.sql(
       },
       {
         title: "Raw SQL when you need it",
-        body: "Run reports and complex queries with kb.sql, in addition to the query builder.",
+        body: "Run reports and complex queries with bf.sql, in addition to the query builder.",
       },
       {
         title: "Same SDK everywhere",
@@ -394,7 +394,7 @@ const { data: stats } = await kb.sql(
     setup: `// src/lib/basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: import.meta.env.PUBLIC_BASEFYIO_PROJECT_ID,
   apiKey: import.meta.env.PUBLIC_BASEFYIO_ANON_KEY,
 });`,
@@ -403,8 +403,8 @@ export const kb = createClient({
     usageTitle: "Fetch data in a page",
     usage: `---
 // src/pages/posts.astro
-import { kb } from "../lib/basefyio";
-const { data: posts } = await kb.from("posts").select("id, title");
+import { bf } from "../lib/basefyio";
+const { data: posts } = await bf.from("posts").select("id, title");
 ---
 <ul>{posts?.map((p) => <li>{p.title}</li>)}</ul>`,
     benefits: [
@@ -418,7 +418,7 @@ const { data: posts } = await kb.from("posts").select("id, title");
       },
       {
         title: "Auth and storage ready",
-        body: "kb.auth and kb.storage are available in server endpoints.",
+        body: "bf.auth and bf.storage are available in server endpoints.",
       },
     ],
     faqs: [
@@ -448,7 +448,7 @@ const { data: posts } = await kb.from("posts").select("id, title");
     setup: `// app/basefyio.server.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: process.env.BASEFYIO_PROJECT_ID!,
   apiKey: process.env.BASEFYIO_ANON_KEY!,
 });`,
@@ -456,11 +456,11 @@ export const kb = createClient({
       "Keep the client in a .server file so keys never reach the browser. Use a service key only for trusted operations.",
     usageTitle: "Load data in a route",
     usage: `// app/routes/posts.tsx
-import { kb } from "~/basefyio.server";
+import { bf } from "~/basefyio.server";
 import { useLoaderData } from "@remix-run/react";
 
 export async function loader() {
-  const { data } = await kb.from("posts").select("id, title");
+  const { data } = await bf.from("posts").select("id, title");
   return { posts: data ?? [] };
 }
 
@@ -491,7 +491,7 @@ export default function Posts() {
       {
         question: "How do I handle auth in Remix?",
         answer:
-          "Authenticate with kb.auth and persist the session in a Remix cookie session, validating it in loaders and actions.",
+          "Authenticate with bf.auth and persist the session in a Remix cookie session, validating it in loaders and actions.",
       },
     ],
   },
@@ -510,7 +510,7 @@ export default function Posts() {
 import { createClient } from "basefyio-js";
 
 const config = useRuntimeConfig();
-export const kb = createClient({
+export const bf =createClient({
   projectId: config.public.basefyioProjectId,
   apiKey: config.public.basefyioAnonKey,
 });`,
@@ -518,10 +518,10 @@ export const kb = createClient({
       "Expose the anon key via runtimeConfig.public for client use. For server routes that need elevated access, read a service key from the private runtimeConfig instead.",
     usageTitle: "Fetch data in a component",
     usage: `<script setup lang="ts">
-import { kb } from "~/utils/basefyio";
+import { bf } from "~/utils/basefyio";
 
 const { data: posts } = await useAsyncData("posts", async () => {
-  const { data } = await kb.from("posts").select("id, title");
+  const { data } = await bf.from("posts").select("id, title");
   return data ?? [];
 });
 </script>`,
@@ -536,7 +536,7 @@ const { data: posts } = await useAsyncData("posts", async () => {
       },
       {
         title: "Auth and storage included",
-        body: "kb.auth and kb.storage cover sign-in and uploads out of the box.",
+        body: "bf.auth and bf.storage cover sign-in and uploads out of the box.",
       },
     ],
     faqs: [
@@ -583,11 +583,11 @@ import { Basefyio } from "./basefyio.service";
 
 @Component({ selector: "app-posts", template: "..." })
 export class PostsComponent {
-  private kb = inject(Basefyio);
+  private bf = inject(Basefyio);
   posts = signal<any[]>([]);
 
   async ngOnInit() {
-    const { data } = await this.kb.client.from("posts").select("id, title");
+    const { data } = await this.bf.client.from("posts").select("id, title");
     this.posts.set(data ?? []);
   }
 }`,
@@ -614,7 +614,7 @@ export class PostsComponent {
       {
         question: "How do I track the current user in Angular?",
         answer:
-          "Expose kb.auth.getUser and kb.auth.onAuthStateChange from your service and store the user in a signal or RxJS subject.",
+          "Expose bf.auth.getUser and bf.auth.onAuthStateChange from your service and store the user in a signal or RxJS subject.",
       },
     ],
   },
@@ -632,7 +632,7 @@ export class PostsComponent {
     setup: `// src/basefyio.ts
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: import.meta.env.VITE_BASEFYIO_PROJECT_ID,
   apiKey: import.meta.env.VITE_BASEFYIO_ANON_KEY,
 });`,
@@ -640,11 +640,11 @@ export const kb = createClient({
       "Use the anon key in the browser; row-level security enforces access at the database.",
     usageTitle: "Load data with a resource",
     usage: `import { createResource, For } from "solid-js";
-import { kb } from "./basefyio";
+import { bf } from "./basefyio";
 
 export function Posts() {
   const [posts] = createResource(async () => {
-    const { data } = await kb.from("posts").select("id, title");
+    const { data } = await bf.from("posts").select("id, title");
     return data ?? [];
   });
   return <ul><For each={posts()}>{(p) => <li>{p.title}</li>}</For></ul>;
@@ -672,7 +672,7 @@ export function Posts() {
       {
         question: "How do I handle auth in SolidJS?",
         answer:
-          "Wrap kb.auth in a context or store, and use kb.auth.onAuthStateChange to keep the current user reactive.",
+          "Wrap bf.auth in a context or store, and use bf.auth.onAuthStateChange to keep the current user reactive.",
       },
     ],
   },
@@ -690,7 +690,7 @@ export function Posts() {
     setup: `// basefyio.js
 import { createClient } from "basefyio-js";
 
-export const kb = createClient({
+export const bf =createClient({
   projectId: process.env.BASEFYIO_PROJECT_ID,
   apiKey: process.env.BASEFYIO_SERVICE_KEY, // server-only
 });`,
@@ -698,12 +698,12 @@ export const kb = createClient({
       "Keep the service key on the server only. Use it for trusted operations; for anything reachable by the browser, use the anon key with row-level security.",
     usageTitle: "Use it in a route handler",
     usage: `import express from "express";
-import { kb } from "./basefyio.js";
+import { bf } from "./basefyio.js";
 
 const app = express();
 
 app.get("/api/posts", async (_req, res) => {
-  const { data, error } = await kb.from("posts").select("id, title");
+  const { data, error } = await bf.from("posts").select("id, title");
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
@@ -720,7 +720,7 @@ app.listen(3000);`,
       },
       {
         title: "Raw SQL available",
-        body: "Use kb.sql for reports and complex queries beyond the query builder.",
+        body: "Use bf.sql for reports and complex queries beyond the query builder.",
       },
     ],
     faqs: [
