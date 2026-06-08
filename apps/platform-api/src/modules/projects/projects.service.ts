@@ -838,7 +838,7 @@ export class ProjectsService {
     }
 
     // Derive the original DB name / user / realm from the archived names
-    // e.g. "bf_usgourmet_del1234567890" → "bf_usgourmet"
+    // e.g. "kb_usgourmet_del1234567890" → "kb_usgourmet"
     const originalDbName = project.dbName.replace(/_del\d+$/, '');
     const originalDbUser = project.dbUser.replace(/_del\d+$/, '');
     const originalRealm  = project.keycloakRealm.replace(/_del\d+$/, '');
@@ -1604,8 +1604,8 @@ export class ProjectsService {
     for (let attempt = 0; attempt < 64; attempt += 1) {
       const nameToken = randomBytes(8).toString('hex');
       const userToken = randomBytes(8).toString('hex');
-      const dbName = `bf_${nameToken}`;
-      const dbUser = `bf_user_${userToken}`;
+      const dbName = `kb_${nameToken}`;
+      const dbUser = `kb_user_${userToken}`;
       const clash = await this.prisma.project.findFirst({
         where: { OR: [{ dbName }, { dbUser }] },
         select: { id: true },
