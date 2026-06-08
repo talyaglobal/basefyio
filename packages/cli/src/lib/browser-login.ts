@@ -58,10 +58,18 @@ const SUCCESS_HTML = `<!DOCTYPE html>
       if (el) el.textContent = String(Math.max(n, 0));
       if (n <= 0) {
         clearInterval(iv);
-        // window.close() only succeeds when the tab was opened via
-        // window.open from the same origin — usually a no-op here, but
-        // harmless. The user can click the button as fallback.
+        // Try multiple close strategies
         window.close();
+        // Navigate to about:blank first — some browsers allow closing after that
+        setTimeout(function () {
+          window.open('about:blank', '_self');
+          window.close();
+        }, 300);
+        // Final fallback: show "safe to close" message
+        setTimeout(function () {
+          document.getElementById('countdown').textContent =
+            'You can safely close this tab now.';
+        }, 800);
       }
     }, 1000);
   </script>

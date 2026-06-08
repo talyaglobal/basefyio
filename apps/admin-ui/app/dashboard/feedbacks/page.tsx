@@ -468,7 +468,6 @@ export default function FeedbacksPage() {
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex items-center gap-2">
                       {typeCfg.icon}
-                      <h3 className="font-semibold">{fb.title}</h3>
                       <Badge
                         variant="outline"
                         className={`${statusCfg.color} flex items-center gap-1 border text-[11px]`}

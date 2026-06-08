@@ -129,23 +129,27 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       return;
     }
     setTakingScreenshot(true);
-
-    // Hide the dialog overlay + content via CSS so html2canvas captures the
-    // page behind it, but keep the Dialog *open* so React state is preserved.
-    const portalEls = document.querySelectorAll<HTMLElement>('[data-radix-portal]');
-    portalEls.forEach((el) => { el.style.visibility = 'hidden'; });
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
     try {
-      const { default: html2canvas } = await import('html2canvas');
-      const canvas = await html2canvas(document.documentElement, {
-        useCORS: true, allowTaint: true, backgroundColor: null,
-        scale: window.devicePixelRatio || 1,
-        scrollX: window.scrollX, scrollY: window.scrollY,
-        x: window.scrollX, y: window.scrollY,
-        width: window.innerWidth, height: window.innerHeight,
-        windowWidth: window.innerWidth, windowHeight: window.innerHeight,
-      });
+      // Use the native Screen Capture API for a real pixel-perfect screenshot
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser' } as any,
+        audio: false,
+        preferCurrentTab: true,
+      } as any);
+      const track = stream.getVideoTracks()[0];
+      // Wait a frame so the capture is stable
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const imageCapture = new (window as any).ImageCapture(track);
+      const bitmap = await imageCapture.grabFrame();
+      track.stop();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
       const blob = await new Promise<Blob>((resolve) => {
         canvas.toBlob((b) => resolve(b!), 'image/png', 0.95);
       });
@@ -153,10 +157,12 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       const file = new File([blob], `screenshot-${timestamp}.png`, { type: 'image/png' });
       setFiles((prev) => [...prev, file]);
       toast.success('Screenshot captured!');
-    } catch {
-      toast.error('Failed to capture screenshot');
+    } catch (err: any) {
+      // User cancelled the screen picker or API not available
+      if (err?.name !== 'NotAllowedError') {
+        toast.error('Failed to capture screenshot');
+      }
     } finally {
-      portalEls.forEach((el) => { el.style.visibility = ''; });
       setTakingScreenshot(false);
     }
   }

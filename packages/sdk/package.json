@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.4.0",
+  "version": "2.0.0",
   "description": "Basefyio JavaScript/TypeScript SDK — database, auth & storage client",
   "type": "module",
   "main": "./dist/index.cjs",
