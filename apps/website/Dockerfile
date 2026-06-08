@@ -10,7 +10,7 @@ RUN cd /geo && npm ci && npm run build
 FROM base AS deps
 COPY apps/website/package.json ./
 # Remove the local file: dependency before installing — we'll link it manually
-RUN sed -i '/"@kolaybase\/geo"/d' package.json && npm install --ignore-scripts
+RUN sed -i '/"@basefyio\/geo"/d' package.json && npm install --ignore-scripts
 # Copy built geo package into node_modules
 COPY --from=geo /geo ./node_modules/@basefyio/geo
 
