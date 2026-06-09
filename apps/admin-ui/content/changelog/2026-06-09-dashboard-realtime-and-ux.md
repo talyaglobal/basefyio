@@ -46,6 +46,19 @@ The Supabase import modal can no longer be accidentally closed during an active 
 
 ---
 
+## NoSQL Collections
+
+basefyio now includes a full NoSQL document store built on top of PostgreSQL JSONB — no external database needed.
+
+- **Collections Editor**: A new dedicated UI under each project lets you create collections, insert JSON documents, query with filters, and manage indexes — all from the dashboard.
+- **CRUD operations**: Insert single or bulk documents, partial update (merge) or full replace, delete by ID or by filter.
+- **Querying**: Filter documents with JSON syntax (e.g. `{"status":"active"}`), sort by any field, project specific fields, and paginate results.
+- **Index management**: Create indexes on document fields directly from the UI for faster queries.
+- **Public REST API**: Every collection operation is available through the public REST API at `/rest/v1/collections/...` with API key authentication and Row-Level Security support.
+- **Activity logging**: All collection operations (create, drop, insert, update, delete) are logged to the project activity stream.
+
+---
+
 ## Other improvements
 
 - **Default team protection**: Your personal (default) team can no longer be deleted from the UI. Renaming still works.
