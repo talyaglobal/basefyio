@@ -85,12 +85,20 @@ by cosine distance via `VectorStoreService`.
   `PENDING`, or `STALE`. `INDEXED` documents are skipped unless the caller passes
   `force=true`.
 
-**Source change (same object, new bytes).** When ingest sees the same
-`(project_id, bucket_name, object_key)` with a different `source_hash`, it does
-**not** create a new `rag_documents` row. Instead the existing document is flipped
-to `STALE` and a fresh `rag_index_job` is opened. The previous chunks remain
-readable (and searchable) as a fallback until the new index completes and
-atomically replaces them — so retrieval never has a gap.
+**Source change (same object, new bytes).** When the same
+`(project_id, bucket_name, object_key)` reappears with a different `source_hash`,
+the system does **not** create a new `rag_documents` row — it reprocesses the
+existing one. When the worker reindexes an already-`INDEXED` document it keeps the
+status `INDEXED` and swaps the chunks inside a single transaction, so search keeps
+serving the current chunks with no gap and then atomically sees the new set.
+Flipping a document to `STALE` is a separate, explicit signal ("known out of date,
+reindex queued") and, per the search-visibility rule below, removes it from
+default search until it is reprocessed.
+
+**Search visibility.** Search hydration returns chunks from `INDEXED` documents
+**only** by default; `STALE`, `FAILED`, and `PROCESSING` documents are excluded so
+retrieval never surfaces stale or partial content. Callers may opt in to
+non-indexed documents explicitly (`includeNonIndexed`).
 
 ## Metadata strategy
 

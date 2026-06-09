@@ -40,6 +40,8 @@ export interface RagSearchResultItem {
   score: number;
   distance: number;
   text: string | null;
+  bucketName?: string | null;
+  objectKey?: string | null;
 }
 
 /**
@@ -150,6 +152,14 @@ export class RagRepository {
           inArray(ragDocuments.status, [...RAG_INCOMPLETE_STATUSES]),
         ),
       );
+  }
+
+  /** All documents in a project (used by a project-wide REINDEX). */
+  async listAllDocuments(projectId: string): Promise<RagDocument[]> {
+    return this.db
+      .select()
+      .from(ragDocuments)
+      .where(eq(ragDocuments.projectId, projectId));
   }
 
   /** Mark a document STALE (source changed) without creating a new row. */
@@ -389,5 +399,62 @@ export class RagRepository {
         text: r.text,
       };
     });
+  }
+
+  /**
+   * Hydrate raw similarity hits into full search items by joining each chunk
+   * back to its document (title, bucket, object key). Scoped to the project, so
+   * a hit can never surface a chunk from another project. Order follows the
+   * similarity ranking; hits whose chunk no longer exists are dropped.
+   */
+  async hydrateSearchResults(
+    projectId: string,
+    results: SimilarityResult[],
+    opts: { includeNonIndexed?: boolean } = {},
+  ): Promise<RagSearchResultItem[]> {
+    const ids = results.map((r) => r.entityId);
+    if (ids.length === 0) return [];
+
+    // Default: only return chunks whose document is INDEXED, so STALE/FAILED/
+    // PROCESSING documents never leak results. Callers may opt in explicitly.
+    const conditions = [
+      eq(ragChunks.projectId, projectId),
+      inArray(ragChunks.id, ids),
+    ];
+    if (!opts.includeNonIndexed) {
+      conditions.push(eq(ragDocuments.status, 'INDEXED'));
+    }
+
+    const rows = await this.db
+      .select({
+        chunkId: ragChunks.id,
+        documentId: ragChunks.documentId,
+        chunkIndex: ragChunks.chunkIndex,
+        content: ragChunks.content,
+        title: ragDocuments.title,
+        bucketName: ragDocuments.bucketName,
+        objectKey: ragDocuments.objectKey,
+      })
+      .from(ragChunks)
+      .innerJoin(ragDocuments, eq(ragChunks.documentId, ragDocuments.id))
+      .where(and(...conditions));
+
+    const byId = new Map(rows.map((r) => [r.chunkId, r]));
+    const out: RagSearchResultItem[] = [];
+    for (const r of results) {
+      const h = byId.get(r.entityId);
+      if (!h) continue;
+      out.push({
+        documentId: h.documentId,
+        chunkIndex: h.chunkIndex,
+        title: h.title,
+        score: r.score,
+        distance: r.distance,
+        text: h.content,
+        bucketName: h.bucketName,
+        objectKey: h.objectKey,
+      });
+    }
+    return out;
   }
 }

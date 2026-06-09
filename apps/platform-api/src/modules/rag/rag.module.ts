@@ -8,13 +8,15 @@ import { RAG_INDEX_QUEUE } from '../queue/queue.module';
 import { RagController } from './rag.controller';
 import { RagService } from './rag.service';
 import { RagRepository } from './rag.repository';
+import { RagIndexerService } from './rag-indexer.service';
+import { RagIndexProcessor } from './rag-index.processor';
 
 /**
  * RAG storage module (commit 1: skeleton).
  *
  * EmbeddingModule is @Global(), so EmbeddingService and VectorStoreService are
- * injected without an explicit import. The chunk→embed→store worker (a BullMQ
- * processor on RAG_INDEX_QUEUE) is added in commit 2.
+ * injected without an explicit import. RagIndexProcessor consumes RAG_INDEX_QUEUE
+ * (the "rag_embedding_job" worker) and delegates to RagIndexerService.
  */
 @Module({
   imports: [
@@ -25,7 +27,12 @@ import { RagRepository } from './rag.repository';
     BullModule.registerQueue({ name: RAG_INDEX_QUEUE }),
   ],
   controllers: [RagController],
-  providers: [RagService, RagRepository],
+  providers: [
+    RagService,
+    RagRepository,
+    RagIndexerService,
+    RagIndexProcessor,
+  ],
   exports: [RagService],
 })
 export class RagModule {}

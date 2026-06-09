@@ -19,7 +19,7 @@ function build() {
     listIncompleteDocuments: jest.fn().mockResolvedValue([]),
     getIndexStatus: jest.fn().mockResolvedValue({ documents: {}, activeJobs: 0 }),
     usage: jest.fn().mockResolvedValue({ documents: 0, chunks: 0, tokens: 0, byStatus: {} }),
-    mapSearchResults: jest.fn().mockReturnValue([]),
+    hydrateSearchResults: jest.fn().mockResolvedValue([]),
   };
   const storage: any = {
     getObject: jest.fn().mockResolvedValue({
@@ -95,7 +95,9 @@ describe('RagService', () => {
   it('search delegates to the existing vector path scoped to the project + RAG entity type', async () => {
     const { service, embedding, vectorStore, repo } = build();
     embedding.generateEmbedding.mockResolvedValueOnce([0.1, 0.2, 0.3]);
-    vectorStore.findSimilar.mockResolvedValueOnce([{ score: 0.9, distance: 0.1, text: 't', meta: {} }]);
+    vectorStore.findSimilar.mockResolvedValueOnce([
+      { entityId: 'c1', score: 0.9, distance: 0.1, text: 't', meta: {} },
+    ]);
     await service.search('p1', 'u1', { q: 'hello', limit: 5, threshold: 0.3 } as any);
     expect(vectorStore.findSimilar).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
@@ -106,7 +108,7 @@ describe('RagService', () => {
         threshold: 0.3,
       }),
     );
-    expect(repo.mapSearchResults).toHaveBeenCalled();
+    expect(repo.hydrateSearchResults).toHaveBeenCalledWith('p1', expect.any(Array));
   });
 
   it('search returns [] when embeddings are unavailable (graceful)', async () => {

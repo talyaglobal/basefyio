@@ -277,7 +277,9 @@ export class RagService {
       threshold,
       limit,
     });
-    return this.repo.mapSearchResults(results);
+    // Hydrate each hit against the RAG tables (project-scoped) for document
+    // title / bucket / object key alongside the chunk text.
+    return this.repo.hydrateSearchResults(projectId, results);
   }
 
   async usage(projectId: string, userId?: string) {
