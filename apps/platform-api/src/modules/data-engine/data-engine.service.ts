@@ -160,6 +160,23 @@ export class DataEngineService implements OnModuleInit {
     }
   }
 
+  private provisionedProjects = new Set<string>();
+
+  /**
+   * Ensure the data_engine schema and records table exist for a project.
+   * Called lazily on first access — idempotent.
+   */
+  private async ensureProvisioned(projectId: string): Promise<void> {
+    if (this.provisionedProjects.has(projectId)) return;
+    if (!this.engine) return;
+    try {
+      await this.engine.provisionTenant(projectId);
+      this.provisionedProjects.add(projectId);
+    } catch (err: any) {
+      this.logger.warn(`Auto-provision for ${projectId}: ${err.message}`);
+    }
+  }
+
   /**
    * Resolve an entity's physical collection and return an EntityCollection handle.
    */
@@ -167,6 +184,9 @@ export class DataEngineService implements OnModuleInit {
     if (!this.engine) {
       throw new Error('Data Engine not available');
     }
+
+    // Ensure schema/table exist (idempotent, cached after first success)
+    await this.ensureProvisioned(projectId);
 
     // Verify entity exists in metadata
     const entity = await this.prisma.entityDefinition.findUnique({
