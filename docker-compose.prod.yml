@@ -168,8 +168,8 @@ services:
       test: ["CMD-SHELL", "curl -sf -u ${NOSQL_USERNAME}:${NOSQL_PASSWORD} http://localhost:8091/pools || curl -sf http://localhost:8091/pools || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 20
-      start_period: 30s
+      retries: 30
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -281,7 +281,7 @@ services:
       redis:
         condition: service_healthy
       nosql:
-        condition: service_healthy
+        condition: service_started
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
