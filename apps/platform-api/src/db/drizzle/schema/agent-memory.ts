@@ -150,9 +150,78 @@ export const agentMemory = pgTable(
   }),
 );
 
+export const agentToolCallStatus = pgEnum('agent_tool_call_status', [
+  'allowed', // policy passed, execution pending
+  'denied',  // policy blocked
+  'success', // executed and returned a result
+  'failed',  // execution threw an error
+]);
+
+export const agentPolicyDecision = pgEnum('agent_policy_decision', [
+  'allow',
+  'deny',
+]);
+
+// ── agent_tool_calls ─────────────────────────────────────
+// runId is a loose text ref — FK to agent_runs added when Module 3 lands.
+export const agentToolCalls = pgTable(
+  'agent_tool_calls',
+  {
+    id: text('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    runId: text('run_id'),
+    threadId: text('thread_id').references(() => chatThreads.id, {
+      onDelete: 'cascade',
+    }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    toolId: varchar('tool_id', { length: 128 }).notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().notNull(),
+    output: jsonb('output').$type<Record<string, unknown>>(),
+    status: agentToolCallStatus('status').notNull(),
+    latencyMs: integer('latency_ms'),
+    deniedReason: text('denied_reason'),
+    createdAt: timestamp('created_at', { precision: 3 }).notNull().defaultNow(),
+  },
+  (t) => ({
+    projectIdx: index('agent_tool_calls_project_idx').on(t.projectId),
+    threadIdx: index('agent_tool_calls_thread_idx').on(t.threadId),
+    runIdx: index('agent_tool_calls_run_idx').on(t.runId),
+  }),
+);
+
+// ── agent_policy_events ──────────────────────────────────
+export const agentPolicyEvents = pgTable(
+  'agent_policy_events',
+  {
+    id: text('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    runId: text('run_id'),
+    toolCallId: text('tool_call_id').references(() => agentToolCalls.id, {
+      onDelete: 'set null',
+    }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    decision: agentPolicyDecision('decision').notNull(),
+    reasonCode: varchar('reason_code', { length: 64 }),
+    matchedRule: text('matched_rule'),
+    createdAt: timestamp('created_at', { precision: 3 }).notNull().defaultNow(),
+  },
+  (t) => ({
+    projectIdx: index('agent_policy_events_project_idx').on(t.projectId),
+    toolCallIdx: index('agent_policy_events_tool_call_idx').on(t.toolCallId),
+    runIdx: index('agent_policy_events_run_idx').on(t.runId),
+  }),
+);
+
 // ── Relations ────────────────────────────────────────────
 export const chatThreadsRelations = relations(chatThreads, ({ many }) => ({
   messages: many(chatMessages),
+  toolCalls: many(agentToolCalls),
 }));
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
@@ -169,6 +238,21 @@ export const agentMemoryRelations = relations(agentMemory, ({ one }) => ({
   }),
 }));
 
+export const agentToolCallsRelations = relations(agentToolCalls, ({ one, many }) => ({
+  thread: one(chatThreads, {
+    fields: [agentToolCalls.threadId],
+    references: [chatThreads.id],
+  }),
+  policyEvents: many(agentPolicyEvents),
+}));
+
+export const agentPolicyEventsRelations = relations(agentPolicyEvents, ({ one }) => ({
+  toolCall: one(agentToolCalls, {
+    fields: [agentPolicyEvents.toolCallId],
+    references: [agentToolCalls.id],
+  }),
+}));
+
 // ── Inferred types ───────────────────────────────────────
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type NewChatThread = typeof chatThreads.$inferInsert;
@@ -176,3 +260,7 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type AgentMemory = typeof agentMemory.$inferSelect;
 export type NewAgentMemory = typeof agentMemory.$inferInsert;
+export type AgentToolCall = typeof agentToolCalls.$inferSelect;
+export type NewAgentToolCall = typeof agentToolCalls.$inferInsert;
+export type AgentPolicyEvent = typeof agentPolicyEvents.$inferSelect;
+export type NewAgentPolicyEvent = typeof agentPolicyEvents.$inferInsert;
