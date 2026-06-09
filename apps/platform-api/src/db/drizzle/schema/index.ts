@@ -9,3 +9,4 @@
 export * from './rag';
 export * from './agent-memory';
 export * from './agent-creation';
+export * from './agent-attachments';

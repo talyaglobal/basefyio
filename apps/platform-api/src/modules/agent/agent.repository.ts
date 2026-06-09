@@ -14,6 +14,11 @@ import {
   type AgentToolCall,
   type AgentPolicyEvent,
 } from '../../db/drizzle/schema/agent-memory';
+import {
+  agentRunAttachments,
+  type AgentRunAttachment,
+  type AttachmentKind,
+} from '../../db/drizzle/schema/agent-attachments';
 
 export interface CreateThreadInput {
   projectId: string;
@@ -51,6 +56,15 @@ export interface RecordPolicyEventInput {
   decision: 'allow' | 'deny';
   reasonCode?: string | null;
   matchedRule?: string | null;
+}
+
+export interface RecordAttachmentInput {
+  runId: string;
+  projectId: string;
+  step: number;
+  toolCallId?: string | null;
+  kind: AttachmentKind;
+  content: Record<string, unknown>;
 }
 
 @Injectable()
@@ -212,6 +226,25 @@ export class AgentRepository {
         decision: input.decision,
         reasonCode: input.reasonCode ?? null,
         matchedRule: input.matchedRule ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  // ── Attachments ───────────────────────────────────────
+
+  async recordAttachment(
+    input: RecordAttachmentInput,
+  ): Promise<AgentRunAttachment> {
+    const [row] = await this.db
+      .insert(agentRunAttachments)
+      .values({
+        runId: input.runId,
+        projectId: input.projectId,
+        step: input.step,
+        toolCallId: input.toolCallId ?? null,
+        kind: input.kind,
+        content: input.content,
       })
       .returning();
     return row;

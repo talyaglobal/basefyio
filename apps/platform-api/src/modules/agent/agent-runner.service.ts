@@ -16,6 +16,11 @@ import { AgentCreationRepository } from './agent-creation.repository';
 import { AgentRepository } from './agent.repository';
 import { PolicyGatewayService, type PolicyContext } from './policy-gateway.service';
 import type { CreateRunDto } from './dto/create-run.dto';
+import { Inject } from '@nestjs/common';
+import {
+  TOOL_ADAPTERS_TOKEN,
+  type ToolAdapter,
+} from './tool-adapters/tool-adapter.interface';
 
 export interface SseEvent {
   event: string;
@@ -49,13 +54,18 @@ function writeSse(res: Response, event: SseEvent): void {
 export class AgentRunnerService {
   private readonly logger = new Logger(AgentRunnerService.name);
 
+  private readonly adapters: Map<string, ToolAdapter>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly creationRepo: AgentCreationRepository,
     private readonly agentRepo: AgentRepository,
     private readonly policy: PolicyGatewayService,
     private readonly activity: ProjectActivityService,
-  ) {}
+    @Inject(TOOL_ADAPTERS_TOKEN) adapters: ToolAdapter[],
+  ) {
+    this.adapters = new Map(adapters.map((a) => [a.toolId, a]));
+  }
 
   async run(
     projectId: string,
@@ -279,11 +289,49 @@ export class AgentRunnerService {
             continue;
           }
 
-          // Allowed — execute stub (real adapters in Module 4).
+          // Allowed — dispatch to real adapter (falls back to stub if unknown).
           let output: Record<string, unknown> = {};
           let toolStatus: 'success' | 'failed' = 'success';
+          const adapter = this.adapters.get(toolId);
           try {
-            output = await this.executeToolStub(toolId, toolInput);
+            if (adapter) {
+              const result = await adapter.execute(toolInput, {
+                projectId,
+                runId: run.id,
+                step: stepCount,
+                toolCallId: toolCall.id,
+              });
+              output = result.output;
+
+              // Persist attachments (e.g. RAG citations, SQL rows).
+              if (result.attachments?.length) {
+                for (const att of result.attachments) {
+                  await this.agentRepo.recordAttachment({
+                    runId: run.id,
+                    projectId,
+                    step: stepCount,
+                    toolCallId: toolCall.id,
+                    kind: att.kind,
+                    content: att.content,
+                  });
+                }
+              }
+
+              // Emit citation SSE event when RAG results are returned.
+              if (result.citations?.length) {
+                writeSse(res, {
+                  event: 'citation',
+                  data: {
+                    step: stepCount,
+                    toolCallId: toolCall.id,
+                    toolId,
+                    citations: result.citations,
+                  },
+                });
+              }
+            } else {
+              output = { stub: true, toolId, message: 'Tool adapter not implemented' };
+            }
           } catch (err: unknown) {
             toolStatus = 'failed';
             output = {
@@ -392,17 +440,6 @@ export class AgentRunnerService {
       default:
         return undefined;
     }
-  }
-
-  /**
-   * Stub executor — returns a placeholder until real tool adapters land.
-   * Real adapters (RAG search, SQL executor, HTTP caller) are Module 4.
-   */
-  private async executeToolStub(
-    toolId: string,
-    _input: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    return { stub: true, toolId, message: 'Tool adapter not yet implemented' };
   }
 
   private async assertProjectAccess(
