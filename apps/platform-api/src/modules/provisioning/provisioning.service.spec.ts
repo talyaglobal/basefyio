@@ -8,9 +8,8 @@ import { OperationTypeDto } from './dto/create-provisioning-operation.dto';
 
 // ── Prisma mock factory ──────────────────────────────────────
 //
-// $transaction is mocked to call the callback synchronously with the same
-// mock object as `tx`, so assertions on e.g. provisioningOperation.create
-// still work without duplicating every mock per-method.
+// $transaction receives the merged mock as `tx` so assertions on
+// provisioningOperation.create / provisioningAuditEvent.create still work.
 
 function makePrisma(overrides: Record<string, any> = {}) {
   const defaults: Record<string, any> = {
@@ -56,6 +55,7 @@ function stubProvisioningProject(id = PP_ID) {
   return { id, project: { teamId: TEAM_ID } };
 }
 
+// Shared base DTOs
 const BASE_CREATE_PROJECT_DTO = {
   projectId: PROJECT_ID,
   credentialRefId: CRED_ID,
@@ -65,155 +65,274 @@ const BASE_CREATE_PROJECT_DTO = {
   idempotencyKey: IDEM_KEY,
 };
 
-// ── createOperation — idempotency ───────────────────────────
+const BASE_CREATE_OPERATION_DTO = {
+  projectId: PROJECT_ID,
+  type: OperationTypeDto.CREATE,
+  idempotencyKey: IDEM_KEY,
+  desiredSpec: { serverType: 'cx21', name: 'api-prod-01' },
+  dryRun: false,
+};
 
-describe('ProvisioningService.createOperation', () => {
-  describe('idempotency', () => {
-    it('returns existing operation and idempotent=true when key already exists', async () => {
-      const existingOp = { id: 'op-existing', status: 'PENDING', idempotencyKey: IDEM_KEY };
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-      prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+// ── Helpers to set up createOperation ownership mocks ────────
+//
+// createOperation resolves: project.findUnique → teamMember.findUnique →
+// provisioningProject.findUnique(by projectId).
 
-      const svc = new ProvisioningService(prisma);
-      const result = await svc.createOperation(USER_ID, {
-        provisioningProjectId: PP_ID,
-        type: OperationTypeDto.CREATE,
-        dryRun: false,
-        idempotencyKey: IDEM_KEY,
-      });
+function setupOperationOwnership(
+  prisma: any,
+  { teamId = TEAM_ID, ppExists = true } = {},
+) {
+  prisma.project.findUnique.mockResolvedValue(stubProject(teamId));
+  prisma.teamMember.findUnique.mockResolvedValue(memberOf(teamId));
+  prisma.provisioningProject.findUnique.mockResolvedValue(
+    ppExists ? { id: PP_ID } : null,
+  );
+}
 
-      expect(result).toEqual({ operation: existingOp, idempotent: true });
-      expect(prisma.provisioningOperation.create).not.toHaveBeenCalled();
-    });
+// ── createOperation — ownership ──────────────────────────────
 
-    it('does not write an audit event on idempotent replay', async () => {
-      const existingOp = { id: 'op-existing', status: 'PENDING', idempotencyKey: IDEM_KEY };
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-      prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+describe('ProvisioningService.createOperation — ownership', () => {
+  it('throws NotFoundException when platform project does not exist', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(null);
 
-      const svc = new ProvisioningService(prisma);
-      await svc.createOperation(USER_ID, {
-        provisioningProjectId: PP_ID,
-        type: OperationTypeDto.CREATE,
-        dryRun: false,
-        idempotencyKey: IDEM_KEY,
-      });
-
-      expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
-    });
-
-    it('creates a new operation and sets idempotent=false on first call', async () => {
-      const newOp = { id: 'op-new', status: 'PENDING', idempotencyKey: IDEM_KEY };
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
-      prisma.provisioningOperation.create.mockResolvedValue(newOp);
-
-      const svc = new ProvisioningService(prisma);
-      const result = await svc.createOperation(USER_ID, {
-        provisioningProjectId: PP_ID,
-        type: OperationTypeDto.CREATE,
-        dryRun: false,
-        idempotencyKey: IDEM_KEY,
-      });
-
-      expect(result).toEqual({ operation: newOp, idempotent: false });
-      expect(prisma.provisioningOperation.create).toHaveBeenCalledTimes(1);
-    });
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.createOperation(USER_ID, { ...BASE_CREATE_OPERATION_DTO, projectId: 'missing' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  describe('dryRun', () => {
-    it('sets status to DRY_RUN immediately and emits DRY_RUN_COMPLETED audit event', async () => {
-      const dryOp = { id: 'op-dry', status: 'DRY_RUN', idempotencyKey: IDEM_KEY };
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
-      prisma.provisioningOperation.create.mockResolvedValue(dryOp);
+  it('throws ForbiddenException when user is not a team member', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(null);
 
-      const svc = new ProvisioningService(prisma);
-      const result = await svc.createOperation(USER_ID, {
-        provisioningProjectId: PP_ID,
-        type: OperationTypeDto.CREATE,
-        dryRun: true,
-        idempotencyKey: IDEM_KEY,
-      });
-
-      expect(result.operation.status).toBe('DRY_RUN');
-      const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
-      expect(createCall.data.status).toBe('DRY_RUN');
-      expect(createCall.data.dryRun).toBe(true);
-      expect(createCall.data.completedAt).toBeDefined();
-
-      const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
-      expect(auditCall.data.kind).toBe('DRY_RUN_COMPLETED');
-    });
-
-    it('sets status to PENDING (not DRY_RUN) when dryRun=false', async () => {
-      const pendingOp = { id: 'op-pending', status: 'PENDING', idempotencyKey: IDEM_KEY };
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
-      prisma.provisioningOperation.create.mockResolvedValue(pendingOp);
-
-      const svc = new ProvisioningService(prisma);
-      await svc.createOperation(USER_ID, {
-        provisioningProjectId: PP_ID,
-        type: OperationTypeDto.CREATE,
-        dryRun: false,
-        idempotencyKey: IDEM_KEY,
-      });
-
-      const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
-      expect(createCall.data.status).toBe('PENDING');
-      expect(createCall.data.completedAt).toBeUndefined();
-
-      const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
-      expect(auditCall.data.kind).toBe('OPERATION_STARTED');
-    });
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  describe('ownership', () => {
-    it('throws ForbiddenException when user is not a team member', async () => {
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-      prisma.teamMember.findUnique.mockResolvedValue(null);
+  it('throws NotFoundException when no provisioning project exists for this project', async () => {
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma, { ppExists: false });
 
-      const svc = new ProvisioningService(prisma);
-      await expect(
-        svc.createOperation(USER_ID, {
-          provisioningProjectId: PP_ID,
-          type: OperationTypeDto.CREATE,
-          dryRun: false,
-          idempotencyKey: IDEM_KEY,
-        }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('throws NotFoundException when provisioning project does not exist', async () => {
-      const prisma = makePrisma();
-      prisma.provisioningProject.findUnique.mockResolvedValue(null);
-
-      const svc = new ProvisioningService(prisma);
-      await expect(
-        svc.createOperation(USER_ID, {
-          provisioningProjectId: 'missing',
-          type: OperationTypeDto.CREATE,
-          dryRun: false,
-          idempotencyKey: IDEM_KEY,
-        }),
-      ).rejects.toBeInstanceOf(NotFoundException);
-    });
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
-// ── createProject ────────────────────────────────────────────
+// ── createOperation — idempotency ────────────────────────────
+
+describe('ProvisioningService.createOperation — idempotency', () => {
+  it('returns existing operation with idempotent=true on compatible replay', async () => {
+    const existingOp = {
+      id: 'op-existing',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO);
+
+    expect(result.idempotent).toBe(true);
+    expect(result.provisioningOperationId).toBe('op-existing');
+    expect(prisma.provisioningOperation.create).not.toHaveBeenCalled();
+    expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('throws ConflictException when same key has incompatible type', async () => {
+    const existingOp = {
+      id: 'op-existing',
+      provisioningProjectId: PP_ID,
+      type: 'DELETE',   // different from requested CREATE
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('throws ConflictException when same key has incompatible dryRun value', async () => {
+    const existingOp = {
+      id: 'op-existing',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'DRY_RUN',
+      dryRun: true,     // different from requested false
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('creates a new operation when key is different — never 409', async () => {
+    const newOp = {
+      id: 'op-new',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: 'different-key',
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    prisma.provisioningOperation.create.mockResolvedValue(newOp);
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.createOperation(USER_ID, {
+      ...BASE_CREATE_OPERATION_DTO,
+      idempotencyKey: 'different-key',
+    });
+
+    expect(result.idempotent).toBe(false);
+    expect(prisma.provisioningOperation.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── createOperation — dryRun ─────────────────────────────────
+
+describe('ProvisioningService.createOperation — dryRun', () => {
+  it('dryRun=true sets DRY_RUN status, completedAt, emits DRY_RUN_COMPLETED', async () => {
+    const dryOp = {
+      id: 'op-dry',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'DRY_RUN',
+      dryRun: true,
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    prisma.provisioningOperation.create.mockResolvedValue(dryOp);
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.createOperation(USER_ID, {
+      ...BASE_CREATE_OPERATION_DTO,
+      dryRun: true,
+    });
+
+    const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
+    expect(createCall.data.status).toBe('DRY_RUN');
+    expect(createCall.data.dryRun).toBe(true);
+    expect(createCall.data.completedAt).toBeDefined();
+
+    const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
+    expect(auditCall.data.kind).toBe('DRY_RUN_COMPLETED');
+
+    expect(result.status).toBe('DRY_RUN');
+    expect(result.dryRun).toBe(true);
+  });
+
+  it('dryRun=false sets PENDING status, no completedAt, emits OPERATION_STARTED', async () => {
+    const pendingOp = {
+      id: 'op-pending',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    prisma.provisioningOperation.create.mockResolvedValue(pendingOp);
+
+    const svc = new ProvisioningService(prisma);
+    await svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO);
+
+    const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
+    expect(createCall.data.status).toBe('PENDING');
+    expect(createCall.data.completedAt).toBeUndefined();
+
+    const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
+    expect(auditCall.data.kind).toBe('OPERATION_STARTED');
+  });
+
+  it('does not emit ROLLBACK_INITIATED at creation — only at execution phase', async () => {
+    const rollbackOp = {
+      id: 'op-rb',
+      provisioningProjectId: PP_ID,
+      type: 'ROLLBACK',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: 'rb-key',
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    prisma.provisioningOperation.create.mockResolvedValue(rollbackOp);
+
+    const svc = new ProvisioningService(prisma);
+    await svc.createOperation(USER_ID, {
+      ...BASE_CREATE_OPERATION_DTO,
+      type: OperationTypeDto.ROLLBACK,
+      idempotencyKey: 'rb-key',
+    });
+
+    const auditKinds = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditKinds).not.toContain('ROLLBACK_INITIATED');
+    expect(auditKinds).toContain('OPERATION_STARTED');
+    expect(prisma.provisioningAuditEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('desiredSpec stored as input on the operation row', async () => {
+    const spec = { serverType: 'cx31', name: 'worker-01', location: 'fsn1' };
+    const newOp = {
+      id: 'op-spec',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: IDEM_KEY,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma();
+    setupOperationOwnership(prisma);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    prisma.provisioningOperation.create.mockResolvedValue(newOp);
+
+    const svc = new ProvisioningService(prisma);
+    await svc.createOperation(USER_ID, { ...BASE_CREATE_OPERATION_DTO, desiredSpec: spec });
+
+    const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
+    expect(createCall.data.input).toEqual(spec);
+  });
+});
+
+// ── createProject — ownership + credentialRef ─────────────────
 
 describe('ProvisioningService.createProject', () => {
   it('throws NotFoundException when project does not exist', async () => {
@@ -269,9 +388,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
     prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef());
-    // Project exists
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
-    // But no operation with this idempotency key
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
 
     const svc = new ProvisioningService(prisma);
@@ -354,32 +471,5 @@ describe('ProvisioningService.createProject', () => {
     expect(auditCall.data.kind).toBe('DRY_RUN_COMPLETED');
 
     expect(result.operation.dryRun).toBe(true);
-  });
-});
-
-// ── ROLLBACK emits ROLLBACK_INITIATED ───────────────────────
-
-describe('ProvisioningService.createOperation — ROLLBACK type', () => {
-  it('emits ROLLBACK_INITIATED audit event in addition to OPERATION_STARTED', async () => {
-    const newOp = { id: 'op-rb', status: 'PENDING', idempotencyKey: 'rb-key' };
-    const prisma = makePrisma();
-    prisma.provisioningProject.findUnique.mockResolvedValue(stubProvisioningProject());
-    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
-    prisma.provisioningOperation.create.mockResolvedValue(newOp);
-
-    const svc = new ProvisioningService(prisma);
-    await svc.createOperation(USER_ID, {
-      provisioningProjectId: PP_ID,
-      type: OperationTypeDto.ROLLBACK,
-      dryRun: false,
-      idempotencyKey: 'rb-key',
-    });
-
-    const auditKinds = prisma.provisioningAuditEvent.create.mock.calls.map(
-      (c: any) => c[0].data.kind,
-    );
-    expect(auditKinds).toContain('OPERATION_STARTED');
-    expect(auditKinds).toContain('ROLLBACK_INITIATED');
   });
 });

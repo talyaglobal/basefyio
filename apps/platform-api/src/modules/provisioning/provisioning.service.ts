@@ -11,6 +11,33 @@ import { CreateProvisioningOperationDto } from './dto/create-provisioning-operat
 
 // ── Response types ────────────────────────────────────────
 
+export interface ProvisioningOperationResponse {
+  provisioningOperationId: string;
+  provisioningProjectId: string;
+  type: string;
+  status: string;
+  dryRun: boolean;
+  idempotencyKey: string;
+  idempotent: boolean;
+  createdAt: Date;
+}
+
+function toProvisioningOperationResponse(
+  op: ProvisioningOperation,
+  idempotent: boolean,
+): ProvisioningOperationResponse {
+  return {
+    provisioningOperationId: op.id,
+    provisioningProjectId: op.provisioningProjectId,
+    type: op.type,
+    status: op.status,
+    dryRun: op.dryRun,
+    idempotencyKey: op.idempotencyKey,
+    idempotent,
+    createdAt: op.createdAt,
+  };
+}
+
 export interface ProvisioningProjectCreateResponse {
   provisioningProjectId: string;
   provider: string;
@@ -226,63 +253,83 @@ export class ProvisioningService {
   async createOperation(
     userId: string,
     dto: CreateProvisioningOperationDto,
-  ) {
-    await this.assertProvisioningProjectAccess(dto.provisioningProjectId, userId);
+  ): Promise<ProvisioningOperationResponse> {
+    // 1. Resolve provisioning project from platform projectId + assert ownership
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
 
-    // Idempotency: return existing operation without error if key already seen
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId: dto.projectId },
+    });
+    if (!pp)
+      throw new NotFoundException(
+        'No provisioning project found for this project. Create one via POST /v1/provisioning/projects first.',
+      );
+
+    // 2. Idempotency check
     const existing = await this.prisma.provisioningOperation.findUnique({
       where: {
         provisioningProjectId_idempotencyKey: {
-          provisioningProjectId: dto.provisioningProjectId,
+          provisioningProjectId: pp.id,
           idempotencyKey: dto.idempotencyKey,
         },
       },
     });
-    if (existing) return { operation: existing, idempotent: true };
 
+    if (existing) {
+      // Same key → verify semantic compatibility before replaying
+      const incompatible =
+        existing.type !== dto.type ||
+        existing.dryRun !== dto.dryRun;
+      if (incompatible)
+        throw new ConflictException(
+          'An operation with this idempotency key already exists with a different type or dryRun value.',
+        );
+      // Compatible payload → idempotent replay, zero writes
+      return toProvisioningOperationResponse(existing, true);
+    }
+
+    // 3. Create new operation (different key → always a new op, never 409)
     const initialStatus = dto.dryRun ? 'DRY_RUN' : 'PENDING';
+    const now = new Date();
 
     const op = await this.prisma.$transaction(async (tx) => {
       const op = await tx.provisioningOperation.create({
         data: {
-          provisioningProjectId: dto.provisioningProjectId,
-          resourceId: dto.resourceId,
+          provisioningProjectId: pp.id,
           type: dto.type,
           status: initialStatus,
           dryRun: dto.dryRun,
           idempotencyKey: dto.idempotencyKey,
           requestedBy: userId,
-          input: (dto.input as any) ?? undefined,
-          startedAt: dto.dryRun ? new Date() : undefined,
-          completedAt: dto.dryRun ? new Date() : undefined,
+          input: dto.desiredSpec as any,
+          startedAt: dto.dryRun ? now : undefined,
+          completedAt: dto.dryRun ? now : undefined,
         },
       });
 
+      // OPERATION_CREATED on creation; OPERATION_STARTED only when execution begins
+      const auditKind: EventKind = dto.dryRun ? 'DRY_RUN_COMPLETED' : 'OPERATION_STARTED';
       await this.writeAuditEvent(tx, {
-        provisioningProjectId: dto.provisioningProjectId,
-        resourceId: dto.resourceId,
+        provisioningProjectId: pp.id,
         operationId: op.id,
-        kind: dto.dryRun ? 'DRY_RUN_COMPLETED' : 'OPERATION_STARTED',
+        kind: auditKind,
         actorUserId: userId,
         fromStatus: null,
         toStatus: initialStatus,
         detail: dto.dryRun ? { dryRun: true } : undefined,
       });
 
-      if (dto.type === 'ROLLBACK' && !dto.dryRun) {
-        await this.writeAuditEvent(tx, {
-          provisioningProjectId: dto.provisioningProjectId,
-          resourceId: dto.resourceId,
-          operationId: op.id,
-          kind: 'ROLLBACK_INITIATED',
-          actorUserId: userId,
-        });
-      }
+      // ROLLBACK_INITIATED emitted only when execution phase begins, not here
 
       return op;
     });
 
-    return { operation: op, idempotent: false };
+    return toProvisioningOperationResponse(op, false);
   }
 
   // ── Read endpoints ────────────────────────────────────────

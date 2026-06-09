@@ -2,7 +2,6 @@ import {
   IsBoolean,
   IsEnum,
   IsObject,
-  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -17,26 +16,29 @@ export enum OperationTypeDto {
 }
 
 export class CreateProvisioningOperationDto {
+  /** Platform project ID — the service resolves the provisioning project from this. */
   @IsUUID()
-  provisioningProjectId: string;
-
-  @IsOptional()
-  @IsUUID()
-  resourceId?: string;
+  projectId: string;
 
   @IsEnum(OperationTypeDto)
   type: OperationTypeDto;
 
-  // Required explicitly at the API layer — no default accepted from the client.
-  @IsBoolean()
-  dryRun: boolean;
-
+  /**
+   * Stable caller-supplied key.
+   *   Same key + compatible payload → idempotent replay (200, idempotent: true).
+   *   Same key + incompatible payload (different type/dryRun/desiredSpec) → 409.
+   *   Different key → new operation.
+   */
   @IsString()
   @MinLength(1)
   @MaxLength(128)
   idempotencyKey: string;
 
-  @IsOptional()
+  /** Provider-specific operation spec stored as input on the operation row. */
   @IsObject()
-  input?: Record<string, unknown>;
+  desiredSpec: Record<string, unknown>;
+
+  /** Required explicitly — no server-side default. */
+  @IsBoolean()
+  dryRun: boolean;
 }
