@@ -95,6 +95,14 @@ Flipping a document to `STALE` is a separate, explicit signal ("known out of dat
 reindex queued") and, per the search-visibility rule below, removes it from
 default search until it is reprocessed.
 
+**STALE detection owner.** Source-change (STALE) detection is owned by
+`RagService.notifyObjectChanged()`, the single entry point a storage-event hook
+calls when an object is overwritten. It marks the document `STALE` and enqueues a
+REINDEX; the **worker** then performs the authoritative `source_hash` comparison
+(unchanged → skipped and returned to `INDEXED`, changed → re-indexed).
+Registration/ingest deliberately does **not** auto-detect changes — that would
+break duplicate-ingest idempotency — so there is exactly one owner.
+
 **Search visibility.** Search hydration returns chunks from `INDEXED` documents
 **only** by default; `STALE`, `FAILED`, and `PROCESSING` documents are excluded so
 retrieval never surfaces stale or partial content. Callers may opt in to
@@ -119,8 +127,13 @@ Enums are real Postgres enums (`rag_document_status`, `rag_granularity`,
 
 ## Idempotency & invariants (tested)
 
-- `rag_index_jobs.dedupe_key` is `UNIQUE` — the same logical job cannot be
-  enqueued twice while pending (reindex idempotency).
+- `rag_index_jobs (project_id, dedupe_key)` is `UNIQUE`. Dedupe-key lifetime is
+  **Option A**: a key is globally unique within a project and is **never reused**,
+  even after completion. INDEX keys are content/document-addressed and carry no
+  nonce, so re-ingesting the same object collides on the key and is an idempotent
+  no-op. REINDEX and REINDEX_INCOMPLETE keys carry a nonce (timestamp), so an
+  explicit reindex always gets a fresh key and runs again — a completed reindex
+  never becomes one-shot.
 - `rag_chunks (document_id, chunk_index)` is `UNIQUE` — reindex replaces chunks
   deterministically.
 - `rag_documents (project_id, bucket_name, object_key)` is `UNIQUE` — the
@@ -152,7 +165,9 @@ tests (a composite FK would be the stronger DB-level guarantee, noted for later)
 - `chat_messages.project_id` must equal its parent `chat_threads.project_id`.
 - `agent_memory.thread_id`, when set, must belong to the same project as the
   memory row (a Project A thread cannot anchor a Project B memory).
-- `rag_documents.source_hash` must be non-null once status reaches `INDEXED`.
+- `rag_documents.source_hash` must be non-null once status reaches `INDEXED` —
+  enforced in `RagRepository.patchDocument`, which checks the final row state
+  (allowed if the patch carries a hash or the existing row already has one).
 - `updated_at` is refreshed on every update both via Drizzle `$onUpdate` and by
   the repository setting it explicitly, so title/metadata-only edits still bump it.
 - `agent_memory.importance` is constrained to 0–100 (DB check + repository

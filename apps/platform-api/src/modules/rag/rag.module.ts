@@ -10,13 +10,16 @@ import { RagService } from './rag.service';
 import { RagRepository } from './rag.repository';
 import { RagIndexerService } from './rag-indexer.service';
 import { RagIndexProcessor } from './rag-index.processor';
+import { RagEmbeddingGcService } from './rag-embedding-gc.service';
 
 /**
- * RAG storage module (commit 1: skeleton).
+ * RAG storage module — Module 1 (Phase A).
  *
  * EmbeddingModule is @Global(), so EmbeddingService and VectorStoreService are
  * injected without an explicit import. RagIndexProcessor consumes RAG_INDEX_QUEUE
  * (the "rag_embedding_job" worker) and delegates to RagIndexerService.
+ * RagEmbeddingGcService sweeps orphaned embedding_records left by failed
+ * chunk-upsert transactions; exported so an admin/cron endpoint can trigger it.
  */
 @Module({
   imports: [
@@ -32,7 +35,8 @@ import { RagIndexProcessor } from './rag-index.processor';
     RagRepository,
     RagIndexerService,
     RagIndexProcessor,
+    RagEmbeddingGcService,
   ],
-  exports: [RagService],
+  exports: [RagService, RagEmbeddingGcService],
 })
 export class RagModule {}

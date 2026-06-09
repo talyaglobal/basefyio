@@ -31,6 +31,7 @@ import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embeddi
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
+import { AgentModule } from './modules/agent/agent.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -70,6 +71,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DataEngineModule,
     DrizzleModule,
     RagModule,
+    AgentModule,
   ],
 })
 export class AppModule implements NestModule {

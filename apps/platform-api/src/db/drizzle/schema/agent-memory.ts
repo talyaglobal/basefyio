@@ -31,6 +31,20 @@ import {
 import { relations, sql } from 'drizzle-orm';
 import { projects, embeddingRecords } from './_refs';
 
+/**
+ * Agent storage — strict Drizzle schema (new tables only).
+ *
+ * Relations:
+ *   projects ──1:N──> chat_threads ──1:N──> chat_messages
+ *   projects ──1:N──> agent_memory ──N:1──> embedding_records
+ *   projects ──1:N──> agent_tool_calls ──N:1──> chat_threads
+ *   agent_tool_calls ──1:N──> agent_policy_events
+ *
+ * runId on agent_tool_calls / agent_policy_events is a loose text ref —
+ * the FK to agent_runs will be added when Module 3 (Agent Creation) lands,
+ * following the same pattern as agentId on chat_threads.
+ */
+
 export const chatRole = pgEnum('chat_role', [
   'system',
   'user',
@@ -42,6 +56,18 @@ export const agentMemoryKind = pgEnum('agent_memory_kind', [
   'short_term', // working memory for the current thread
   'long_term', // durable facts, embedded for retrieval
   'summary', // rolled-up thread summary
+]);
+
+export const agentToolCallStatus = pgEnum('agent_tool_call_status', [
+  'allowed', // policy passed, execution pending
+  'denied', // policy blocked
+  'success', // executed and returned a result
+  'failed', // execution threw an error
+]);
+
+export const agentPolicyDecision = pgEnum('agent_policy_decision', [
+  'allow',
+  'deny',
 ]);
 
 export interface ChatMessageMetadata {
@@ -150,26 +176,14 @@ export const agentMemory = pgTable(
   }),
 );
 
-export const agentToolCallStatus = pgEnum('agent_tool_call_status', [
-  'allowed', // policy passed, execution pending
-  'denied',  // policy blocked
-  'success', // executed and returned a result
-  'failed',  // execution threw an error
-]);
-
-export const agentPolicyDecision = pgEnum('agent_policy_decision', [
-  'allow',
-  'deny',
-]);
-
 // ── agent_tool_calls ─────────────────────────────────────
-// runId is a loose text ref — FK to agent_runs added when Module 3 lands.
 export const agentToolCalls = pgTable(
   'agent_tool_calls',
   {
     id: text('id')
       .primaryKey()
       .default(sql`gen_random_uuid()`),
+    // Loose ref to agent_runs — FK added when Module 3 lands.
     runId: text('run_id'),
     threadId: text('thread_id').references(() => chatThreads.id, {
       onDelete: 'cascade',
@@ -238,20 +252,26 @@ export const agentMemoryRelations = relations(agentMemory, ({ one }) => ({
   }),
 }));
 
-export const agentToolCallsRelations = relations(agentToolCalls, ({ one, many }) => ({
-  thread: one(chatThreads, {
-    fields: [agentToolCalls.threadId],
-    references: [chatThreads.id],
+export const agentToolCallsRelations = relations(
+  agentToolCalls,
+  ({ one, many }) => ({
+    thread: one(chatThreads, {
+      fields: [agentToolCalls.threadId],
+      references: [chatThreads.id],
+    }),
+    policyEvents: many(agentPolicyEvents),
   }),
-  policyEvents: many(agentPolicyEvents),
-}));
+);
 
-export const agentPolicyEventsRelations = relations(agentPolicyEvents, ({ one }) => ({
-  toolCall: one(agentToolCalls, {
-    fields: [agentPolicyEvents.toolCallId],
-    references: [agentToolCalls.id],
+export const agentPolicyEventsRelations = relations(
+  agentPolicyEvents,
+  ({ one }) => ({
+    toolCall: one(agentToolCalls, {
+      fields: [agentPolicyEvents.toolCallId],
+      references: [agentToolCalls.id],
+    }),
   }),
-}));
+);
 
 // ── Inferred types ───────────────────────────────────────
 export type ChatThread = typeof chatThreads.$inferSelect;

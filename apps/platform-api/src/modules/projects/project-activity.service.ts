@@ -57,6 +57,9 @@ export const ProjectActivityKind = {
   RAG_DOCUMENT_REGISTERED: 'rag.document_registered',
   RAG_REINDEX_REQUESTED: 'rag.reindex_requested',
   RAG_INDEX_COMPLETED: 'rag.index_completed',
+  AGENT_THREAD_CREATED: 'agent.thread_created',
+  AGENT_MESSAGE_ADDED: 'agent.message_added',
+  AGENT_TOOL_DENIED: 'agent.tool_denied',
 } as const;
 
 export type ProjectActivityKindValue =
