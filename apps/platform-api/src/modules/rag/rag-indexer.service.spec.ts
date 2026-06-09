@@ -97,6 +97,28 @@ describe('RagIndexerService', () => {
     expect(repo.upsertChunks).not.toHaveBeenCalled();
   });
 
+  it('failed reindex of an already-INDEXED doc keeps it INDEXED (chunks stay usable)', async () => {
+    const { indexer, embedding, repo } = build();
+    embedding.embedContent.mockRejectedValueOnce(new Error('embed boom'));
+    const doc = { ...baseDoc, status: 'INDEXED', sourceHash: 'old-hash' };
+    const written = await indexer.indexDocument(doc, 'REINDEX');
+    expect(written).toBe(0);
+    const last = repo.patchDocument.mock.calls.at(-1);
+    expect(last[1].status).toBe('INDEXED');
+    expect(last[1].error).toContain('embed boom');
+    expect(repo.upsertChunks).not.toHaveBeenCalled();
+  });
+
+  it('rejects a document that exceeds the max size', async () => {
+    const { indexer, storage, repo } = build();
+    const big = Buffer.alloc(26 * 1024 * 1024, 0x61); // > 25 MB cap
+    storage.getObject.mockResolvedValueOnce({ stream: Readable.from(big) });
+    const written = await indexer.indexDocument(baseDoc, 'INDEX');
+    expect(written).toBe(0);
+    expect(repo.patchDocument.mock.calls.some((c: any[]) => c[1].status === 'FAILED')).toBe(true);
+    expect(repo.upsertChunks).not.toHaveBeenCalled();
+  });
+
   describe('runJob target resolution', () => {
     it('REINDEX_INCOMPLETE pulls only the incomplete set', async () => {
       const { indexer, repo } = build();

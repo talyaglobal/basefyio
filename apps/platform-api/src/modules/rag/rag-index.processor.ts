@@ -24,10 +24,26 @@ export class RagIndexProcessor extends WorkerHost {
 
   async process(job: Job<RagIndexJobPayload>): Promise<void> {
     const payload = job.data;
+    // markJobRunning sets status RUNNING unconditionally, so a BullMQ retry of a
+    // job whose row is already FAILED transitions FAILED → RUNNING cleanly.
     await this.repo.markJobRunning(payload.jobId);
     try {
-      const { processedDocs, totalChunks } =
+      const { processedDocs, failedDocs, totalChunks } =
         await this.indexer.runJob(payload);
+
+      // Per-document failures don't throw (each bad doc is marked FAILED on its
+      // own row). Escalate the JOB to FAILED only when every target failed and
+      // nothing was produced; partial success stays COMPLETED with the failed
+      // documents observable via their own status. No throw here, so BullMQ does
+      // not retry an all-failed job — re-run it via reindex.
+      if (failedDocs > 0 && totalChunks === 0) {
+        await this.repo.markJobFailed(
+          payload.jobId,
+          `Failed ${failedDocs} document(s)`,
+        );
+        return;
+      }
+
       await this.repo.markJobCompleted(payload.jobId, {
         processedDocs,
         totalChunks,

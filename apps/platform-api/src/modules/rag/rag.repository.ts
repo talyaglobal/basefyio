@@ -7,10 +7,10 @@ import {
   ragChunks,
   ragIndexJobs,
   type RagDocument,
-  type NewRagChunk,
   type RagIndexJob,
 } from '../../db/drizzle/schema/rag';
 import { RAG_INCOMPLETE_STATUSES, type RagDocStatus } from './rag-util';
+import type { RagChunkRow } from './rag-chunk-builder';
 import type { SimilarityResult } from '../embedding/types';
 
 export interface CreateDocumentInput {
@@ -239,6 +239,10 @@ export class RagRepository {
     return { job: existing[0], created: false };
   }
 
+  /**
+   * Set the job RUNNING (and bump attempts). Unconditional by design so a BullMQ
+   * retry can transition a previously FAILED job row back to RUNNING.
+   */
   async markJobRunning(jobId: string): Promise<void> {
     await this.db
       .update(ragIndexJobs)
@@ -290,7 +294,7 @@ export class RagRepository {
   async upsertChunks(
     documentId: string,
     projectId: string,
-    chunks: NewRagChunk[],
+    chunks: RagChunkRow[],
   ): Promise<number> {
     for (const c of chunks) {
       if (c.projectId !== projectId) {

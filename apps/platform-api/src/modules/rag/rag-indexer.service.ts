@@ -12,9 +12,9 @@ import { RagRepository } from './rag.repository';
 import { chunk, normalizeToJson } from './rag-chunker';
 import { buildChunkRows } from './rag-chunk-builder';
 import { sha256 } from './rag-util';
-import { RAG_CHUNK_ENTITY_TYPE } from './rag.constants';
+import { RAG_CHUNK_ENTITY_TYPE, MAX_RAG_DOCUMENT_BYTES } from './rag.constants';
 import type { RagIndexJobPayload } from './rag.service';
-import type { RagDocument, NewRagChunk } from '../../db/drizzle/schema/rag';
+import type { RagDocument } from '../../db/drizzle/schema/rag';
 
 /**
  * Commit-2 worker logic: turns a registered document into embedded chunks.
@@ -40,15 +40,16 @@ export class RagIndexerService {
   /** Process one job: resolve target docs by kind, index each, return counts. */
   async runJob(
     payload: RagIndexJobPayload,
-  ): Promise<{ processedDocs: number; totalChunks: number }> {
+  ): Promise<{ processedDocs: number; failedDocs: number; totalChunks: number }> {
     const docs = await this.resolveTargets(payload);
     let totalChunks = 0;
-    let processedDocs = 0;
+    let failedDocs = 0;
     for (const doc of docs) {
-      totalChunks += await this.indexDocument(doc, payload.kind);
-      processedDocs += 1;
+      const result = await this.indexDocument(doc, payload.kind);
+      totalChunks += result.chunks;
+      if (result.failed) failedDocs += 1;
     }
-    return { processedDocs, totalChunks };
+    return { processedDocs: docs.length, failedDocs, totalChunks };
   }
 
   private async resolveTargets(
@@ -69,14 +70,15 @@ export class RagIndexerService {
   }
 
   /**
-   * Index a single document. Returns the number of chunks written (0 if skipped
-   * or failed). Never throws — failures are recorded on the document so one bad
-   * doc does not abort a batch job.
+   * Index a single document. Returns the chunk count and whether it failed.
+   * Never throws — failures are recorded on the document (and surfaced via
+   * `failed`) so one bad doc does not abort a batch job, while the caller can
+   * still escalate job status from the aggregate failure count.
    */
   async indexDocument(
     doc: RagDocument,
     kind: RagIndexJobPayload['kind'],
-  ): Promise<number> {
+  ): Promise<{ chunks: number; failed: boolean }> {
     try {
       const bytes = await this.readObject(
         doc.projectId,
@@ -93,7 +95,7 @@ export class RagIndexerService {
         doc.status === 'INDEXED' &&
         doc.sourceHash === sourceHash
       ) {
-        return 0;
+        return { chunks: 0, failed: false };
       }
 
       // Keep an already-INDEXED document visible (status stays INDEXED) while it
@@ -134,11 +136,12 @@ export class RagIndexerService {
 
       // Transactional swap inside the repository: readers see the old chunks
       // until this commits, so retrieval never has a gap.
-      await this.repo.upsertChunks(
-        doc.id,
-        doc.projectId,
-        rows as unknown as NewRagChunk[],
-      );
+      //
+      // CLEANUP DEBT (commit 2): embeddings are written above before this swap,
+      // so if the transaction fails, embeddings_store may retain vectors for
+      // chunk ids that were never inserted. A later GC sweep should remove
+      // embedding records whose chunk id no longer exists.
+      await this.repo.upsertChunks(doc.id, doc.projectId, rows);
 
       const tokenCount = rows.reduce((sum, r) => sum + r.tokenCount, 0);
       await this.repo.patchDocument(doc.id, {
@@ -157,17 +160,20 @@ export class RagIndexerService {
         metadata: { documentId: doc.id, chunks: rows.length },
       });
 
-      return rows.length;
+      return { chunks: rows.length, failed: false };
     } catch (err: any) {
       this.logger.warn(
         `RAG index failed for document ${doc.id}: ${err?.message ?? err}`,
       );
-      // Keep any existing chunks as a fallback; only flag the document.
+      // An already-INDEXED document keeps its status on a failed reindex — its
+      // existing chunks stay usable for search. Only first-time / failed / stale
+      // documents become FAILED.
+      const nextStatus = doc.status === 'INDEXED' ? 'INDEXED' : 'FAILED';
       await this.repo.patchDocument(doc.id, {
-        status: 'FAILED',
+        status: nextStatus,
         error: String(err?.message ?? err).slice(0, 8000),
       });
-      return 0;
+      return { chunks: 0, failed: true };
     }
   }
 
@@ -182,14 +188,31 @@ export class RagIndexerService {
       bucketName,
       objectKey,
     );
-    return streamToBuffer(stream);
+    return streamToBuffer(stream, MAX_RAG_DOCUMENT_BYTES);
   }
 }
 
-function streamToBuffer(stream: Readable): Promise<Buffer> {
+/**
+ * Read a stream into a Buffer, rejecting once the accumulated size exceeds
+ * `maxBytes` (and destroying the stream) so a huge object can't exhaust memory.
+ */
+function streamToBuffer(stream: Readable, maxBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    stream.on('data', (c) => chunks.push(Buffer.from(c)));
+    let total = 0;
+    stream.on('data', (c) => {
+      total += c.length;
+      if (total > maxBytes) {
+        stream.destroy();
+        reject(
+          new Error(
+            `Document exceeds the maximum RAG size of ${maxBytes} bytes`,
+          ),
+        );
+        return;
+      }
+      chunks.push(Buffer.from(c));
+    });
     stream.on('end', () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
   });
