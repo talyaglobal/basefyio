@@ -28,43 +28,63 @@ export class DataEngineService implements OnModuleInit {
     await this.tryInit();
   }
 
+  private async tryInitWithProvider(provider: string): Promise<boolean> {
+    const { createDataEngine } = await import('@basefyio/data-engine');
+
+    let connectionString: string;
+    if (provider === 'postgres') {
+      const dbUrl = process.env.DATABASE_URL;
+      if (dbUrl) {
+        connectionString = dbUrl;
+      } else {
+        const db = this.config.get<Record<string, string>>('database') || {};
+        connectionString = `postgresql://${db.user || 'kolaybase'}:${db.password || ''}@${db.host || 'localhost'}:${db.port || '5432'}/${db.name || 'kolaybase'}`;
+      }
+    } else {
+      connectionString = this.config.get<string>('dataEngine.connectionString') || '';
+    }
+
+    this.engine = await createDataEngine({
+      provider: provider as 'nosql' | 'postgres',
+      connectionString,
+      username: this.config.get<string>('dataEngine.username') || '',
+      password: this.config.get<string>('dataEngine.password') || '',
+      container: this.config.get<string>('dataEngine.container') || 'basefyio-apps',
+      namespace: this.config.get<string>('dataEngine.namespace') || 'projects',
+      maxDocumentKb: this.config.get<number>('dataEngine.maxDocumentKb') || 1024,
+      maxNestingDepth: this.config.get<number>('dataEngine.maxNestingDepth') || 8,
+      maxArrayItems: this.config.get<number>('dataEngine.maxArrayItems') || 1000,
+    });
+    this.logger.log(`Data Engine initialized (provider: ${provider})`);
+    return true;
+  }
+
   private async tryInit() {
-    const provider = this.config.get<string>('dataEngine.provider') || 'postgres';
-    if (provider === 'disabled') {
+    const configuredProvider = this.config.get<string>('dataEngine.provider') || 'postgres';
+    if (configuredProvider === 'disabled') {
       this.logger.log('Data Engine is disabled (DATA_ENGINE_PROVIDER=disabled)');
       return;
     }
 
     try {
-      const { createDataEngine } = await import('@basefyio/data-engine');
-      let connectionString = this.config.get<string>('dataEngine.connectionString') || '';
-      if (provider === 'postgres') {
-        // For postgres provider, prefer DATABASE_URL over the NoSQL connection string
-        const dbUrl = process.env.DATABASE_URL;
-        if (dbUrl) {
-          connectionString = dbUrl;
-        } else {
-          const db = this.config.get<Record<string, string>>('database') || {};
-          connectionString = `postgresql://${db.user || 'kolaybase'}:${db.password || ''}@${db.host || 'localhost'}:${db.port || '5432'}/${db.name || 'kolaybase'}`;
+      await this.tryInitWithProvider(configuredProvider);
+      this.initAttempts = 0;
+    } catch (err: any) {
+      // If nosql provider fails (missing couchbase module, connection refused, etc.),
+      // automatically fall back to postgres provider.
+      if (configuredProvider === 'nosql') {
+        this.logger.warn(`NoSQL provider failed: ${err.message}. Falling back to postgres provider.`);
+        try {
+          await this.tryInitWithProvider('postgres');
+          this.initAttempts = 0;
+          return;
+        } catch (fallbackErr: any) {
+          this.logger.error(`Postgres fallback also failed: ${fallbackErr.message}`);
         }
       }
-      this.engine = await createDataEngine({
-        provider: provider as 'nosql' | 'postgres',
-        connectionString,
-        username: this.config.get<string>('dataEngine.username') || '',
-        password: this.config.get<string>('dataEngine.password') || '',
-        container: this.config.get<string>('dataEngine.container') || 'basefyio-apps',
-        namespace: this.config.get<string>('dataEngine.namespace') || 'projects',
-        maxDocumentKb: this.config.get<number>('dataEngine.maxDocumentKb') || 1024,
-        maxNestingDepth: this.config.get<number>('dataEngine.maxNestingDepth') || 8,
-        maxArrayItems: this.config.get<number>('dataEngine.maxArrayItems') || 1000,
-      });
-      this.initAttempts = 0;
-      this.logger.log(`Data Engine initialized (provider: ${provider})`);
-    } catch (err: any) {
+
       this.initAttempts++;
       this.logger.error(`Data Engine init failed (attempt ${this.initAttempts}): ${err.message}`);
-      // Schedule a retry if under the limit
       if (this.initAttempts < this.MAX_RETRY_ATTEMPTS) {
         this.logger.log(`Retrying Data Engine init in ${this.RETRY_INTERVAL_MS / 1000}s...`);
         this.retryTimer = setTimeout(() => this.tryInit(), this.RETRY_INTERVAL_MS);
