@@ -1145,47 +1145,6 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0 pb-4">
-        <h1 className="text-2xl font-bold tracking-tight">Table Editor</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={loadTables}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <ImportIcon className="mr-2 h-4 w-4" />
-            Import Data
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setDedupeOpen(true)}
-            disabled={!selected || tables.length === 0}
-            title={
-              !selected || tables.length === 0
-                ? 'Select a table in the sidebar first'
-                : 'Remove rows that match on chosen columns'
-            }
-          >
-            <CopyMinus className="mr-2 h-4 w-4" />
-            Clean duplicates
-          </Button>
-          <div className="relative">
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Table
-            </Button>
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new Event('basefyio-open-help'))}
-              className="absolute -right-2 -top-2 z-10 hidden lg:flex h-5 w-5 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-              title="Show help"
-            >
-              <CircleHelp className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      </div>
-
       {tables.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
           <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
@@ -1308,35 +1267,75 @@ export function TableEditor({ projectId }: TableEditorProps) {
           <div className="flex-1 min-w-0 flex flex-col">
             {selected ? (
               <>
-                <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5 overflow-x-auto">
-                  {openTabs.map((tab) => {
-                    const active = tab === selected;
-                    return (
-                      <div
-                        key={tab}
-                        onClick={() => selectTable(tab)}
-                        className={cn(
-                          'inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors',
-                          active
-                            ? 'border-primary/40 bg-primary/10 text-primary'
-                            : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
-                        )}
-                      >
-                        <span className="max-w-[140px] truncate">{tab}</span>
-                        <button
-                          type="button"
-                          aria-label={`Close ${tab}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeTab(tab);
-                          }}
-                          className="rounded p-0.5 hover:bg-muted"
+                <div className="flex items-center border-b bg-muted/30 px-2 py-1.5">
+                  <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+                    {openTabs.map((tab) => {
+                      const active = tab === selected;
+                      return (
+                        <div
+                          key={tab}
+                          onClick={() => selectTable(tab)}
+                          className={cn(
+                            'inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors',
+                            active
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
+                          )}
                         >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <span className="max-w-[140px] truncate">{tab}</span>
+                          <button
+                            type="button"
+                            aria-label={`Close ${tab}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeTab(tab);
+                            }}
+                            className="rounded p-0.5 hover:bg-muted"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadTables} title="Refresh tables">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)}>
+                      <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
+                      Import Data
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDedupeOpen(true)}
+                      disabled={!selected || tables.length === 0}
+                      title={
+                        !selected || tables.length === 0
+                          ? 'Select a table in the sidebar first'
+                          : 'Remove rows that match on chosen columns'
+                      }
+                    >
+                      <CopyMinus className="mr-1.5 h-3.5 w-3.5" />
+                      Clean duplicates
+                    </Button>
+                    <div className="relative">
+                      <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)}>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        New Table
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new Event('basefyio-open-help'))}
+                        className="absolute -right-1.5 -top-1.5 z-10 hidden lg:flex h-4 w-4 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                        title="Show help"
+                      >
+                        <CircleHelp className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Toolbar */}

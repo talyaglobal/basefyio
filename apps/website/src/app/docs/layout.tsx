@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Book, Code, Terminal, Server } from "lucide-react";
+import { Book, Code, Terminal, Server, Database, Shield, Layers, ScrollText, Cloud } from "lucide-react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
-  "basefyio documentation: PostgreSQL, auth, storage, REST API, SDK, and CLI.";
+  "basefyio documentation: PostgreSQL database, NoSQL data engine, authentication, storage, REST API, SDK, CLI, and self-hosting guides.";
 
 export const metadata: Metadata = {
   title: {
@@ -22,9 +22,12 @@ export const metadata: Metadata = {
 
 const nav = [
   { href: "/docs", label: "Overview", icon: Book },
+  { href: "/docs/data-engine", label: "Data Engine", icon: Database },
   { href: "/docs/api", label: "API Reference", icon: Server },
   { href: "/docs/sdk", label: "SDK", icon: Code },
   { href: "/docs/cli", label: "CLI", icon: Terminal },
+  { href: "/docs/security", label: "Security & RLS", icon: Shield },
+  { href: "/docs/self-hosting", label: "Self-Hosting", icon: Cloud },
 ];
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
