@@ -2,9 +2,13 @@ export const PROVISIONING_PROVIDER = 'PROVISIONING_PROVIDER';
 
 export interface ProvisioningExecuteInput {
   operationId: string;
-  type: string;
-  input: unknown;
-  /** OpenBao path reference only — never the credential bytes themselves. */
+  projectId: string;
+  providerType: string;
+  region: string;
+  datacenter: string | null;
+  /** The operation's input payload (desired resource spec). */
+  desiredSpec: unknown;
+  /** OpenBao path reference only — the provider resolves the actual secret; the executor never does. */
   credentialOpenbaoPath: string;
 }
 

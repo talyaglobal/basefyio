@@ -6,19 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  IProvisioningProvider,
-  PROVISIONING_PROVIDER,
-} from './interfaces/provisioning-provider.interface';
-
-// Executable terminal statuses that block re-execution
-const NON_EXECUTABLE_STATUSES = [
-  'RUNNING',
-  'COMPLETED',
-  'FAILED',
-  'DRY_RUN',
-  'ROLLED_BACK',
-] as const;
+import { ProvisioningExecuteInput } from './interfaces/provisioning-provider.interface';
+import { IProviderRegistry, PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
+import { normalizeProviderError } from './interfaces/provider-error.interface';
 
 type AuditEventKind =
   | 'STATUS_CHANGED'
@@ -29,18 +19,17 @@ type AuditEventKind =
 export class ProvisioningExecutorService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PROVISIONING_PROVIDER)
-    private readonly provider: IProvisioningProvider,
+    @Inject(PROVIDER_REGISTRY) private readonly registry: IProviderRegistry,
   ) {}
 
   async executeOperation(userId: string, operationId: string) {
-    // Load operation with full context needed for ownership + execution
+    // Load operation with full context needed for ownership, dispatch, and input building
     const op = await this.prisma.provisioningOperation.findUnique({
       where: { id: operationId },
       include: {
         provisioningProject: {
           include: {
-            project: { select: { teamId: true } },
+            project: { select: { teamId: true, id: true } },
             credentialRef: { select: { openbaoPath: true } },
           },
         },
@@ -55,14 +44,30 @@ export class ProvisioningExecutorService {
     });
     if (!member) throw new ForbiddenException('Not a member of this team');
 
-    // State guard: only PENDING operations may be executed
-    if ((NON_EXECUTABLE_STATUSES as readonly string[]).includes(op.status)) {
+    // State guard: allowlist — only PENDING may execute.
+    // Rejecting all other statuses (including future ones) by default.
+    if (op.status !== 'PENDING') {
       throw new BadRequestException(
         `Operation is in status ${op.status} and cannot be executed. Only PENDING operations are executable.`,
       );
     }
 
-    // ── PENDING → RUNNING ────────────────────────────────────────
+    // Build the full provider input contract — openbao path only, no secret resolution here
+    const input: ProvisioningExecuteInput = {
+      operationId: op.id,
+      projectId: op.provisioningProject.project.id,
+      providerType: op.provisioningProject.provider,
+      region: op.provisioningProject.region,
+      datacenter: op.provisioningProject.datacenter ?? null,
+      desiredSpec: op.input,
+      // The executor passes the path reference only; the provider handles secret resolution
+      credentialOpenbaoPath: op.provisioningProject.credentialRef.openbaoPath,
+    };
+
+    // Resolve provider before mutating state — unknown type fails here with 400, not after RUNNING
+    const provider = this.registry.resolve(input.providerType);
+
+    // ── PENDING → RUNNING ──────────────────────────────────────
     await this.prisma.provisioningOperation.update({
       where: { id: op.id },
       data: { status: 'RUNNING', startedAt: new Date() },
@@ -74,17 +79,12 @@ export class ProvisioningExecutorService {
       actorUserId: userId,
       fromStatus: 'PENDING',
       toStatus: 'RUNNING',
+      detail: { providerType: input.providerType, region: input.region },
     });
 
-    // ── Provider call + terminal transition ──────────────────────
+    // ── Provider call + terminal transition ────────────────────
     try {
-      const providerResult = await this.provider.execute({
-        operationId: op.id,
-        type: op.type,
-        input: op.input,
-        // Pass only the OpenBao path reference — never actual credential bytes
-        credentialOpenbaoPath: op.provisioningProject.credentialRef.openbaoPath,
-      });
+      const providerResult = await provider.execute(input);
 
       // RUNNING → COMPLETED
       const completed = await this.prisma.provisioningOperation.update({
@@ -102,14 +102,15 @@ export class ProvisioningExecutorService {
         actorUserId: userId,
         fromStatus: 'RUNNING',
         toStatus: 'COMPLETED',
+        detail: { providerType: input.providerType, region: input.region },
       });
       return completed;
     } catch (err) {
-      // RUNNING → FAILED
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      // RUNNING → FAILED; failure is normalized and stored — never re-thrown
+      const normalized = normalizeProviderError(err);
       const failed = await this.prisma.provisioningOperation.update({
         where: { id: op.id },
-        data: { status: 'FAILED', errorMessage, completedAt: new Date() },
+        data: { status: 'FAILED', errorMessage: normalized.message, completedAt: new Date() },
       });
       await this.writeAuditEvent({
         provisioningProjectId: op.provisioningProjectId,
@@ -118,7 +119,13 @@ export class ProvisioningExecutorService {
         actorUserId: userId,
         fromStatus: 'RUNNING',
         toStatus: 'FAILED',
-        detail: { error: errorMessage },
+        detail: {
+          providerType: input.providerType,
+          region: input.region,
+          error: normalized.code,
+          message: normalized.message,
+          retryable: normalized.retryable,
+        },
       });
       return failed;
     }
