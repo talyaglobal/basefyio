@@ -29,6 +29,7 @@ import { SearchModule } from './modules/search/search.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embedding.module';
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
+import { DataStructuresModule } from './modules/data-structures/data-structures.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
 import { AgentModule } from './modules/agent/agent.module';
@@ -69,6 +70,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RecommendationModule,
     TenantEmbeddingModule,
     DataEngineModule,
+    DataStructuresModule,
     DrizzleModule,
     RagModule,
     AgentModule,

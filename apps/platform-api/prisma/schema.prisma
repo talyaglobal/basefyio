@@ -251,6 +251,9 @@ model Project {
   dataPlane       DataPlaneProvisioning?
   applicationModels ApplicationModel[]
   entityDefinitions EntityDefinition[]
+  migrationArchives MigrationArchive[]
+  dataStructures    DataStructure[]
+  engineEndpoints   ProjectEngineEndpoint[]
 
   @@map("projects")
 }
@@ -563,7 +566,8 @@ model Invoice {
   lastRetryDate   DateTime? @map("last_retry_date")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team      Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  lineItems InvoiceLineItem[]
 
   @@map("invoices")
 }
@@ -882,4 +886,350 @@ model SavedDataQuery {
 
   @@unique([projectId, name])
   @@map("saved_data_queries")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 0 — MIGRATION ARCHIVE + ASSESSMENT
+// New ProjectActivityKind values (used in ProjectActivityLog.kind):
+//   MIGRATION_ARCHIVE_CREATED, MIGRATION_ARCHIVE_DELETED,
+//   MIGRATION_FILE_UPLOADED, MIGRATION_CONSENT_RECORDED,
+//   MIGRATION_ASSESSMENT_CREATED, MIGRATION_RESTORE_STARTED,
+//   MIGRATION_RESTORE_COMPLETED, MIGRATION_RESTORE_FAILED
+// ══════════════════════════════════════════════════════════════
+
+enum MigrationArchiveStatus {
+  CREATING
+  ACTIVE
+  DELETING
+  DELETED
+}
+
+enum MigrationFileUploadStatus {
+  PENDING
+  UPLOADING
+  COMPLETE
+  FAILED
+}
+
+enum MigrationSource {
+  USER_UPLOAD
+  WE_IMPORT
+}
+
+enum MigrationRetention {
+  TEMPORARY_30D
+  STANDARD_1Y
+  LONG_TERM
+}
+
+enum MigrationRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MigrationRestoreMode {
+  SAME_PROJECT
+  NEW_PROJECT
+  EXPORT_BUNDLE
+}
+
+enum MigrationJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum InvoiceLineItemType {
+  PLAN
+  AI_TOKENS
+  MIGRATION_ARCHIVE_STORAGE
+}
+
+// Archive-first migration bucket — created before any upload begins.
+// Content is immutable at the API level; only metadata (status, retention) is mutable.
+// Migration cannot start until consentCompletedAt is set and status = ACTIVE.
+model MigrationArchive {
+  id                 String                 @id @default(uuid())
+  projectId          String                 @map("project_id")
+  bucketName         String                 @map("bucket_name")
+  status             MigrationArchiveStatus @default(CREATING)
+  source             MigrationSource
+  retention          MigrationRetention     @default(STANDARD_1Y)
+  // Data-residency gate: assessment region must equal archive region (US | EU | TR).
+  region             String                 @db.VarChar(10)
+  encryptedAtRest    Boolean                @default(true) @map("encrypted_at_rest")
+  consentCompletedAt DateTime?              @map("consent_completed_at")
+  totalBytes         BigInt                 @default(0) @map("total_bytes")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  deletedAt          DateTime?              @map("deleted_at")
+
+  project     Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  files       MigrationArchiveFile[]
+  assessments MigrationAssessment[]
+  restoreJobs MigrationRestoreJob[]
+  consents    MigrationConsent[]
+  importCred  MigrationImportCredential?
+  ledger      MigrationArchiveLedger?
+  lineItems   InvoiceLineItem[]
+
+  @@index([projectId, status])
+  @@map("migration_archives")
+}
+
+model MigrationArchiveFile {
+  id            String                    @id @default(uuid())
+  archiveId     String                    @map("archive_id")
+  filename      String
+  objectKey     String                    @map("object_key")
+  sizeBytes     BigInt                    @map("size_bytes")
+  contentType   String?                   @map("content_type") @db.VarChar(80)
+  uploadStatus  MigrationFileUploadStatus @default(PENDING) @map("upload_status")
+  uploadedBytes BigInt                    @default(0) @map("uploaded_bytes")
+  chunkSize     Int?                      @map("chunk_size")
+  checksum      String?                   @db.VarChar(128)
+  // Opaque token persisting chunked-upload state for browser-refresh / reconnect recovery.
+  resumeToken   String?                   @map("resume_token") @db.VarChar(512)
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, uploadStatus])
+  @@map("migration_archive_files")
+}
+
+// One assessment per analysis run; re-running creates a new version (never overwrites).
+// supersededById chains versions; the latest active version has supersededById = null.
+model MigrationAssessment {
+  id                               String             @id @default(uuid())
+  archiveId                        String             @map("archive_id")
+  projectId                        String             @map("project_id")
+  tablesFound                      Int                @map("tables_found")
+  recordsFound                     BigInt             @map("records_found")
+  sizeBytes                        BigInt             @map("size_bytes")
+  relationships                    Int
+  nestedJsonStructures             Int                @map("nested_json_structures")
+  legacyFiles                      Json               @map("legacy_files")
+  shape                            String             @db.VarChar(20)
+  detectedEntities                 Json               @map("detected_entities")
+  recommendation                   Json
+  complexity                       String             @db.VarChar(20)
+  confidencePct                    Float              @map("confidence_pct")
+  fullyAutomatable                 Boolean            @map("fully_automatable")
+  humanInvolvementPct              Float              @map("human_involvement_pct")
+  estimatedPeopleHours             Float              @map("estimated_people_hours")
+  estimatedManualReviewHours       Float              @map("estimated_manual_review_hours")
+  estimatedEngineeringHours        Float              @map("estimated_engineering_hours")
+  estimatedDurationDays            Float              @map("estimated_duration_days")
+  // Plan-specific rate — not a hard-coded constant.
+  hourlyRateCents                  Int                @map("hourly_rate_cents")
+  estimatedCostCents               Int                @map("estimated_cost_cents")
+  dataLossRiskPct                  Float              @map("data_loss_risk_pct")
+  riskLevel                        MigrationRiskLevel @map("risk_level")
+  riskDrivers                      Json               @map("risk_drivers")
+  mitigations                      Json
+  businessImpact                   String
+  finalRecommendation              Json               @map("final_recommendation")
+  estimatedArchiveSizeBytes        BigInt             @map("estimated_archive_size_bytes")
+  // Shown before purchase so the customer knows the recurring monthly cost upfront.
+  estimatedMonthlyArchiveCostCents Int                @map("estimated_monthly_archive_cost_cents")
+  // App Generation Preview — modules, entities, screens, APIs, roles, workflows,
+  // automations, AI agents, build minutes. Extract to GeneratedApplicationPreview later.
+  appPreview                       Json?              @map("app_preview")
+  assessmentVersion                Int                @default(1) @map("assessment_version")
+  modelVersion                     String             @map("model_version") @db.VarChar(80)
+  supersededById                   String?            @map("superseded_by_id")
+  reportPdfObjectKey               String?            @map("report_pdf_object_key")
+  createdAt                        DateTime           @default(now()) @map("created_at")
+
+  archive      MigrationArchive     @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  supersededBy MigrationAssessment?  @relation("AssessmentVersionChain", fields: [supersededById], references: [id])
+  supersedes   MigrationAssessment[] @relation("AssessmentVersionChain")
+
+  @@index([archiveId, assessmentVersion])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("migration_assessments")
+}
+
+// First-class audited restore job (Backup product surface).
+model MigrationRestoreJob {
+  id              String               @id @default(uuid())
+  archiveId       String               @map("archive_id")
+  sourceProjectId String               @map("source_project_id")
+  targetProjectId String?              @map("target_project_id")
+  mode            MigrationRestoreMode
+  status          MigrationJobStatus   @default(PENDING)
+  requestedBy     String               @map("requested_by")
+  startedAt       DateTime?            @map("started_at")
+  completedAt     DateTime?            @map("completed_at")
+  resultObjectKey String?              @map("result_object_key")
+  error           String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, status])
+  @@index([sourceProjectId, createdAt(sort: Desc)])
+  @@map("migration_restore_jobs")
+}
+
+// "We import" source credentials — connection string lives in OpenBao; Prisma holds the path reference only.
+// Credentials must be revoked after migration completion.
+model MigrationImportCredential {
+  id                String    @id @default(uuid())
+  archiveId         String    @unique @map("archive_id")
+  projectId         String    @map("project_id")
+  openbaoPath       String    @map("openbao_path")
+  engineKind        String    @map("engine_kind") @db.VarChar(30)
+  metadataScannedAt DateTime? @map("metadata_scanned_at")
+  // Second explicit consent gate required before any real data is read.
+  dataReadConsentAt DateTime? @map("data_read_consent_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@map("migration_import_credentials")
+}
+
+// Versioned + immutable consent record.
+// Re-consent creates a new row — never update. Mirrored into AuditLog.
+// MigrationArchive.consentCompletedAt is the gate flag checked before migration starts.
+model MigrationConsent {
+  id                      String   @id @default(uuid())
+  archiveId               String   @map("archive_id")
+  projectId               String   @map("project_id")
+  userId                  String   @map("user_id")
+  teamId                  String   @map("team_id")
+  acceptedAt              DateTime @map("accepted_at")
+  ipAddress               String   @map("ip_address") @db.VarChar(45)
+  privacyStatementVersion String   @map("privacy_statement_version") @db.VarChar(20)
+  riskStatementVersion    String   @map("risk_statement_version") @db.VarChar(20)
+  archivePolicyVersion    String   @map("archive_policy_version") @db.VarChar(20)
+  acceptedItems           Json     @map("accepted_items")
+  sensitiveDataFlags      Json     @map("sensitive_data_flags")
+  // True only for WE_IMPORT flows — authorizes basefyio to read the source database.
+  dbAccessAuthorized      Boolean  @default(false) @map("db_access_authorized")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, createdAt])
+  @@map("migration_consents")
+}
+
+// Ledger projection backing monthly archive billing statements.
+// NOT a second billing source of truth — the platform Invoice + InvoiceLineItem is authoritative.
+model MigrationArchiveLedger {
+  id               String   @id @default(uuid())
+  archiveId        String   @unique @map("archive_id")
+  storedBytes      BigInt   @default(0) @map("stored_bytes")
+  growthBytes      BigInt   @default(0) @map("growth_bytes")
+  accumulatedCents Int      @default(0) @map("accumulated_cents")
+  lastUpdatedAt    DateTime @default(now()) @map("last_updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@map("migration_archive_ledgers")
+}
+
+// Invoice line items — archive storage billed as MIGRATION_ARCHIVE_STORAGE on the single platform Invoice.
+model InvoiceLineItem {
+  id             String              @id @default(uuid())
+  invoiceId      String              @map("invoice_id")
+  type           InvoiceLineItemType
+  description    String
+  quantity       Int                 @default(1)
+  unitPriceCents Int                 @map("unit_price_cents")
+  amountCents    Int                 @map("amount_cents")
+  archiveId      String?             @map("archive_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  invoice Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  archive MigrationArchive? @relation(fields: [archiveId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([archiveId])
+  @@map("invoice_line_items")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 1 — DATA STRUCTURE + UNIFIED EXPLORER
+// ══════════════════════════════════════════════════════════════
+
+enum DataStructureKind {
+  RELATIONAL
+  JSON
+}
+
+// Per-structure storage model. kind is immutable once set.
+// jsonBackend is an internal field — never returned to clients.
+model DataStructure {
+  id            String            @id @default(uuid())
+  projectId     String            @map("project_id")
+  name          String
+  kind          DataStructureKind
+  // Internal engine hint for JSON structures: "mongodb" | "couchbase".
+  // Never exposed in API responses or UI. Set by service logic only.
+  jsonBackend   String?           @map("json_backend") @db.VarChar(20)
+  aiRecommended Boolean           @default(false) @map("ai_recommended")
+  aiReasons     Json?             @map("ai_reasons")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  storages DataStructureStorage[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("data_structures")
+}
+
+// Decouples logical structure from physical storage so a JSON collection
+// can migrate Mongo→Couchbase or split hot/cold without touching DataStructure.
+model DataStructureStorage {
+  id              String   @id @default(uuid())
+  dataStructureId String   @map("data_structure_id")
+  // "relational" | "mongodb" | "couchbase" — internal routing key.
+  engineType      String   @map("engine_type") @db.VarChar(20)
+  endpointId      String?  @map("endpoint_id")
+  version         Int      @default(1)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  dataStructure DataStructure          @relation(fields: [dataStructureId], references: [id], onDelete: Cascade)
+  endpoint      ProjectEngineEndpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+
+  @@index([dataStructureId, active])
+  @@map("data_structure_storages")
+}
+
+// One row per (project, engineType) — the secure external connection endpoint.
+// host is a per-engine subdomain: sql.slug.basefyio.com vs json.slug.basefyio.com.
+// Never path-based routing. credentialRef is an OpenBao reference — no secret bytes here.
+model ProjectEngineEndpoint {
+  id                 String   @id @default(uuid())
+  projectId          String   @map("project_id")
+  engineType         String   @map("engine_type") @db.VarChar(20)
+  host               String   @db.VarChar(255)
+  port               Int
+  username           String
+  credentialRef      String   @map("credential_ref")
+  requiresClientCert Boolean  @default(true) @map("requires_client_cert")
+  // "READ" | "READ_WRITE"
+  accessLevel        String   @default("READ_WRITE") @map("access_level") @db.VarChar(20)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  storages DataStructureStorage[]
+
+  @@unique([projectId, engineType])
+  @@index([projectId, active])
+  @@map("project_engine_endpoints")
 }
