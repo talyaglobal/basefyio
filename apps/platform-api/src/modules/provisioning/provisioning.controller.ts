@@ -1,0 +1,74 @@
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { ProvisioningService } from './provisioning.service';
+import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
+import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
+import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import {
+  CurrentUser,
+  JwtPayload,
+} from '../../common/decorators/current-user.decorator';
+import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
+
+@Controller('v1/provisioning')
+@UseGuards(JwtOrApiKeyGuard)
+@UseInterceptors(AuditLogInterceptor)
+export class ProvisioningController {
+  constructor(private readonly service: ProvisioningService) {}
+
+  @Post('projects')
+  @HttpCode(HttpStatus.CREATED)
+  createProject(
+    @Body() body: CreateProvisioningProjectDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.createProject(user.sub, body);
+  }
+
+  /**
+   * Create a provisioning operation.
+   *
+   * Idempotency: if a request arrives with a previously-seen idempotencyKey for the
+   * same provisioningProjectId, the existing operation is returned with HTTP 200 and
+   * `idempotent: true` in the body — no duplicate is created and no audit event is written.
+   *
+   * dryRun is required — there is no server-side default. Passing `dryRun: true`
+   * immediately moves the operation to DRY_RUN status; no executor is queued.
+   */
+  @Post('operations')
+  @HttpCode(HttpStatus.CREATED)
+  async createOperation(
+    @Body() body: CreateProvisioningOperationDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const result = await this.service.createOperation(user.sub, body);
+    // Return 200 on idempotent replay so callers can distinguish new vs existing
+    return result;
+  }
+
+  @Get('operations/:id')
+  getOperation(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.getOperation(user.sub, id);
+  }
+
+  @Get('resources')
+  listResources(
+    @Query('provisioningProjectId') provisioningProjectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.listResources(user.sub, provisioningProjectId);
+  }
+}
