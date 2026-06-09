@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { ProvisioningService } from './provisioning.service';
+import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -24,7 +25,10 @@ import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interce
 @UseGuards(JwtOrApiKeyGuard)
 @UseInterceptors(AuditLogInterceptor)
 export class ProvisioningController {
-  constructor(private readonly service: ProvisioningService) {}
+  constructor(
+    private readonly service: ProvisioningService,
+    private readonly executor: ProvisioningExecutorService,
+  ) {}
 
   @Post('projects')
   @HttpCode(HttpStatus.CREATED)
@@ -70,5 +74,23 @@ export class ProvisioningController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.listResources(user.sub, provisioningProjectId);
+  }
+
+  /**
+   * Execute a PENDING operation synchronously.
+   *
+   * Only PENDING operations may be executed.
+   * RUNNING / COMPLETED / FAILED / DRY_RUN / ROLLED_BACK all return 400.
+   * Execution path: PENDING → RUNNING → COMPLETED (success) | FAILED (error).
+   * Each transition is recorded as an audit event.
+   * The provider receives only the OpenBao path reference — never credential bytes.
+   */
+  @Post('operations/:id/execute')
+  @HttpCode(HttpStatus.OK)
+  executeOperation(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.executor.executeOperation(user.sub, id);
   }
 }
