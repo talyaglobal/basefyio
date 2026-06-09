@@ -225,7 +225,7 @@ export class AgentRunnerService {
           const toolId = toolCall.function.name;
           let toolInput: Record<string, unknown> = {};
           try {
-            toolInput = JSON.parse(toolCall.arguments ?? '{}');
+            toolInput = JSON.parse(toolCall.function.arguments ?? '{}');
           } catch {
             /* malformed arguments — pass empty object */
           }

@@ -103,6 +103,20 @@ declare module 'class-validator' {
   export function ValidateNested(options?: object): PropertyDecorator;
   export function IsObject(options?: object): PropertyDecorator;
   export function IsNotEmptyObject(options?: object): PropertyDecorator;
+  export function IsEmail(options?: object, validatorOptions?: object): PropertyDecorator;
+  export function Matches(pattern: RegExp | string, modifiersOrOptions?: string | object, options?: object): PropertyDecorator;
+  export function Length(min: number, max?: number, options?: object): PropertyDecorator;
+  export function ArrayMaxSize(max: number, options?: object): PropertyDecorator;
+  export function ArrayMinSize(min: number, options?: object): PropertyDecorator;
+  export function IsDateString(options?: object): PropertyDecorator;
+  export function IsNumberString(options?: object): PropertyDecorator;
+  export function IsPositive(options?: object): PropertyDecorator;
+  export function IsNegative(options?: object): PropertyDecorator;
+  export function IsJSON(options?: object): PropertyDecorator;
+  export function IsDate(options?: object): PropertyDecorator;
+  export function IsInstance(targetType: new (...args: unknown[]) => unknown, options?: object): PropertyDecorator;
+  export function validate(object: object, options?: object): Promise<ValidationError[]>;
+  export function validateOrReject(object: object, options?: object): Promise<void>;
 }
 
 declare module 'minio' {

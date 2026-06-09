@@ -9,6 +9,7 @@ import { AgentCreationController } from './agent-creation.controller';
 import { AgentCreationService } from './agent-creation.service';
 import { AgentCreationRepository } from './agent-creation.repository';
 import { PolicyGatewayService } from './policy-gateway.service';
+import { AgentRunnerService } from './agent-runner.service';
 
 /**
  * Agent module — Module 2 (Agentic Storage) + Module 3 (Agent Creation).
@@ -30,6 +31,7 @@ import { PolicyGatewayService } from './policy-gateway.service';
     AgentCreationService,
     AgentCreationRepository,
     PolicyGatewayService,
+    AgentRunnerService,
   ],
   exports: [
     AgentService,
@@ -37,6 +39,7 @@ import { PolicyGatewayService } from './policy-gateway.service';
     AgentCreationService,
     AgentCreationRepository,
     PolicyGatewayService,
+    AgentRunnerService,
   ],
 })
 export class AgentModule {}

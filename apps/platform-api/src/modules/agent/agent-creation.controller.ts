@@ -6,9 +6,12 @@ import {
   Param,
   Query,
   Body,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { AgentCreationService } from './agent-creation.service';
+import { AgentRunnerService } from './agent-runner.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
@@ -18,11 +21,15 @@ import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { CreateAgentVersionDto } from './dto/create-agent-version.dto';
 import { ListAgentsQuery } from './dto/list-agents.query';
+import { CreateRunDto } from './dto/create-run.dto';
 
 @Controller('projects/:projectId/agents')
 @UseGuards(JwtOrApiKeyGuard)
 export class AgentCreationController {
-  constructor(private readonly agentCreation: AgentCreationService) {}
+  constructor(
+    private readonly agentCreation: AgentCreationService,
+    private readonly runner: AgentRunnerService,
+  ) {}
 
   // ── Agents ────────────────────────────────────────────
 
@@ -104,7 +111,18 @@ export class AgentCreationController {
     return this.agentCreation.listTools(projectId, user?.sub);
   }
 
-  // ── Runs (placeholder — execution in runner commit) ───
+  // ── Runs ──────────────────────────────────────────────
+
+  @Post(':agentId/runs')
+  async startRun(
+    @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
+    @Body() body: CreateRunDto,
+    @Res() res: Response,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.runner.run(projectId, user?.sub, agentId, body, res);
+  }
 
   @Post(':agentId/runs/:runId/cancel')
   async cancelRun(
