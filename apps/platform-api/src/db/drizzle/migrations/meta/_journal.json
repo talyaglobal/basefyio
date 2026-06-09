@@ -15,6 +15,13 @@
       "when": 1781037798229,
       "tag": "0001_remarkable_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781040386200,
+      "tag": "0002_sudden_tomas",
+      "breakpoints": true
     }
   ]
 }

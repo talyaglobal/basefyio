@@ -124,8 +124,9 @@ model Team {
   invoices           Invoice[]
   usage              TeamUsage?
   infrastructure     TeamInfrastructure?
-  billingAccount     BillingAccount?
-  rolePermissions    TeamRolePermission[]
+  billingAccount             BillingAccount?
+  rolePermissions            TeamRolePermission[]
+  provisioningCredentialRefs ProvisioningCredentialRef[]
 
   @@map("teams")
 }
@@ -251,9 +252,10 @@ model Project {
   dataPlane       DataPlaneProvisioning?
   applicationModels ApplicationModel[]
   entityDefinitions EntityDefinition[]
-  migrationArchives MigrationArchive[]
-  dataStructures    DataStructure[]
-  engineEndpoints   ProjectEngineEndpoint[]
+  migrationArchives   MigrationArchive[]
+  dataStructures      DataStructure[]
+  engineEndpoints     ProjectEngineEndpoint[]
+  provisioningProject ProvisioningProject?
 
   @@map("projects")
 }
@@ -1232,4 +1234,201 @@ model ProjectEngineEndpoint {
   @@unique([projectId, engineType])
   @@index([projectId, active])
   @@map("project_engine_endpoints")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 2 — PROVISIONING SCHEMA SKELETON
+// No SDK/API calls in this phase. State machines only.
+// Drizzle tables untouched. No provider credential bytes in DB.
+// ══════════════════════════════════════════════════════════════
+
+enum ProvisioningProjectStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  UPDATING
+  DESTROYING
+  DESTROYED
+  FAILED
+  ROLLBACK_IN_PROGRESS
+  ROLLED_BACK
+}
+
+enum ProvisioningResourceStatus {
+  PENDING
+  CREATING
+  ACTIVE
+  UPDATING
+  DESTROYING
+  DESTROYED
+  FAILED
+  ROLLING_BACK
+  ROLLED_BACK
+}
+
+enum ProvisioningOperationStatus {
+  PENDING
+  // Terminal dry-run state: plan completed, no real resources were created/changed.
+  DRY_RUN
+  RUNNING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum ProvisioningOperationType {
+  CREATE
+  UPDATE
+  DELETE
+  ROLLBACK
+}
+
+enum ProvisioningResourceKind {
+  SERVER
+  VOLUME
+  NETWORK
+  FIREWALL
+  LOAD_BALANCER
+  FLOATING_IP
+  SSH_KEY
+}
+
+enum ProvisioningEventKind {
+  STATUS_CHANGED
+  OPERATION_STARTED
+  OPERATION_COMPLETED
+  OPERATION_FAILED
+  DRY_RUN_COMPLETED
+  ROLLBACK_INITIATED
+  ROLLBACK_COMPLETED
+  CREDENTIAL_ROTATED
+  RESOURCE_CREATED
+  RESOURCE_UPDATED
+  RESOURCE_DESTROYED
+}
+
+// Desired + actual state of the infrastructure for one project.
+// Exactly one per project (unique). credentialRefId points to OpenBao — no secrets here.
+model ProvisioningProject {
+  id              String                    @id @default(uuid())
+  projectId       String                    @unique @map("project_id")
+  status          ProvisioningProjectStatus @default(PENDING)
+  provider        String                    @default("hetzner") @db.VarChar(30)
+  region          String                    @db.VarChar(30)
+  datacenter      String?                   @db.VarChar(60)
+  credentialRefId String                    @map("credential_ref_id")
+  desiredState    Json?                     @map("desired_state")
+  actualState     Json?                     @map("actual_state")
+  lastSyncedAt    DateTime?                 @map("last_synced_at")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+
+  project       Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  credentialRef ProvisioningCredentialRef @relation(fields: [credentialRefId], references: [id])
+  resources     ProvisioningResource[]
+  operations    ProvisioningOperation[]
+  auditEvents   ProvisioningAuditEvent[]
+
+  @@index([status])
+  @@map("provisioning_projects")
+}
+
+// An individual infrastructure resource (server, volume, network, …).
+// externalId is the provider-assigned ID — null until the resource is created.
+// rollbackSpec holds the last-known-good spec for use during ROLLBACK operations.
+model ProvisioningResource {
+  id                    String                     @id @default(uuid())
+  provisioningProjectId String                     @map("provisioning_project_id")
+  kind                  ProvisioningResourceKind
+  name                  String                     @db.VarChar(255)
+  status                ProvisioningResourceStatus @default(PENDING)
+  region                String                     @db.VarChar(30)
+  datacenter            String?                    @db.VarChar(60)
+  externalId            String?                    @map("external_id") @db.VarChar(128)
+  desiredSpec           Json                       @map("desired_spec")
+  actualSpec            Json?                      @map("actual_spec")
+  rollbackSpec          Json?                      @map("rollback_spec")
+  lastSyncedAt          DateTime?                  @map("last_synced_at")
+  destroyedAt           DateTime?                  @map("destroyed_at")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+
+  provisioningProject ProvisioningProject      @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  operations          ProvisioningOperation[]
+  auditEvents         ProvisioningAuditEvent[]
+
+  @@index([provisioningProjectId, status])
+  @@index([provisioningProjectId, kind])
+  @@map("provisioning_resources")
+}
+
+// One row per provisioning operation. idempotencyKey prevents duplicate execution on retry.
+// dryRun=true: status moves to DRY_RUN (terminal) — no real infra is touched.
+// resourceId is null for project-level operations (e.g. full-stack provision/destroy).
+model ProvisioningOperation {
+  id                    String                      @id @default(uuid())
+  provisioningProjectId String                      @map("provisioning_project_id")
+  resourceId            String?                     @map("resource_id")
+  type                  ProvisioningOperationType
+  status                ProvisioningOperationStatus @default(PENDING)
+  dryRun                Boolean                     @default(false) @map("dry_run")
+  idempotencyKey        String                      @map("idempotency_key") @db.VarChar(128)
+  requestedBy           String                      @map("requested_by")
+  input                 Json?
+  result                Json?
+  errorMessage          String?                     @map("error_message")
+  startedAt             DateTime?                   @map("started_at")
+  completedAt           DateTime?                   @map("completed_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+
+  provisioningProject ProvisioningProject      @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  resource            ProvisioningResource?    @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  auditEvents         ProvisioningAuditEvent[]
+
+  @@unique([provisioningProjectId, idempotencyKey])
+  @@index([provisioningProjectId, status])
+  @@index([resourceId, createdAt(sort: Desc)])
+  @@map("provisioning_operations")
+}
+
+// Provider credential reference — OpenBao path only; no API key bytes stored.
+// Scoped to team so one credential can cover multiple projects.
+model ProvisioningCredentialRef {
+  id          String    @id @default(uuid())
+  teamId      String    @map("team_id")
+  provider    String    @default("hetzner") @db.VarChar(30)
+  label       String    @db.VarChar(100)
+  openbaoPath String    @map("openbao_path")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  team                 Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  provisioningProjects ProvisioningProject[]
+
+  @@index([teamId, provider])
+  @@map("provisioning_credential_refs")
+}
+
+// Immutable audit trail — one row per state transition or notable event.
+// Never updated; rollbacks add new rows.
+model ProvisioningAuditEvent {
+  id                    String                @id @default(uuid())
+  provisioningProjectId String                @map("provisioning_project_id")
+  resourceId            String?               @map("resource_id")
+  operationId           String?               @map("operation_id")
+  kind                  ProvisioningEventKind
+  actorUserId           String?               @map("actor_user_id")
+  fromStatus            String?               @map("from_status") @db.VarChar(40)
+  toStatus              String?               @map("to_status") @db.VarChar(40)
+  detail                Json?
+  createdAt             DateTime              @default(now()) @map("created_at")
+
+  provisioningProject ProvisioningProject    @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  resource            ProvisioningResource?  @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  operation           ProvisioningOperation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
+
+  @@index([provisioningProjectId, createdAt(sort: Desc)])
+  @@index([resourceId, createdAt(sort: Desc)])
+  @@map("provisioning_audit_events")
 }
