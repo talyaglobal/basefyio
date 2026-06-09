@@ -332,6 +332,150 @@ describe('ProvisioningService.createOperation — dryRun', () => {
   });
 });
 
+// ── getOperation ─────────────────────────────────────────────
+
+describe('ProvisioningService.getOperation', () => {
+  const now = new Date('2026-06-09T10:00:00.000Z');
+
+  function stubFullOp(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'op-1',
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status: 'PENDING',
+      dryRun: false,
+      idempotencyKey: IDEM_KEY,
+      requestedBy: USER_ID,
+      input: { serverType: 'cx21' },
+      result: null,
+      errorMessage: null,
+      startedAt: null,
+      completedAt: null,
+      createdAt: now,
+      provisioningProject: {
+        projectId: PROJECT_ID,
+        project: { teamId: TEAM_ID },
+      },
+      ...overrides,
+    };
+  }
+
+  it('throws NotFoundException when operation does not exist', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.getOperation(USER_ID, 'missing-op'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException (not 403) when requester is not a team member', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
+    prisma.teamMember.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma);
+    await expect(
+      svc.getOperation('other-user', 'op-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns mapped response with correct shape', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.getOperation(USER_ID, 'op-1');
+
+    expect(result.id).toBe('op-1');
+    expect(result.projectId).toBe(PROJECT_ID);
+    expect(result.type).toBe('CREATE');
+    expect(result.status).toBe('PENDING');
+    expect(result.dryRun).toBe(false);
+    expect(result.idempotencyKey).toBe(IDEM_KEY);
+    expect(result.input).toEqual({ serverType: 'cx21' });
+    expect(result.result).toBeNull();
+    expect(result.error).toBeNull();
+    expect(result.createdAt).toBe(now.toISOString());
+    expect(result.startedAt).toBeNull();
+    expect(result.completedAt).toBeNull();
+  });
+
+  it('updatedAt falls back to startedAt when completedAt is null', async () => {
+    const started = new Date('2026-06-09T10:05:00.000Z');
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(
+      stubFullOp({ startedAt: started }),
+    );
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.getOperation(USER_ID, 'op-1');
+
+    expect(result.updatedAt).toBe(started.toISOString());
+    expect(result.startedAt).toBe(started.toISOString());
+  });
+
+  it('updatedAt uses completedAt when present', async () => {
+    const started = new Date('2026-06-09T10:05:00.000Z');
+    const completed = new Date('2026-06-09T10:10:00.000Z');
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(
+      stubFullOp({ startedAt: started, completedAt: completed }),
+    );
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.getOperation(USER_ID, 'op-1');
+
+    expect(result.updatedAt).toBe(completed.toISOString());
+    expect(result.completedAt).toBe(completed.toISOString());
+  });
+
+  it('maps errorMessage to error.message when present', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(
+      stubFullOp({ status: 'FAILED', errorMessage: 'provider timeout' }),
+    );
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.getOperation(USER_ID, 'op-1');
+
+    expect(result.error).toEqual({ message: 'provider timeout' });
+    expect(result.status).toBe('FAILED');
+  });
+
+  it('maps result when operation succeeded', async () => {
+    const resultPayload = { serverId: 12345, ip: '1.2.3.4' };
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(
+      stubFullOp({ status: 'COMPLETED', result: resultPayload }),
+    );
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.getOperation(USER_ID, 'op-1');
+
+    expect(result.result).toEqual(resultPayload);
+    expect(result.error).toBeNull();
+  });
+
+  it('does not write any audit events — read-only path', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma);
+    await svc.getOperation(USER_ID, 'op-1');
+
+    expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
 // ── createProject — ownership + credentialRef ─────────────────
 
 describe('ProvisioningService.createProject', () => {

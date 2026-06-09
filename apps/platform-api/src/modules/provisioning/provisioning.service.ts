@@ -38,6 +38,49 @@ function toProvisioningOperationResponse(
   };
 }
 
+// GET /v1/provisioning/operations/:id response
+export interface GetOperationResponse {
+  id: string;
+  projectId: string;             // platform project ID (not provisioning project)
+  type: string;
+  status: string;
+  dryRun: boolean;
+  idempotencyKey: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: { message: string } | null;
+  createdAt: string;
+  updatedAt: string;             // derived: completedAt ?? startedAt ?? createdAt
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+type OperationWithProject = ProvisioningOperation & {
+  provisioningProject: {
+    projectId: string;
+    project: { teamId: string };
+  };
+};
+
+function toGetOperationResponse(op: OperationWithProject): GetOperationResponse {
+  const updatedAt = op.completedAt ?? op.startedAt ?? op.createdAt;
+  return {
+    id: op.id,
+    projectId: op.provisioningProject.projectId,
+    type: op.type,
+    status: op.status,
+    dryRun: op.dryRun,
+    idempotencyKey: op.idempotencyKey,
+    input: (op.input ?? {}) as Record<string, unknown>,
+    result: (op.result ?? null) as Record<string, unknown> | null,
+    error: op.errorMessage ? { message: op.errorMessage } : null,
+    createdAt: op.createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
+    startedAt: op.startedAt?.toISOString() ?? null,
+    completedAt: op.completedAt?.toISOString() ?? null,
+  };
+}
+
 export interface ProvisioningProjectCreateResponse {
   provisioningProjectId: string;
   provider: string;
@@ -334,13 +377,30 @@ export class ProvisioningService {
 
   // ── Read endpoints ────────────────────────────────────────
 
-  async getOperation(userId: string, operationId: string) {
+  async getOperation(userId: string, operationId: string): Promise<GetOperationResponse> {
+    // Single query — join through to teamId for ownership check
     const op = await this.prisma.provisioningOperation.findUnique({
       where: { id: operationId },
+      include: {
+        provisioningProject: {
+          select: {
+            projectId: true,
+            project: { select: { teamId: true } },
+          },
+        },
+      },
     });
+
+    // 404 for both not-found and wrong-team — no cross-team existence leakage
     if (!op) throw new NotFoundException('Operation not found');
-    await this.assertProvisioningProjectAccess(op.provisioningProjectId, userId);
-    return op;
+
+    const teamId = op.provisioningProject.project.teamId;
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Operation not found');
+
+    return toGetOperationResponse(op);
   }
 
   async listResources(userId: string, provisioningProjectId: string) {
