@@ -14,6 +14,7 @@ import { ProvisioningService } from './provisioning.service';
 import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
+import { ListResourcesQuery } from './dto/list-resources.query';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
@@ -70,10 +71,14 @@ export class ProvisioningController {
 
   @Get('resources')
   listResources(
-    @Query('provisioningProjectId') provisioningProjectId: string,
+    @Query() query: ListResourcesQuery,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.service.listResources(user.sub, provisioningProjectId);
+    return this.service.listResources(
+      user.sub,
+      query.projectId,
+      query.includeDestroyed ?? false,
+    );
   }
 
   /**

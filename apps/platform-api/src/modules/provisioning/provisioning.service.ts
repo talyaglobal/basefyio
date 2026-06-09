@@ -38,6 +38,51 @@ function toProvisioningOperationResponse(
   };
 }
 
+// GET /v1/provisioning/resources response item
+export interface GetResourceResponse {
+  id: string;
+  projectId: string;                        // platform project ID
+  type: string;                             // mapped from Prisma `kind`
+  name: string | null;
+  status: string;
+  externalId: string | null;
+  desiredSpec: Record<string, unknown>;
+  actualSpec: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type ResourceRow = {
+  id: string;
+  kind: string;
+  name: string;
+  status: string;
+  externalId: string | null;
+  desiredSpec: unknown;
+  actualSpec: unknown;
+  destroyedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toGetResourceResponse(
+  row: ResourceRow,
+  projectId: string,
+): GetResourceResponse {
+  return {
+    id: row.id,
+    projectId,
+    type: row.kind,
+    name: row.name,
+    status: row.status,
+    externalId: row.externalId,
+    desiredSpec: (row.desiredSpec ?? {}) as Record<string, unknown>,
+    actualSpec: (row.actualSpec ?? null) as Record<string, unknown> | null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 // GET /v1/provisioning/operations/:id response
 export interface GetOperationResponse {
   id: string;
@@ -403,28 +448,51 @@ export class ProvisioningService {
     return toGetOperationResponse(op);
   }
 
-  async listResources(userId: string, provisioningProjectId: string) {
-    await this.assertProvisioningProjectAccess(provisioningProjectId, userId);
-    return this.prisma.provisioningResource.findMany({
-      where: { provisioningProjectId },
+  async listResources(
+    userId: string,
+    projectId: string,
+    includeDestroyed = false,
+  ): Promise<GetResourceResponse[]> {
+    // 1. Ownership — 404 if project missing or user not in team
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Project not found');
+
+    // 2. Resolve provisioning project — empty list if not yet created
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId },
+      select: { id: true },
+    });
+    if (!pp) return [];
+
+    // 3. Fetch resources — rollbackSpec excluded (sensitive operational data)
+    const rows = await this.prisma.provisioningResource.findMany({
+      where: {
+        provisioningProjectId: pp.id,
+        ...(includeDestroyed ? {} : { destroyedAt: null }),
+      },
       orderBy: [{ kind: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
-        provisioningProjectId: true,
         kind: true,
         name: true,
         status: true,
-        region: true,
-        datacenter: true,
         externalId: true,
         desiredSpec: true,
         actualSpec: true,
-        lastSyncedAt: true,
         destroyedAt: true,
         createdAt: true,
         updatedAt: true,
-        // rollbackSpec excluded — sensitive operational data
       },
     });
+
+    return rows.map((r) => toGetResourceResponse(r, projectId));
   }
 }
