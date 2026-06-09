@@ -179,7 +179,7 @@ services:
     image: curlimages/curl:latest
     depends_on:
       nosql:
-        condition: service_healthy
+        condition: service_started
     volumes:
       - ./scripts/init-nosql.sh:/init-nosql.sh:ro
     environment:
@@ -193,7 +193,7 @@ services:
     entrypoint: ["sh", "/init-nosql.sh"]
     networks:
       - internal
-    restart: "no"
+    restart: on-failure:3
 
   # ── Applications (pulled from GHCR) ────────────────────
 
