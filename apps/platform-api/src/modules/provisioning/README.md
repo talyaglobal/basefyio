@@ -25,17 +25,21 @@ API skeleton for infrastructure provisioning (Phase 3).
 - **No credential bytes in DB.** `ProvisioningCredentialRef.openbaoPath` is the only credential
   stored — a reference to a Vault/OpenBao secret, never the key itself.
 
-## Schema note — Drizzle / Prisma ownership
+## ADR — Drizzle / Prisma ownership boundary
 
-A `src/db/drizzle/schema/provisioning.ts` file exists in the repo as a parallel schema
-created by a concurrent agent. This is **temporary** and under review.
+**Provisioning domain uses Prisma only. No Drizzle schema, migration, or model may define
+provisioning tables.**
 
-The authoritative schema for all provisioning models is **Prisma** (`schema.prisma`).
+Prisma (`schema.prisma`) is the sole source of truth for all provisioning models:
+`ProvisioningProject`, `ProvisioningResource`, `ProvisioningOperation`,
+`ProvisioningCredentialRef`, `ProvisioningAuditEvent`.
+
 Drizzle ownership is strictly limited to the six RAG/agent tables:
 `rag_documents`, `rag_chunks`, `rag_index_jobs`, `chat_threads`, `chat_messages`, `agent_memory`.
 
-The Drizzle provisioning schema will be removed once the Prisma/Drizzle boundary is formally
-reconciled. Until then, treat `drizzle/schema/provisioning.ts` as a non-authoritative artefact.
+Any Drizzle schema file that defines provisioning tables must be treated as an error and removed.
+The `src/db/drizzle/schema/provisioning.ts` parallel artefact (commit `59c3182`) was removed in
+`90eff93` (`chore(provisioning): drop Drizzle provisioning schema`).
 
 ## Validation
 
