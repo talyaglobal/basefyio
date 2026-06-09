@@ -11,6 +11,8 @@ export const BILLING_QUEUE = 'billing';
 export const DATA_IMPORT_QUEUE = 'data-import';
 /** Async pgvector embedding generation (semantic search, RAG, recommendations). */
 export const EMBEDDING_QUEUE = 'embedding';
+/** RAG document ingest/index jobs (chunk → embed → store). */
+export const RAG_INDEX_QUEUE = 'rag-index';
 
 @Global()
 @Module({
@@ -50,6 +52,7 @@ export const EMBEDDING_QUEUE = 'embedding';
       { name: BILLING_QUEUE },
       { name: DATA_IMPORT_QUEUE },
       { name: EMBEDDING_QUEUE },
+      { name: RAG_INDEX_QUEUE },
     ),
   ],
   exports: [BullModule],

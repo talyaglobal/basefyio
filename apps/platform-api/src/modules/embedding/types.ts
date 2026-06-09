@@ -4,7 +4,9 @@ export type EntityType =
   | 'project_activity'
   | 'feedback'
   | 'sql_query_pattern'
-  | 'user_behavior_session';
+  | 'user_behavior_session'
+  // RAG document chunks indexed via the RAG module (reuses this pipeline).
+  | 'rag_document_chunk';
 
 export interface EmbedJob {
   entityType: EntityType;
