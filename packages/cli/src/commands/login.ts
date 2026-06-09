@@ -27,15 +27,25 @@ export async function loginCommand(options: LoginOptions) {
   const handle = startBrowserLogin();
   const port = await handle.port;
 
-  // Build the CLI-login URL that the backend will handle
-  const loginUrl = `${getApiUrl()}/api/auth/cli-login?port=${port}&nonce=${nonce(handle)}`;
-
-  // Fire browser open + heavy module loads in parallel so the user sees output faster
-  const [, { printLogo, printBox, createSpinner, success }, { apiClient, handleApiError }] = await Promise.all([
-    import('open').then((m) => m.default(loginUrl)).catch(() => null),
+  // Load UI + API modules in parallel while we create the state
+  const [{ printLogo, printBox, createSpinner, success }, { apiClient, handleApiError }] = await Promise.all([
     import('../lib/ui.js'),
     import('../lib/api.js'),
   ]);
+
+  // Create login state via API (fetch, not browser) and open the browser
+  // directly to app.basefyio.com — avoids Safe Browsing warnings on the API domain.
+  let loginUrl: string;
+  try {
+    const stateResult = await apiClient.cliLoginState(port, nonce(handle));
+    loginUrl = stateResult.authorizeUrl;
+  } catch {
+    // Fallback to legacy redirect URL if the new endpoint isn't deployed yet
+    loginUrl = `${getApiUrl()}/api/auth/cli-login?port=${port}&nonce=${nonce(handle)}`;
+  }
+
+  // Open browser in background — don't block on it
+  import('open').then((m) => m.default(loginUrl)).catch(() => null);
 
   printLogo();
 

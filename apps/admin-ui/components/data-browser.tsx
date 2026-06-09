@@ -132,6 +132,13 @@ function InsertDocDialog({
   const [json, setJson] = useState('{\n  \n}');
   const [saving, setSaving] = useState(false);
 
+  function prettifyJson() {
+    try {
+      const parsed = JSON.parse(json);
+      setJson(JSON.stringify(parsed, null, 2));
+    } catch { /* not valid yet */ }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     let parsed: Record<string, unknown>;
@@ -160,7 +167,18 @@ function InsertDocDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <textarea
             className="w-full h-64 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false}
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            onBlur={prettifyJson}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text');
+              try {
+                const parsed = JSON.parse(pasted);
+                e.preventDefault();
+                setJson(JSON.stringify(parsed, null, 2));
+              } catch { /* not valid JSON, let default paste happen */ }
+            }}
+            spellCheck={false}
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -198,6 +216,13 @@ function EditDocDialog({
     setJson(JSON.stringify(userData, null, 2));
   }, [doc]);
 
+  function prettifyJson() {
+    try {
+      const parsed = JSON.parse(json);
+      setJson(JSON.stringify(parsed, null, 2));
+    } catch { /* not valid yet */ }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!doc) return;
@@ -228,7 +253,18 @@ function EditDocDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <textarea
             className="w-full h-72 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false}
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            onBlur={prettifyJson}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text');
+              try {
+                const parsed = JSON.parse(pasted);
+                e.preventDefault();
+                setJson(JSON.stringify(parsed, null, 2));
+              } catch { /* not valid JSON, let default paste happen */ }
+            }}
+            spellCheck={false}
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

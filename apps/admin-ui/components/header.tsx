@@ -27,6 +27,7 @@ import {
   Search,
   Server,
   Settings,
+  Shield,
   Terminal,
   User,
   Users,
@@ -660,9 +661,12 @@ const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
 
 const docsLinks = [
   { label: 'Overview', href: '/docs', icon: Book },
+  { label: 'Data Engine', href: '/docs/data-engine', icon: Database },
   { label: 'API Reference', href: '/docs/api', icon: Server },
   { label: 'SDK', href: '/docs/sdk', icon: Code },
   { label: 'CLI', href: '/docs/cli', icon: Terminal },
+  { label: 'Security & RLS', href: '/docs/security', icon: Shield },
+  { label: 'Self-Hosting', href: '/docs/self-hosting', icon: Settings },
 ];
 
 function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {

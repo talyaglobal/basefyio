@@ -93,20 +93,36 @@ export class DataEngineController {
     @Query('offset') offsetRaw?: string,
   ) {
     this.assertEngineAvailable();
-    const col = await this.dataEngine.getEntityCollection(projectId, entity);
+
+    let col: Awaited<ReturnType<DataEngineService['getEntityCollection']>>;
+    try {
+      col = await this.dataEngine.getEntityCollection(projectId, entity);
+    } catch (err: any) {
+      if (err?.status) throw err; // Already an HTTP exception (404, etc.)
+      throw new ServiceUnavailableException(
+        `Data Engine error: ${err.message || 'Failed to resolve entity collection'}`,
+      );
+    }
 
     const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
     const sort = sortRaw ? JSON.parse(sortRaw) : undefined;
     const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
     const offset = offsetRaw ? parseInt(offsetRaw, 10) : undefined;
 
-    return col.query({
-      entity,
-      filter,
-      sort,
-      limit,
-      offset,
-    });
+    try {
+      return await col.query({
+        entity,
+        filter,
+        sort,
+        limit,
+        offset,
+      });
+    } catch (err: any) {
+      if (err?.status) throw err;
+      throw new ServiceUnavailableException(
+        `Query failed: ${err.message || 'Unknown data engine error'}`,
+      );
+    }
   }
 
   @Get('data/:entity/:id')

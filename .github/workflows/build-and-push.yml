@@ -123,7 +123,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
-          source: "docker-compose.prod.yml,scripts/init-db.sql,scripts/init-nosql.sh"
+          source: "docker-compose.prod.yml,.env.production,scripts/init-db.sql,scripts/init-nosql.sh"
           target: ${{ secrets.DEPLOY_PATH }}
           overwrite: true
 

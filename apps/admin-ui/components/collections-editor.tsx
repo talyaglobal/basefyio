@@ -134,6 +134,10 @@ function InsertDocumentDialog({
   const [json, setJson] = useState('{\n  \n}');
   const [saving, setSaving] = useState(false);
 
+  function prettifyJson() {
+    try { setJson(JSON.stringify(JSON.parse(json), null, 2)); } catch { /* not valid yet */ }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     let parsed: Record<string, unknown> | Record<string, unknown>[];
@@ -172,6 +176,11 @@ function InsertDocumentDialog({
             className="w-full h-64 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             value={json}
             onChange={(e) => setJson(e.target.value)}
+            onBlur={prettifyJson}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text');
+              try { e.preventDefault(); setJson(JSON.stringify(JSON.parse(pasted), null, 2)); } catch { /* let default paste */ }
+            }}
             spellCheck={false}
           />
           <DialogFooter>
@@ -212,6 +221,10 @@ function EditDocumentDialog({
     if (doc) setJson(JSON.stringify(doc.data, null, 2));
   }, [doc]);
 
+  function prettifyJson() {
+    try { setJson(JSON.stringify(JSON.parse(json), null, 2)); } catch { /* not valid yet */ }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!doc) return;
@@ -249,6 +262,11 @@ function EditDocumentDialog({
             className="w-full h-72 rounded-md border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             value={json}
             onChange={(e) => setJson(e.target.value)}
+            onBlur={prettifyJson}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text');
+              try { e.preventDefault(); setJson(JSON.stringify(JSON.parse(pasted), null, 2)); } catch { /* let default paste */ }
+            }}
             spellCheck={false}
           />
           <DialogFooter>

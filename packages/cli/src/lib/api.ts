@@ -178,6 +178,12 @@ export class ApiClient {
     return data;
   }
 
+  /** Create CLI login state on the server and return the state ID. */
+  async cliLoginState(port: number, nonce: string) {
+    const { data } = await this.client.post('/api/auth/cli-login-state', { port, nonce });
+    return data as { cliState: string; authorizeUrl: string };
+  }
+
   /** Exchange the one-time CLI login code for real tokens. */
   async cliExchange(code: string, nonce: string) {
     const { data } = await this.client.post('/api/auth/cli/exchange', { code, nonce });

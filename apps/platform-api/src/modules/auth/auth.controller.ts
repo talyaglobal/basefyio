@@ -444,7 +444,7 @@ export class AuthController {
   }
 
   /**
-   * CLI browser-based login — step 1.
+   * CLI browser-based login — step 1 (legacy redirect).
    * Stores state in Redis and redirects the browser to the admin-ui
    * /cli-authorize page (branded login + grant screen, no raw Keycloak UI).
    */
@@ -460,6 +460,27 @@ export class AuthController {
     }
     const authorizeUrl = await this.authService.startCliLogin(port, nonce);
     return res.redirect(authorizeUrl);
+  }
+
+  /**
+   * CLI browser-based login — step 1 (JSON).
+   * Returns the state ID so the CLI can build the authorize URL itself and
+   * open the browser directly to app.basefyio.com (avoids Safe Browsing
+   * warnings on the API domain).
+   */
+  @Post('cli-login-state')
+  async cliLoginState(
+    @Body() body: { port: number; nonce: string },
+  ) {
+    const { port, nonce } = body;
+    if (!nonce || !port || isNaN(port)) {
+      throw new BadRequestException('port and nonce are required');
+    }
+    const authorizeUrl = await this.authService.startCliLogin(port, nonce);
+    // Extract cli_state param from the URL
+    const url = new URL(authorizeUrl);
+    const cliState = url.searchParams.get('cli_state');
+    return { cliState, authorizeUrl };
   }
 
   /**
