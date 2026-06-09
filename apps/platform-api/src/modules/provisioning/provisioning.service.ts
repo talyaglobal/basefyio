@@ -4,25 +4,67 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { type ProvisioningProject, type ProvisioningOperation } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 
-// Typed subset of Prisma enum values used inline — keeps import surface minimal
-// until the Prisma/Drizzle ownership is reconciled (see README.md).
+// ── Response types ────────────────────────────────────────
+
+export interface ProvisioningProjectCreateResponse {
+  provisioningProjectId: string;
+  provider: string;
+  status: string;
+  operation: {
+    provisioningOperationId: string;
+    status: string;
+    dryRun: boolean;
+    idempotent: boolean;
+  };
+}
+
+function toProvisioningProjectCreateResponse(
+  pp: ProvisioningProject,
+  op: ProvisioningOperation,
+  idempotent: boolean,
+): ProvisioningProjectCreateResponse {
+  return {
+    provisioningProjectId: pp.id,
+    provider: pp.provider,
+    status: pp.status,
+    operation: {
+      provisioningOperationId: op.id,
+      status: op.status,
+      dryRun: op.dryRun,
+      idempotent,
+    },
+  };
+}
+
+// ── Internal types ────────────────────────────────────────
+
 type EventKind =
   | 'STATUS_CHANGED'
   | 'OPERATION_STARTED'
   | 'OPERATION_COMPLETED'
   | 'OPERATION_FAILED'
   | 'DRY_RUN_COMPLETED'
-  | 'ROLLBACK_INITIATED';
+  | 'ROLLBACK_INITIATED'
+  | 'ROLLBACK_COMPLETED'
+  | 'CREDENTIAL_ROTATED'
+  | 'RESOURCE_CREATED'
+  | 'RESOURCE_UPDATED'
+  | 'RESOURCE_DESTROYED';
+
+type PrismaTx = Parameters<Parameters<PrismaService['$transaction']>[0]>[0];
+
+// ── Service ───────────────────────────────────────────────
 
 @Injectable()
 export class ProvisioningService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── Ownership ───────────────────────────────────────────────
+  // ── Ownership guards ──────────────────────────────────────
 
   private async resolveProvisioningProject(id: string) {
     const pp = await this.prisma.provisioningProject.findUnique({
@@ -49,19 +91,22 @@ export class ProvisioningService {
     return pp;
   }
 
-  // ── Audit ────────────────────────────────────────────────────
+  // ── Audit ─────────────────────────────────────────────────
 
-  private writeAuditEvent(data: {
-    provisioningProjectId: string;
-    resourceId?: string | null;
-    operationId?: string | null;
-    kind: EventKind;
-    actorUserId?: string | null;
-    fromStatus?: string | null;
-    toStatus?: string | null;
-    detail?: unknown;
-  }): Promise<void> {
-    return this.prisma.provisioningAuditEvent
+  private writeAuditEvent(
+    tx: PrismaTx,
+    data: {
+      provisioningProjectId: string;
+      resourceId?: string | null;
+      operationId?: string | null;
+      kind: EventKind;
+      actorUserId?: string | null;
+      fromStatus?: string | null;
+      toStatus?: string | null;
+      detail?: unknown;
+    },
+  ): Promise<void> {
+    return tx.provisioningAuditEvent
       .create({
         data: {
           provisioningProjectId: data.provisioningProjectId,
@@ -77,21 +122,23 @@ export class ProvisioningService {
       .then(() => undefined);
   }
 
-  // ── Projects ────────────────────────────────────────────────
+  // ── Projects ──────────────────────────────────────────────
 
   async createProject(
     userId: string,
     dto: CreateProvisioningProjectDto,
-  ) {
-    // Resolve the basefyio project and assert team membership
+  ): Promise<ProvisioningProjectCreateResponse> {
+    // 1. Resolve platform project → teamId
     const project = await this.prisma.project.findUnique({
       where: { id: dto.projectId },
       select: { teamId: true },
     });
     if (!project) throw new NotFoundException('Project not found');
+
+    // 2. Assert team membership
     await this.assertTeamMember(project.teamId, userId);
 
-    // Ensure the credential ref belongs to the same team
+    // 3. Validate credential ref — team scope + not revoked
     const cred = await this.prisma.provisioningCredentialRef.findUnique({
       where: { id: dto.credentialRefId },
       select: { teamId: true, revokedAt: true },
@@ -102,45 +149,85 @@ export class ProvisioningService {
     if (cred.revokedAt)
       throw new ConflictException('Credential reference has been revoked');
 
-    // One ProvisioningProject per basefyio project
-    const existing = await this.prisma.provisioningProject.findUnique({
+    // 4. Idempotency — check for existing project + operation with this key
+    const existingProject = await this.prisma.provisioningProject.findUnique({
       where: { projectId: dto.projectId },
     });
-    if (existing)
-      throw new ConflictException('A provisioning project already exists for this project');
 
-    const pp = await this.prisma.provisioningProject.create({
-      data: {
-        projectId: dto.projectId,
-        region: dto.region,
-        datacenter: dto.datacenter,
-        provider: dto.provider ?? 'hetzner',
-        credentialRefId: dto.credentialRefId,
-        status: 'PENDING',
-      },
+    if (existingProject) {
+      const existingOp = await this.prisma.provisioningOperation.findUnique({
+        where: {
+          provisioningProjectId_idempotencyKey: {
+            provisioningProjectId: existingProject.id,
+            idempotencyKey: dto.idempotencyKey,
+          },
+        },
+      });
+      if (existingOp) {
+        // Same projectId + same idempotencyKey → idempotent replay, no writes
+        return toProvisioningProjectCreateResponse(existingProject, existingOp, true);
+      }
+      // Different key — project already created, direct caller to /operations
+      throw new ConflictException(
+        'A provisioning project already exists for this platform project. ' +
+          'Submit further operations via POST /v1/provisioning/operations.',
+      );
+    }
+
+    // 5. Atomic create: project + operation + first audit event
+    const opStatus = dto.dryRun ? 'DRY_RUN' : 'PENDING';
+    const now = new Date();
+
+    const [pp, op] = await this.prisma.$transaction(async (tx) => {
+      const pp = await tx.provisioningProject.create({
+        data: {
+          projectId: dto.projectId,
+          provider: dto.provider ?? 'hetzner',
+          region: dto.region,
+          datacenter: dto.datacenter,
+          credentialRefId: dto.credentialRefId,
+          desiredState: dto.desiredSpec as any,
+          status: 'PENDING',
+        },
+      });
+
+      const op = await tx.provisioningOperation.create({
+        data: {
+          provisioningProjectId: pp.id,
+          type: 'CREATE',
+          status: opStatus,
+          dryRun: dto.dryRun,
+          idempotencyKey: dto.idempotencyKey,
+          requestedBy: userId,
+          input: dto.desiredSpec as any,
+          startedAt: dto.dryRun ? now : undefined,
+          completedAt: dto.dryRun ? now : undefined,
+        },
+      });
+
+      await this.writeAuditEvent(tx, {
+        provisioningProjectId: pp.id,
+        operationId: op.id,
+        kind: dto.dryRun ? 'DRY_RUN_COMPLETED' : 'STATUS_CHANGED',
+        actorUserId: userId,
+        fromStatus: null,
+        toStatus: opStatus,
+        detail: dto.dryRun ? { dryRun: true } : undefined,
+      });
+
+      return [pp, op] as const;
     });
 
-    await this.writeAuditEvent({
-      provisioningProjectId: pp.id,
-      kind: 'STATUS_CHANGED',
-      actorUserId: userId,
-      fromStatus: null,
-      toStatus: 'PENDING',
-    });
-
-    return pp;
+    return toProvisioningProjectCreateResponse(pp, op, false);
   }
 
-  // ── Operations ──────────────────────────────────────────────
+  // ── Operations ────────────────────────────────────────────
 
   async createOperation(
     userId: string,
     dto: CreateProvisioningOperationDto,
   ) {
-    const pp = await this.assertProvisioningProjectAccess(
-      dto.provisioningProjectId,
-      userId,
-    );
+    await this.assertProvisioningProjectAccess(dto.provisioningProjectId, userId);
 
     // Idempotency: return existing operation without error if key already seen
     const existing = await this.prisma.provisioningOperation.findUnique({
@@ -153,52 +240,52 @@ export class ProvisioningService {
     });
     if (existing) return { operation: existing, idempotent: true };
 
-    // dryRun=true → immediately terminal (DRY_RUN); no executor queued
     const initialStatus = dto.dryRun ? 'DRY_RUN' : 'PENDING';
 
-    const op = await this.prisma.provisioningOperation.create({
-      data: {
-        provisioningProjectId: dto.provisioningProjectId,
-        resourceId: dto.resourceId,
-        type: dto.type,
-        status: initialStatus,
-        dryRun: dto.dryRun,
-        idempotencyKey: dto.idempotencyKey,
-        requestedBy: userId,
-        input: (dto.input as any) ?? undefined,
-        startedAt: dto.dryRun ? new Date() : undefined,
-        completedAt: dto.dryRun ? new Date() : undefined,
-      },
-    });
+    const op = await this.prisma.$transaction(async (tx) => {
+      const op = await tx.provisioningOperation.create({
+        data: {
+          provisioningProjectId: dto.provisioningProjectId,
+          resourceId: dto.resourceId,
+          type: dto.type,
+          status: initialStatus,
+          dryRun: dto.dryRun,
+          idempotencyKey: dto.idempotencyKey,
+          requestedBy: userId,
+          input: (dto.input as any) ?? undefined,
+          startedAt: dto.dryRun ? new Date() : undefined,
+          completedAt: dto.dryRun ? new Date() : undefined,
+        },
+      });
 
-    const auditKind: EventKind = dto.dryRun
-      ? 'DRY_RUN_COMPLETED'
-      : 'OPERATION_STARTED';
-
-    await this.writeAuditEvent({
-      provisioningProjectId: dto.provisioningProjectId,
-      resourceId: dto.resourceId,
-      operationId: op.id,
-      kind: auditKind,
-      actorUserId: userId,
-      fromStatus: null,
-      toStatus: initialStatus,
-      detail: dto.dryRun ? { dryRun: true } : undefined,
-    });
-
-    // If this is a ROLLBACK type, also emit a ROLLBACK_INITIATED event
-    if (dto.type === 'ROLLBACK' && !dto.dryRun) {
-      await this.writeAuditEvent({
+      await this.writeAuditEvent(tx, {
         provisioningProjectId: dto.provisioningProjectId,
         resourceId: dto.resourceId,
         operationId: op.id,
-        kind: 'ROLLBACK_INITIATED',
+        kind: dto.dryRun ? 'DRY_RUN_COMPLETED' : 'OPERATION_STARTED',
         actorUserId: userId,
+        fromStatus: null,
+        toStatus: initialStatus,
+        detail: dto.dryRun ? { dryRun: true } : undefined,
       });
-    }
+
+      if (dto.type === 'ROLLBACK' && !dto.dryRun) {
+        await this.writeAuditEvent(tx, {
+          provisioningProjectId: dto.provisioningProjectId,
+          resourceId: dto.resourceId,
+          operationId: op.id,
+          kind: 'ROLLBACK_INITIATED',
+          actorUserId: userId,
+        });
+      }
+
+      return op;
+    });
 
     return { operation: op, idempotent: false };
   }
+
+  // ── Read endpoints ────────────────────────────────────────
 
   async getOperation(userId: string, operationId: string) {
     const op = await this.prisma.provisioningOperation.findUnique({
@@ -209,11 +296,8 @@ export class ProvisioningService {
     return op;
   }
 
-  // ── Resources ───────────────────────────────────────────────
-
   async listResources(userId: string, provisioningProjectId: string) {
     await this.assertProvisioningProjectAccess(provisioningProjectId, userId);
-    // Read from DB only — no provider calls.
     return this.prisma.provisioningResource.findMany({
       where: { provisioningProjectId },
       orderBy: [{ kind: 'asc' }, { name: 'asc' }],
@@ -232,7 +316,7 @@ export class ProvisioningService {
         destroyedAt: true,
         createdAt: true,
         updatedAt: true,
-        // rollbackSpec excluded from list response (sensitive operational data)
+        // rollbackSpec excluded — sensitive operational data
       },
     });
   }

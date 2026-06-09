@@ -7,9 +7,13 @@ import { ProvisioningService } from './provisioning.service';
 import { OperationTypeDto } from './dto/create-provisioning-operation.dto';
 
 // ── Prisma mock factory ──────────────────────────────────────
+//
+// $transaction is mocked to call the callback synchronously with the same
+// mock object as `tx`, so assertions on e.g. provisioningOperation.create
+// still work without duplicating every mock per-method.
 
 function makePrisma(overrides: Record<string, any> = {}) {
-  const defaults = {
+  const defaults: Record<string, any> = {
     project: { findUnique: jest.fn() },
     teamMember: { findUnique: jest.fn() },
     provisioningProject: {
@@ -24,7 +28,9 @@ function makePrisma(overrides: Record<string, any> = {}) {
     provisioningResource: { findMany: jest.fn() },
     provisioningAuditEvent: { create: jest.fn().mockResolvedValue({}) },
   };
-  return { ...defaults, ...overrides } as any;
+  const merged = { ...defaults, ...overrides };
+  merged.$transaction = jest.fn().mockImplementation((cb: any) => cb(merged));
+  return merged as any;
 }
 
 const TEAM_ID = 'team-1';
@@ -49,6 +55,15 @@ function stubCredRef(teamId = TEAM_ID) {
 function stubProvisioningProject(id = PP_ID) {
   return { id, project: { teamId: TEAM_ID } };
 }
+
+const BASE_CREATE_PROJECT_DTO = {
+  projectId: PROJECT_ID,
+  credentialRefId: CRED_ID,
+  region: 'eu-central',
+  desiredSpec: { serverType: 'cx21' },
+  dryRun: false,
+  idempotencyKey: IDEM_KEY,
+};
 
 // ── createOperation — idempotency ───────────────────────────
 
@@ -198,7 +213,7 @@ describe('ProvisioningService.createOperation', () => {
   });
 });
 
-// ── createProject — ownership + credentialRef ───────────────
+// ── createProject ────────────────────────────────────────────
 
 describe('ProvisioningService.createProject', () => {
   it('throws NotFoundException when project does not exist', async () => {
@@ -207,11 +222,7 @@ describe('ProvisioningService.createProject', () => {
 
     const svc = new ProvisioningService(prisma);
     await expect(
-      svc.createProject(USER_ID, {
-        projectId: 'missing',
-        credentialRefId: CRED_ID,
-        region: 'eu-central',
-      }),
+      svc.createProject(USER_ID, { ...BASE_CREATE_PROJECT_DTO, projectId: 'missing' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -222,11 +233,7 @@ describe('ProvisioningService.createProject', () => {
 
     const svc = new ProvisioningService(prisma);
     await expect(
-      svc.createProject(USER_ID, {
-        projectId: PROJECT_ID,
-        credentialRefId: CRED_ID,
-        region: 'eu-central',
-      }),
+      svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -234,17 +241,11 @@ describe('ProvisioningService.createProject', () => {
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(stubProject('team-A'));
     prisma.teamMember.findUnique.mockResolvedValue(memberOf('team-A'));
-    prisma.provisioningCredentialRef.findUnique.mockResolvedValue(
-      stubCredRef('team-B'),
-    );
+    prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef('team-B'));
 
     const svc = new ProvisioningService(prisma);
     await expect(
-      svc.createProject(USER_ID, {
-        projectId: PROJECT_ID,
-        credentialRefId: CRED_ID,
-        region: 'eu-central',
-      }),
+      svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -259,51 +260,100 @@ describe('ProvisioningService.createProject', () => {
 
     const svc = new ProvisioningService(prisma);
     await expect(
-      svc.createProject(USER_ID, {
-        projectId: PROJECT_ID,
-        credentialRefId: CRED_ID,
-        region: 'eu-central',
-      }),
+      svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('throws ConflictException when a provisioning project already exists', async () => {
+  it('throws ConflictException when project exists and idempotency key does not match', async () => {
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
     prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef());
+    // Project exists
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
+    // But no operation with this idempotency key
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
 
     const svc = new ProvisioningService(prisma);
     await expect(
-      svc.createProject(USER_ID, {
-        projectId: PROJECT_ID,
-        credentialRefId: CRED_ID,
-        region: 'eu-central',
-      }),
+      svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('creates project and writes STATUS_CHANGED audit event on success', async () => {
-    const created = { id: PP_ID, status: 'PENDING' };
+  it('returns idempotent response when project and operation already exist with same key', async () => {
+    const existingPP = { id: PP_ID, provider: 'hetzner', status: 'PENDING' };
+    const existingOp = { id: 'op-1', status: 'PENDING', dryRun: false };
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef());
+    prisma.provisioningProject.findUnique.mockResolvedValue(existingPP);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO);
+
+    expect(result.operation.idempotent).toBe(true);
+    expect(result.provisioningProjectId).toBe(PP_ID);
+    expect(prisma.provisioningProject.create).not.toHaveBeenCalled();
+    expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('creates project + operation atomically and returns mapped response', async () => {
+    const createdPP = { id: PP_ID, provider: 'hetzner', status: 'PENDING' };
+    const createdOp = { id: 'op-new', status: 'PENDING', dryRun: false };
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
     prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef());
     prisma.provisioningProject.findUnique.mockResolvedValue(null);
-    prisma.provisioningProject.create.mockResolvedValue(created);
+    prisma.provisioningProject.create.mockResolvedValue(createdPP);
+    prisma.provisioningOperation.create.mockResolvedValue(createdOp);
+
+    const svc = new ProvisioningService(prisma);
+    const result = await svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO);
+
+    expect(result.provisioningProjectId).toBe(PP_ID);
+    expect(result.provider).toBe('hetzner');
+    expect(result.status).toBe('PENDING');
+    expect(result.operation.provisioningOperationId).toBe('op-new');
+    expect(result.operation.idempotent).toBe(false);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningProject.create).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningOperation.create).toHaveBeenCalledTimes(1);
+
+    const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
+    expect(auditCall.data.kind).toBe('STATUS_CHANGED');
+    expect(auditCall.data.fromStatus).toBeUndefined();
+    expect(auditCall.data.toStatus).toBe('PENDING');
+  });
+
+  it('sets operation to DRY_RUN and emits DRY_RUN_COMPLETED when dryRun=true', async () => {
+    const createdPP = { id: PP_ID, provider: 'hetzner', status: 'PENDING' };
+    const createdOp = { id: 'op-dry', status: 'DRY_RUN', dryRun: true };
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef());
+    prisma.provisioningProject.findUnique.mockResolvedValue(null);
+    prisma.provisioningProject.create.mockResolvedValue(createdPP);
+    prisma.provisioningOperation.create.mockResolvedValue(createdOp);
 
     const svc = new ProvisioningService(prisma);
     const result = await svc.createProject(USER_ID, {
-      projectId: PROJECT_ID,
-      credentialRefId: CRED_ID,
-      region: 'eu-central',
+      ...BASE_CREATE_PROJECT_DTO,
+      dryRun: true,
     });
 
-    expect(result).toEqual(created);
+    const opCreateCall = prisma.provisioningOperation.create.mock.calls[0][0];
+    expect(opCreateCall.data.status).toBe('DRY_RUN');
+    expect(opCreateCall.data.completedAt).toBeDefined();
+
     const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0];
-    expect(auditCall.data.kind).toBe('STATUS_CHANGED');
-    expect(auditCall.data.toStatus).toBe('PENDING');
+    expect(auditCall.data.kind).toBe('DRY_RUN_COMPLETED');
+
+    expect(result.operation.dryRun).toBe(true);
   });
 });
 
