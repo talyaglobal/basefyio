@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ProvisioningService } from './provisioning.service';
 import { ProvisioningExecutorService } from './provisioning-executor.service';
+import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
 import { ProvisioningController } from './provisioning.controller';
 import { NoopProvisioningProvider } from './providers/noop-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
@@ -11,6 +12,7 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
 @Module({
   providers: [
     ProvisioningService,
+    ProvisioningResourceProjectionService,
     ProvisioningExecutorService,
     NoopProvisioningProvider,
     {

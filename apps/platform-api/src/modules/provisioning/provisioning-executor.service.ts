@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProvisioningExecuteInput } from './interfaces/provisioning-provider.interface';
 import { IProviderRegistry, PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
 import { normalizeProviderError } from './interfaces/provider-error.interface';
+import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
 
 type AuditEventKind =
   | 'STATUS_CHANGED'
@@ -20,6 +21,7 @@ export class ProvisioningExecutorService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PROVIDER_REGISTRY) private readonly registry: IProviderRegistry,
+    private readonly projection: ProvisioningResourceProjectionService,
   ) {}
 
   async executeOperation(userId: string, operationId: string) {
@@ -82,31 +84,12 @@ export class ProvisioningExecutorService {
       detail: { providerType: input.providerType, region: input.region },
     });
 
-    // ── Provider call + terminal transition ────────────────────
+    // ── Provider call (separate catch — failure → FAILED, not propagated) ────
+    let providerResult;
     try {
-      const providerResult = await provider.execute(input);
-
-      // RUNNING → COMPLETED
-      const completed = await this.prisma.provisioningOperation.update({
-        where: { id: op.id },
-        data: {
-          status: 'COMPLETED',
-          result: (providerResult.result as any) ?? undefined,
-          completedAt: new Date(),
-        },
-      });
-      await this.writeAuditEvent({
-        provisioningProjectId: op.provisioningProjectId,
-        operationId: op.id,
-        kind: 'OPERATION_COMPLETED',
-        actorUserId: userId,
-        fromStatus: 'RUNNING',
-        toStatus: 'COMPLETED',
-        detail: { providerType: input.providerType, region: input.region },
-      });
-      return completed;
+      providerResult = await provider.execute(input);
     } catch (err) {
-      // RUNNING → FAILED; failure is normalized and stored — never re-thrown
+      // Provider error: RUNNING → FAILED; normalized, stored, returned — never re-thrown
       const normalized = normalizeProviderError(err);
       const failed = await this.prisma.provisioningOperation.update({
         where: { id: op.id },
@@ -128,7 +111,46 @@ export class ProvisioningExecutorService {
         },
       });
       return failed;
+      // projection is NOT called — no resource mutations from a failed provider call
     }
+
+    // ── Resource projection (before COMPLETED update) ───────────────────────
+    // If projection fails, the operation stays RUNNING and can be recovered.
+    // A COMPLETED operation with missing resource rows is a harder inconsistency to fix.
+    const resources = providerResult.resources ?? [];
+    if (resources.length > 0) {
+      await this.projection.project({
+        operationId: op.id,
+        provisioningProjectId: op.provisioningProjectId,
+        region: op.provisioningProject.region,
+        datacenter: op.provisioningProject.datacenter ?? null,
+        resources,
+        actorUserId: userId,
+      });
+    }
+
+    // ── RUNNING → COMPLETED (only after projection succeeds) ────────────────
+    const completed = await this.prisma.provisioningOperation.update({
+      where: { id: op.id },
+      data: {
+        status: 'COMPLETED',
+        result: {
+          metadata: providerResult.metadata ?? {},
+          resourceCount: resources.length,
+        } as any,
+        completedAt: new Date(),
+      },
+    });
+    await this.writeAuditEvent({
+      provisioningProjectId: op.provisioningProjectId,
+      operationId: op.id,
+      kind: 'OPERATION_COMPLETED',
+      actorUserId: userId,
+      fromStatus: 'RUNNING',
+      toStatus: 'COMPLETED',
+      detail: { providerType: input.providerType, region: input.region },
+    });
+    return completed;
   }
 
   private writeAuditEvent(data: {

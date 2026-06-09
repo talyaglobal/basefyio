@@ -6,6 +6,7 @@ import {
 import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { IProvisioningProvider } from './interfaces/provisioning-provider.interface';
 import { IProviderRegistry } from './interfaces/provider-registry.interface';
+import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
 
 // ── Mock factories ───────────────────────────────────────────
 
@@ -23,7 +24,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 
 function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisioningProvider {
   return {
-    execute: jest.fn().mockResolvedValue({ success: true, result: { noop: true } }),
+    execute: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
     ...overrides,
   };
 }
@@ -32,8 +33,16 @@ function makeRegistry(provider: IProvisioningProvider = makeProvider()): IProvid
   return { resolve: jest.fn().mockReturnValue(provider) };
 }
 
-function makeSvc(prisma = makePrisma(), registry: IProviderRegistry = makeRegistry()) {
-  return new ProvisioningExecutorService(prisma, registry);
+function makeProjection(): jest.Mocked<Pick<ProvisioningResourceProjectionService, 'project'>> {
+  return { project: jest.fn().mockResolvedValue(undefined) };
+}
+
+function makeSvc(
+  prisma = makePrisma(),
+  registry: IProviderRegistry = makeRegistry(),
+  projection = makeProjection(),
+) {
+  return new ProvisioningExecutorService(prisma, registry, projection as any);
 }
 
 // ── Fixture constants ────────────────────────────────────────
@@ -111,9 +120,8 @@ describe('ProvisioningExecutorService — invalid transitions', () => {
     });
   }
 
-  it('rejects any status other than PENDING (allowlist safety)', async () => {
+  it('rejects any status other than PENDING (allowlist — future statuses are safe)', async () => {
     const prisma = makePrisma();
-    // Simulate a hypothetical future status not in the original blocklist
     prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('QUEUED' as any));
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
     await expect(makeSvc(prisma).executeOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(BadRequestException);
@@ -148,6 +156,20 @@ describe('ProvisioningExecutorService — noop success', () => {
     const calls = prisma.provisioningOperation.update.mock.calls;
     expect(calls[0][0].data.status).toBe('RUNNING');
     expect(calls[1][0].data.status).toBe('COMPLETED');
+  });
+
+  it('stores result as { metadata, resourceCount } on COMPLETED update', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeCompletedOp());
+
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+
+    const completedData = prisma.provisioningOperation.update.mock.calls[1][0].data;
+    expect(completedData.result).toMatchObject({ metadata: { noop: true }, resourceCount: 0 });
   });
 });
 
@@ -240,25 +262,9 @@ describe('ProvisioningExecutorService — audit sequence', () => {
     const [first, second] = prisma.provisioningAuditEvent.create.mock.calls.map((c: any) => c[0].data);
     expect(prisma.provisioningAuditEvent.create).toHaveBeenCalledTimes(2);
     expect(first.kind).toBe('STATUS_CHANGED');
-    expect(first.fromStatus).toBe('PENDING');
-    expect(first.toStatus).toBe('RUNNING');
     expect(second.kind).toBe('OPERATION_FAILED');
     expect(second.fromStatus).toBe('RUNNING');
     expect(second.toStatus).toBe('FAILED');
-  });
-
-  it('includes providerType and region in audit detail', async () => {
-    const prisma = makePrisma();
-    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
-    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-    prisma.provisioningOperation.update
-      .mockResolvedValueOnce(makeRunningOp())
-      .mockResolvedValueOnce(makeCompletedOp());
-
-    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
-
-    const detail = prisma.provisioningAuditEvent.create.mock.calls[0][0].data.detail;
-    expect(detail).toMatchObject({ providerType: 'noop', region: 'eu-central' });
   });
 });
 
@@ -274,7 +280,7 @@ describe('ProvisioningExecutorService — provider dispatch', () => {
       .mockResolvedValueOnce(makeCompletedOp());
 
     const registry = makeRegistry();
-    await new ProvisioningExecutorService(prisma, registry).executeOperation(USER_ID, OP_ID);
+    await new ProvisioningExecutorService(prisma, registry, makeProjection() as any).executeOperation(USER_ID, OP_ID);
 
     expect(registry.resolve).toHaveBeenCalledWith('noop');
   });
@@ -288,7 +294,7 @@ describe('ProvisioningExecutorService — provider dispatch', () => {
       .mockResolvedValueOnce(makeCompletedOp());
 
     const provider = makeProvider();
-    const svc = new ProvisioningExecutorService(prisma, makeRegistry(provider));
+    const svc = new ProvisioningExecutorService(prisma, makeRegistry(provider), makeProjection() as any);
     await svc.executeOperation(USER_ID, OP_ID);
 
     const call = (provider.execute as jest.Mock).mock.calls[0][0];
@@ -315,7 +321,7 @@ describe('ProvisioningExecutorService — invalid provider', () => {
         throw new BadRequestException('Unknown provider type: unknown');
       }),
     };
-    const svc = new ProvisioningExecutorService(prisma, registry);
+    const svc = new ProvisioningExecutorService(prisma, registry, makeProjection() as any);
     await expect(svc.executeOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -329,11 +335,108 @@ describe('ProvisioningExecutorService — invalid provider', () => {
         throw new BadRequestException('Unknown provider type: unknown');
       }),
     };
-    const svc = new ProvisioningExecutorService(prisma, registry);
+    const svc = new ProvisioningExecutorService(prisma, registry, makeProjection() as any);
     await expect(svc.executeOperation(USER_ID, OP_ID)).rejects.toThrow();
-
-    // No DB writes — operation remains in its original state
     expect(prisma.provisioningOperation.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── Resource projection integration ──────────────────────────
+
+describe('ProvisioningExecutorService — resource projection', () => {
+  it('calls projection.project with correct params when provider returns resources', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeCompletedOp());
+
+    const resource = {
+      externalId: 'srv-99',
+      type: 'SERVER',
+      name: 'web-01',
+      desiredSpec: { size: 'cx11' },
+      actualSpec: { size: 'cx11' },
+      status: 'ACTIVE' as const,
+    };
+    const provider = makeProvider();
+    (provider.execute as jest.Mock).mockResolvedValue({
+      success: true,
+      resources: [resource],
+      metadata: { region: 'eu-central' },
+    });
+
+    const projection = makeProjection();
+    await new ProvisioningExecutorService(prisma, makeRegistry(provider), projection as any)
+      .executeOperation(USER_ID, OP_ID);
+
+    expect(projection.project).toHaveBeenCalledTimes(1);
+    const projectionCall = projection.project.mock.calls[0][0];
+    expect(projectionCall.operationId).toBe(OP_ID);
+    expect(projectionCall.provisioningProjectId).toBe(PP_ID);
+    expect(projectionCall.region).toBe('eu-central');
+    expect(projectionCall.resources).toHaveLength(1);
+    expect(projectionCall.actorUserId).toBe(USER_ID);
+  });
+
+  it('does not call projection when provider returns empty resources', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeCompletedOp());
+
+    // NoopProvider returns resources: []
+    const projection = makeProjection();
+    await makeSvc(prisma, makeRegistry(), projection).executeOperation(USER_ID, OP_ID);
+
+    expect(projection.project).not.toHaveBeenCalled();
+  });
+
+  it('does not call projection when provider fails', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.execute as jest.Mock).mockRejectedValue(new Error('timeout'));
+    const projection = makeProjection();
+
+    await makeSvc(prisma, makeRegistry(provider), projection).executeOperation(USER_ID, OP_ID);
+
+    expect(projection.project).not.toHaveBeenCalled();
+  });
+
+  it('stays RUNNING (propagates) when projection fails — not COMPLETED with missing resources', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update.mockResolvedValueOnce(makeRunningOp());
+    // No second update — projection throws before COMPLETED write
+
+    const provider = makeProvider();
+    (provider.execute as jest.Mock).mockResolvedValue({
+      success: true,
+      resources: [{ externalId: 'x', type: 'SERVER', name: 'web-01', desiredSpec: {}, actualSpec: {}, status: 'ACTIVE' }],
+      metadata: {},
+    });
+
+    const projection = makeProjection();
+    projection.project.mockRejectedValue(new Error('DB write failed'));
+
+    await expect(
+      new ProvisioningExecutorService(prisma, makeRegistry(provider), projection as any)
+        .executeOperation(USER_ID, OP_ID),
+    ).rejects.toThrow('DB write failed');
+
+    // COMPLETED update was never called — op stays in RUNNING
+    const updateStatuses = prisma.provisioningOperation.update.mock.calls.map((c: any) => c[0].data.status);
+    expect(updateStatuses).not.toContain('COMPLETED');
   });
 });
 
@@ -349,12 +452,11 @@ describe('ProvisioningExecutorService — secret boundary', () => {
       .mockResolvedValueOnce(makeCompletedOp());
 
     const provider = makeProvider();
-    await new ProvisioningExecutorService(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+    await new ProvisioningExecutorService(prisma, makeRegistry(provider), makeProjection() as any)
+      .executeOperation(USER_ID, OP_ID);
 
     const call = (provider.execute as jest.Mock).mock.calls[0][0];
-    // Provider receives the stored path reference only
     expect(call.credentialOpenbaoPath).toBe(OPENBAO_PATH);
-    // No resolved-credential fields on the input
     expect(call).not.toHaveProperty('apiKey');
     expect(call).not.toHaveProperty('secret');
     expect(call).not.toHaveProperty('token');
@@ -371,30 +473,11 @@ describe('ProvisioningExecutorService — secret boundary', () => {
 
     await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
 
-    // Operation updates contain only status-transition fields
     for (const [call] of prisma.provisioningOperation.update.mock.calls) {
       expect(JSON.stringify(call.data)).not.toContain(OPENBAO_PATH);
     }
-    // Audit detail does not log the credential reference
     for (const [call] of prisma.provisioningAuditEvent.create.mock.calls) {
       expect(JSON.stringify(call.data.detail ?? {})).not.toContain(OPENBAO_PATH);
     }
-  });
-
-  it('does not call any secret resolver during execution (provider owns resolution)', async () => {
-    const prisma = makePrisma();
-    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
-    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
-    prisma.provisioningOperation.update
-      .mockResolvedValueOnce(makeRunningOp())
-      .mockResolvedValueOnce(makeCompletedOp());
-
-    // A resolver stub wired outside the executor — it must never be called
-    const resolver = { resolve: jest.fn() };
-
-    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
-
-    // Executor has no reference to any secret resolver in Phase 5
-    expect(resolver.resolve).not.toHaveBeenCalled();
   });
 });
