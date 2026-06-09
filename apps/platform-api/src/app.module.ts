@@ -28,6 +28,7 @@ import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { SearchModule } from './modules/search/search.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embedding.module';
+import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
 import configuration from './config/configuration';
@@ -66,6 +67,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     SearchModule,
     RecommendationModule,
     TenantEmbeddingModule,
+    DataEngineModule,
     DrizzleModule,
     RagModule,
   ],
