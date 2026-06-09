@@ -41,11 +41,11 @@ export class AgentService {
       metadata: body.metadata ?? null,
     });
 
-    await this.activity.append({
-      projectId,
+    await this.activity.append(projectId, {
       userId: userId ?? null,
       kind: ProjectActivityKind.AGENT_THREAD_CREATED,
-      meta: { threadId: thread.id },
+      title: `Thread created`,
+      metadata: { threadId: thread.id },
     });
 
     return thread;
@@ -97,11 +97,11 @@ export class AgentService {
     });
 
     if (body.role === 'user') {
-      await this.activity.append({
-        projectId,
+      await this.activity.append(projectId, {
         userId: userId ?? null,
         kind: ProjectActivityKind.AGENT_MESSAGE_ADDED,
-        meta: { threadId, messageId: message.id },
+        title: `Message added`,
+        metadata: { threadId, messageId: message.id },
       });
     }
 

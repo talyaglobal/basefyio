@@ -5,22 +5,38 @@ import { ProjectActivityModule } from '../projects/project-activity.module';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { AgentRepository } from './agent.repository';
+import { AgentCreationController } from './agent-creation.controller';
+import { AgentCreationService } from './agent-creation.service';
+import { AgentCreationRepository } from './agent-creation.repository';
+import { PolicyGatewayService } from './policy-gateway.service';
 
 /**
- * Agentic Storage module (Module 2 — Phase A).
+ * Agent module — Module 2 (Agentic Storage) + Module 3 (Agent Creation).
  *
- * Owns the conversation layer: chat_threads, chat_messages, agent_memory,
- * agent_tool_calls, agent_policy_events. All tables are project-scoped with
- * tenant isolation enforced in the service layer.
+ * Module 2: chat_threads, chat_messages, agent_memory, agent_tool_calls,
+ *           agent_policy_events — conversation + memory layer.
+ * Module 3: agents, agent_versions, agent_tools, agent_runs — entity +
+ *           versioning + policy gateway. Runner execution is in commit 2.
  *
- * AgentRepository and AgentService are exported so Module 3 (Agent Creation)
- * can reuse them for tool-call recording and policy event logging without
- * importing the full module.
+ * PolicyGatewayService is exported so the future runner (commit 2) can
+ * evaluate tool calls without re-importing the full module.
  */
 @Module({
   imports: [PrismaModule, DrizzleModule, ProjectActivityModule],
-  controllers: [AgentController],
-  providers: [AgentService, AgentRepository],
-  exports: [AgentService, AgentRepository],
+  controllers: [AgentController, AgentCreationController],
+  providers: [
+    AgentService,
+    AgentRepository,
+    AgentCreationService,
+    AgentCreationRepository,
+    PolicyGatewayService,
+  ],
+  exports: [
+    AgentService,
+    AgentRepository,
+    AgentCreationService,
+    AgentCreationRepository,
+    PolicyGatewayService,
+  ],
 })
 export class AgentModule {}

@@ -60,6 +60,8 @@ export const ProjectActivityKind = {
   AGENT_THREAD_CREATED: 'agent.thread_created',
   AGENT_MESSAGE_ADDED: 'agent.message_added',
   AGENT_TOOL_DENIED: 'agent.tool_denied',
+  AGENT_CREATED: 'agent.created',
+  AGENT_RUN_EXECUTED: 'agent.run_executed',
 } as const;
 
 export type ProjectActivityKindValue =

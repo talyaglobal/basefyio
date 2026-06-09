@@ -1,0 +1,21 @@
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ListAgentsQuery {
+  @IsOptional()
+  @IsIn(['draft', 'active', 'archived'])
+  status?: 'draft' | 'active' | 'archived';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
+}
