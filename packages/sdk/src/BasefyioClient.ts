@@ -4,6 +4,8 @@ import { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
 import { AuthClient } from './modules/auth.js';
 import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
+import { CollectionManager, CollectionClient } from './modules/collection.js';
+import { DataEngineClient, EntityClient } from './modules/data-engine.js';
 
 function getEnv(key: string): string | undefined {
   try {
@@ -17,6 +19,8 @@ function getEnv(key: string): string | undefined {
 export class BasefyioClient {
   readonly auth: AuthClient;
   readonly storage: StorageClient;
+  readonly collections: CollectionManager;
+  readonly data: DataEngineClient;
 
   private db: DatabaseClient;
   private http: BasefyioFetchClient;
@@ -47,6 +51,8 @@ export class BasefyioClient {
     this.auth = new AuthClient(this.http, options.autoRefreshToken ?? true);
     this.db = new DatabaseClient(this.http, this.projectId);
     this.storage = new StorageClient(this.http, this.projectId);
+    this.collections = new CollectionManager(this.http, this.projectId);
+    this.data = new DataEngineClient(this.http, this.projectId);
   }
 
   /**
@@ -85,6 +91,18 @@ export class BasefyioClient {
    */
   async getColumns(table: string) {
     return this.db.getColumns(table);
+  }
+
+  /**
+   * Get a CollectionClient for document operations on a NoSQL collection.
+   *
+   * @example
+   * const { data } = await bf.collection('posts').insert({ title: 'Hello' })
+   * const { data } = await bf.collection('posts').find({ status: 'active' }).sort('views', 'desc').limit(10)
+   * await bf.collection('posts').updateById(id, { views: 42 })
+   */
+  collection<T = Record<string, unknown>>(name: string): CollectionClient<T> {
+    return this.collections.get<T>(name);
   }
 }
 

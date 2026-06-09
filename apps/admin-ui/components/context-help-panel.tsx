@@ -24,20 +24,18 @@ export function ContextHelpPanel() {
     localStorage.setItem(STORAGE_KEY, String(isOpen));
   }, [isOpen]);
 
+  // Allow external components to open the panel via a custom DOM event.
+  useEffect(() => {
+    const handler = () => setIsOpen(true);
+    window.addEventListener('basefyio-open-help', handler);
+    return () => window.removeEventListener('basefyio-open-help', handler);
+  }, []);
+
   if (!help) return null;
 
   // Toggle button (when closed)
   if (!isOpen) {
-    return (
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className="hidden lg:flex h-8 w-8 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors absolute right-4 top-4 z-10"
-        title="Show help"
-      >
-        <CircleHelp className="h-4 w-4" />
-      </button>
-    );
+    return null;
   }
 
   // Open panel

@@ -22,6 +22,8 @@ export async function GET() {
       date: top.date,
       title: top.title,
       version: top.version,
+      kind: top.kind,
+      summary: top.summary,
     },
     version: getLatestVersion(),
   });

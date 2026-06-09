@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/platform-api",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
@@ -23,6 +23,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\" --fix"
   },
   "dependencies": {
+    "@basefyio/data-engine": "file:../../packages/data-engine",
     "@keycloak/keycloak-admin-client": "^24.0.0",
     "@nestjs/axios": "^3.0.0",
     "@nestjs/bullmq": "^11.0.4",

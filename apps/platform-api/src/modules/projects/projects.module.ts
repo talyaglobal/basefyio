@@ -23,6 +23,10 @@ import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
+import { CollectionController } from './collection.controller';
+import { CollectionService } from './collection.service';
+import { PublicCollectionApiController } from './public-collection-api.controller';
+import { PublicCollectionApiService } from './public-collection-api.service';
 
 @Module({
   imports: [
@@ -39,6 +43,8 @@ import { ProjectArchiveImportService } from './project-archive-import.service';
     ProjectAuthController,
     ProjectSdkAuthController,
     PublicApiController,
+    CollectionController,
+    PublicCollectionApiController,
     FoldersController,
     TagsController,
   ],
@@ -48,6 +54,8 @@ import { ProjectArchiveImportService } from './project-archive-import.service';
     ProjectAuthConfigService,
     ProjectSdkAuthService,
     PublicApiService,
+    CollectionService,
+    PublicCollectionApiService,
     SupabaseImportService,
     ProjectExportService,
     ProjectArchiveImportService,

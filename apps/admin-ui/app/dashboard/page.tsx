@@ -117,7 +117,7 @@ function StatCard({
 // ── Main ─────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
-  const { activeTeamId, setActiveTeamId, viewTeamId, setViewTeamId } = useDashboard();
+  const { activeTeamId, setActiveTeamId, viewTeamId, setViewTeamId, refreshKey } = useDashboard();
   const { profile, teams } = useDashboard();
 
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
@@ -210,7 +210,7 @@ export default function DashboardPage() {
         .catch((err) => toast.error(err.message))
         .finally(() => setLoading(false));
     }
-  }, [viewTeamId, teams]);
+  }, [viewTeamId, teams, refreshKey]);
 
   // Load all team projects for search
   useEffect(() => {
@@ -663,7 +663,6 @@ export default function DashboardPage() {
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           onCreated={() => {
-            setDialogOpen(false);
             api.projects.list(activeTeamId).then(setProjects).catch(() => {});
           }}
           teamId={activeTeamId}

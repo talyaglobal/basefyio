@@ -272,7 +272,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
 export default function TeamSettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey, teams: allTeams } = useActiveTeam();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
@@ -629,7 +629,7 @@ export default function TeamSettingsPage() {
           ) : (
             <p className="text-sm font-medium">{teamName}</p>
           )}
-          {currentUserIsOwner && (
+          {currentUserIsOwner && !allTeams.find((t) => t.id === activeTeamId)?.isPersonal && (
             <div className="pt-2">
               <Button
                 variant="destructive"

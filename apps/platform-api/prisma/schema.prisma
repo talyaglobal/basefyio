@@ -248,6 +248,9 @@ model Project {
   authConfig    ProjectAuthConfig?
   activityLogs    ProjectActivityLog[]
   infrastructure  ProjectInfrastructure?
+  dataPlane       DataPlaneProvisioning?
+  applicationModels ApplicationModel[]
+  entityDefinitions EntityDefinition[]
 
   @@map("projects")
 }
@@ -735,4 +738,148 @@ model EmbeddingRecord {
   @@index([projectId, entityType])
   @@index([teamId, entityType])
   @@map("embedding_records")
+}
+
+// ══════════════════════════════════════════════════════════════
+// DATA ENGINE MODELS
+// ══════════════════════════════════════════════════════════════
+
+enum DataPlaneStatus {
+  PENDING
+  PROVISIONING
+  READY
+  FAILED
+  DELETING
+  DELETED
+}
+
+model DataPlaneProvisioning {
+  id            String          @id @default(uuid())
+  projectId     String          @unique @map("project_id")
+  status        DataPlaneStatus @default(PENDING)
+  provider      String          @default("nosql") @db.VarChar(20)
+  namespace     String          @default("projects")
+  tier          String          @default("shared") @db.VarChar(20)
+  retryCount    Int             @default(0) @map("retry_count")
+  lastError     String?         @map("last_error")
+  provisionedAt DateTime?       @map("provisioned_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("data_plane_provisioning")
+}
+
+model ApplicationModel {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  description String?
+  definition  Json     @default("{}")
+  version     Int      @default(1)
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project  Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entities EntityDefinition[]
+
+  @@unique([projectId, name])
+  @@map("application_models")
+}
+
+model EntityDefinition {
+  id                  String   @id @default(uuid())
+  projectId           String   @map("project_id")
+  applicationModelId  String?  @map("application_model_id")
+  logicalName         String   @map("logical_name")
+  displayName         String   @map("display_name")
+  physicalCollection  String   @map("physical_collection")
+  storageStrategy     String   @default("shared-records") @map("storage_strategy") @db.VarChar(30)
+  provider            String   @default("nosql") @db.VarChar(20)
+  storageClass        String   @default("standard") @map("storage_class") @db.VarChar(20)
+  schemaVersion       Int      @default(1) @map("schema_version")
+  fields              Json     @default("[]")
+  rules               Json     @default("[]")
+  // AI builder provenance
+  generatedByAI       Boolean  @default(false) @map("generated_by_ai")
+  description         String?
+  icon                String?  @db.VarChar(50)
+  aiPrompt            String?  @map("ai_prompt")
+  aiReasoning         Json?    @map("ai_reasoning")
+  confidenceScore     Float?   @map("confidence_score")
+  sourceWorkbook      String?  @map("source_workbook")
+  sourceSheet         String?  @map("source_sheet")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  applicationModel ApplicationModel?  @relation(fields: [applicationModelId], references: [id], onDelete: SetNull)
+  schemaVersions   EntitySchemaVersion[]
+
+  @@unique([projectId, logicalName])
+  @@index([projectId])
+  @@map("entity_definitions")
+}
+
+model EntitySchemaVersion {
+  id                  String   @id @default(uuid())
+  entityDefinitionId  String   @map("entity_definition_id")
+  version             Int
+  snapshot            Json
+  migrationScript     String?  @map("migration_script")
+  createdBy           String   @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  entityDefinition EntityDefinition @relation(fields: [entityDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([entityDefinitionId, version])
+  @@map("entity_schema_versions")
+}
+
+model EntityNameMapping {
+  id                String   @id @default(uuid())
+  projectId         String   @map("project_id")
+  logicalName       String   @map("logical_name")
+  physicalName      String   @map("physical_name")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([projectId, logicalName])
+  @@map("entity_name_mappings")
+}
+
+model DataEngineOutbox {
+  id            String   @id @default(uuid())
+  type          String   @db.VarChar(50)
+  projectId     String   @map("project_id")
+  entity        String
+  documentId    String?  @map("document_id")
+  schemaVersion Int      @default(1) @map("schema_version")
+  payload       Json?
+  status        String   @default("PENDING") @db.VarChar(20)
+  retryCount    Int      @default(0) @map("retry_count")
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([projectId])
+  @@map("data_engine_outbox")
+}
+
+model SavedDataQuery {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  mode        String   @db.VarChar(20)
+  entity      String?
+  sql         String?
+  pipeline    Json?
+  paramsSchema Json?   @map("params_schema")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, name])
+  @@map("saved_data_queries")
 }

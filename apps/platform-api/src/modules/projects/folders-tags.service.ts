@@ -4,10 +4,22 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 
 @Injectable()
 export class FoldersTagsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeEventsService,
+  ) {}
+
+  private async teamMemberUserIds(teamId: string): Promise<string[]> {
+    const members = await this.prisma.teamMember.findMany({
+      where: { teamId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
 
   private async assertTeamMember(teamId: string, userId: string) {
     const member = await this.prisma.teamMember.findFirst({
@@ -34,9 +46,20 @@ export class FoldersTagsService {
     color = '#6366f1',
   ) {
     await this.assertTeamMember(teamId, userId);
-    return this.prisma.projectFolder.create({
+    const folder = await this.prisma.projectFolder.create({
       data: { name, color, teamId },
     });
+    const memberIds = await this.teamMemberUserIds(teamId);
+    await this.realtime.publish({
+      entityType: 'project_folder',
+      action: 'created',
+      entityId: folder.id,
+      actorUserId: userId,
+      teamId,
+      userIds: memberIds,
+      payload: { name: folder.name, color: folder.color },
+    });
+    return folder;
   }
 
   async updateFolder(
@@ -47,7 +70,18 @@ export class FoldersTagsService {
     const folder = await this.prisma.projectFolder.findUnique({ where: { id } });
     if (!folder) throw new NotFoundException('Folder not found');
     await this.assertTeamMember(folder.teamId, userId);
-    return this.prisma.projectFolder.update({ where: { id }, data });
+    const updated = await this.prisma.projectFolder.update({ where: { id }, data });
+    const memberIds = await this.teamMemberUserIds(folder.teamId);
+    await this.realtime.publish({
+      entityType: 'project_folder',
+      action: 'updated',
+      entityId: id,
+      actorUserId: userId,
+      teamId: folder.teamId,
+      userIds: memberIds,
+      payload: { name: updated.name, color: updated.color },
+    });
+    return updated;
   }
 
   async deleteFolder(id: string, userId: string) {
@@ -55,6 +89,16 @@ export class FoldersTagsService {
     if (!folder) throw new NotFoundException('Folder not found');
     await this.assertTeamMember(folder.teamId, userId);
     await this.prisma.projectFolder.delete({ where: { id } });
+    const memberIds = await this.teamMemberUserIds(folder.teamId);
+    await this.realtime.publish({
+      entityType: 'project_folder',
+      action: 'deleted',
+      entityId: id,
+      actorUserId: userId,
+      teamId: folder.teamId,
+      userIds: memberIds,
+      payload: { name: folder.name },
+    });
     return { success: true };
   }
 
@@ -76,11 +120,22 @@ export class FoldersTagsService {
     color = '#8b5cf6',
   ) {
     await this.assertTeamMember(teamId, userId);
-    return this.prisma.projectTag.upsert({
+    const tag = await this.prisma.projectTag.upsert({
       where: { teamId_name: { teamId, name } },
       update: {},
       create: { name, color, teamId },
     });
+    const memberIds = await this.teamMemberUserIds(teamId);
+    await this.realtime.publish({
+      entityType: 'project_tag',
+      action: 'created',
+      entityId: tag.id,
+      actorUserId: userId,
+      teamId,
+      userIds: memberIds,
+      payload: { name: tag.name, color: tag.color },
+    });
+    return tag;
   }
 
   async updateTag(
@@ -91,7 +146,18 @@ export class FoldersTagsService {
     const tag = await this.prisma.projectTag.findUnique({ where: { id } });
     if (!tag) throw new NotFoundException('Tag not found');
     await this.assertTeamMember(tag.teamId, userId);
-    return this.prisma.projectTag.update({ where: { id }, data });
+    const updated = await this.prisma.projectTag.update({ where: { id }, data });
+    const memberIds = await this.teamMemberUserIds(tag.teamId);
+    await this.realtime.publish({
+      entityType: 'project_tag',
+      action: 'updated',
+      entityId: id,
+      actorUserId: userId,
+      teamId: tag.teamId,
+      userIds: memberIds,
+      payload: { name: updated.name, color: updated.color },
+    });
+    return updated;
   }
 
   async deleteTag(id: string, userId: string) {
@@ -99,6 +165,16 @@ export class FoldersTagsService {
     if (!tag) throw new NotFoundException('Tag not found');
     await this.assertTeamMember(tag.teamId, userId);
     await this.prisma.projectTag.delete({ where: { id } });
+    const memberIds = await this.teamMemberUserIds(tag.teamId);
+    await this.realtime.publish({
+      entityType: 'project_tag',
+      action: 'deleted',
+      entityId: id,
+      actorUserId: userId,
+      teamId: tag.teamId,
+      userIds: memberIds,
+      payload: { name: tag.name },
+    });
     return { success: true };
   }
 }

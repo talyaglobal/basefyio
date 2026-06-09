@@ -113,4 +113,16 @@ export default () => ({
     pgImage: process.env.DOCKER_PG_IMAGE || 'pgvector/pgvector:pg16',
     minioImage: process.env.DOCKER_MINIO_IMAGE || 'minio/minio:latest',
   },
+
+  dataEngine: {
+    provider: process.env.DATA_ENGINE_PROVIDER || 'disabled',
+    connectionString: process.env.NOSQL_CONNSTR || '',
+    username: process.env.NOSQL_USERNAME || '',
+    password: process.env.NOSQL_PASSWORD || '',
+    container: process.env.DATA_ENGINE_CONTAINER || 'basefyio-apps',
+    namespace: process.env.DATA_ENGINE_NAMESPACE || 'projects',
+    maxDocumentKb: parseInt(process.env.DATA_ENGINE_MAX_DOC_KB || '1024', 10),
+    maxNestingDepth: parseInt(process.env.DATA_ENGINE_MAX_NESTING_DEPTH || '8', 10),
+    maxArrayItems: parseInt(process.env.DATA_ENGINE_MAX_ARRAY_ITEMS || '1000', 10),
+  },
 });

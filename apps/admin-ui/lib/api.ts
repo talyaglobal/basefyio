@@ -940,6 +940,139 @@ export const api = {
         method: 'DELETE',
       });
     },
+    // ── Collections (NoSQL) ────────────────────────────────
+    listCollections(projectId: string) {
+      return request<import('./types').CollectionInfo[]>(`/projects/${projectId}/collections`);
+    },
+    createCollection(projectId: string, name: string) {
+      return request<{ message: string }>(`/projects/${projectId}/collections`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+    },
+    dropCollection(projectId: string, collectionName: string) {
+      return request<{ message: string }>(`/projects/${projectId}/collections/${encodeURIComponent(collectionName)}`, {
+        method: 'DELETE',
+      });
+    },
+    collectionDocuments(
+      projectId: string,
+      collectionName: string,
+      opts: { filter?: Record<string, unknown>; sort?: Record<string, number>; limit?: number; offset?: number } = {},
+    ) {
+      const params = new URLSearchParams();
+      if (opts.filter && Object.keys(opts.filter).length > 0) params.set('filter', JSON.stringify(opts.filter));
+      if (opts.sort && Object.keys(opts.sort).length > 0) params.set('sort', JSON.stringify(opts.sort));
+      if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+      if (opts.offset !== undefined) params.set('offset', String(opts.offset));
+      const qs = params.toString();
+      return request<import('./types').DocumentListResult>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents${qs ? `?${qs}` : ''}`,
+      );
+    },
+    insertDocument(projectId: string, collectionName: string, doc: Record<string, unknown> | Record<string, unknown>[]) {
+      return request<import('./types').DocumentRecord[]>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents`,
+        { method: 'POST', body: JSON.stringify(doc) },
+      );
+    },
+    getDocument(projectId: string, collectionName: string, docId: string) {
+      return request<import('./types').DocumentRecord>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents/${docId}`,
+      );
+    },
+    updateDocument(projectId: string, collectionName: string, docId: string, update: Record<string, unknown>) {
+      return request<import('./types').DocumentRecord>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents/${docId}`,
+        { method: 'PATCH', body: JSON.stringify(update) },
+      );
+    },
+    replaceDocument(projectId: string, collectionName: string, docId: string, doc: Record<string, unknown>) {
+      return request<import('./types').DocumentRecord>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents/${docId}`,
+        { method: 'PUT', body: JSON.stringify(doc) },
+      );
+    },
+    deleteDocument(projectId: string, collectionName: string, docId: string) {
+      return request<{ message: string }>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents/${docId}`,
+        { method: 'DELETE' },
+      );
+    },
+    bulkDeleteDocuments(projectId: string, collectionName: string, filter: Record<string, unknown>) {
+      return request<{ deleted: number }>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/documents`,
+        { method: 'DELETE', body: JSON.stringify({ filter }) },
+      );
+    },
+    collectionCount(projectId: string, collectionName: string, filter?: Record<string, unknown>) {
+      const qs = filter && Object.keys(filter).length > 0 ? `?filter=${encodeURIComponent(JSON.stringify(filter))}` : '';
+      return request<{ count: number }>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/count${qs}`,
+      );
+    },
+    createCollectionIndex(projectId: string, collectionName: string, fieldPath: string) {
+      return request<{ message: string }>(
+        `/projects/${projectId}/collections/${encodeURIComponent(collectionName)}/indexes`,
+        { method: 'POST', body: JSON.stringify({ fieldPath }) },
+      );
+    },
+
+    // ── Data Engine ──────────────────────────────────────
+    dataEngineHealth(projectId: string) {
+      return request<import('./types').DataEngineHealth>(`/v1/projects/${projectId}/data-engine/health`);
+    },
+    listEntityDefinitions(projectId: string) {
+      return request<import('./types').EntityDefinitionInfo[]>(`/v1/projects/${projectId}/entities`);
+    },
+    createEntityDefinition(projectId: string, data: { logicalName: string; displayName: string; fields: unknown[]; description?: string }) {
+      return request<import('./types').EntityDefinitionInfo>(`/v1/projects/${projectId}/entities`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    getEntityDefinition(projectId: string, entityName: string) {
+      return request<import('./types').EntityDefinitionInfo>(`/v1/projects/${projectId}/entities/${encodeURIComponent(entityName)}`);
+    },
+    dataEngineDocuments(
+      projectId: string,
+      entityName: string,
+      opts: { filter?: Record<string, unknown>; sort?: unknown[]; limit?: number; offset?: number } = {},
+    ) {
+      const params = new URLSearchParams();
+      if (opts.filter && Object.keys(opts.filter).length > 0) params.set('filter', JSON.stringify(opts.filter));
+      if (opts.sort && opts.sort.length > 0) params.set('sort', JSON.stringify(opts.sort));
+      if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+      if (opts.offset !== undefined) params.set('offset', String(opts.offset));
+      const qs = params.toString();
+      return request<import('./types').DataEnginePage>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}${qs ? `?${qs}` : ''}`,
+      );
+    },
+    insertDataEngineDocument(projectId: string, entityName: string, doc: Record<string, unknown>) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}`,
+        { method: 'POST', body: JSON.stringify(doc) },
+      );
+    },
+    getDataEngineDocument(projectId: string, entityName: string, docId: string) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+      );
+    },
+    updateDataEngineDocument(projectId: string, entityName: string, docId: string, patch: Record<string, unknown>) {
+      return request<import('./types').DataEngineDoc>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+        { method: 'PATCH', body: JSON.stringify(patch) },
+      );
+    },
+    deleteDataEngineDocument(projectId: string, entityName: string, docId: string) {
+      return request<void>(
+        `/v1/projects/${projectId}/data/${encodeURIComponent(entityName)}/${docId}`,
+        { method: 'DELETE' },
+      );
+    },
+
     connect(projectId: string) {
       return request<ConnectionStrings>(`/projects/${projectId}/connect`);
     },

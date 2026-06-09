@@ -466,6 +466,72 @@ export interface TableRows {
   totalPages: number;
 }
 
+// ── NoSQL / Collections ────────────────────────────────────
+
+export interface CollectionInfo {
+  name: string;
+  documentCount: number;
+}
+
+export interface DocumentRecord {
+  id: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentListResult {
+  data: DocumentRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ── Data Engine ──────────────────────────────────────────
+
+export interface EntityDefinitionInfo {
+  id: string;
+  logicalName: string;
+  displayName: string;
+  physicalCollection: string;
+  storageStrategy: string;
+  schemaVersion: number;
+  fields: unknown[];
+  rules: unknown[];
+  generatedByAI: boolean;
+  description?: string;
+  icon?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DataEngineDoc {
+  _id: string;
+  _entity: string;
+  _projectId: string;
+  _schemaVersion: number;
+  _version: number;
+  _eventSequence: number;
+  _status: string;
+  _createdAt: string;
+  _updatedAt: string;
+  _createdBy: string;
+  _deletedAt: string | null;
+  [key: string]: unknown;
+}
+
+export interface DataEnginePage {
+  data: DataEngineDoc[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+export interface DataEngineHealth {
+  available: boolean;
+  reachable: boolean;
+}
+
 export interface RealmUser {
   id: string;
   username: string;

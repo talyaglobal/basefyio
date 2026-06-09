@@ -357,7 +357,13 @@ export default function ProjectsPage() {
     if (!isRealtimePhase1Enabled()) return;
     const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
-      if (event.entityType === 'project' || event.entityType === 'project_activity' || event.entityType === 'team') {
+      if (
+        event.entityType === 'project' ||
+        event.entityType === 'project_activity' ||
+        event.entityType === 'project_folder' ||
+        event.entityType === 'project_tag' ||
+        event.entityType === 'team'
+      ) {
         void loadAllRef.current();
       }
     });
@@ -617,8 +623,16 @@ export default function ProjectsPage() {
     if (!activeTeamId) return;
     setLoadingTrash(true);
     try {
-      const deleted = await api.projects.listDeleted(activeTeamId);
-      setDeletedProjects(deleted);
+      if (isAllTeams) {
+        const allTeams = await api.teams.list();
+        const chunks = await Promise.all(
+          allTeams.map((t) => api.projects.listDeleted(t.id).catch(() => [] as ProjectListItem[])),
+        );
+        setDeletedProjects(chunks.flat());
+      } else {
+        const deleted = await api.projects.listDeleted(activeTeamId);
+        setDeletedProjects(deleted);
+      }
     } catch {
       setDeletedProjects([]);
     } finally {
@@ -657,7 +671,7 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     if (showTrash || isOwner) loadDeletedProjects();
-  }, [showTrash, activeTeamId, isOwner]);
+  }, [showTrash, activeTeamId, viewTeamId, isOwner]);
 
   // ── Bulk operations ───────────────────────────────────────────────────────────
   async function bulkMoveToFolder(folderId: string | null) {
@@ -1892,11 +1906,9 @@ function TrashDropZone({
       >
         <Trash2 className="h-3.5 w-3.5 shrink-0" />
         <span>Trash</span>
-        {deletedCount > 0 && (
-          <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${badgeClass}`}>
-            {deletedCount}
-          </span>
-        )}
+        <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${badgeClass}`}>
+          {deletedCount}
+        </span>
       </button>
     </div>
   );

@@ -6,6 +6,8 @@ export type RealtimeEntityType =
   | 'team_member'
   | 'project'
   | 'project_activity'
+  | 'project_folder'
+  | 'project_tag'
   | 'billing';
 
 export type RealtimeAction =

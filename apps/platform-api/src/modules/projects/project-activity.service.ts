@@ -48,6 +48,12 @@ export const ProjectActivityKind = {
   AUTH_USER_UPDATED: 'auth.user_updated',
   AUTH_USER_PASSWORD_RESET: 'auth.user_password_reset',
   AUTH_USER_DELETED: 'auth.user_deleted',
+  COLLECTION_CREATED: 'collection.created',
+  COLLECTION_DROPPED: 'collection.dropped',
+  COLLECTION_DOCUMENT_INSERTED: 'collection.document_inserted',
+  COLLECTION_DOCUMENT_UPDATED: 'collection.document_updated',
+  COLLECTION_DOCUMENT_REPLACED: 'collection.document_replaced',
+  COLLECTION_DOCUMENT_DELETED: 'collection.document_deleted',
 } as const;
 
 export type ProjectActivityKindValue =
@@ -92,6 +98,8 @@ export class ProjectActivityService {
         ProjectActivityKind.TABLE_CREATED,
         ProjectActivityKind.TABLE_DROPPED,
         ProjectActivityKind.PROJECT_CREATED,
+        ProjectActivityKind.COLLECTION_CREATED,
+        ProjectActivityKind.COLLECTION_DROPPED,
       ];
       if (schemaChangingKinds.includes(params.kind)) {
         // 5s delay: let the DDL transaction fully commit before we connect

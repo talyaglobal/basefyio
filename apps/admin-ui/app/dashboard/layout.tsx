@@ -12,6 +12,7 @@ import type { UserInfo, UserProfile, Team } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
+import { ChangelogPopup } from '@/components/changelog-popup';
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
@@ -390,6 +391,7 @@ export default function DashboardLayout({
           </main>
           <AiAssistant />
         </div>
+        <ChangelogPopup />
       </div>
     </DashboardContext.Provider>
   );

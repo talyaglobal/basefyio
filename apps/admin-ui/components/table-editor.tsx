@@ -37,6 +37,7 @@ import {
   X,
   Upload as ImportIcon,
   CopyMinus,
+  CircleHelp,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -1168,10 +1169,20 @@ export function TableEditor({ projectId }: TableEditorProps) {
             <CopyMinus className="mr-2 h-4 w-4" />
             Clean duplicates
           </Button>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Table
-          </Button>
+          <div className="relative">
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Table
+            </Button>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('basefyio-open-help'))}
+              className="absolute -right-2 -top-2 z-10 hidden lg:flex h-5 w-5 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+              title="Show help"
+            >
+              <CircleHelp className="h-3 w-3" />
+            </button>
+          </div>
         </div>
       </div>
 

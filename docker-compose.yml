@@ -90,6 +90,45 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── NoSQL Store (Data Engine) ─────────────────────────────
+
+  nosql:
+    image: couchbase/server:community-7.6.2
+    restart: unless-stopped
+    ports:
+      - "${NOSQL_MGMT_PORT:-8091}:8091"
+      - "${NOSQL_N1QL_PORT:-8093}:8093"
+      - "${NOSQL_KV_PORT:-11210}:11210"
+    volumes:
+      - nosql_data:/opt/couchbase/var
+    environment:
+      COUCHBASE_ADMINISTRATOR_USERNAME: ${NOSQL_USERNAME:-basefyio}
+      COUCHBASE_ADMINISTRATOR_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u ${NOSQL_USERNAME:-basefyio}:${NOSQL_PASSWORD:-basefyio_secret} http://localhost:8091/pools || curl -sf http://localhost:8091/pools || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  nosql-init:
+    image: curlimages/curl:latest
+    depends_on:
+      nosql:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-nosql.sh:/init-nosql.sh:ro
+    environment:
+      CB_HOST: nosql
+      CB_PORT: 8091
+      CB_USER: ${NOSQL_USERNAME:-basefyio}
+      CB_PASS: ${NOSQL_PASSWORD:-basefyio_secret}
+      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
+      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
+      CB_BUCKET_RAM_MB: ${CB_BUCKET_RAM_MB:-256}
+    entrypoint: ["sh", "/init-nosql.sh"]
+    restart: "no"
+
   # ── Applications ─────────────────────────────────────────
 
   platform-api:
@@ -151,6 +190,16 @@ services:
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DOCKER_NETWORK: v0-kolaybase_default
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
+      # Data Engine
+      DATA_ENGINE_PROVIDER: ${DATA_ENGINE_PROVIDER:-disabled}
+      NOSQL_CONNSTR: ${NOSQL_CONNSTR:-couchbase://nosql}
+      NOSQL_USERNAME: ${NOSQL_USERNAME:-basefyio}
+      NOSQL_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
+      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
+      DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
+      DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
+      DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
     ports:
       - "${PLATFORM_API_PORT:-4000}:4000"
     volumes:
@@ -202,4 +251,5 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  nosql_data:
   pgbouncer_config:

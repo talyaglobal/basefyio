@@ -620,7 +620,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
                 Type{' '}
                 <button
                   type="button"
-                  onClick={() => void handleCopyConfirmName()}
+                  onClick={() => setDeleteConfirmText(project.name)}
                   className="inline font-semibold underline decoration-dotted underline-offset-2 hover:text-primary"
                   title="Click to copy"
                 >
