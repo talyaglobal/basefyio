@@ -17,6 +17,7 @@ function build() {
     getDocument: jest.fn(),
     listDocuments: jest.fn().mockResolvedValue([]),
     listIncompleteDocuments: jest.fn().mockResolvedValue([]),
+    markDocumentStale: jest.fn().mockResolvedValue(undefined),
     getIndexStatus: jest.fn().mockResolvedValue({ documents: {}, activeJobs: 0 }),
     usage: jest.fn().mockResolvedValue({ documents: 0, chunks: 0, tokens: 0, byStatus: {} }),
     hydrateSearchResults: jest.fn().mockResolvedValue([]),
@@ -117,5 +118,23 @@ describe('RagService', () => {
     const res = await service.search('p1', 'u1', { q: 'x', limit: 8, threshold: 0.45 } as any);
     expect(res).toEqual([]);
     expect(vectorStore.findSimilar).not.toHaveBeenCalled();
+  });
+
+  it('notifyObjectChanged (STALE owner) marks the doc STALE and enqueues a REINDEX', async () => {
+    const { service, repo, queue } = build();
+    repo.getDocument.mockResolvedValueOnce({ id: 'd1', projectId: 'p1' });
+    repo.createIndexJob.mockResolvedValueOnce({ job: { id: 'j' }, created: true });
+    await service.notifyObjectChanged('p1', 'd1', 'u1');
+    expect(repo.markDocumentStale).toHaveBeenCalledWith('p1', 'd1');
+    expect(repo.createIndexJob).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'REINDEX', documentId: 'd1' }),
+    );
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifyObjectChanged 404s for a document in another project', async () => {
+    const { service, repo } = build();
+    repo.getDocument.mockResolvedValueOnce(null);
+    await expect(service.notifyObjectChanged('p1', 'x', 'u1')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

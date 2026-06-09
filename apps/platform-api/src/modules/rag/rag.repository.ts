@@ -105,6 +105,11 @@ export class RagRepository {
       )
       .limit(1);
 
+    if (!existing[0]) {
+      throw new BadRequestException(
+        'existing RAG document not found after insert conflict',
+      );
+    }
     return { document: existing[0], created: false };
   }
 
@@ -181,6 +186,7 @@ export class RagRepository {
   }
 
   async patchDocument(
+    projectId: string,
     id: string,
     patch: Partial<{
       status: RagDocStatus;
@@ -192,10 +198,24 @@ export class RagRepository {
       indexedAt: Date | null;
     }>,
   ): Promise<void> {
+    // Repository owns the invariant: the FINAL row must have a source hash once
+    // status is INDEXED. Allowed if the patch carries one OR the row already has
+    // one (e.g. recording an error on an already-INDEXED doc). Only read the row
+    // when the patch omits the hash, so the worker's hot path stays read-free.
+    if (patch.status === 'INDEXED' && patch.sourceHash == null) {
+      const existing = await this.getDocument(projectId, id);
+      if (!existing?.sourceHash) {
+        throw new BadRequestException(
+          'sourceHash is required when status is set to INDEXED',
+        );
+      }
+    }
     await this.db
       .update(ragDocuments)
       .set({ ...patch, updatedAt: new Date() })
-      .where(eq(ragDocuments.id, id));
+      .where(
+        and(eq(ragDocuments.id, id), eq(ragDocuments.projectId, projectId)),
+      );
   }
 
   // ── Index jobs ─────────────────────────────────────────
@@ -236,6 +256,11 @@ export class RagRepository {
       )
       .limit(1);
 
+    if (!existing[0]) {
+      throw new BadRequestException(
+        'existing RAG index job not found after insert conflict',
+      );
+    }
     return { job: existing[0], created: false };
   }
 
@@ -249,6 +274,9 @@ export class RagRepository {
       .set({
         status: 'RUNNING',
         startedAt: new Date(),
+        // Clear any prior terminal state so a BullMQ retry starts clean.
+        finishedAt: null,
+        error: null,
         updatedAt: new Date(),
         attempts: sql`${ragIndexJobs.attempts} + 1`,
       })

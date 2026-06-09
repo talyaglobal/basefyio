@@ -64,6 +64,18 @@ describe('rag-util', () => {
       const k2 = ragJobDedupeKey({ projectId: 'p', kind: 'INDEX', documentId: 'd', sourceHash: 'h2' });
       expect(k1).not.toEqual(k2);
     });
+
+    it('without a nonce stays stable (idempotent ingest)', () => {
+      expect(ragJobDedupeKey({ projectId: 'p', kind: 'INDEX', documentId: 'd' })).toEqual(
+        ragJobDedupeKey({ projectId: 'p', kind: 'INDEX', documentId: 'd' }),
+      );
+    });
+
+    it('with a nonce produces a fresh key each time (reindex can rerun)', () => {
+      const a = ragJobDedupeKey({ projectId: 'p', kind: 'REINDEX', documentId: 'd', nonce: 1 });
+      const b = ragJobDedupeKey({ projectId: 'p', kind: 'REINDEX', documentId: 'd', nonce: 2 });
+      expect(a).not.toEqual(b);
+    });
   });
 
   describe('importance', () => {

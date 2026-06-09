@@ -191,10 +191,13 @@ export class RagService {
       documentId = doc.id;
     }
 
+    // Nonce so an explicit reindex always gets a fresh, never-reused dedupe key
+    // (Option A): a completed reindex never blocks a later one.
     const dedupeKey = ragJobDedupeKey({
       projectId,
       kind: 'REINDEX',
       documentId,
+      nonce: Date.now(),
     });
     const { job, created } = await this.repo.createIndexJob({
       projectId,
@@ -228,6 +231,7 @@ export class RagService {
     const dedupeKey = ragJobDedupeKey({
       projectId,
       kind: 'REINDEX_INCOMPLETE',
+      nonce: Date.now(),
     });
     const { job, created } = await this.repo.createIndexJob({
       projectId,
@@ -248,6 +252,43 @@ export class RagService {
       targetCount: targets.length,
       targetIds: targets.map((d) => d.id),
     };
+  }
+
+  /**
+   * Source-change entry point — the owner of STALE detection.
+   *
+   * Called by the storage-event hook when an object is overwritten (push-based
+   * detection). Marks the document STALE (removing it from default search, since
+   * we know it is outdated) and enqueues a REINDEX. The worker performs the
+   * authoritative hash comparison: unchanged content is skipped, changed content
+   * is re-indexed and the document returns to INDEXED. Registration/ingest does
+   * NOT auto-detect changes (that would break duplicate-ingest idempotency); this
+   * method is the single, explicit owner.
+   */
+  async notifyObjectChanged(
+    projectId: string,
+    documentId: string,
+    userId?: string,
+  ) {
+    await this.assertProjectAccess(projectId, userId);
+    const doc = await this.repo.getDocument(projectId, documentId);
+    if (!doc) throw new NotFoundException('Document not found');
+
+    await this.repo.markDocumentStale(projectId, documentId);
+    const dedupeKey = ragJobDedupeKey({
+      projectId,
+      kind: 'REINDEX',
+      documentId,
+      nonce: Date.now(),
+    });
+    const { job } = await this.repo.createIndexJob({
+      projectId,
+      documentId,
+      kind: 'REINDEX',
+      dedupeKey,
+    });
+    await this.enqueue({ jobId: job.id, projectId, kind: 'REINDEX', documentId });
+    return { job };
   }
 
   // ── Search / usage ─────────────────────────────────────

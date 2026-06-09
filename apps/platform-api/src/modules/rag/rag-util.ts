@@ -67,12 +67,21 @@ export function ragJobDedupeKey(parts: {
   kind: RagIndexJobKindValue;
   documentId?: string | null;
   sourceHash?: string | null;
+  /**
+   * Optional uniqueness token. Dedupe keys are globally unique within a project
+   * and are never reused (Option A). INDEX jobs OMIT the nonce so re-ingesting
+   * the same object collides on the key and is an idempotent no-op. REINDEX and
+   * REINDEX_INCOMPLETE pass a nonce (e.g. a timestamp) so an explicit reindex
+   * always produces a fresh key and runs again.
+   */
+  nonce?: string | number | null;
 }): string {
   return [
     parts.projectId,
     parts.kind,
     parts.documentId ?? 'ALL',
     parts.sourceHash ?? 'NOHASH',
+    parts.nonce != null ? String(parts.nonce) : 'STABLE',
   ].join(':');
 }
 

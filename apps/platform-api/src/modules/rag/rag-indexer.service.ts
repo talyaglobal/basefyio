@@ -103,7 +103,9 @@ export class RagIndexerService {
       // transactional swap commits. Only first-time / failed / stale docs flip
       // to PROCESSING.
       if (doc.status !== 'INDEXED') {
-        await this.repo.patchDocument(doc.id, { status: 'PROCESSING' });
+        await this.repo.patchDocument(doc.projectId, doc.id, {
+          status: 'PROCESSING',
+        });
       }
 
       const normalized = normalizeToJson(bytes, doc.contentType ?? undefined);
@@ -144,7 +146,7 @@ export class RagIndexerService {
       await this.repo.upsertChunks(doc.id, doc.projectId, rows);
 
       const tokenCount = rows.reduce((sum, r) => sum + r.tokenCount, 0);
-      await this.repo.patchDocument(doc.id, {
+      await this.repo.patchDocument(doc.projectId, doc.id, {
         status: 'INDEXED',
         chunkCount: rows.length,
         tokenCount,
@@ -166,13 +168,17 @@ export class RagIndexerService {
         `RAG index failed for document ${doc.id}: ${err?.message ?? err}`,
       );
       // An already-INDEXED document keeps its status on a failed reindex — its
-      // existing chunks stay usable for search. Only first-time / failed / stale
-      // documents become FAILED.
-      const nextStatus = doc.status === 'INDEXED' ? 'INDEXED' : 'FAILED';
-      await this.repo.patchDocument(doc.id, {
-        status: nextStatus,
-        error: String(err?.message ?? err).slice(0, 8000),
-      });
+      // existing chunks stay usable for search — so we record the error WITHOUT
+      // re-asserting status (which would trip the INDEXED⇒sourceHash invariant).
+      // First-time / failed / stale documents become FAILED.
+      const errMsg = String(err?.message ?? err).slice(0, 8000);
+      await this.repo.patchDocument(
+        doc.projectId,
+        doc.id,
+        doc.status === 'INDEXED'
+          ? { error: errMsg }
+          : { status: 'FAILED', error: errMsg },
+      );
       return { chunks: 0, failed: true };
     }
   }

@@ -39,73 +39,78 @@ const baseDoc = {
   chunkOverlap: 200,
 } as any;
 
-describe('RagIndexerService', () => {
-  it('indexes a document: embeds chunks, upserts, marks INDEXED (READY)', async () => {
-    const { indexer, embedding, repo, activity } = build();
-    const written = await indexer.indexDocument(baseDoc, 'INDEX');
+// patchDocument(projectId, id, patch) — patch is the 3rd arg.
+const patches = (repo: any) =>
+  repo.patchDocument.mock.calls.map((c: any[]) => c[2]);
 
-    expect(written).toBeGreaterThan(0);
-    expect(embedding.embedContent).toHaveBeenCalled();
-    // chunks were embedded with the RAG entity type and project scope
+describe('RagIndexerService', () => {
+  it('indexes a document: embeds chunks, upserts, marks INDEXED (READY) with sourceHash', async () => {
+    const { indexer, embedding, repo, activity } = build();
+    const res = await indexer.indexDocument(baseDoc, 'INDEX');
+
+    expect(res.chunks).toBeGreaterThan(0);
+    expect(res.failed).toBe(false);
     expect(embedding.embedContent).toHaveBeenCalledWith(
       expect.any(String),
       'rag_document_chunk',
       expect.any(String),
       expect.objectContaining({ projectId: 'p1' }),
     );
+    // patchDocument is always project-scoped (first arg = projectId)
+    expect(repo.patchDocument).toHaveBeenCalledWith('p1', 'd1', expect.anything());
     expect(repo.upsertChunks).toHaveBeenCalledWith('d1', 'p1', expect.any(Array));
-    // marked PROCESSING then INDEXED with a freshly computed sourceHash
-    const statuses = repo.patchDocument.mock.calls.map((c: any[]) => c[1].status);
+    const statuses = patches(repo).map((p: any) => p.status);
     expect(statuses).toContain('PROCESSING');
     expect(statuses).toContain('INDEXED');
-    const indexedCall = repo.patchDocument.mock.calls.find((c: any[]) => c[1].status === 'INDEXED');
-    expect(indexedCall[1].sourceHash).toBe(sha256(BYTES));
+    const indexed = patches(repo).find((p: any) => p.status === 'INDEXED');
+    expect(indexed.sourceHash).toBe(sha256(BYTES));
     expect(activity.append).toHaveBeenCalled();
   });
 
   it('is idempotent: unchanged + already INDEXED is skipped', async () => {
     const { indexer, repo } = build();
     const doc = { ...baseDoc, status: 'INDEXED', sourceHash: sha256(BYTES) };
-    const written = await indexer.indexDocument(doc, 'INDEX');
-    expect(written).toBe(0);
+    const res = await indexer.indexDocument(doc, 'INDEX');
+    expect(res).toEqual({ chunks: 0, failed: false });
     expect(repo.upsertChunks).not.toHaveBeenCalled();
   });
 
   it('re-indexes when the source hash changed (STALE path)', async () => {
     const { indexer, repo } = build();
     const doc = { ...baseDoc, status: 'INDEXED', sourceHash: 'old-different-hash' };
-    const written = await indexer.indexDocument(doc, 'INDEX');
-    expect(written).toBeGreaterThan(0);
+    const res = await indexer.indexDocument(doc, 'INDEX');
+    expect(res.chunks).toBeGreaterThan(0);
     expect(repo.upsertChunks).toHaveBeenCalled();
   });
 
   it('forced REINDEX runs even when unchanged', async () => {
     const { indexer, repo } = build();
     const doc = { ...baseDoc, status: 'INDEXED', sourceHash: sha256(BYTES) };
-    const written = await indexer.indexDocument(doc, 'REINDEX');
-    expect(written).toBeGreaterThan(0);
+    const res = await indexer.indexDocument(doc, 'REINDEX');
+    expect(res.chunks).toBeGreaterThan(0);
     expect(repo.upsertChunks).toHaveBeenCalled();
   });
 
   it('marks FAILED and does not throw when the object cannot be read', async () => {
     const { indexer, storage, repo } = build();
     storage.getObject.mockRejectedValueOnce(new Error('NoSuchKey'));
-    const written = await indexer.indexDocument(baseDoc, 'INDEX');
-    expect(written).toBe(0);
-    const failed = repo.patchDocument.mock.calls.find((c: any[]) => c[1].status === 'FAILED');
-    expect(failed).toBeTruthy();
+    const res = await indexer.indexDocument(baseDoc, 'INDEX');
+    expect(res).toEqual({ chunks: 0, failed: true });
+    expect(patches(repo).some((p: any) => p.status === 'FAILED')).toBe(true);
     expect(repo.upsertChunks).not.toHaveBeenCalled();
   });
 
-  it('failed reindex of an already-INDEXED doc keeps it INDEXED (chunks stay usable)', async () => {
+  it('failed reindex of an already-INDEXED doc keeps it INDEXED (records error, no status downgrade)', async () => {
     const { indexer, embedding, repo } = build();
     embedding.embedContent.mockRejectedValueOnce(new Error('embed boom'));
     const doc = { ...baseDoc, status: 'INDEXED', sourceHash: 'old-hash' };
-    const written = await indexer.indexDocument(doc, 'REINDEX');
-    expect(written).toBe(0);
-    const last = repo.patchDocument.mock.calls.at(-1);
-    expect(last[1].status).toBe('INDEXED');
-    expect(last[1].error).toContain('embed boom');
+    const res = await indexer.indexDocument(doc, 'REINDEX');
+    expect(res).toEqual({ chunks: 0, failed: true });
+    // never downgraded to FAILED; the error is recorded without re-asserting status
+    expect(patches(repo).every((p: any) => p.status !== 'FAILED')).toBe(true);
+    const last = patches(repo).at(-1);
+    expect(last.status).toBeUndefined();
+    expect(last.error).toContain('embed boom');
     expect(repo.upsertChunks).not.toHaveBeenCalled();
   });
 
@@ -113,13 +118,29 @@ describe('RagIndexerService', () => {
     const { indexer, storage, repo } = build();
     const big = Buffer.alloc(26 * 1024 * 1024, 0x61); // > 25 MB cap
     storage.getObject.mockResolvedValueOnce({ stream: Readable.from(big) });
-    const written = await indexer.indexDocument(baseDoc, 'INDEX');
-    expect(written).toBe(0);
-    expect(repo.patchDocument.mock.calls.some((c: any[]) => c[1].status === 'FAILED')).toBe(true);
+    const res = await indexer.indexDocument(baseDoc, 'INDEX');
+    expect(res).toEqual({ chunks: 0, failed: true });
+    expect(patches(repo).some((p: any) => p.status === 'FAILED')).toBe(true);
     expect(repo.upsertChunks).not.toHaveBeenCalled();
   });
 
-  describe('runJob target resolution', () => {
+  describe('runJob aggregation + target resolution', () => {
+    it('aggregates failedDocs and totalChunks across the batch', async () => {
+      const { indexer, repo } = build();
+      repo.listAllDocuments.mockResolvedValueOnce([
+        { ...baseDoc, id: 'a' },
+        { ...baseDoc, id: 'b' },
+      ]);
+      (indexer as any).storage.getObject = jest
+        .fn()
+        .mockResolvedValueOnce({ stream: Readable.from(BYTES) })
+        .mockRejectedValueOnce(new Error('NoSuchKey'));
+      const res = await indexer.runJob({ jobId: 'j', projectId: 'p1', kind: 'REINDEX' });
+      expect(res.processedDocs).toBe(2);
+      expect(res.failedDocs).toBe(1);
+      expect(res.totalChunks).toBeGreaterThan(0);
+    });
+
     it('REINDEX_INCOMPLETE pulls only the incomplete set', async () => {
       const { indexer, repo } = build();
       await indexer.runJob({ jobId: 'j', projectId: 'p1', kind: 'REINDEX_INCOMPLETE' });
