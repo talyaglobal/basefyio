@@ -37,9 +37,20 @@ export class DataEngineService implements OnModuleInit {
 
     try {
       const { createDataEngine } = await import('@basefyio/data-engine');
+      let connectionString = this.config.get<string>('dataEngine.connectionString') || '';
+      if (provider === 'postgres') {
+        // For postgres provider, prefer DATABASE_URL over the NoSQL connection string
+        const dbUrl = process.env.DATABASE_URL;
+        if (dbUrl) {
+          connectionString = dbUrl;
+        } else {
+          const db = this.config.get<Record<string, string>>('database') || {};
+          connectionString = `postgresql://${db.user || 'kolaybase'}:${db.password || ''}@${db.host || 'localhost'}:${db.port || '5432'}/${db.name || 'kolaybase'}`;
+        }
+      }
       this.engine = await createDataEngine({
         provider: provider as 'nosql' | 'postgres',
-        connectionString: this.config.get<string>('dataEngine.connectionString') || this.config.get<string>('database.url') || '',
+        connectionString,
         username: this.config.get<string>('dataEngine.username') || '',
         password: this.config.get<string>('dataEngine.password') || '',
         container: this.config.get<string>('dataEngine.container') || 'basefyio-apps',
