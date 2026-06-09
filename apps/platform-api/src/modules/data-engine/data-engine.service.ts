@@ -19,7 +19,16 @@ export class DataEngineService implements OnModuleInit {
     private readonly prisma: PrismaService,
   ) {}
 
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private initAttempts = 0;
+  private readonly MAX_RETRY_ATTEMPTS = 10;
+  private readonly RETRY_INTERVAL_MS = 15_000;
+
   async onModuleInit() {
+    await this.tryInit();
+  }
+
+  private async tryInit() {
     const provider = this.config.get<string>('dataEngine.provider') || 'postgres';
     if (provider === 'disabled') {
       this.logger.log('Data Engine is disabled (DATA_ENGINE_PROVIDER=disabled)');
@@ -39,10 +48,18 @@ export class DataEngineService implements OnModuleInit {
         maxNestingDepth: this.config.get<number>('dataEngine.maxNestingDepth') || 8,
         maxArrayItems: this.config.get<number>('dataEngine.maxArrayItems') || 1000,
       });
+      this.initAttempts = 0;
       this.logger.log(`Data Engine initialized (provider: ${provider})`);
     } catch (err: any) {
-      this.logger.error(`Data Engine init failed: ${err.message}`);
-      // Non-fatal — data plane is optional, control plane continues
+      this.initAttempts++;
+      this.logger.error(`Data Engine init failed (attempt ${this.initAttempts}): ${err.message}`);
+      // Schedule a retry if under the limit
+      if (this.initAttempts < this.MAX_RETRY_ATTEMPTS) {
+        this.logger.log(`Retrying Data Engine init in ${this.RETRY_INTERVAL_MS / 1000}s...`);
+        this.retryTimer = setTimeout(() => this.tryInit(), this.RETRY_INTERVAL_MS);
+      } else {
+        this.logger.warn(`Data Engine gave up after ${this.MAX_RETRY_ATTEMPTS} attempts. Use the health endpoint to check status.`);
+      }
     }
   }
 

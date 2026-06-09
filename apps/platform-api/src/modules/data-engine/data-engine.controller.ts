@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   NotFoundException,
   BadRequestException,
+  ServiceUnavailableException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -173,8 +174,8 @@ export class DataEngineController {
 
   private assertEngineAvailable(): void {
     if (!this.dataEngine.isAvailable()) {
-      throw new BadRequestException(
-        'Data Engine is not available. Check DATA_ENGINE_PROVIDER configuration.',
+      throw new ServiceUnavailableException(
+        'Data Engine is temporarily unavailable. The backing store may still be starting up — please try again in a moment.',
       );
     }
   }
