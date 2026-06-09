@@ -34,7 +34,8 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: ./apps/platform-api
+          context: .
+          file: ./apps/platform-api/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -122,7 +123,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
-          source: "docker-compose.prod.yml,scripts/init-db.sql"
+          source: "docker-compose.prod.yml,scripts/init-db.sql,scripts/init-nosql.sh"
           target: ${{ secrets.DEPLOY_PATH }}
           overwrite: true
 
@@ -136,6 +137,8 @@ jobs:
             cd ${{ secrets.DEPLOY_PATH }}
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
 
-            # Her zaman tüm servisleri pull et
+            # Pull updated images
             docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui website
+
+            # Start/update all services (nosql + nosql-init will auto-run on first deploy)
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans

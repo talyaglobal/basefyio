@@ -133,8 +133,8 @@ services:
 
   platform-api:
     build:
-      context: ./apps/platform-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/platform-api/Dockerfile
     restart: unless-stopped
     environment:
       PORT: 4000
