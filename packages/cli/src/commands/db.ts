@@ -76,13 +76,14 @@ export async function dbPull() {
   try {
     const env = await getLocalEnv();
 
-    if (!env.DATABASE_URL && !env.BASEFYIO_DATABASE_URL) {
+    if (!env.DATABASE_URL && !env.BASEFYIO_DATABASE_URL && !env.KOLAYBASE_DATABASE_URL) {
       spinner.fail('DATABASE_URL not found');
       error('Run  basefyio link  to refresh credentials');
       process.exit(1);
     }
 
-    const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL;
+    // BASEFYIO_DATABASE_URL is primary; KOLAYBASE_DATABASE_URL is the legacy fallback.
+    const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
 
     // Check if Prisma is being used
     const prismaPath = path.join(process.cwd(), 'prisma', 'schema.prisma');
@@ -293,7 +294,7 @@ export async function dbDiff() {
   }
 
   const env = await getLocalEnv();
-  const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL;
+  const dbUrl = env.DATABASE_URL || env.BASEFYIO_DATABASE_URL || env.KOLAYBASE_DATABASE_URL;
 
   info('Checking for schema differences...');
 

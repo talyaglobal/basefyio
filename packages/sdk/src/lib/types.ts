@@ -3,11 +3,11 @@
 export const BASEFYIO_DEFAULT_API_URL = 'https://api.basefyio.com';
 
 export interface BasefyioClientOptions {
-  /** Platform API URL. Defaults to BASEFYIO_API_URL env or https://api.basefyio.com */
+  /** Platform API URL. Defaults to BASEFYIO_API_URL env (fallback: KOLAYBASE_API_URL) or https://api.basefyio.com */
   apiUrl?: string;
-  /** Project ID. Defaults to BASEFYIO_PROJECT_ID env. */
+  /** Project ID. Defaults to BASEFYIO_PROJECT_ID env (fallback: KOLAYBASE_PROJECT_ID). */
   projectId?: string;
-  /** Anon or service key. Defaults to BASEFYIO_ANON_KEY env. */
+  /** Anon or service key. Defaults to BASEFYIO_ANON_KEY env (fallback: KOLAYBASE_ANON_KEY). */
   apiKey?: string;
   autoRefreshToken?: boolean;
   headers?: Record<string, string>;

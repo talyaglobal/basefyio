@@ -1,20 +1,12 @@
 import { BasefyioFetchClient } from './lib/fetch.js';
 import type { BasefyioClientOptions, BasefyioResponse } from './lib/types.js';
 import { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
+import { resolveEnv } from './lib/env.js';
 import { AuthClient } from './modules/auth.js';
 import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
 import { CollectionManager, CollectionClient } from './modules/collection.js';
 import { DataEngineClient, EntityClient } from './modules/data-engine.js';
-
-function getEnv(key: string): string | undefined {
-  try {
-    if (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
-      return (globalThis as any).process.env[key];
-    }
-  } catch {}
-  return undefined;
-}
 
 export class BasefyioClient {
   readonly auth: AuthClient;
@@ -27,9 +19,9 @@ export class BasefyioClient {
   private projectId: string;
 
   constructor(options: BasefyioClientOptions = {}) {
-    const projectId = options.projectId || getEnv('BASEFYIO_PROJECT_ID');
-    const apiKey = options.apiKey || getEnv('BASEFYIO_ANON_KEY');
-    const apiUrl = (options.apiUrl || getEnv('BASEFYIO_API_URL') || BASEFYIO_DEFAULT_API_URL).replace(/\/+$/, '');
+    const projectId = options.projectId || resolveEnv('BASEFYIO_PROJECT_ID', 'KOLAYBASE_PROJECT_ID');
+    const apiKey = options.apiKey || resolveEnv('BASEFYIO_ANON_KEY', 'KOLAYBASE_ANON_KEY');
+    const apiUrl = (options.apiUrl || resolveEnv('BASEFYIO_API_URL', 'KOLAYBASE_API_URL') || BASEFYIO_DEFAULT_API_URL).replace(/\/+$/, '');
 
     if (!projectId) {
       throw new Error('Missing projectId. Pass it to createClient() or set BASEFYIO_PROJECT_ID env variable.');
