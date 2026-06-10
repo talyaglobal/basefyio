@@ -36,6 +36,18 @@ function noBodyResponse(status: number): Response {
   return { ok: true, status } as unknown as Response;
 }
 
+/**
+ * Capture a rejected promise as a resolved value so the rejection is
+ * handled immediately (avoiding unhandled-rejection detection), and we can
+ * await and assert on the error after advancing timers.
+ */
+function catchAsValue<T = Error>(p: Promise<unknown>): Promise<T> {
+  return p.then(
+    () => { throw new Error('expected promise to reject but it resolved'); },
+    (e: T) => e,
+  );
+}
+
 // ── Suite ─────────────────────────────────────────────────────
 
 describe('HetznerClient — createServer', () => {
@@ -66,19 +78,18 @@ describe('HetznerClient — createServer', () => {
       await p;
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
       expect(url).toBe('https://api.hetzner.cloud/v1/servers');
-      const { method } = fetchSpy.mock.calls[0][1] as RequestInit;
-      expect(method).toBe('POST');
+      expect(init?.method).toBe('POST');
     });
 
-    it('includes Authorization: Bearer header', async () => {
+    it('includes Authorization: Bearer header with the api token', async () => {
       const p = client.createServer(PARAMS, TOKEN);
       await jest.runAllTimersAsync();
       await p;
 
-      const { headers } = fetchSpy.mock.calls[0][1] as RequestInit;
-      expect((headers as Record<string, string>)['Authorization']).toBe(`Bearer ${TOKEN}`);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect((init?.headers as Record<string, string>)?.['Authorization']).toBe(`Bearer ${TOKEN}`);
     });
 
     it('serialises request body as JSON', async () => {
@@ -86,8 +97,8 @@ describe('HetznerClient — createServer', () => {
       await jest.runAllTimersAsync();
       await p;
 
-      const { body } = fetchSpy.mock.calls[0][1] as RequestInit;
-      const sent = JSON.parse(body as string);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const sent = JSON.parse(init?.body as string);
       expect(sent).toMatchObject({
         name: 'web-1',
         server_type: 'cx11',
@@ -132,73 +143,66 @@ describe('HetznerClient — createServer', () => {
   });
 
   // ── Error handling ────────────────────────────────────────────
+  //
+  // Non-retry errors (4xx, non-429) reject immediately — no timer advancement
+  // needed. Use await expect(...).rejects or try/catch directly.
+  //
+  // Retry errors (network, 429, 5xx) need timer advancement. Attach .catch()
+  // immediately so the rejection is handled before timers are advanced.
 
   describe('error handling', () => {
     it('throws HetznerApiError on 4xx (non-429)', async () => {
       fetchSpy.mockResolvedValue(okResponse(422, { error: { code: 'invalid_input' } }));
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
-      await expect(p).rejects.toBeInstanceOf(HetznerApiError);
+      await expect(client.createServer(PARAMS, TOKEN)).rejects.toBeInstanceOf(HetznerApiError);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('error message contains the Hetzner error code', async () => {
       fetchSpy.mockResolvedValue(okResponse(422, { error: { code: 'invalid_input' } }));
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
-      await expect(p).rejects.toThrow(/invalid_input/);
+      await expect(client.createServer(PARAMS, TOKEN)).rejects.toThrow(/invalid_input/);
     });
 
     it('statusCode and retryable are set correctly on 4xx error', async () => {
       fetchSpy.mockResolvedValue(okResponse(422, { error: { code: 'invalid_input' } }));
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
-      await expect(p).rejects.toMatchObject({ statusCode: 422, retryable: false });
+      await expect(client.createServer(PARAMS, TOKEN)).rejects.toMatchObject({
+        statusCode: 422,
+        retryable: false,
+      });
     });
 
     it('does NOT include the api token in 4xx error messages', async () => {
       fetchSpy.mockResolvedValue(okResponse(401, { error: { code: 'unauthorized' } }));
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
       let err: Error | undefined;
-      try { await p; } catch (e) { err = e as Error; }
+      try { await client.createServer(PARAMS, TOKEN); } catch (e) { err = e as Error; }
+
       expect(err).toBeDefined();
       expect(err!.message).not.toContain(TOKEN);
     });
 
     it('does NOT include the api token in network error messages', async () => {
-      // Exhaust all retries with network failures
+      // Network errors are retried — capture the rejection immediately so it
+      // does not sit unhandled while timers advance.
       fetchSpy.mockRejectedValue(new TypeError('Failed to connect'));
-
-      const p = client.createServer(PARAMS, TOKEN);
+      const errP = catchAsValue(client.createServer(PARAMS, TOKEN));
       await jest.runAllTimersAsync();
+      const err = await errP;
 
-      let err: Error | undefined;
-      try { await p; } catch (e) { err = e as Error; }
-      expect(err).toBeDefined();
-      expect(err!.message).not.toContain(TOKEN);
+      expect((err as Error).message).not.toContain(TOKEN);
     });
 
     it('does NOT propagate Hetzner error body content in error messages', async () => {
-      // Even if the Hetzner error.message field mentions the token, we never include it.
+      // Even if Hetzner error.message contains the token, we never include it.
       fetchSpy.mockResolvedValue(
-        okResponse(409, {
-          error: { code: 'conflict', message: `detail contains ${TOKEN}` },
-        }),
+        okResponse(409, { error: { code: 'conflict', message: `detail contains ${TOKEN}` } }),
       );
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
       let err: Error | undefined;
-      try { await p; } catch (e) { err = e as Error; }
+      try { await client.createServer(PARAMS, TOKEN); } catch (e) { err = e as Error; }
+
       expect(err).toBeDefined();
       expect(err!.message).not.toContain(TOKEN);
     });
@@ -210,10 +214,7 @@ describe('HetznerClient — createServer', () => {
         json: () => Promise.reject(new SyntaxError('bad json')),
       } as unknown as Response);
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-
-      await expect(p).rejects.toThrow(/unknown_error/);
+      await expect(client.createServer(PARAMS, TOKEN)).rejects.toThrow(/unknown_error/);
     });
   });
 
@@ -249,24 +250,19 @@ describe('HetznerClient — createServer', () => {
     it('does NOT retry on 4xx (non-429)', async () => {
       fetchSpy.mockResolvedValue(okResponse(422, { error: { code: 'invalid_input' } }));
 
-      const p = client.createServer(PARAMS, TOKEN);
-      await jest.runAllTimersAsync();
-      await expect(p).rejects.toThrow();
-
+      await expect(client.createServer(PARAMS, TOKEN)).rejects.toThrow();
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('gives up after 3 attempts (MAX_ATTEMPTS) and throws last error', async () => {
       fetchSpy.mockResolvedValue(okResponse(429, {}));
 
-      const p = client.createServer(PARAMS, TOKEN);
+      // Capture rejection immediately — prevents unhandled-rejection during timer advance.
+      const errP = catchAsValue<HetznerApiError>(client.createServer(PARAMS, TOKEN));
       await jest.runAllTimersAsync();
+      const err = await errP;
 
-      await expect(p).rejects.toMatchObject({
-        statusCode: 429,
-        code: 'rate_limit_exceeded',
-        retryable: true,
-      });
+      expect(err).toMatchObject({ statusCode: 429, code: 'rate_limit_exceeded', retryable: true });
       expect(fetchSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -286,13 +282,11 @@ describe('HetznerClient — createServer', () => {
     it('exhausted network retries produce a retryable HetznerApiError', async () => {
       fetchSpy.mockRejectedValue(new TypeError('Network failure'));
 
-      const p = client.createServer(PARAMS, TOKEN);
+      const errP = catchAsValue<HetznerApiError>(client.createServer(PARAMS, TOKEN));
       await jest.runAllTimersAsync();
+      const err = await errP;
 
-      await expect(p).rejects.toMatchObject({
-        code: 'NETWORK_ERROR',
-        retryable: true,
-      });
+      expect(err).toMatchObject({ code: 'NETWORK_ERROR', retryable: true });
       expect(fetchSpy).toHaveBeenCalledTimes(3);
     });
   });
@@ -322,12 +316,12 @@ describe('HetznerClient — deleteServer', () => {
 
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.hetzner.cloud/v1/servers/99');
-    expect(init.method).toBe('DELETE');
+    expect(init?.method).toBe('DELETE');
   });
 
-  it('resolves without error on 204 response', async () => {
+  it('resolves without error on 204 (void return)', async () => {
     const p = client.deleteServer(99, TOKEN);
     await jest.runAllTimersAsync();
-    await expect(p).resolves.toBeNull();
+    await expect(p).resolves.toBeUndefined();
   });
 });

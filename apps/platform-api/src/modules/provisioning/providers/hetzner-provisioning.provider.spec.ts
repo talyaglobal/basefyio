@@ -549,3 +549,215 @@ describe('MockHetznerTokenResolver — contract', () => {
     expect(new MockHetznerTokenResolver().wasCalled()).toBe(false);
   });
 });
+
+// ── Phase 9 — real apply (dryRun=false) ──────────────────────
+
+function makeRealProvider() {
+  const tokenResolver = new MockHetznerTokenResolver('test-token-xyz');
+  const client = new MockHetznerClient();
+  const provider = new HetznerProvisioningProvider(
+    new ProvisioningPlannerService(),
+    tokenResolver,
+    client,
+  );
+  return { provider, tokenResolver, client };
+}
+
+function realInput(
+  resources: Array<{ type: string; name: string; spec?: Record<string, unknown> }>,
+  currentResources: ProviderCurrentResource[] = [],
+): ProvisioningExecuteInput {
+  return {
+    ...BASE_INPUT,
+    dryRun: false,
+    desiredSpec: {
+      resources: resources.map((r) => ({ type: r.type, name: r.name, spec: r.spec ?? {} })),
+    },
+    currentResources,
+  };
+}
+
+function trackedServer(name: string, externalId: string, spec: Record<string, unknown> = {}): ProviderCurrentResource {
+  return {
+    id: `db-${name}`,
+    type: 'SERVER',
+    name,
+    status: 'ACTIVE',
+    desiredSpec: spec,
+    actualSpec: null,
+    externalId,
+  };
+}
+
+// ── CREATE ────────────────────────────────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 9 CREATE', () => {
+  it('apply() creates a server and returns a ProvisioningResourceResult', async () => {
+    const { provider } = makeRealProvider();
+    const result = await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.resources).toHaveLength(1);
+    const r = result.resources[0];
+    expect(r.type).toBe('server');
+    expect(r.name).toBe('web-1');
+    expect(r.externalId).toBeTruthy();
+    expect(r.status).toBe('ACTIVE');
+    expect(r.actualSpec).toMatchObject({ server_type: 'cx11' });
+  });
+
+  it('apply() resolves the OpenBao token before dispatching', async () => {
+    const { provider, tokenResolver } = makeRealProvider();
+    await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+    expect(tokenResolver.wasCalled()).toBe(true);
+    expect(tokenResolver.calls()).toContain('secret/hetzner/token');
+  });
+
+  it('apply() maps eu-central region to nbg1 location (via LocationMapper)', async () => {
+    const { provider, client } = makeRealProvider();
+    const createSpy = jest.spyOn(client, 'createServer');
+    await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ location: 'nbg1' }),
+      'test-token-xyz',
+    );
+  });
+
+  it('apply() deletedExternalIds is empty for a pure CREATE', async () => {
+    const { provider } = makeRealProvider();
+    const result = await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+    expect(result.deletedExternalIds).toHaveLength(0);
+  });
+});
+
+// ── UPDATE ────────────────────────────────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 9 UPDATE', () => {
+  it('apply() resize calls resizeServer with new server_type', async () => {
+    const { provider, client } = makeRealProvider();
+    const resizeSpy = jest.spyOn(client, 'resizeServer');
+
+    const result = await provider.apply(
+      realInput(
+        [{ type: 'server', name: 'web-1', spec: { server_type: 'cx21' } }],
+        [trackedServer('web-1', '1001', { server_type: 'cx11' })],
+      ),
+    );
+
+    expect(resizeSpy).toHaveBeenCalledWith(1001, 'cx21', 'test-token-xyz');
+    expect(result.resources[0].externalId).toBe('1001');
+    expect(result.resources[0].status).toBe('ACTIVE');
+  });
+
+  it('apply() rebuild calls rebuildServer with new image', async () => {
+    const { provider, client } = makeRealProvider();
+    const rebuildSpy = jest.spyOn(client, 'rebuildServer');
+
+    await provider.apply(
+      realInput(
+        [{ type: 'server', name: 'web-1', spec: { image: 'debian-12' } }],
+        [trackedServer('web-1', '1002', { image: 'ubuntu-22.04' })],
+      ),
+    );
+
+    expect(rebuildSpy).toHaveBeenCalledWith(1002, 'debian-12', 'test-token-xyz');
+  });
+});
+
+// ── DELETE ────────────────────────────────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 9 DELETE', () => {
+  it('apply() deletes a server and returns its externalId in deletedExternalIds', async () => {
+    const { provider, client } = makeRealProvider();
+    const deleteSpy = jest.spyOn(client, 'deleteServer');
+
+    const result = await provider.apply(
+      realInput([], [trackedServer('web-1', '2001', { server_type: 'cx11' })]),
+    );
+
+    expect(deleteSpy).toHaveBeenCalledWith(2001, 'test-token-xyz');
+    expect(result.deletedExternalIds).toContain('2001');
+    expect(result.resources).toHaveLength(0);
+  });
+
+  it('throws when DELETE action has no externalId', async () => {
+    const { provider } = makeRealProvider();
+    const currentWithoutExternalId: ProviderCurrentResource = {
+      id: 'db-web-1',
+      type: 'SERVER',
+      name: 'web-1',
+      status: 'ACTIVE',
+      desiredSpec: { server_type: 'cx11' },
+      actualSpec: null,
+      externalId: null,
+    };
+
+    await expect(
+      provider.apply(realInput([], [currentWithoutExternalId])),
+    ).rejects.toThrow(/externalId is required/);
+  });
+});
+
+// ── Guard: missing dependencies for real apply ─────────────────
+
+describe('HetznerProvisioningProvider — Phase 9 dependency guards', () => {
+  it('throws when tokenResolver is absent and dryRun=false', async () => {
+    const provider = new HetznerProvisioningProvider(new ProvisioningPlannerService());
+    await expect(
+      provider.apply(realInput([{ type: 'server', name: 'web-1', spec: {} }])),
+    ).rejects.toThrow(/HETZNER_TOKEN_RESOLVER/);
+  });
+
+  it('throws when client is absent and dryRun=false', async () => {
+    const tokenResolver = new MockHetznerTokenResolver();
+    const provider = new HetznerProvisioningProvider(
+      new ProvisioningPlannerService(),
+      tokenResolver,
+    );
+    await expect(
+      provider.apply(realInput([{ type: 'server', name: 'web-1', spec: {} }])),
+    ).rejects.toThrow(/HETZNER_CLIENT/);
+  });
+
+  it('dry-run does NOT resolve the token (tokenResolver.wasCalled() remains false)', async () => {
+    const tokenResolver = new MockHetznerTokenResolver();
+    const provider = new HetznerProvisioningProvider(
+      new ProvisioningPlannerService(),
+      tokenResolver,
+    );
+    await provider.apply(
+      withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]),
+    );
+    expect(tokenResolver.wasCalled()).toBe(false);
+  });
+});
+
+// ── Secret boundary (Phase 9) ─────────────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 9 secret boundary', () => {
+  it('apply() result does not contain the resolved API token', async () => {
+    const { provider } = makeRealProvider();
+    const result = await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain('test-token-xyz');
+  });
+
+  it('apply() result does not contain the openbao credential path', async () => {
+    const { provider } = makeRealProvider();
+    const result = await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain(BASE_INPUT.credentialOpenbaoPath);
+  });
+});
