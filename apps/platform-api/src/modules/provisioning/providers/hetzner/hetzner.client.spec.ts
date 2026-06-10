@@ -1,5 +1,6 @@
 import { HetznerApiError, HetznerClient } from './hetzner.client';
 import { HetznerCreateServerParams } from './hetzner.types';
+import { normalizeProviderError } from '../../interfaces/provider-error.interface';
 
 // ── Fixtures ──────────────────────────────────────────────────
 
@@ -289,6 +290,123 @@ describe('HetznerClient — createServer', () => {
       expect(err).toMatchObject({ code: 'NETWORK_ERROR', retryable: true });
       expect(fetchSpy).toHaveBeenCalledTimes(3);
     });
+  });
+});
+
+// ── getServer ─────────────────────────────────────────────────
+
+describe('HetznerClient — getServer', () => {
+  let client: HetznerClient;
+  let fetchSpy: jest.SpyInstance;
+
+  const RAW_SERVER_GET = {
+    id: 42,
+    name: 'web-1',
+    status: 'running',
+    server_type: { name: 'cx11' },
+    public_net: { ipv4: { ip: '1.2.3.4' } },
+    datacenter: {
+      name: 'nbg1-dc3',
+      location: { name: 'nbg1' },
+    },
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    client = new HetznerClient();
+    fetchSpy = jest.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('sends GET to /v1/servers/{id}', async () => {
+    fetchSpy.mockResolvedValue(okResponse(200, { server: RAW_SERVER_GET }));
+
+    const p = client.getServer(42, TOKEN);
+    await jest.runAllTimersAsync();
+    await p;
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.hetzner.cloud/v1/servers/42');
+    expect(init?.method).toBe('GET');
+  });
+
+  it('includes Authorization: Bearer header', async () => {
+    fetchSpy.mockResolvedValue(okResponse(200, { server: RAW_SERVER_GET }));
+
+    const p = client.getServer(42, TOKEN);
+    await jest.runAllTimersAsync();
+    await p;
+
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect((init?.headers as Record<string, string>)?.['Authorization']).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('maps Hetzner response to HetznerCreatedServer', async () => {
+    fetchSpy.mockResolvedValue(okResponse(200, { server: RAW_SERVER_GET }));
+
+    const p = client.getServer(42, TOKEN);
+    await jest.runAllTimersAsync();
+    const result = await p;
+
+    expect(result).toEqual({
+      id: 42,
+      name: 'web-1',
+      status: 'running',
+      serverType: 'cx11',
+      publicIpv4: '1.2.3.4',
+      locationName: 'nbg1',
+      datacenterName: 'nbg1-dc3',
+    });
+  });
+
+  it('throws HetznerApiError on 404', async () => {
+    fetchSpy.mockResolvedValue(okResponse(404, { error: { code: 'not_found' } }));
+
+    await expect(client.getServer(99, TOKEN)).rejects.toBeInstanceOf(HetznerApiError);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry on 404 (non-retryable)', async () => {
+    fetchSpy.mockResolvedValue(okResponse(404, { error: { code: 'not_found' } }));
+
+    await expect(client.getServer(99, TOKEN)).rejects.toMatchObject({ retryable: false });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on 429 and succeeds on second attempt', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(okResponse(429, {}))
+      .mockResolvedValueOnce(okResponse(200, { server: RAW_SERVER_GET }));
+
+    const p = client.getServer(42, TOKEN);
+    await jest.runAllTimersAsync();
+    const result = await p;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.id).toBe(42);
+  });
+});
+
+// ── normalizeProviderError — HetznerApiError compatibility ────
+
+describe('normalizeProviderError — HetznerApiError compatibility', () => {
+  it('HetznerApiError passes through with its own code and retryable flag', () => {
+    const err = new HetznerApiError('Hetzner API: not_found (HTTP 404)', 404, 'not_found', false);
+    const normalized = normalizeProviderError(err);
+    expect(normalized.code).toBe('not_found');
+    expect(normalized.retryable).toBe(false);
+    expect(normalized.message).toContain('not_found');
+  });
+
+  it('retryable HetznerApiError (429) preserves retryable=true', () => {
+    const err = new HetznerApiError('rate limit exceeded', 429, 'rate_limit_exceeded', true);
+    const normalized = normalizeProviderError(err);
+    expect(normalized.code).toBe('rate_limit_exceeded');
+    expect(normalized.retryable).toBe(true);
   });
 });
 

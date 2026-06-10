@@ -3,6 +3,7 @@ import { ProvisioningPlannerService } from '../provisioning-planner.service';
 import { ProvisioningExecuteInput, ProviderCurrentResource } from '../interfaces/provisioning-provider.interface';
 import { MockHetznerTokenResolver } from './mock-hetzner-token-resolver';
 import { MockHetznerClient } from './hetzner/mock-hetzner-client';
+import { CircularDependencyError } from '../provisioning-topo-sort';
 
 // ── Factories ─────────────────────────────────────────────────
 
@@ -672,6 +673,90 @@ describe('HetznerProvisioningProvider — Phase 9 UPDATE', () => {
   });
 });
 
+// ── Phase 10a — Read-after-write ─────────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 10a: read-after-write', () => {
+  it('UPDATE resize: getServer() is called after resizeServer()', async () => {
+    const { provider, client } = makeRealProvider();
+    const getServerSpy = jest.spyOn(client, 'getServer');
+
+    await provider.apply(
+      realInput(
+        [{ type: 'server', name: 'web-1', spec: { server_type: 'cx21' } }],
+        [trackedServer('web-1', '1001', { server_type: 'cx11' })],
+      ),
+    );
+
+    expect(getServerSpy).toHaveBeenCalledWith(1001, 'test-token-xyz');
+  });
+
+  it('UPDATE resize: actualSpec reflects getServer() snapshot, not desiredSpec', async () => {
+    const { provider } = makeRealProvider();
+
+    const result = await provider.apply(
+      realInput(
+        [{ type: 'server', name: 'web-1', spec: { server_type: 'cx21' } }],
+        [trackedServer('web-1', '1001', { server_type: 'cx11' })],
+      ),
+    );
+
+    const { actualSpec } = result.resources[0];
+    // actualSpec comes from getServer() — has server snapshot fields absent from desiredSpec
+    expect(actualSpec).toMatchObject({
+      id: expect.any(Number),
+      status: 'running',
+      location: expect.any(String),
+      datacenter: expect.any(String),
+    });
+  });
+
+  it('UPDATE rebuild: getServer() is called after rebuildServer()', async () => {
+    const { provider, client } = makeRealProvider();
+    const getServerSpy = jest.spyOn(client, 'getServer');
+
+    await provider.apply(
+      realInput(
+        [{ type: 'server', name: 'web-1', spec: { image: 'debian-12' } }],
+        [trackedServer('web-1', '1002', { image: 'ubuntu-22.04' })],
+      ),
+    );
+
+    expect(getServerSpy).toHaveBeenCalledWith(1002, 'test-token-xyz');
+  });
+
+  it('CREATE does NOT call getServer() — actualSpec comes from createServer() response', async () => {
+    const { provider, client } = makeRealProvider();
+    const getServerSpy = jest.spyOn(client, 'getServer');
+
+    await provider.apply(
+      realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+    );
+
+    expect(getServerSpy).not.toHaveBeenCalled();
+  });
+
+  it('UPDATE resize: actualSpec server_type matches server state after resize', async () => {
+    const client = makeClient();
+    // Pre-seed the mock so resizeServer() can mutate the record and getServer() reads it back.
+    // createServer() seeds with cx11; resizeServer() will update it to cx21.
+    await client.createServer(
+      { name: 'web-1', server_type: 'cx11', image: 'ubuntu-22.04', location: 'nbg1' },
+      'ignored',
+    );
+    const seededId = 1001; // MockHetznerClient starts at 1000, first create → 1001
+
+    const provider = makeProvider(new MockHetznerTokenResolver('test-token'), client);
+    const result = await provider.apply({
+      ...realInput(
+        [{ type: 'server', name: 'web-1', spec: { server_type: 'cx21' } }],
+        [trackedServer('web-1', String(seededId), { server_type: 'cx11' })],
+      ),
+    });
+
+    expect(result.resources[0].actualSpec).toMatchObject({ server_type: 'cx21' });
+  });
+});
+
 // ── DELETE ────────────────────────────────────────────────────
 
 describe('HetznerProvisioningProvider — Phase 9 DELETE', () => {
@@ -759,5 +844,48 @@ describe('HetznerProvisioningProvider — Phase 9 secret boundary', () => {
     );
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain(BASE_INPUT.credentialOpenbaoPath);
+  });
+});
+
+// ── Phase 10b — dependency ordering ──────────────────────
+
+describe('HetznerProvisioningProvider — Phase 10b: dependency ordering', () => {
+  it('dry-run metadata actions list is in type-sorted order (network before server)', async () => {
+    const { provider } = makeRealProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: true,
+      desiredSpec: {
+        resources: [
+          { type: 'server', name: 'web-1', spec: { server_type: 'cx11' } },
+          { type: 'network', name: 'my-net', spec: {} },
+        ],
+      },
+      currentResources: [],
+    };
+
+    const result = await provider.apply(input);
+
+    const actions = (result.metadata as any).actions as any[];
+    expect(actions).toHaveLength(2);
+    expect(actions[0].resourceType).toBe('network');
+    expect(actions[1].resourceType).toBe('server');
+  });
+
+  it('apply() throws CircularDependencyError when two same-type resources depend on each other', async () => {
+    const { provider } = makeRealProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: false,
+      desiredSpec: {
+        resources: [
+          { type: 'server', name: 'server-a', spec: { server_type: 'cx11' }, dependsOn: ['server:server-b'] },
+          { type: 'server', name: 'server-b', spec: { server_type: 'cx11' }, dependsOn: ['server:server-a'] },
+        ],
+      },
+      currentResources: [],
+    };
+
+    await expect(provider.apply(input)).rejects.toThrow(CircularDependencyError);
   });
 });

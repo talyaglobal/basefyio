@@ -25,6 +25,8 @@ export interface ProviderPlanAction {
   reason: string;
   desiredSpec?: Record<string, unknown>;
   currentSpec?: Record<string, unknown>;
+  /** Explicit resource keys this action must execute after. Format: "type:name". */
+  dependencies?: string[];
   /** Provider-classified sub-strategy for UPDATE actions. Absent for non-UPDATE actions. */
   updateStrategy?: UpdateStrategy;
   /** Provider-specific extra data not covered by the generic fields. */

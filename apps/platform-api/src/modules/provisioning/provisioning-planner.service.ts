@@ -6,6 +6,7 @@ export interface DesiredResource {
   type: string;
   name: string;
   spec: Record<string, unknown>;
+  dependsOn?: string[];
 }
 
 // ── Current state (from DB rows) ─────────────────────────────
@@ -29,6 +30,8 @@ export interface PlanAction {
   reason: string;
   desiredSpec?: Record<string, unknown>;
   currentSpec?: Record<string, unknown>;
+  /** Explicit resource keys this action must execute after. Format: "type:name". */
+  dependencies?: string[];
 }
 
 export interface ProvisioningPlan {
@@ -82,6 +85,7 @@ export class ProvisioningPlannerService {
           resourceName: d.name,
           reason: 'Resource does not exist in current state',
           desiredSpec: d.spec,
+          dependencies: d.dependsOn,
         });
       } else {
         matched.add(resourceKey(curr));
@@ -93,6 +97,7 @@ export class ProvisioningPlannerService {
             reason: 'Desired spec differs from current spec',
             desiredSpec: d.spec,
             currentSpec: curr.desiredSpec,
+            dependencies: d.dependsOn,
           });
         } else {
           actions.push({
@@ -102,6 +107,7 @@ export class ProvisioningPlannerService {
             reason: 'No changes detected',
             desiredSpec: d.spec,
             currentSpec: curr.desiredSpec,
+            dependencies: d.dependsOn,
           });
         }
       }
@@ -152,6 +158,9 @@ function extractDesiredResources(spec: Record<string, unknown>): DesiredResource
           type: (item as any).type as string,
           name: (item as any).name as string,
           spec: ((item as any).spec ?? {}) as Record<string, unknown>,
+          dependsOn: Array.isArray((item as any).dependsOn)
+            ? ((item as any).dependsOn as string[])
+            : undefined,
         },
       ];
     }

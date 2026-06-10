@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  IProvisioningProvider,
   ProviderCurrentResource,
   ProvisioningExecuteInput,
 } from './interfaces/provisioning-provider.interface';
@@ -17,7 +18,10 @@ import { ProvisioningResourceProjectionService } from './provisioning-resource-p
 type AuditEventKind =
   | 'STATUS_CHANGED'
   | 'OPERATION_COMPLETED'
-  | 'OPERATION_FAILED';
+  | 'OPERATION_FAILED'
+  | 'DRY_RUN_COMPLETED'
+  | 'ROLLBACK_INITIATED'
+  | 'ROLLBACK_COMPLETED';
 
 @Injectable()
 export class ProvisioningExecutorService {
@@ -59,6 +63,11 @@ export class ProvisioningExecutorService {
     // Resolve provider before mutating state — unknown type fails here with 400, not after RUNNING
     const provider = this.registry.resolve(op.provisioningProject.provider);
 
+    // ROLLBACK operations use a separate execution path that derives desired state from rollbackSpec
+    if (op.type === 'ROLLBACK') {
+      return this.executeRollback(op, provider, userId);
+    }
+
     // Fetch current resources so the provider can compute a diff plan
     const currentRows = await this.prisma.provisioningResource.findMany({
       where: { provisioningProjectId: op.provisioningProjectId, destroyedAt: null },
@@ -75,6 +84,7 @@ export class ProvisioningExecutorService {
     }));
 
     // Build the full provider input contract — openbao path only, no secret resolution here
+    const isDryRun = op.dryRun ?? false;
     const input: ProvisioningExecuteInput = {
       operationId: op.id,
       projectId: op.provisioningProject.project.id,
@@ -84,6 +94,7 @@ export class ProvisioningExecutorService {
       desiredSpec: op.input,
       credentialOpenbaoPath: op.provisioningProject.credentialRef.openbaoPath,
       currentResources,
+      dryRun: isDryRun,
     };
 
     // ── PENDING → RUNNING ──────────────────────────────────────
@@ -132,8 +143,162 @@ export class ProvisioningExecutorService {
     }
 
     // ── Resource projection (before COMPLETED update) ───────────────────────
+    // Dry-run operations produce no resource mutations — projection is skipped.
     // If projection fails, the operation stays RUNNING and can be recovered.
     // A COMPLETED operation with missing resource rows is a harder inconsistency to fix.
+    if (!isDryRun && (providerResult.resources?.length || providerResult.deletedExternalIds?.length)) {
+      await this.projection.project({
+        operationId: op.id,
+        provisioningProjectId: op.provisioningProjectId,
+        region: op.provisioningProject.region,
+        datacenter: op.provisioningProject.datacenter ?? null,
+        resources: providerResult.resources,
+        deletedExternalIds: providerResult.deletedExternalIds,
+        actorUserId: userId,
+      });
+    }
+
+    // ── RUNNING → COMPLETED / DRY_RUN (only after projection succeeds) ──────
+    const finalStatus = isDryRun ? 'DRY_RUN' : 'COMPLETED';
+    const finalAuditKind: AuditEventKind = isDryRun ? 'DRY_RUN_COMPLETED' : 'OPERATION_COMPLETED';
+    const completed = await this.prisma.provisioningOperation.update({
+      where: { id: op.id },
+      data: {
+        status: finalStatus,
+        result: {
+          metadata: providerResult.metadata ?? {},
+          resourceCount: providerResult.resources?.length ?? 0,
+          deletedCount: providerResult.deletedExternalIds?.length ?? 0,
+        } as any,
+        completedAt: new Date(),
+      },
+    });
+    await this.writeAuditEvent({
+      provisioningProjectId: op.provisioningProjectId,
+      operationId: op.id,
+      kind: finalAuditKind,
+      actorUserId: userId,
+      fromStatus: 'RUNNING',
+      toStatus: finalStatus,
+      detail: { providerType: input.providerType, region: input.region },
+    });
+    return completed;
+  }
+
+  // ── ROLLBACK execution ────────────────────────────────────────────────────
+
+  private async executeRollback(
+    op: {
+      id: string;
+      provisioningProjectId: string;
+      provisioningProject: {
+        provider: string;
+        region: string;
+        datacenter: string | null;
+        project: { id: string };
+        credentialRef: { openbaoPath: string };
+      };
+    },
+    provider: IProvisioningProvider,
+    userId: string,
+  ) {
+    // Load ALL project resources — active and destroyed — to build the rollback plan.
+    // Active resources without rollbackSpec were created by the forward op → DELETE them.
+    // Resources with rollbackSpec (active or destroyed) → restore to that spec.
+    const allRows = await this.prisma.provisioningResource.findMany({
+      where: { provisioningProjectId: op.provisioningProjectId },
+      select: {
+        id: true,
+        kind: true,
+        name: true,
+        status: true,
+        desiredSpec: true,
+        actualSpec: true,
+        externalId: true,
+        rollbackSpec: true,
+        destroyedAt: true,
+      },
+    });
+
+    // currentResources: only active (non-destroyed) rows — what the provider diffs against
+    const currentResources: ProviderCurrentResource[] = allRows
+      .filter((r) => r.destroyedAt === null)
+      .map((r) => ({
+        id: r.id,
+        type: r.kind,
+        name: r.name,
+        status: r.status,
+        desiredSpec: (r.desiredSpec ?? {}) as Record<string, unknown>,
+        actualSpec: (r.actualSpec ?? null) as Record<string, unknown> | null,
+        externalId: r.externalId,
+      }));
+
+    // Rollback desired state: resources with rollbackSpec → restore; active without → omit (→ DELETE)
+    const rollbackResources = allRows
+      .filter((r) => r.rollbackSpec !== null)
+      .map((r) => ({
+        type: (r.kind as string).toLowerCase(),
+        name: r.name,
+        spec: r.rollbackSpec,
+      }));
+    const desiredSpec = { resources: rollbackResources };
+
+    const input: ProvisioningExecuteInput = {
+      operationId: op.id,
+      projectId: op.provisioningProject.project.id,
+      providerType: op.provisioningProject.provider,
+      region: op.provisioningProject.region,
+      datacenter: op.provisioningProject.datacenter ?? null,
+      desiredSpec,
+      credentialOpenbaoPath: op.provisioningProject.credentialRef.openbaoPath,
+      currentResources,
+      dryRun: false,
+    };
+
+    // ── PENDING → RUNNING ──────────────────────────────────────
+    await this.prisma.provisioningOperation.update({
+      where: { id: op.id },
+      data: { status: 'RUNNING', startedAt: new Date() },
+    });
+    await this.writeAuditEvent({
+      provisioningProjectId: op.provisioningProjectId,
+      operationId: op.id,
+      kind: 'ROLLBACK_INITIATED',
+      actorUserId: userId,
+      fromStatus: 'PENDING',
+      toStatus: 'RUNNING',
+      detail: { providerType: input.providerType, region: input.region },
+    });
+
+    // ── Provider call ──────────────────────────────────────────
+    let providerResult;
+    try {
+      providerResult = await provider.apply(input);
+    } catch (err) {
+      const normalized = normalizeProviderError(err);
+      const failed = await this.prisma.provisioningOperation.update({
+        where: { id: op.id },
+        data: { status: 'FAILED', errorMessage: normalized.message, completedAt: new Date() },
+      });
+      await this.writeAuditEvent({
+        provisioningProjectId: op.provisioningProjectId,
+        operationId: op.id,
+        kind: 'OPERATION_FAILED',
+        actorUserId: userId,
+        fromStatus: 'RUNNING',
+        toStatus: 'FAILED',
+        detail: {
+          providerType: input.providerType,
+          region: input.region,
+          error: normalized.code,
+          message: normalized.message,
+          retryable: normalized.retryable,
+        },
+      });
+      return failed;
+    }
+
+    // ── Projection ─────────────────────────────────────────────
     if (providerResult.resources?.length || providerResult.deletedExternalIds?.length) {
       await this.projection.project({
         operationId: op.id,
@@ -146,11 +311,28 @@ export class ProvisioningExecutorService {
       });
     }
 
-    // ── RUNNING → COMPLETED (only after projection succeeds) ────────────────
+    // ── Mark restored resources ROLLED_BACK (projection set them ACTIVE) ────
+    if (providerResult.resources?.length) {
+      await this.prisma.provisioningResource.updateMany({
+        where: {
+          provisioningProjectId: op.provisioningProjectId,
+          externalId: { in: providerResult.resources.map((r) => r.externalId) },
+        },
+        data: { status: 'ROLLED_BACK' as any },
+      });
+    }
+
+    // ── Project → ROLLED_BACK ──────────────────────────────────
+    await this.prisma.provisioningProject.update({
+      where: { id: op.provisioningProjectId },
+      data: { status: 'ROLLED_BACK' as any },
+    });
+
+    // ── RUNNING → ROLLED_BACK ──────────────────────────────────
     const completed = await this.prisma.provisioningOperation.update({
       where: { id: op.id },
       data: {
-        status: 'COMPLETED',
+        status: 'ROLLED_BACK',
         result: {
           metadata: providerResult.metadata ?? {},
           resourceCount: providerResult.resources?.length ?? 0,
@@ -162,14 +344,17 @@ export class ProvisioningExecutorService {
     await this.writeAuditEvent({
       provisioningProjectId: op.provisioningProjectId,
       operationId: op.id,
-      kind: 'OPERATION_COMPLETED',
+      kind: 'ROLLBACK_COMPLETED',
       actorUserId: userId,
       fromStatus: 'RUNNING',
-      toStatus: 'COMPLETED',
+      toStatus: 'ROLLED_BACK',
       detail: { providerType: input.providerType, region: input.region },
     });
+
     return completed;
   }
+
+  // ── Shared audit helper ───────────────────────────────────────
 
   private writeAuditEvent(data: {
     provisioningProjectId: string;

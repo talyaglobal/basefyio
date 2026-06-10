@@ -45,6 +45,11 @@ export class HetznerClient implements IHetznerClient {
     return mapCreatedServer(body['server'] as Record<string, unknown>);
   }
 
+  async getServer(serverId: number, apiToken: string): Promise<HetznerCreatedServer> {
+    const body = await this.requestWithRetry('GET', `/servers/${serverId}`, null, apiToken) as Record<string, unknown>;
+    return mapCreatedServer(body['server'] as Record<string, unknown>);
+  }
+
   async deleteServer(serverId: number, apiToken: string): Promise<void> {
     await this.requestWithRetry('DELETE', `/servers/${serverId}`, null, apiToken);
   }

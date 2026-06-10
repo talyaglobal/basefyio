@@ -22,6 +22,7 @@ import {
   ProvisioningPlannerService,
   PlanAction,
 } from '../provisioning-planner.service';
+import { topoSort } from '../provisioning-topo-sort';
 
 /**
  * Hetzner Cloud provider.
@@ -82,6 +83,7 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
         desiredSpec: action.desiredSpec,
         currentSpec: action.currentSpec,
         updateStrategy: this.resolveUpdateStrategy(kind, action),
+        dependencies: action.dependencies,
       });
     }
 
@@ -101,7 +103,7 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
         metadata: {
           provider: 'hetzner',
           dryRun: true,
-          actions: providerPlan.actions,
+          actions: topoSort(providerPlan.actions),
           validationErrors: providerPlan.validationErrors,
         },
       };
@@ -126,7 +128,7 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
     const resources: ProvisioningResourceResult[] = [];
     const deletedExternalIds: string[] = [];
 
-    for (const action of providerPlan.actions) {
+    for (const action of topoSort(providerPlan.actions)) {
       if (action.action === 'NOOP') continue;
 
       if (action.action === 'CREATE') {
@@ -227,14 +229,20 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
             `updateStrategy '${action.updateStrategy}' is not applicable to server resources`,
           );
       }
-      // Optimistic actualSpec: Hetzner API update methods return void.
-      // Phase 10: add a read-after-write to capture true post-update state.
+      const snapshot = await this.client!.getServer(serverId, apiToken);
       return {
         externalId,
         type: 'server',
         name: action.resourceName,
         desiredSpec: spec,
-        actualSpec: spec,
+        actualSpec: {
+          id: snapshot.id,
+          server_type: snapshot.serverType,
+          public_ipv4: snapshot.publicIpv4,
+          location: snapshot.locationName,
+          datacenter: snapshot.datacenterName,
+          status: snapshot.status,
+        },
         status: 'ACTIVE',
       };
     }

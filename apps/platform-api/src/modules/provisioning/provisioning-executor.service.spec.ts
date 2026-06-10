@@ -56,11 +56,12 @@ const OP_ID = 'op-1';
 const USER_ID = 'user-1';
 const OPENBAO_PATH = 'secret/provisioning/cred-1';
 
-function stubOp(status = 'PENDING', id = OP_ID) {
+function stubOp(status = 'PENDING', id = OP_ID, extra: Record<string, unknown> = {}) {
   return {
     id,
     status,
     type: 'CREATE',
+    dryRun: false,
     input: { resources: [{ type: 'server', name: 'web-1', spec: { size: 'cx11' } }] },
     provisioningProjectId: PP_ID,
     provisioningProject: {
@@ -72,6 +73,7 @@ function stubOp(status = 'PENDING', id = OP_ID) {
       project: { teamId: TEAM_ID, id: PROJECT_ID },
       credentialRef: { openbaoPath: OPENBAO_PATH },
     },
+    ...extra,
   };
 }
 
@@ -494,5 +496,358 @@ describe('ProvisioningExecutorService — secret boundary', () => {
     await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
 
     expect(resolver.resolve).not.toHaveBeenCalled();
+  });
+});
+
+// ── dryRun path ───────────────────────────────────────────────
+
+describe('ProvisioningExecutorService — dryRun path', () => {
+  function setupDryRun() {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING', OP_ID, { dryRun: true }));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    const runningOp = { ...stubOp('RUNNING', OP_ID, { dryRun: true }) };
+    const dryRunOp = { ...stubOp('DRY_RUN', OP_ID, { dryRun: true }) };
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(runningOp)
+      .mockResolvedValueOnce(dryRunOp);
+    return { prisma };
+  }
+
+  it('transitions PENDING → RUNNING → DRY_RUN', async () => {
+    const { prisma } = setupDryRun();
+    const result = await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+    expect(result.status).toBe('DRY_RUN');
+  });
+
+  it('final update sets status=DRY_RUN (not COMPLETED)', async () => {
+    const { prisma } = setupDryRun();
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+    const statuses = prisma.provisioningOperation.update.mock.calls.map((c: any) => c[0].data.status);
+    expect(statuses).toContain('DRY_RUN');
+    expect(statuses).not.toContain('COMPLETED');
+  });
+
+  it('passes dryRun=true to provider.apply()', async () => {
+    const { prisma } = setupDryRun();
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+    expect((provider.apply as jest.Mock).mock.calls[0][0].dryRun).toBe(true);
+  });
+
+  it('does NOT call projection even when provider returns resources (dry-run = no mutations)', async () => {
+    const { prisma } = setupDryRun();
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockResolvedValue({
+      success: true,
+      resources: [{ externalId: 'x', type: 'SERVER', name: 'web-1', desiredSpec: {}, actualSpec: {}, status: 'ACTIVE' }],
+      metadata: { dryRun: true },
+    });
+    const projection = makeProjection();
+    await new ProvisioningExecutorService(prisma, makeRegistry(provider), projection as any)
+      .executeOperation(USER_ID, OP_ID);
+    expect(projection.project).not.toHaveBeenCalled();
+  });
+
+  it('emits DRY_RUN_COMPLETED audit event (not OPERATION_COMPLETED)', async () => {
+    const { prisma } = setupDryRun();
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+    const kinds = prisma.provisioningAuditEvent.create.mock.calls.map((c: any) => c[0].data.kind);
+    expect(kinds).toContain('DRY_RUN_COMPLETED');
+    expect(kinds).not.toContain('OPERATION_COMPLETED');
+  });
+});
+
+// ── Phase 10c — ROLLBACK ──────────────────────────────────────
+
+function makePrismaWithRollback(resourceRows: any[] = [], overrides: Record<string, any> = {}) {
+  return makePrisma({
+    provisioningResource: {
+      findMany: jest.fn().mockResolvedValue(resourceRows),
+      updateMany: jest.fn().mockResolvedValue({ count: resourceRows.length }),
+    },
+    provisioningProject: {
+      update: jest.fn().mockResolvedValue({}),
+    },
+    ...overrides,
+  });
+}
+
+function stubRollbackOp(status = 'PENDING') {
+  return { ...stubOp(status), type: 'ROLLBACK' };
+}
+
+function makeRolledBackOp() {
+  return { ...stubRollbackOp(), status: 'ROLLED_BACK', completedAt: new Date() };
+}
+
+function stubResource(opts: {
+  kind?: string;
+  name?: string;
+  status?: string;
+  externalId?: string;
+  rollbackSpec?: Record<string, unknown> | null;
+  destroyedAt?: Date | null;
+} = {}) {
+  return {
+    id: `res-${opts.name ?? 'web-1'}`,
+    kind: opts.kind ?? 'SERVER',
+    name: opts.name ?? 'web-1',
+    status: opts.status ?? 'ACTIVE',
+    desiredSpec: { server_type: 'cx21' },
+    actualSpec: null,
+    externalId: opts.externalId ?? `ext-${opts.name ?? 'web-1'}`,
+    rollbackSpec: opts.rollbackSpec !== undefined ? opts.rollbackSpec : { server_type: 'cx11' },
+    destroyedAt: opts.destroyedAt !== undefined ? opts.destroyedAt : null,
+  };
+}
+
+describe('ProvisioningExecutorService — Phase 10c: ROLLBACK execution', () => {
+  it('transitions PENDING → RUNNING → ROLLED_BACK on success', async () => {
+    const prisma = makePrismaWithRollback([stubResource()]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const result = await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+    expect(result.status).toBe('ROLLED_BACK');
+  });
+
+  it('transitions PENDING → RUNNING → FAILED when provider throws', async () => {
+    const prisma = makePrismaWithRollback([stubResource()]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeFailedOp('rollback provider error'));
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('rollback provider error'));
+
+    const result = await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+    expect(result.status).toBe('FAILED');
+  });
+
+  it('does not re-throw when provider fails during rollback', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('boom'));
+
+    await expect(
+      makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID),
+    ).resolves.toBeDefined();
+  });
+
+  it('emits ROLLBACK_INITIATED then ROLLBACK_COMPLETED audit events on success', async () => {
+    const prisma = makePrismaWithRollback([stubResource()]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+
+    const auditKinds = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditKinds[0]).toBe('ROLLBACK_INITIATED');
+    expect(auditKinds[auditKinds.length - 1]).toBe('ROLLBACK_COMPLETED');
+  });
+
+  it('emits ROLLBACK_INITIATED then OPERATION_FAILED audit events on failure', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('timeout'));
+
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const auditKinds = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditKinds[0]).toBe('ROLLBACK_INITIATED');
+    expect(auditKinds[auditKinds.length - 1]).toBe('OPERATION_FAILED');
+  });
+
+  it('provider desiredSpec contains only resources with rollbackSpec', async () => {
+    const withSpec = stubResource({ name: 'web-1', rollbackSpec: { server_type: 'cx11' } });
+    const noSpec = stubResource({ name: 'web-2', rollbackSpec: null });
+    const prisma = makePrismaWithRollback([withSpec, noSpec]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
+    const desiredResources = (call.desiredSpec as any).resources as any[];
+    expect(desiredResources).toHaveLength(1);
+    expect(desiredResources[0].name).toBe('web-1');
+    expect(desiredResources[0].spec).toEqual({ server_type: 'cx11' });
+  });
+
+  it('resource with rollbackSpec=null is excluded from desired state (will be deleted)', async () => {
+    const noSpec = stubResource({ name: 'newly-created', rollbackSpec: null });
+    const prisma = makePrismaWithRollback([noSpec]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
+    const desiredResources = (call.desiredSpec as any).resources as any[];
+    expect(desiredResources).toHaveLength(0);
+  });
+
+  it('destroyed resource with rollbackSpec is included in desired state (re-create)', async () => {
+    const destroyed = stubResource({
+      name: 'was-deleted',
+      rollbackSpec: { server_type: 'cx11' },
+      destroyedAt: new Date(),
+    });
+    const prisma = makePrismaWithRollback([destroyed]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
+    const desiredResources = (call.desiredSpec as any).resources as any[];
+    expect(desiredResources).toHaveLength(1);
+    expect(desiredResources[0].name).toBe('was-deleted');
+  });
+
+  it('destroyed resource is excluded from currentResources', async () => {
+    const destroyed = stubResource({
+      name: 'was-deleted',
+      rollbackSpec: { server_type: 'cx11' },
+      destroyedAt: new Date(),
+    });
+    const prisma = makePrismaWithRollback([destroyed]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
+    expect((call.currentResources as any[]).every((r: any) => r.name !== 'was-deleted')).toBe(true);
+  });
+
+  it('calls provisioningResource.updateMany to set status ROLLED_BACK for restored resources', async () => {
+    const prisma = makePrismaWithRollback([stubResource()]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockResolvedValue({
+      success: true,
+      resources: [{ externalId: 'ext-web-1', type: 'server', name: 'web-1', desiredSpec: {}, actualSpec: {}, status: 'ACTIVE' }],
+      metadata: {},
+    });
+
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    expect(prisma.provisioningResource.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'ROLLED_BACK' },
+        where: expect.objectContaining({ externalId: { in: ['ext-web-1'] } }),
+      }),
+    );
+  });
+
+  it('calls provisioningProject.update with status ROLLED_BACK on success', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+
+    expect(prisma.provisioningProject.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'ROLLED_BACK' } }),
+    );
+  });
+
+  it('does NOT call provisioningProject.update when provider fails', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('boom'));
+
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    expect(prisma.provisioningProject.update).not.toHaveBeenCalled();
+  });
+
+  it('passes dryRun=false to provider — rollback always executes for real', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    const provider = makeProvider();
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
+    expect(call.dryRun).toBe(false);
+  });
+
+  it('credentialOpenbaoPath not present in rollback operation update or audit detail', async () => {
+    const prisma = makePrismaWithRollback([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubRollbackOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce({ ...stubRollbackOp(), status: 'RUNNING' })
+      .mockResolvedValueOnce(makeRolledBackOp());
+
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+
+    for (const [call] of prisma.provisioningOperation.update.mock.calls) {
+      expect(JSON.stringify(call.data)).not.toContain(OPENBAO_PATH);
+    }
+    for (const [call] of prisma.provisioningAuditEvent.create.mock.calls) {
+      expect(JSON.stringify(call.data.detail ?? {})).not.toContain(OPENBAO_PATH);
+    }
   });
 });

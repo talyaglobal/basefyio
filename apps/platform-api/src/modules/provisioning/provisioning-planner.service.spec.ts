@@ -272,3 +272,92 @@ describe('ProvisioningPlannerService — edge cases', () => {
     expect(curr).toHaveLength(originalLength);
   });
 });
+
+// ── Phase 10b — dependency extraction ──────────────────────
+
+describe('ProvisioningPlannerService — Phase 10b: dependency extraction', () => {
+  it('CREATE action carries dependencies from desired spec dependsOn', () => {
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: {
+        resources: [
+          { type: 'server', name: 'web-1', spec: {}, dependsOn: ['network:my-net'] },
+        ],
+      },
+      currentResources: [],
+    });
+
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].action).toBe('CREATE');
+    expect(plan.actions[0].dependencies).toEqual(['network:my-net']);
+  });
+
+  it('dependencies is undefined when dependsOn is absent', () => {
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: desired([{ type: 'server', name: 'web-1', spec: {} }]),
+      currentResources: [],
+    });
+
+    expect(plan.actions[0].action).toBe('CREATE');
+    expect(plan.actions[0].dependencies).toBeUndefined();
+  });
+
+  it('UPDATE action carries dependencies from desired spec', () => {
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: {
+        resources: [
+          { type: 'server', name: 'web-1', spec: { size: 'cx21' }, dependsOn: ['network:my-net'] },
+        ],
+      },
+      currentResources: [current('server', 'web-1', { size: 'cx11' })],
+    });
+
+    expect(plan.actions[0].action).toBe('UPDATE');
+    expect(plan.actions[0].dependencies).toEqual(['network:my-net']);
+  });
+
+  it('NOOP action carries dependencies from desired spec', () => {
+    const spec = { size: 'cx11' };
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: {
+        resources: [
+          { type: 'server', name: 'web-1', spec, dependsOn: ['network:my-net'] },
+        ],
+      },
+      currentResources: [current('server', 'web-1', spec)],
+    });
+
+    expect(plan.actions[0].action).toBe('NOOP');
+    expect(plan.actions[0].dependencies).toEqual(['network:my-net']);
+  });
+
+  it('DELETE action does not carry dependencies', () => {
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: desired([]),
+      currentResources: [current('server', 'web-1', { size: 'cx11' })],
+    });
+
+    expect(plan.actions[0].action).toBe('DELETE');
+    expect(plan.actions[0].dependencies).toBeUndefined();
+  });
+
+  it('ignores non-array dependsOn values', () => {
+    const plan = makeSvc().plan({
+      ...BASE,
+      desiredSpec: {
+        resources: [
+          // dependsOn is a string (invalid) — cast via Record<string,unknown> to bypass TS
+          { type: 'server', name: 'web-1', spec: {}, dependsOn: 'not-an-array' } as Record<string, unknown>,
+        ],
+      },
+      currentResources: [],
+    });
+
+    expect(plan.actions[0].action).toBe('CREATE');
+    expect(plan.actions[0].dependencies).toBeUndefined();
+  });
+});

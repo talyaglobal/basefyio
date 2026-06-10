@@ -18,6 +18,8 @@ export const HETZNER_CLIENT = 'HETZNER_CLIENT';
 export interface IHetznerClient {
   // ── Server ───────────────────────────────────────────────────
   createServer(params: HetznerCreateServerParams, apiToken: string): Promise<HetznerCreatedServer>;
+  /** Fetch current server state. Used for read-after-write after UPDATE actions. */
+  getServer(serverId: number, apiToken: string): Promise<HetznerCreatedServer>;
   deleteServer(serverId: number, apiToken: string): Promise<void>;
   /** Reinstall a server from a different image. Server is stopped during rebuild. */
   rebuildServer(serverId: number, imageSlug: string, apiToken: string): Promise<void>;
