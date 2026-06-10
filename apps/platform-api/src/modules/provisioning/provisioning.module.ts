@@ -7,8 +7,10 @@ import { ProvisioningController } from './provisioning.controller';
 import { NoopProvisioningProvider } from './providers/noop-provisioning.provider';
 import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
+import { MockHetznerTokenResolver } from './providers/mock-hetzner-token-resolver';
 import { ProviderRegistry } from './providers/provider-registry.service';
 import { PROVIDER_REGISTRY, IProviderRegistry } from './interfaces/provider-registry.interface';
+import { HETZNER_TOKEN_RESOLVER } from './interfaces/hetzner-token-resolver.interface';
 import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
 
 @Module({
@@ -22,6 +24,13 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
     {
       provide: SECRET_RESOLVER,
       useClass: NoopSecretResolver,
+    },
+    {
+      // Phase 9a placeholder — Phase 9c replaces with OpenBaoHetznerTokenResolver + config
+      provide: HETZNER_TOKEN_RESOLVER,
+      useFactory: (): MockHetznerTokenResolver => new MockHetznerTokenResolver(
+        process.env.HETZNER_API_TOKEN ?? 'dev-placeholder-token',
+      ),
     },
     {
       provide: PROVIDER_REGISTRY,

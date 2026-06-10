@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   IProvisioningProvider,
   ProviderPlan,
@@ -8,27 +8,37 @@ import {
   ProvisioningExecuteResult,
 } from '../interfaces/provisioning-provider.interface';
 import {
+  HETZNER_TOKEN_RESOLVER,
+  IHetznerTokenResolver,
+} from '../interfaces/hetzner-token-resolver.interface';
+import {
   ProvisioningPlannerService,
   PlanAction,
 } from '../provisioning-planner.service';
 
 /**
- * Hetzner Cloud provider — Phase 8: dry-run only.
+ * Hetzner Cloud provider.
  *
- * Maps generic planner actions to Hetzner resource vocabulary.
- * No real API calls are made; the credential reference is present in the
- * input but intentionally not used until Phase 9 (real apply).
+ * Phase 8: dry-run only (no API calls).
+ * Phase 9a: secret resolver contract wired; token resolved for real operations.
+ * Phase 9b+: real Hetzner API calls via HetznerClient.
  *
- * Secret boundary: credentialOpenbaoPath is never logged, stored in result,
- * or forwarded to any external system in this phase.
+ * Secret boundary:
+ * - credentialOpenbaoPath is passed to the token resolver; the resolved token
+ *   is used only inside apply() and is never stored, returned, or logged.
+ * - dry-run calls skip resolution entirely.
  */
 
-// Supported Hetzner resource kinds (lowercase normalised)
 const SUPPORTED_KINDS = new Set(['server', 'volume', 'network', 'firewall', 'ssh_key']);
 
 @Injectable()
 export class HetznerProvisioningProvider implements IProvisioningProvider {
-  constructor(private readonly planner: ProvisioningPlannerService) {}
+  constructor(
+    private readonly planner: ProvisioningPlannerService,
+    @Optional()
+    @Inject(HETZNER_TOKEN_RESOLVER)
+    private readonly tokenResolver?: IHetznerTokenResolver,
+  ) {}
 
   plan(input: ProvisioningExecuteInput): ProviderPlan {
     const genericPlan = this.planner.plan({
@@ -67,17 +77,29 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
   }
 
   async apply(input: ProvisioningExecuteInput): Promise<ProvisioningExecuteResult> {
-    // Phase 8: dry-run only — no Hetzner API calls.
-    // credentialOpenbaoPath is intentionally unused here; it is present in input
-    // to satisfy the contract but must not appear in the result or logs.
+    const isDryRun = input.dryRun ?? false;
     const providerPlan = this.plan(input);
+
+    if (!isDryRun) {
+      // Secret resolution: only for real (non-dry-run) operations.
+      // The resolved token lives only in this scope — never returned or logged.
+      if (!this.tokenResolver) {
+        throw new Error(
+          'HetznerProvider: tokenResolver is required for non-dry-run operations (wire HETZNER_TOKEN_RESOLVER)',
+        );
+      }
+      // Fail-fast: throws if path is empty, vault is unreachable, or token field missing.
+      // The token is used only here; Phase 9b will pass it to HetznerClient.
+      const _token = await this.tokenResolver.resolve(input.credentialOpenbaoPath);
+      void _token; // Phase 9b: new HetznerClient(_token).apply(providerPlan)
+    }
 
     return {
       success: true,
-      resources: [],   // dry-run: no resources created or modified
+      resources: [],   // Phase 9b: populated with created/updated resource rows
       metadata: {
         provider: 'hetzner',
-        dryRun: true,
+        dryRun: isDryRun,
         actions: providerPlan.actions,
         validationErrors: providerPlan.validationErrors,
       },
