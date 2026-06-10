@@ -8,7 +8,7 @@ import { NoopProvisioningProvider } from './providers/noop-provisioning.provider
 import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
 import { MockHetznerTokenResolver } from './providers/mock-hetzner-token-resolver';
-import { HetznerClient } from './providers/hetzner/hetzner.client';
+import { MockHetznerClient } from './providers/hetzner/mock-hetzner-client';
 import { ProviderRegistry } from './providers/provider-registry.service';
 import { PROVIDER_REGISTRY, IProviderRegistry } from './interfaces/provider-registry.interface';
 import { HETZNER_TOKEN_RESOLVER } from './interfaces/hetzner-token-resolver.interface';
@@ -35,7 +35,6 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
       ),
     },
     {
-      // Phase 9: replaced by real HTTP client (HetznerHttpClient) when OpenBao is wired
       provide: HETZNER_CLIENT,
       useClass: MockHetznerClient,
     },
