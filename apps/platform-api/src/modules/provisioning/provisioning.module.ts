@@ -5,6 +5,7 @@ import { ProvisioningResourceProjectionService } from './provisioning-resource-p
 import { ProvisioningPlannerService } from './provisioning-planner.service';
 import { ProvisioningController } from './provisioning.controller';
 import { NoopProvisioningProvider } from './providers/noop-provisioning.provider';
+import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
 import { ProviderRegistry } from './providers/provider-registry.service';
 import { PROVIDER_REGISTRY, IProviderRegistry } from './interfaces/provider-registry.interface';
@@ -17,20 +18,23 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
     ProvisioningPlannerService,
     ProvisioningExecutorService,
     NoopProvisioningProvider,
+    HetznerProvisioningProvider,
     {
       provide: SECRET_RESOLVER,
       useClass: NoopSecretResolver,
     },
     {
       provide: PROVIDER_REGISTRY,
-      useFactory: (noop: NoopProvisioningProvider): IProviderRegistry => {
+      useFactory: (
+        noop: NoopProvisioningProvider,
+        hetzner: HetznerProvisioningProvider,
+      ): IProviderRegistry => {
         const registry = new ProviderRegistry();
         registry.register('noop', noop);
-        // 'hetzner' wired to NoopProvisioningProvider until the real provider lands
-        registry.register('hetzner', noop);
+        registry.register('hetzner', hetzner);
         return registry;
       },
-      inject: [NoopProvisioningProvider],
+      inject: [NoopProvisioningProvider, HetznerProvisioningProvider],
     },
   ],
   controllers: [ProvisioningController],

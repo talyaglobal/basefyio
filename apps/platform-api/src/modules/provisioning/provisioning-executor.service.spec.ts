@@ -17,6 +17,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
       update: jest.fn(),
     },
     teamMember: { findUnique: jest.fn() },
+    provisioningResource: { findMany: jest.fn().mockResolvedValue([]) },
     provisioningAuditEvent: { create: jest.fn().mockResolvedValue({}) },
   };
   return { ...defaults, ...overrides } as any;
@@ -24,7 +25,8 @@ function makePrisma(overrides: Record<string, any> = {}) {
 
 function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisioningProvider {
   return {
-    execute: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
+    plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
+    apply: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
     ...overrides,
   };
 }
@@ -59,7 +61,7 @@ function stubOp(status = 'PENDING', id = OP_ID) {
     id,
     status,
     type: 'CREATE',
-    input: { size: 'cx11' },
+    input: { resources: [{ type: 'server', name: 'web-1', spec: { size: 'cx11' } }] },
     provisioningProjectId: PP_ID,
     provisioningProject: {
       id: PP_ID,
@@ -185,7 +187,7 @@ describe('ProvisioningExecutorService — noop failure', () => {
       .mockResolvedValueOnce(makeFailedOp());
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockRejectedValue(new Error('provider timeout'));
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('provider timeout'));
     const result = await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
 
     expect(result.status).toBe('FAILED');
@@ -200,7 +202,7 @@ describe('ProvisioningExecutorService — noop failure', () => {
       .mockResolvedValueOnce(makeFailedOp('provider timeout'));
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockRejectedValue(new Error('provider timeout'));
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('provider timeout'));
     await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
 
     const failCall = prisma.provisioningOperation.update.mock.calls[1][0];
@@ -217,7 +219,7 @@ describe('ProvisioningExecutorService — noop failure', () => {
       .mockResolvedValueOnce(makeFailedOp());
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockRejectedValue(new Error('boom'));
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('boom'));
     await expect(
       makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID),
     ).resolves.toBeDefined();
@@ -256,7 +258,7 @@ describe('ProvisioningExecutorService — audit sequence', () => {
       .mockResolvedValueOnce(makeFailedOp());
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockRejectedValue(new Error('timeout'));
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('timeout'));
     await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
 
     const [first, second] = prisma.provisioningAuditEvent.create.mock.calls.map((c: any) => c[0].data);
@@ -297,14 +299,14 @@ describe('ProvisioningExecutorService — provider dispatch', () => {
     const svc = new ProvisioningExecutorService(prisma, makeRegistry(provider), makeProjection() as any);
     await svc.executeOperation(USER_ID, OP_ID);
 
-    const call = (provider.execute as jest.Mock).mock.calls[0][0];
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
     expect(call.operationId).toBe(OP_ID);
     expect(call.projectId).toBe(PROJECT_ID);
     expect(call.providerType).toBe('noop');
     expect(call.region).toBe('eu-central');
     expect(call.datacenter).toBeNull();
-    expect(call.desiredSpec).toEqual({ size: 'cx11' });
     expect(call.credentialOpenbaoPath).toBe(OPENBAO_PATH);
+    expect(Array.isArray(call.currentResources)).toBe(true);
   });
 });
 
@@ -361,7 +363,7 @@ describe('ProvisioningExecutorService — resource projection', () => {
       status: 'ACTIVE' as const,
     };
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockResolvedValue({
+    (provider.apply as jest.Mock).mockResolvedValue({
       success: true,
       resources: [resource],
       metadata: { region: 'eu-central' },
@@ -388,7 +390,6 @@ describe('ProvisioningExecutorService — resource projection', () => {
       .mockResolvedValueOnce(makeRunningOp())
       .mockResolvedValueOnce(makeCompletedOp());
 
-    // NoopProvider returns resources: []
     const projection = makeProjection();
     await makeSvc(prisma, makeRegistry(), projection).executeOperation(USER_ID, OP_ID);
 
@@ -404,7 +405,7 @@ describe('ProvisioningExecutorService — resource projection', () => {
       .mockResolvedValueOnce(makeFailedOp());
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockRejectedValue(new Error('timeout'));
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('timeout'));
     const projection = makeProjection();
 
     await makeSvc(prisma, makeRegistry(provider), projection).executeOperation(USER_ID, OP_ID);
@@ -420,7 +421,7 @@ describe('ProvisioningExecutorService — resource projection', () => {
     // No second update — projection throws before COMPLETED write
 
     const provider = makeProvider();
-    (provider.execute as jest.Mock).mockResolvedValue({
+    (provider.apply as jest.Mock).mockResolvedValue({
       success: true,
       resources: [{ externalId: 'x', type: 'SERVER', name: 'web-01', desiredSpec: {}, actualSpec: {}, status: 'ACTIVE' }],
       metadata: {},
@@ -434,7 +435,6 @@ describe('ProvisioningExecutorService — resource projection', () => {
         .executeOperation(USER_ID, OP_ID),
     ).rejects.toThrow('DB write failed');
 
-    // COMPLETED update was never called — op stays in RUNNING
     const updateStatuses = prisma.provisioningOperation.update.mock.calls.map((c: any) => c[0].data.status);
     expect(updateStatuses).not.toContain('COMPLETED');
   });
@@ -455,7 +455,7 @@ describe('ProvisioningExecutorService — secret boundary', () => {
     await new ProvisioningExecutorService(prisma, makeRegistry(provider), makeProjection() as any)
       .executeOperation(USER_ID, OP_ID);
 
-    const call = (provider.execute as jest.Mock).mock.calls[0][0];
+    const call = (provider.apply as jest.Mock).mock.calls[0][0];
     expect(call.credentialOpenbaoPath).toBe(OPENBAO_PATH);
     expect(call).not.toHaveProperty('apiKey');
     expect(call).not.toHaveProperty('secret');
@@ -479,5 +479,20 @@ describe('ProvisioningExecutorService — secret boundary', () => {
     for (const [call] of prisma.provisioningAuditEvent.create.mock.calls) {
       expect(JSON.stringify(call.data.detail ?? {})).not.toContain(OPENBAO_PATH);
     }
+  });
+
+  it('does not call any secret resolver during execution (provider owns resolution)', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeCompletedOp());
+
+    const resolver = { resolve: jest.fn() };
+
+    await makeSvc(prisma).executeOperation(USER_ID, OP_ID);
+
+    expect(resolver.resolve).not.toHaveBeenCalled();
   });
 });

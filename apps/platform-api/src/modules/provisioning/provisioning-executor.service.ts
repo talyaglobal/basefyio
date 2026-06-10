@@ -6,7 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ProvisioningExecuteInput } from './interfaces/provisioning-provider.interface';
+import {
+  ProviderCurrentResource,
+  ProvisioningExecuteInput,
+} from './interfaces/provisioning-provider.interface';
 import { IProviderRegistry, PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
 import { normalizeProviderError } from './interfaces/provider-error.interface';
 import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
@@ -47,12 +50,29 @@ export class ProvisioningExecutorService {
     if (!member) throw new ForbiddenException('Not a member of this team');
 
     // State guard: allowlist — only PENDING may execute.
-    // Rejecting all other statuses (including future ones) by default.
     if (op.status !== 'PENDING') {
       throw new BadRequestException(
         `Operation is in status ${op.status} and cannot be executed. Only PENDING operations are executable.`,
       );
     }
+
+    // Resolve provider before mutating state — unknown type fails here with 400, not after RUNNING
+    const provider = this.registry.resolve(op.provisioningProject.provider);
+
+    // Fetch current resources so the provider can compute a diff plan
+    const currentRows = await this.prisma.provisioningResource.findMany({
+      where: { provisioningProjectId: op.provisioningProjectId, destroyedAt: null },
+      select: { id: true, kind: true, name: true, status: true, desiredSpec: true, actualSpec: true, externalId: true },
+    });
+    const currentResources: ProviderCurrentResource[] = currentRows.map((r) => ({
+      id: r.id,
+      type: r.kind,
+      name: r.name,
+      status: r.status,
+      desiredSpec: (r.desiredSpec ?? {}) as Record<string, unknown>,
+      actualSpec: (r.actualSpec ?? null) as Record<string, unknown> | null,
+      externalId: r.externalId,
+    }));
 
     // Build the full provider input contract — openbao path only, no secret resolution here
     const input: ProvisioningExecuteInput = {
@@ -62,12 +82,9 @@ export class ProvisioningExecutorService {
       region: op.provisioningProject.region,
       datacenter: op.provisioningProject.datacenter ?? null,
       desiredSpec: op.input,
-      // The executor passes the path reference only; the provider handles secret resolution
       credentialOpenbaoPath: op.provisioningProject.credentialRef.openbaoPath,
+      currentResources,
     };
-
-    // Resolve provider before mutating state — unknown type fails here with 400, not after RUNNING
-    const provider = this.registry.resolve(input.providerType);
 
     // ── PENDING → RUNNING ──────────────────────────────────────
     await this.prisma.provisioningOperation.update({
@@ -87,7 +104,7 @@ export class ProvisioningExecutorService {
     // ── Provider call (separate catch — failure → FAILED, not propagated) ────
     let providerResult;
     try {
-      providerResult = await provider.execute(input);
+      providerResult = await provider.apply(input);
     } catch (err) {
       // Provider error: RUNNING → FAILED; normalized, stored, returned — never re-thrown
       const normalized = normalizeProviderError(err);
@@ -117,14 +134,13 @@ export class ProvisioningExecutorService {
     // ── Resource projection (before COMPLETED update) ───────────────────────
     // If projection fails, the operation stays RUNNING and can be recovered.
     // A COMPLETED operation with missing resource rows is a harder inconsistency to fix.
-    const resources = providerResult.resources ?? [];
-    if (resources.length > 0) {
+    if (providerResult.resources?.length) {
       await this.projection.project({
         operationId: op.id,
         provisioningProjectId: op.provisioningProjectId,
         region: op.provisioningProject.region,
         datacenter: op.provisioningProject.datacenter ?? null,
-        resources,
+        resources: providerResult.resources,
         actorUserId: userId,
       });
     }
@@ -136,7 +152,7 @@ export class ProvisioningExecutorService {
         status: 'COMPLETED',
         result: {
           metadata: providerResult.metadata ?? {},
-          resourceCount: resources.length,
+          resourceCount: providerResult.resources?.length ?? 0,
         } as any,
         completedAt: new Date(),
       },
