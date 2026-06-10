@@ -16,15 +16,18 @@ import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { ListResourcesQuery } from './dto/list-resources.query';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
+import { RequireModule } from '../../common/decorators/require-module.decorator';
 
 @Controller('v1/provisioning')
-@UseGuards(JwtOrApiKeyGuard)
+@UseGuards(JwtOrApiKeyGuard, ModuleEnabledGuard)
 @UseInterceptors(AuditLogInterceptor)
+@RequireModule('provisioning')
 export class ProvisioningController {
   constructor(
     private readonly service: ProvisioningService,

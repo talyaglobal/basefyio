@@ -242,6 +242,10 @@ model Project {
   /// Per-project OpenAI API key for embeddings. Falls back to platform-level key if null.
   embeddingApiKey     String?   @map("embedding_api_key")
 
+  /// Optional module feature flags. Key = module name (e.g. "provisioning"), value = boolean.
+  /// Absent key or empty object defaults to enabled. Set key to false to disable the module.
+  modules             Json      @default("{}") @map("modules")
+
   team         Team          @relation(fields: [teamId], references: [id])
   folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   tags          ProjectTagAssignment[]

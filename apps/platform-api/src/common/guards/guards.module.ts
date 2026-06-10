@@ -5,6 +5,7 @@ import { ApiKeyGuard } from './api-key.guard';
 import { JwtOrApiKeyGuard } from './jwt-or-apikey.guard';
 import { FrozenAccountGuard } from './frozen-account.guard';
 import { RateLimitGuard } from './rate-limit.guard';
+import { ModuleEnabledGuard } from './module-enabled.guard';
 
 @Global()
 @Module({
@@ -14,8 +15,9 @@ import { RateLimitGuard } from './rate-limit.guard';
     JwtOrApiKeyGuard,
     FrozenAccountGuard,
     RateLimitGuard,
+    ModuleEnabledGuard,
     { provide: APP_GUARD, useClass: FrozenAccountGuard },
   ],
-  exports: [JwtAuthGuard, ApiKeyGuard, JwtOrApiKeyGuard, RateLimitGuard],
+  exports: [JwtAuthGuard, ApiKeyGuard, JwtOrApiKeyGuard, RateLimitGuard, ModuleEnabledGuard],
 })
 export class GuardsModule {}
