@@ -51,6 +51,12 @@ export interface ProvisioningExecuteInput {
   credentialOpenbaoPath: string;
   /** Current resources from DB, used by the provider's planner for diffing. */
   currentResources: ProviderCurrentResource[];
+  /**
+   * Whether the calling operation is a dry-run.
+   * When true, providers must NOT resolve secrets or make mutating API calls.
+   * Defaults to false; the executor always passes false (DRY_RUN ops never reach it).
+   */
+  dryRun?: boolean;
 }
 
 /**
