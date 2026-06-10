@@ -3,6 +3,7 @@ import {
   IProvisioningProvider,
   ProviderPlan,
   ProviderPlanAction,
+  UpdateStrategy,
   ProvisioningExecuteInput,
   ProvisioningExecuteResult,
 } from '../interfaces/provisioning-provider.interface';
@@ -58,7 +59,7 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
         reason: action.reason,
         desiredSpec: action.desiredSpec,
         currentSpec: action.currentSpec,
-        providerMeta: this.buildProviderMeta(kind, action),
+        updateStrategy: this.resolveUpdateStrategy(kind, action),
       });
     }
 
@@ -85,24 +86,23 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
 
   // ── Internal helpers ─────────────────────────────────────────
 
-  private buildProviderMeta(kind: string, action: PlanAction): Record<string, unknown> {
+  private resolveUpdateStrategy(kind: string, action: PlanAction): UpdateStrategy | undefined {
     if (action.action !== 'UPDATE' || !action.desiredSpec || !action.currentSpec) {
-      return {};
+      return undefined;
     }
-    return { hetznerAction: classifyUpdateAction(kind, action.desiredSpec, action.currentSpec) };
+    return classifyUpdateAction(kind, action.desiredSpec, action.currentSpec);
   }
 }
 
 /**
  * Classify the Hetzner sub-action for UPDATE operations.
- * Returns the most specific Hetzner API action name applicable to the spec diff.
- * Falls back to generic 'update' when no specific action is identifiable.
+ * Falls back to 'update' when no more specific action is identifiable.
  */
 function classifyUpdateAction(
   kind: string,
   desired: Record<string, unknown>,
   current: Record<string, unknown>,
-): string {
+): UpdateStrategy {
   if (kind === 'server') {
     if (desired['server_type'] !== current['server_type']) return 'resize';
     if (desired['image'] !== current['image']) return 'rebuild';

@@ -16,6 +16,8 @@ export interface ProviderCurrentResource {
 
 // ── Provider plan types ──────────────────────────────────────
 
+export type UpdateStrategy = 'resize' | 'rebuild' | 'set_rules' | 'update';
+
 export interface ProviderPlanAction {
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'NOOP';
   resourceType: string;
@@ -23,7 +25,9 @@ export interface ProviderPlanAction {
   reason: string;
   desiredSpec?: Record<string, unknown>;
   currentSpec?: Record<string, unknown>;
-  /** Provider-specific classification metadata (e.g. Hetzner resize vs rebuild). */
+  /** Provider-classified sub-strategy for UPDATE actions. Absent for non-UPDATE actions. */
+  updateStrategy?: UpdateStrategy;
+  /** Provider-specific extra data not covered by the generic fields. */
   providerMeta?: Record<string, unknown>;
 }
 

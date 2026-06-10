@@ -88,7 +88,7 @@ describe('HetznerProvisioningProvider — CREATE server', () => {
 // ── UPDATE server ─────────────────────────────────────────────
 
 describe('HetznerProvisioningProvider — UPDATE server', () => {
-  it('plan() produces UPDATE with hetznerAction=resize when server_type changes', () => {
+  it('plan() produces UPDATE with updateStrategy=resize when server_type changes', () => {
     const result = makeProvider().plan(
       withDesired(
         [{ type: 'server', name: 'web-1', spec: { server_type: 'cx21' } }],
@@ -97,10 +97,10 @@ describe('HetznerProvisioningProvider — UPDATE server', () => {
     );
 
     expect(result.actions[0].action).toBe('UPDATE');
-    expect(result.actions[0].providerMeta).toEqual({ hetznerAction: 'resize' });
+    expect(result.actions[0].updateStrategy).toBe('resize');
   });
 
-  it('plan() produces UPDATE with hetznerAction=rebuild when image changes', () => {
+  it('plan() produces UPDATE with updateStrategy=rebuild when image changes', () => {
     const result = makeProvider().plan(
       withDesired(
         [{ type: 'server', name: 'web-1', spec: { image: 'ubuntu-22.04' } }],
@@ -109,10 +109,10 @@ describe('HetznerProvisioningProvider — UPDATE server', () => {
     );
 
     expect(result.actions[0].action).toBe('UPDATE');
-    expect(result.actions[0].providerMeta).toEqual({ hetznerAction: 'rebuild' });
+    expect(result.actions[0].updateStrategy).toBe('rebuild');
   });
 
-  it('plan() falls back to hetznerAction=update for unknown server field changes', () => {
+  it('plan() falls back to updateStrategy=update for unknown server field changes', () => {
     const result = makeProvider().plan(
       withDesired(
         [{ type: 'server', name: 'web-1', spec: { labels: { env: 'prod' } } }],
@@ -121,7 +121,7 @@ describe('HetznerProvisioningProvider — UPDATE server', () => {
     );
 
     expect(result.actions[0].action).toBe('UPDATE');
-    expect(result.actions[0].providerMeta).toEqual({ hetznerAction: 'update' });
+    expect(result.actions[0].updateStrategy).toBe('update');
   });
 });
 
@@ -157,7 +157,7 @@ describe('HetznerProvisioningProvider — NOOP', () => {
 
     expect(result.actions).toHaveLength(1);
     expect(result.actions[0].action).toBe('NOOP');
-    expect(result.actions[0].providerMeta).toEqual({});
+    expect(result.actions[0].updateStrategy).toBeUndefined();
   });
 
   it('apply() metadata actions list is empty when all resources are NOOP', async () => {
