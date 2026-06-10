@@ -79,6 +79,8 @@ export interface ProvisioningResourceResult {
 export interface ProvisioningExecuteResult {
   success: boolean;
   resources: ProvisioningResourceResult[];
+  /** External IDs of resources deleted by this operation. Projection marks them DESTROYED. */
+  deletedExternalIds?: string[];
   metadata?: Record<string, unknown>;
 }
 

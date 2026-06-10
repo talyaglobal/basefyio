@@ -134,13 +134,14 @@ export class ProvisioningExecutorService {
     // ── Resource projection (before COMPLETED update) ───────────────────────
     // If projection fails, the operation stays RUNNING and can be recovered.
     // A COMPLETED operation with missing resource rows is a harder inconsistency to fix.
-    if (providerResult.resources?.length) {
+    if (providerResult.resources?.length || providerResult.deletedExternalIds?.length) {
       await this.projection.project({
         operationId: op.id,
         provisioningProjectId: op.provisioningProjectId,
         region: op.provisioningProject.region,
         datacenter: op.provisioningProject.datacenter ?? null,
         resources: providerResult.resources,
+        deletedExternalIds: providerResult.deletedExternalIds,
         actorUserId: userId,
       });
     }
@@ -153,6 +154,7 @@ export class ProvisioningExecutorService {
         result: {
           metadata: providerResult.metadata ?? {},
           resourceCount: providerResult.resources?.length ?? 0,
+          deletedCount: providerResult.deletedExternalIds?.length ?? 0,
         } as any,
         completedAt: new Date(),
       },

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProvisioningResourceResult } from './interfaces/provisioning-provider.interface';
 
-type ResourceAuditKind = 'RESOURCE_CREATED' | 'RESOURCE_UPDATED';
+type ResourceAuditKind = 'RESOURCE_CREATED' | 'RESOURCE_UPDATED' | 'RESOURCE_DESTROYED';
 
 export interface ProjectionParams {
   operationId: string;
@@ -10,6 +10,8 @@ export interface ProjectionParams {
   region: string;
   datacenter: string | null;
   resources: ProvisioningResourceResult[];
+  /** External IDs of resources the provider deleted. Projection marks them DESTROYED. */
+  deletedExternalIds?: string[];
   actorUserId: string;
 }
 
@@ -25,6 +27,9 @@ export class ProvisioningResourceProjectionService {
       } else {
         await this.createResource(params, resource);
       }
+    }
+    if (params.deletedExternalIds?.length) {
+      await this.destroyResources(params, params.deletedExternalIds);
     }
   }
 
@@ -107,6 +112,32 @@ export class ProvisioningResourceProjectionService {
       fromStatus: existing.status,
       toStatus: 'ACTIVE',
     });
+  }
+
+  // ── Destroy ─────────────────────────────────────────────────
+
+  private async destroyResources(params: ProjectionParams, externalIds: string[]): Promise<void> {
+    for (const externalId of externalIds) {
+      const resource = await this.prisma.provisioningResource.findFirst({
+        where: { provisioningProjectId: params.provisioningProjectId, externalId, destroyedAt: null },
+      });
+      if (!resource) continue; // already destroyed or never tracked — idempotent
+
+      await this.prisma.provisioningResource.update({
+        where: { id: resource.id },
+        data: { status: 'DESTROYED' as any, destroyedAt: new Date() },
+      });
+
+      await this.writeAuditEvent({
+        provisioningProjectId: params.provisioningProjectId,
+        resourceId: resource.id,
+        operationId: params.operationId,
+        kind: 'RESOURCE_DESTROYED',
+        actorUserId: params.actorUserId,
+        fromStatus: resource.status,
+        toStatus: 'DESTROYED',
+      });
+    }
   }
 
   // ── Audit ────────────────────────────────────────────────────

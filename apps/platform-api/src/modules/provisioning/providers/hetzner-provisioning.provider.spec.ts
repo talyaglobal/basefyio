@@ -2,15 +2,23 @@ import { HetznerProvisioningProvider } from './hetzner-provisioning.provider';
 import { ProvisioningPlannerService } from '../provisioning-planner.service';
 import { ProvisioningExecuteInput, ProviderCurrentResource } from '../interfaces/provisioning-provider.interface';
 import { MockHetznerTokenResolver } from './mock-hetzner-token-resolver';
+import { MockHetznerClient } from './hetzner/mock-hetzner-client';
 
-// ── Factories ────────────────────────────────────────────────
+// ── Factories ─────────────────────────────────────────────────
 
 function makePlanner() {
   return new ProvisioningPlannerService();
 }
 
-function makeProvider() {
-  return new HetznerProvisioningProvider(makePlanner());
+function makeClient() {
+  return new MockHetznerClient();
+}
+
+function makeProvider(
+  resolver?: MockHetznerTokenResolver,
+  client?: MockHetznerClient,
+) {
+  return new HetznerProvisioningProvider(makePlanner(), resolver, client);
 }
 
 const BASE_INPUT: Omit<ProvisioningExecuteInput, 'desiredSpec' | 'currentResources'> = {
@@ -20,7 +28,7 @@ const BASE_INPUT: Omit<ProvisioningExecuteInput, 'desiredSpec' | 'currentResourc
   region: 'eu-central',
   datacenter: null,
   credentialOpenbaoPath: 'secret/hetzner/token',
-  dryRun: true,   // Phase 8 baseline: all calls are dry-run; Phase 9a tests override to false
+  dryRun: true,   // Phase 8/9a baseline: all calls dry-run; tests override to false as needed
 };
 
 function withDesired(
@@ -40,6 +48,7 @@ function currentResource(
   type: string,
   name: string,
   desiredSpec: Record<string, unknown> = {},
+  externalId = `ext-${name}`,
 ): ProviderCurrentResource {
   return {
     id: `res-${type}-${name}`,
@@ -48,7 +57,7 @@ function currentResource(
     status: 'ACTIVE',
     desiredSpec,
     actualSpec: null,
-    externalId: `ext-${name}`,
+    externalId,
   };
 }
 
@@ -250,15 +259,11 @@ describe('HetznerProvisioningProvider — supported kinds', () => {
 
 describe('HetznerProvisioningProvider — no real API calls', () => {
   it('apply() returns without calling any external service (dry-run phase)', async () => {
-    // A spy on globalThis.fetch or any HTTP module would detect outbound calls.
-    // In Phase 8, no fetch/http/axios is imported — this confirms it at the
-    // module level. We assert via the deterministic result shape.
     const result = await makeProvider().apply(
       withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]),
     );
 
     expect(result.metadata).toMatchObject({ provider: 'hetzner', dryRun: true });
-    // Real resources would only appear after an actual API call
     expect(result.resources).toHaveLength(0);
   });
 
@@ -302,8 +307,6 @@ describe('HetznerProvisioningProvider — secret boundary', () => {
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain('apiKey');
     expect(serialised).not.toContain('password');
-    // 'token' appears inside 'credentialOpenbaoPath' path string — check the resolved token value
-    // never appears as a separate key/value in the result
     expect(serialised).not.toContain('mock-hetzner-token');
     expect(serialised).not.toContain('hetzner-api-token');
   });
@@ -314,7 +317,7 @@ describe('HetznerProvisioningProvider — secret boundary', () => {
 describe('HetznerProvisioningProvider — dry-run gate (Phase 9a)', () => {
   it('dry-run apply() does NOT call the token resolver', async () => {
     const resolver = new MockHetznerTokenResolver('super-secret');
-    const provider = new HetznerProvisioningProvider(makePlanner(), resolver);
+    const provider = makeProvider(resolver, makeClient());
 
     await provider.apply(withDesired([{ type: 'server', name: 'web-1', spec: {} }]));
 
@@ -323,10 +326,10 @@ describe('HetznerProvisioningProvider — dry-run gate (Phase 9a)', () => {
 
   it('non-dry-run apply() DOES call the token resolver', async () => {
     const resolver = new MockHetznerTokenResolver('super-secret');
-    const provider = new HetznerProvisioningProvider(makePlanner(), resolver);
+    const provider = makeProvider(resolver, makeClient());
 
     const input: ProvisioningExecuteInput = {
-      ...withDesired([{ type: 'server', name: 'web-1', spec: {} }]),
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]),
       dryRun: false,
     };
     await provider.apply(input);
@@ -336,18 +339,29 @@ describe('HetznerProvisioningProvider — dry-run gate (Phase 9a)', () => {
   });
 
   it('non-dry-run apply() fails fast when no tokenResolver is wired', async () => {
-    const provider = new HetznerProvisioningProvider(makePlanner()); // no resolver
+    const provider = makeProvider(); // no resolver, no client
 
     const input: ProvisioningExecuteInput = {
       ...withDesired([{ type: 'server', name: 'web-1', spec: {} }]),
       dryRun: false,
     };
-    await expect(provider.apply(input)).rejects.toThrow(/tokenResolver is required/);
+    await expect(provider.apply(input)).rejects.toThrow(/HETZNER_TOKEN_RESOLVER.*required|required for real operations/);
+  });
+
+  it('non-dry-run apply() fails fast when no hetznerClient is wired', async () => {
+    const resolver = new MockHetznerTokenResolver('super-secret');
+    const provider = makeProvider(resolver); // resolver present, client absent
+
+    const input: ProvisioningExecuteInput = {
+      ...withDesired([{ type: 'server', name: 'web-1', spec: {} }]),
+      dryRun: false,
+    };
+    await expect(provider.apply(input)).rejects.toThrow(/HETZNER_CLIENT.*required|required for real operations/);
   });
 
   it('non-dry-run apply() fails fast when openbaoPath is empty', async () => {
     const resolver = new MockHetznerTokenResolver('super-secret');
-    const provider = new HetznerProvisioningProvider(makePlanner(), resolver);
+    const provider = makeProvider(resolver, makeClient());
 
     const input: ProvisioningExecuteInput = {
       ...withDesired([{ type: 'server', name: 'web-1', spec: {} }]),
@@ -358,18 +372,21 @@ describe('HetznerProvisioningProvider — dry-run gate (Phase 9a)', () => {
   });
 });
 
+// ── Phase 9a — resolved token not in result ───────────────────
+
 describe('HetznerProvisioningProvider — resolved token not in result (Phase 9a)', () => {
   const REAL_TOKEN = 'hetzner-api-token-abc123xyz';
 
-  async function applyNonDryRun(): Promise<{ result: any; resolver: MockHetznerTokenResolver }> {
+  async function applyNonDryRun() {
     const resolver = new MockHetznerTokenResolver(REAL_TOKEN);
-    const provider = new HetznerProvisioningProvider(makePlanner(), resolver);
+    const client = makeClient();
+    const provider = makeProvider(resolver, client);
     const input: ProvisioningExecuteInput = {
-      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]),
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
       dryRun: false,
     };
     const result = await provider.apply(input);
-    return { result, resolver };
+    return { result, resolver, client };
   }
 
   it('resolved token does not appear in the result payload', async () => {
@@ -377,9 +394,11 @@ describe('HetznerProvisioningProvider — resolved token not in result (Phase 9a
     expect(JSON.stringify(result)).not.toContain(REAL_TOKEN);
   });
 
-  it('result resources are empty (Phase 9b: real Hetzner client not yet wired)', async () => {
+  it('result resources include the created server', async () => {
     const { result } = await applyNonDryRun();
-    expect(result.resources).toHaveLength(0);
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].type).toBe('server');
+    expect(result.resources[0].name).toBe('web-1');
   });
 
   it('result metadata includes provider and dryRun:false', async () => {
@@ -392,6 +411,116 @@ describe('HetznerProvisioningProvider — resolved token not in result (Phase 9a
     expect(resolver.calls()).toHaveLength(1);
   });
 });
+
+// ── Phase 9b — HetznerClient wired ───────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 9b: HetznerClient wired', () => {
+  it('non-dry-run CREATE server returns a resource with externalId', async () => {
+    const provider = makeProvider(
+      new MockHetznerTokenResolver('test-token'),
+      makeClient(),
+    );
+    const input: ProvisioningExecuteInput = {
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+      dryRun: false,
+    };
+    const result = await provider.apply(input);
+
+    expect(result.resources).toHaveLength(1);
+    const resource = result.resources[0];
+    expect(resource.type).toBe('server');
+    expect(resource.name).toBe('web-1');
+    expect(resource.externalId).toBeTruthy();
+    expect(resource.status).toBe('ACTIVE');
+  });
+
+  it('externalId is the string representation of the Hetzner server.id', async () => {
+    const client = makeClient();
+    const provider = makeProvider(new MockHetznerTokenResolver('test-token'), client);
+    const input: ProvisioningExecuteInput = {
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+      dryRun: false,
+    };
+    const result = await provider.apply(input);
+
+    // MockHetznerClient starts IDs at 1001
+    expect(result.resources[0].externalId).toBe('1001');
+  });
+
+  it('actualSpec includes server metadata from the Hetzner response', async () => {
+    const provider = makeProvider(
+      new MockHetznerTokenResolver('test-token'),
+      makeClient(),
+    );
+    const input: ProvisioningExecuteInput = {
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+      dryRun: false,
+    };
+    const result = await provider.apply(input);
+
+    const { actualSpec } = result.resources[0];
+    expect(actualSpec).toMatchObject({
+      server_type: 'cx11',
+      location: 'nbg1',        // eu-central → nbg1
+      datacenter: 'nbg1-dc1',
+      status: 'running',
+    });
+  });
+
+  it('dry-run does NOT call hetznerClient.createServer', async () => {
+    const client = makeClient();
+    const createSpy = jest.spyOn(client, 'createServer');
+    const provider = makeProvider(new MockHetznerTokenResolver('test-token'), client);
+
+    await provider.apply(
+      withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]),
+      // dryRun: true from BASE_INPUT
+    );
+
+    expect(createSpy).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('resolved token is NOT passed to createServer as the first positional arg', async () => {
+    const client = makeClient();
+    const createSpy = jest.spyOn(client, 'createServer');
+    const TOKEN = 'secret-token-xyz';
+    const provider = makeProvider(new MockHetznerTokenResolver(TOKEN), client);
+
+    const input: ProvisioningExecuteInput = {
+      ...withDesired([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11', image: 'ubuntu-22.04' } }]),
+      dryRun: false,
+    };
+    await provider.apply(input);
+
+    // Token must be the second param (apiToken), not embedded in the params object
+    const [params, apiToken] = createSpy.mock.calls[0];
+    expect(JSON.stringify(params)).not.toContain(TOKEN);
+    expect(apiToken).toBe(TOKEN);
+    createSpy.mockRestore();
+  });
+
+  it('NOOP actions do not produce resources', async () => {
+    const spec = { server_type: 'cx11', image: 'ubuntu-22.04' };
+    const provider = makeProvider(
+      new MockHetznerTokenResolver('test-token'),
+      makeClient(),
+    );
+    const input: ProvisioningExecuteInput = {
+      ...withDesired(
+        [{ type: 'server', name: 'web-1', spec }],
+        [currentResource('SERVER', 'web-1', spec)],
+      ),
+      dryRun: false,
+    };
+    const result = await provider.apply(input);
+
+    expect(result.resources).toHaveLength(0);
+    expect(result.success).toBe(true);
+  });
+});
+
+// ── MockHetznerTokenResolver contract ─────────────────────────
 
 describe('MockHetznerTokenResolver — contract', () => {
   it('resolve() returns the configured token', async () => {

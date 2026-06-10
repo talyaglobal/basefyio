@@ -219,3 +219,75 @@ describe('ProvisioningResourceProjectionService — multiple resources', () => {
     expect(prisma.provisioningAuditEvent.create).toHaveBeenCalledTimes(2);
   });
 });
+
+// ── DELETE path (destroyResources) ───────────────────────────
+
+describe('ProvisioningResourceProjectionService — DELETE path', () => {
+  function deletedParams(externalIds: string[]): ProjectionParams {
+    return { ...baseParams([]), deletedExternalIds: externalIds };
+  }
+
+  function activeResource(externalId: string) {
+    return { id: 'res-del-1', provisioningProjectId: PP_ID, status: 'ACTIVE', externalId };
+  }
+
+  it('marks a tracked resource as DESTROYED and writes RESOURCE_DESTROYED audit', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findFirst.mockResolvedValue(activeResource('ext-99'));
+    prisma.provisioningResource.update.mockResolvedValue({});
+
+    await makeSvc(prisma).project(deletedParams(['ext-99']));
+
+    const updateCall = prisma.provisioningResource.update.mock.calls[0][0];
+    expect(updateCall.data.status).toBe('DESTROYED');
+    expect(updateCall.data.destroyedAt).toBeInstanceOf(Date);
+
+    const auditCall = prisma.provisioningAuditEvent.create.mock.calls[0][0].data;
+    expect(auditCall.kind).toBe('RESOURCE_DESTROYED');
+    expect(auditCall.fromStatus).toBe('ACTIVE');
+    expect(auditCall.toStatus).toBe('DESTROYED');
+  });
+
+  it('is idempotent — skips resources not found or already destroyed', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findFirst.mockResolvedValue(null);
+
+    await makeSvc(prisma).project(deletedParams(['unknown-ext']));
+
+    expect(prisma.provisioningResource.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('destroys multiple resources independently', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findFirst
+      .mockResolvedValueOnce(activeResource('ext-1'))
+      .mockResolvedValueOnce(activeResource('ext-2'));
+    prisma.provisioningResource.update.mockResolvedValue({});
+
+    await makeSvc(prisma).project(deletedParams(['ext-1', 'ext-2']));
+
+    expect(prisma.provisioningResource.update).toHaveBeenCalledTimes(2);
+    expect(prisma.provisioningAuditEvent.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('processes creates and deletes in the same project() call', async () => {
+    const prisma = makePrisma();
+    // upsert path: no existing → create
+    prisma.provisioningResource.findFirst
+      .mockResolvedValueOnce(null)   // externalId lookup for the new resource
+      .mockResolvedValueOnce(null)   // kind+name fallback for the new resource
+      .mockResolvedValueOnce(activeResource('old-ext')); // delete lookup
+    prisma.provisioningResource.create.mockResolvedValue({ id: 'new-res', provisioningProjectId: PP_ID });
+    prisma.provisioningResource.update.mockResolvedValue({});
+
+    await makeSvc(prisma).project({
+      ...baseParams([stubResource({ externalId: 'new-ext', name: 'web-new' })]),
+      deletedExternalIds: ['old-ext'],
+    });
+
+    expect(prisma.provisioningResource.create).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningResource.update).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningAuditEvent.create).toHaveBeenCalledTimes(2);
+  });
+});

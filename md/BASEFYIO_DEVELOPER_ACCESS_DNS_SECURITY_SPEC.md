@@ -4,6 +4,21 @@
 **Scope:** New product area, planned as its own module(s) and spec.
 **Hard boundary:** The existing **RAG / Agent‑Memory Drizzle ownership** (the six Drizzle tables `rag_documents`, `rag_chunks`, `rag_index_jobs`, `chat_threads`, `chat_messages`, `agent_memory`) **must not be broken or extended**. Everything new here is **control‑plane Prisma**, consistent with `Plan`, `Subscription`, `ProjectInfrastructure`, `AuditLog`. Drizzle is not touched.
 
+**Version:** `v0.8` · **Last updated:** 2026-06-09 · **Maturity:** ~95% architecture‑complete, ADR‑lockable; the only open engineering decision is the Phase‑6 secure‑gateway tech (Envoy vs HAProxy vs custom TLS front, revocation‑cache interval, Postgres routing).
+
+### Revision history
+
+| Version | Summary |
+| --- | --- |
+| v0.1 | Initial Developer Access + DNS + mTLS + OpenBao spec. |
+| v0.2 | Per‑structure data model (Relational/JSON, engine hidden), Unified Data Explorer. |
+| v0.3 | Migration archive + AI assessment + resumable upload + consent; Decisions #6 (archive snapshot) / #7 (JSON engine rules); Phase 0–8 reorder. |
+| v0.4 | Scrubbed project‑level‑engine leftovers; §11 Migration/Backup; Migration Wizard. |
+| v0.5 | Consent/authorization, AI Due Diligence report, Migration Storage Policy, Archive Billing & Reporting, Backup product navigation. |
+| v0.6 | Single‑invoice line items, content/metadata immutability, `jsonBackend String?`, App Generation Preview, Restore/Replay, certificate **bundle** (incl. private key), `QueryEditorMode`/`DataEditorMode` split, Mongo/Couchbase engines internal, Phase 5/7 split. |
+| v0.7 | `ProjectEngineEndpoint` (per‑engine), endpoint+access‑level cert binding, `MigrationRestoreJob`, import‑credential OpenBao custody, data residency (`region`), expanded app preview, OpenBao **CRL + cache** revocation default. |
+| **v0.8** | `DataStructureStorage` layer, archive **immutable at API level**, assessment **versioning** (`supersededById`), `GeneratedApplicationPreview` extraction note, **Assessment Confidence** headline, **subdomain** host shape (no path‑based routing). |
+
 ---
 
 ## 0. Guiding principle (the product north star)
@@ -254,7 +269,7 @@ The gateway, on every new connection, checks: valid chain to basefyio CA → not
 
 ### 3.2 Per‑project isolation
 
-Each project has its **own** credentials, **own** client certificate, **own** endpoint/subdomain, and **own** rotation lifecycle. **A certificate issued for project A must never authenticate to project B**, another domain, or another entitlement. Cert subject/extensions bind `projectId` + endpoint + entitlement id; the gateway enforces the binding.
+Each project has its **own** credentials, **own** client certificate, **own** endpoint/subdomain, and **own** rotation lifecycle. **A certificate issued for project A must never authenticate to project B**, another domain, or another entitlement. Cert subject/extensions bind `projectId` + the **specific `ProjectEngineEndpoint`** + **access level** (read vs read/write) + entitlement id; a cert is valid **only for the endpoint it was issued for** — so a relational endpoint (`sql.crm.basefyio.com`) and a JSON endpoint (`json.crm.basefyio.com`) get **separate certs**. The gateway enforces every part of the binding.
 
 ### 3.3 Entitlement‑gated (commercial rule)
 
@@ -327,7 +342,7 @@ interface DataEngine {
 - **MongoDataEngine** — internal JSON engine; document collections + JSON document editor; **primary UI is still the JS Query Editor through the adapter** (aggregation stays internal, never surfaced).
 - **CouchbaseDataEngine** — internal JSON engine; document collections + JSON document editor; **primary UI is the JS Query Editor through the sandboxed adapter**.
 
-A factory resolves the engine **per data structure**, not per project: the user‑facing kind is `relational | json`; for a `json` structure basefyio internally picks `mongodb` or `couchbase` (`DataStructure.jsonEngine`) — never exposed in the UI. One project can therefore mix a `RelationalDataEngine` and document engines simultaneously. `getExternalConnectionInfo()` returns connection metadata + the resolved engine's client examples **with mTLS**, never secret key material and never as a user‑selectable engine.
+A factory resolves the engine **per data structure**, not per project: the user‑facing kind is `relational | json`; for a `json` structure basefyio internally picks the backend (`DataStructure.jsonBackend String?`, values like `mongodb`/`couchbase`; enum deferred) — never exposed in the UI. One project can therefore mix a `RelationalDataEngine` and document engines simultaneously. `getExternalConnectionInfo()` returns connection metadata + the resolved engine's client examples **with mTLS**, never secret key material and never as a user‑selectable engine.
 
 ### 4.2 Secure access gateway (per engine)
 
@@ -354,10 +369,11 @@ New Prisma models/enums (names indicative). All `project_id` FKs `ON DELETE CASC
 - `enum DataStructureKind { RELATIONAL JSON }` — the **only** user‑facing choice.
 - JSON backend is stored as a free‑form internal **`jsonBackend String?`** for now (values like `"mongodb"` / `"couchbase"`), **deferred to an enum later** once the engine set is final — this avoids an early migration lock while it is still unsettled whether the platform standardizes on one engine. Never shown to users.
 - `model DataStructure` — `projectId`, `name`, `kind (RELATIONAL|JSON)`, `jsonBackend String?` (set internally only when `kind=JSON`), `editorMode` (derivable: `sql` for relational, `js-query` for json), `aiRecommended Boolean`, `aiReasons Json?` (from "Let AI Decide"), timestamps. A project has **many** DataStructures of **mixed** kinds; per‑structure kind is immutable. This replaces the earlier project‑level `engineType` (no engine field on `Project`).
+- `model DataStructureStorage` — decouples the **logical** structure from its **physical** storage, so a JSON collection can move Mongo→Couchbase, split hot/cold, or relocate tenants/clusters **without** rewriting the `DataStructure`: `id`, `dataStructureId`, `engineType`, `endpointId` (→ `ProjectEngineEndpoint`), `version`, `active`. (Not strictly required for day‑1, but added before the first migration lands to avoid a 5‑year lock‑in; `DataStructure` keeps `jsonBackend` as the current convenience hint.)
 - (For external connectivity the engine surface stays `relational | mongodb | couchbase` internally; the gateway/cert/endpoint models in §5 key off the resolved engine of each structure's backing store.)
 - `model ProjectDomain` — `projectId`, `kind (PRIVATE|CUSTOM)`, `domain`, `connectionCname`, `validationCname`, `status (ACTIVE|PENDING|VERIFIED|FAILED)`, `sslStatus`, `dnsProvider?`, `verifiedAt?`, timestamps. Unique private domain per project.
 - `model ProjectClientCertificate` — `projectId`, `entitlementRef`, `serial`, `fingerprint`, `subject`, `openbaoKeyPath` (reference only — **no key bytes**), `caCertRef`, `status (ACTIVE|REVOKED|ARCHIVED|EXPIRED)`, `accessLevel (READ|READ_WRITE)`, `notBefore`, `notAfter`, `issuedAt`, `revokedAt?`. Indexed by `(projectId, status)`; serial/fingerprint unique.
-- `model ExternalAccessEndpoint` — `projectId`, `engineType`, `host` (private domain), `port`, `username`, `passwordRef`, `requiresClientCert (=true, enforced)`, `active`. (Password may itself reference a secret store.)
+- `model ProjectEngineEndpoint` (renamed from `ExternalAccessEndpoint`) — a **per‑engine** endpoint with `UNIQUE(projectId, engineType)`: `projectId`, `engineType (relational|mongodb|couchbase)`, `host` (a **per‑engine subdomain**, e.g. `sql.crm.basefyio.com` for Postgres vs `json.crm.basefyio.com` for Mongo/Couchbase — **host+port, never path‑based routing**, since DB clients, mTLS and DNS all expect host+port), `port`, `username`, `credentialRef` (OpenBao — never the secret itself), `requiresClientCert (=true, enforced)`, `accessLevel (READ|READ_WRITE)`, `active`. A mixed‑storage project has **one endpoint per engine** — pgAdmin/DBeaver connect to the **relational** endpoint, Compass/SDK to the **JSON** endpoint — so there is never an ambiguous project‑wide endpoint.
 - `model CertificateEvent` (or reuse `AuditLog`) — issue/renew/revoke/rotate/download audit, `projectId`, `actorUserId`, `action`, `serial`, timestamps.
 - Entitlement flags live in `Plan.features` (JSON): `externalDbAccess`, `customDomain`, `dedicatedEndpoint`, `accessLevel`.
 - New `ProjectActivityKind` values: `DATAENGINE_PROJECT_CREATED`, `CERT_ISSUED`, `CERT_RENEWED`, `CERT_REVOKED`, `CREDENTIALS_ROTATED`, `DOMAIN_ADDED`, `DOMAIN_VERIFIED`, `DOMAIN_FAILED`, `EXTERNAL_ACCESS_ENABLED`, `EXTERNAL_ACCESS_DISABLED`.
@@ -369,9 +385,12 @@ New Prisma models/enums (names indicative). All `project_id` FKs `ON DELETE CASC
 - `enum MigrationSource { USER_UPLOAD WE_IMPORT }`
 - `enum MigrationRetention { TEMPORARY_30D STANDARD_1Y LONG_TERM }`
 - `enum MigrationRiskLevel { LOW MEDIUM HIGH CRITICAL }`
-- `model MigrationArchive` — `projectId`, `bucketName` (MinIO archive bucket), `status`, `source (USER_UPLOAD|WE_IMPORT)`, `retention MigrationRetention @default(STANDARD_1Y)`, `encryptedAtRest (=true)`, `consentCompletedAt?` (gate), `totalBytes`, `createdAt`, `deletedAt?`. The archive is the **authoritative migration snapshot**, isolated per customer. **Archive content is immutable** (the stored files never change); **archive metadata is mutable** (e.g. retention can be extended, status changes). Migration cannot start until `consentCompletedAt` is set and the archive is ACTIVE.
+- `model MigrationArchive` — `projectId`, `bucketName` (MinIO archive bucket), `status`, `source (USER_UPLOAD|WE_IMPORT)`, `retention MigrationRetention @default(STANDARD_1Y)`, `region` (data residency — US/EU/TR; the assessment region **must equal** the archive region so regulated data never leaves its region), `encryptedAtRest (=true)`, `consentCompletedAt?` (gate), `totalBytes`, `createdAt`, `deletedAt?`. The archive is the **authoritative migration snapshot**, isolated per customer. **Archive content is immutable** (the stored files never change); **archive metadata is mutable** (e.g. retention can be extended, status changes). Migration cannot start until `consentCompletedAt` is set and the archive is ACTIVE.
 - `model MigrationArchiveFile` — `archiveId`, `filename`, `objectKey`, `sizeBytes`, `contentType`, `uploadStatus`, `uploadedBytes`, `chunkSize`, `checksum`, `resumeToken` (for resumable/chunked upload + refresh/reconnect recovery), timestamps.
-- `model MigrationAssessment` — `archiveId`, `projectId`, `tablesFound`, `recordsFound`, `sizeBytes`, `relationships`, `nestedJsonStructures`, `legacyFiles Json` (e.g. XML count), `shape (TABULAR|JSON|MIXED)`, `detectedEntities Json`, `recommendation Json` (SQL vs JSON split + hidden engine hints), `complexity (LOW|MEDIUM|HIGH)`, `confidencePct`, `fullyAutomatable Boolean`, `humanInvolvementPct`, `estimatedPeopleHours`, `estimatedManualReviewHours`, `estimatedEngineeringHours`, `estimatedDurationDays`, `hourlyRateCents` (**customer/plan‑specific** — self‑service / partner / enterprise / managed migration price differently; $100/hr is only a demo default), `estimatedCostCents`, `dataLossRiskPct`, `riskLevel MigrationRiskLevel`, `riskDrivers Json`, `mitigations Json`, `businessImpact String`, `finalRecommendation Json` (recommended/alternative/not‑recommended paths), `estimatedArchiveSizeBytes`, `estimatedMonthlyArchiveCostCents` (shown **before** purchase to avoid surprise bills), `appPreview Json` (estimated modules, screens, APIs, roles, build minutes — the App Generation Preview, §11.4), `reportPdfObjectKey?`, `createdAt`.
+- `enum MigrationRestoreMode { SAME_PROJECT NEW_PROJECT EXPORT_BUNDLE }`
+- `model MigrationRestoreJob` — **first‑class** (Backup is a product): `archiveId`, `sourceProjectId`, `targetProjectId?` (null for export bundle), `mode MigrationRestoreMode`, `status`, `requestedBy`, `startedAt?`, `completedAt?`, `resultObjectKey?` (export bundle), `error?`. Every restore is auditable, not a hidden background process.
+- `model MigrationImportCredential` — for **"We import"**: the source connection string (`jdbc:` / `postgres://` / `mongodb://`) is **stored in OpenBao**, never in Prisma — exactly like certificate private keys. Prisma holds only `archiveId`, `projectId`, `openbaoPath` (reference), `engineKind`, `metadataScannedAt?`, `dataReadConsentAt?`, `revokedAt?`. Credentials should be **revoked after migration completion**.
+- `model MigrationAssessment` — `archiveId`, `projectId`, `tablesFound`, `recordsFound`, `sizeBytes`, `relationships`, `nestedJsonStructures`, `legacyFiles Json` (e.g. XML count), `shape (TABULAR|JSON|MIXED)`, `detectedEntities Json`, `recommendation Json` (SQL vs JSON split + hidden engine hints), `complexity (LOW|MEDIUM|HIGH)`, `confidencePct`, `fullyAutomatable Boolean`, `humanInvolvementPct`, `estimatedPeopleHours`, `estimatedManualReviewHours`, `estimatedEngineeringHours`, `estimatedDurationDays`, `hourlyRateCents` (**customer/plan‑specific** — self‑service / partner / enterprise / managed migration price differently; $100/hr is only a demo default), `estimatedCostCents`, `dataLossRiskPct`, `riskLevel MigrationRiskLevel`, `riskDrivers Json`, `mitigations Json`, `businessImpact String`, `finalRecommendation Json` (recommended/alternative/not‑recommended paths), `estimatedArchiveSizeBytes`, `estimatedMonthlyArchiveCostCents` (shown **before** purchase to avoid surprise bills), `appPreview Json` (the App Generation Preview, §11.4: estimated modules, **entities**, screens, APIs, roles, **workflows**, **automations**, **AI agents**, build minutes), `confidencePct` (**headline** in the report — see §11.4), `assessmentVersion`, `modelVersion`, `supersededById?`, `reportPdfObjectKey?`, `createdAt`. A `MigrationArchive` has **many** `MigrationAssessment`s — re‑uploading files or running a newer AI model creates a **new version** that supersedes the prior one (never overwrite). *(The `appPreview` JSON is fine for Phase 0; extract to a `GeneratedApplicationPreview` model later, once screen diagrams / role matrix / API catalog / workflow graph / AI agents become queryable objects.)*
 - **Billing is single‑invoice — no separate archive billing system.** Archive storage charges are **`InvoiceLineItem`** rows of `type = MIGRATION_ARCHIVE_STORAGE` on the **existing platform `Invoice`** (one invoice: e.g. `BASEFYIO_PRO` + `AI_TOKENS` + `MIGRATION_ARCHIVE_STORAGE`). Add `enum InvoiceLineItemType { ... MIGRATION_ARCHIVE_STORAGE }` and `model InvoiceLineItem` (`invoiceId`, `type`, `description`, `quantity`, `unitPriceCents`, `amountCents`, `archiveId?`). A `MigrationArchiveLedger` (projection: `storedBytes`, `growthBytes`, `accumulatedCents`) may back the monthly statement, but it is **not** a second billing source of truth — the platform `Invoice` is authoritative. (No standalone `MigrationInvoice` model.)
 - `model MigrationConsent` — **versioned + immutable** acceptance record: `archiveId`, `projectId`, `userId`, `organizationId`/`teamId`, `acceptedAt`, `ipAddress`, `privacyStatementVersion`, `riskStatementVersion`, `archivePolicyVersion`, `acceptedItems Json` (which checkboxes), `sensitiveDataFlags Json`, `dbAccessAuthorized Boolean` (for "We import"). No updates allowed — the row is immutable audit history; a re‑consent creates a **new** row. Mirrored into `AuditLog`. `MigrationArchive.consentCompletedAt` is the gate flag.
 
@@ -407,6 +426,15 @@ Project‑scoped, guarded by the existing `JwtOrApiKeyGuard` + team‑membership
 - `POST /projects/:projectId/dns/custom` — submit custom domain → returns 2 CNAMEs. *(entitlement‑gated: customDomain)*
 - `POST /projects/:projectId/dns/custom/verify` — Refresh/Test DNS.
 - `GET  /projects/:projectId/dns/providers/:provider/instructions` — Cloudflare/GoDaddy/manual.
+
+**Migration / Backup / Archive** — archive **content is immutable at the API level**:
+- `POST /projects/:projectId/migration/archives` — create the archive bucket (before any upload).
+- `POST /projects/:projectId/migration/archives/:id/files` — **allowed** (chunked/resumable upload).
+- `GET  /projects/:projectId/migration/archives/:id/files` — **allowed**.
+- `PUT` / `PATCH` / `DELETE` on `…/files` — **forbidden** (no individual‑file edits). Files only disappear when the **whole archive is deleted** or **retention expires**, preserving legal/audit guarantees.
+- `POST /projects/:projectId/migration/archives/:id/assessments` — run/re‑run assessment (creates a new version). `GET …/assessments` lists versions.
+- `POST /projects/:projectId/migration/archives/:id/restore` — body `{ mode: 'same_project'|'new_project'|'export_bundle', targetProjectId? }` → creates a `MigrationRestoreJob`.
+- `DELETE /projects/:projectId/migration/archives/:id` — delete archive (confirmation required; stops billing).
 
 ---
 
@@ -469,6 +497,8 @@ Each phase = its own commit(s) ending with a gate (prisma validate, typecheck, t
 - Manual **Renew Certificate** works (old stops working, new works), is project‑scoped, entitlement‑checked, and **writes an audit log**.
 - Private keys live in **OpenBao**, never in the app DB.
 - pgAdmin/DBeaver/Compass examples show **client‑certificate** usage.
+- A mixed‑storage project exposes **one endpoint per engine** (`ProjectEngineEndpoint`, unique per `projectId`+`engineType`) — relational and JSON endpoints are distinct, never an ambiguous project‑wide endpoint.
+- A certificate is bound to a **specific endpoint + access level**; it is rejected on any other endpoint (e.g. a `sql.<project>.basefyio.com` cert cannot connect to `json.<project>.basefyio.com`).
 
 **Migration / Backup / Archive**
 - A migration **archive bucket** is created before any upload; all data lands in the archive first.
@@ -482,7 +512,9 @@ Each phase = its own commit(s) ending with a gate (prisma validate, typecheck, t
 - Risk disclosures are **mandatory**; **sensitive‑data warnings** are shown when applicable (and recommend assisted migration).
 - The assessment report also shows the **estimated future archive size and monthly archive cost** *before* purchase (no surprise bills).
 - The assessment includes a **Generated Application Preview** (modules, estimated screens/APIs/roles, build time) — the primary conversion screen.
-- **Restore** is supported: restore to **same project**, **new project**, or **export bundle**.
+- **Restore** is supported via a first‑class, audited **`MigrationRestoreJob`**: restore to **same project**, **new project**, or **export bundle**.
+- **"We import" credentials** (connection strings) live in **OpenBao**, never in Prisma, and are revoked after completion.
+- **Data residency:** an archive has a `region`; the assessment region **must equal** the archive region (US/EU/TR) — regulated data never leaves its region.
 - Archive storage is billed as an **`InvoiceLineItem` (`MIGRATION_ARCHIVE_STORAGE`)** on the single platform `Invoice` — **not** a separate billing system.
 - Migration rate (`hourlyRateCents`) is **customer/plan‑specific**, not a hard‑coded $100/hr.
 - An archive‑created **email** (migration id, size, file count, retention, est. monthly cost, assessment summary, **secure archive link**) is sent, plus an **automatic monthly archive statement** (size, growth, monthly + accumulated cost, link, retention status).
@@ -512,7 +544,7 @@ This is encoded as `DataStructure.jsonBackend` (free‑form for now; enum later)
 
 ### Open (confirm before build)
 
-1. **OpenBao policy specifics** (the truncated "Read more"): key re‑download policy, CA hierarchy depth, CRL vs OCSP at the gateway, rotation cadence.
+1. **OpenBao policy specifics** (the truncated "Read more"): key re‑download policy, CA hierarchy depth, rotation cadence. **Revocation recommendation (default):** start with **OpenBao PKI CRL + a gateway cache that refreshes every N minutes** — not live OCSP. Add OCSP later only if real‑time revocation is required; the product does not need real‑time PKI complexity on day one.
 2. **Secure gateway tech** per engine (pgbouncer+TLS front vs Envoy/HAProxy mTLS; Mongo/Couchbase native client‑auth) and where revocation is enforced (gateway cache vs live OCSP).
 3. **Couchbase JS sandbox** runtime (`isolated-vm` vs QuickJS) and its resource/IO limits.
 4. **Entitlement flag shape** in `Plan.features` (exact keys) and downgrade behavior (revoke vs read‑only) per capability.
@@ -582,6 +614,8 @@ Because the user may hand over Excel, customer data, financial data, or even pro
 
 **"We import" data‑read gate (product decision):** after the connection string is entered, AI first performs a **metadata‑only scan** (schema, table names, row counts). basefyio does **not** read actual row data until the user gives a **second** explicit consent. This builds trust and lifts enterprise sales conversion.
 
+**Import credential custody:** the source connection string is **sensitive** and is stored in **OpenBao**, never in Prisma — the same custody rule as certificate private keys (`MigrationImportCredential.openbaoPath` holds only a reference). The credential is **revoked after migration completion**.
+
 **Audit requirements:** store `user id`, `organization id`, `timestamp`, `IP address`, `privacy statement version`, `risk statement version`, accepted checkboxes — as **immutable** audit history (`MigrationConsent` + `AuditLog`).
 
 ### 11.4 AI Migration Assessment Report (the AI Due Diligence sales screen)
@@ -590,6 +624,7 @@ After upload or discovery scan — **before** migration starts — basefyio gene
 
 Representative output:
 
+- **Assessment Confidence: 92%** *(headline — communicates estimate quality at a glance: `$1,600 ± 10%` is very different from `$1,600 ± 200%`).* Elevated from the internal `confidencePct`.
 - **What We Found:** 47 tables · 2.8M records · 14 GB · 126 relationships · 8 nested JSON structures · 4 legacy XML files. Primary workload: relational business data. Detected domains: Customers, Orders, Invoices, Products, Inventory, User Accounts.
 - **Recommended Architecture:** SQL → Customers, Orders, Invoices, Products, Inventory · JSON → Product Metadata, Audit Events, Configuration, AI Memory.
 - **Migration Assessment:** Medium Complexity · Confidence 89%.
@@ -606,12 +641,16 @@ Representative output:
 **Generated Application Preview (the highest‑converting screen — "what app can I build from this?").** The assessment does not stop at cost/risk/duration; it previews the **actual product** basefyio will generate from the data:
 
 - **Modules:** ✓ Customers ✓ Orders ✓ Invoices ✓ Inventory
+- **Estimated Entities:** 23
 - **Estimated Screens:** 18
 - **Estimated APIs:** 73
 - **Estimated Roles:** 4
+- **Estimated Workflows:** 12
+- **Estimated Automations:** 3
+- **Estimated AI Agents:** 1 (e.g. an AI support agent)
 - **Estimated Build Time:** 12 minutes
 
-This lifts conversion more than the migration‑cost screen alone — the customer sees the app they will receive, not just the bill. Stored in `MigrationAssessment.appPreview`.
+Entities / workflows / automations / AI‑agents map directly to basefyio's value proposition — this is much closer to the thing the customer is actually buying. It lifts conversion more than the migration‑cost screen alone — the customer sees the app they will receive, not just the bill. Stored in `MigrationAssessment.appPreview`.
 
 **CTA:** *"We estimate this migration would take your team approximately 3 days and cost $1,600. Let basefyio handle it for you."* — the customer is now buying risk/time/cost certainty **and a previewed application**, not just an app builder.
 
@@ -647,7 +686,7 @@ Productized: the migration archive is a **separate recurring revenue line** (man
 
 **Customer controls (Archive screen):** View · Download · **Restore / Replay** · Extend Retention · Delete · Export Migration Report.
 
-**Restore / replay (KolayBackup heritage).** From the immutable archive snapshot the customer can **Restore to**: the **same project**, a **new project**, or an **export bundle** (download). Because restore replays the immutable snapshot, results are reproducible.
+**Restore / replay (KolayBackup heritage).** From the immutable archive snapshot the customer can **Restore to**: the **same project**, a **new project**, or an **export bundle** (download). Each restore is a first‑class, audited **`MigrationRestoreJob`** (`mode = SAME_PROJECT | NEW_PROJECT | EXPORT_BUNDLE`, with status + timestamps) — never a hidden background process. Because restore replays the immutable snapshot, results are reproducible.
 
 **Delete archive** shows a confirmation warning: deleting permanently removes the source snapshot, rollback capability, audit trail, and recovery copy — user must confirm.
 
