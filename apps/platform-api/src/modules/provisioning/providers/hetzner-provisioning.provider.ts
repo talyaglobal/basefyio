@@ -23,6 +23,7 @@ import {
   PlanAction,
 } from '../provisioning-planner.service';
 import { topoSort } from '../provisioning-topo-sort';
+import { PartialApplyError, FailedActionRecord } from '../interfaces/partial-apply.error';
 
 /**
  * Hetzner Cloud provider.
@@ -127,23 +128,40 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
 
     const resources: ProvisioningResourceResult[] = [];
     const deletedExternalIds: string[] = [];
+    const failures: FailedActionRecord[] = [];
 
-    for (const action of topoSort(providerPlan.actions)) {
+    // topoSort may throw CircularDependencyError — that propagates before any dispatch.
+    const sortedActions = topoSort(providerPlan.actions);
+
+    for (const action of sortedActions) {
       if (action.action === 'NOOP') continue;
 
-      if (action.action === 'CREATE') {
-        resources.push(
-          await this.dispatchCreate(action, location, apiToken),
-        );
-      } else if (action.action === 'UPDATE') {
-        resources.push(
-          await this.dispatchUpdate(action, input.currentResources, apiToken),
-        );
-      } else if (action.action === 'DELETE') {
-        const externalId = requireExternalId(action, input.currentResources);
-        await this.dispatchDelete(action.resourceType, externalId, apiToken);
-        deletedExternalIds.push(externalId);
+      try {
+        if (action.action === 'CREATE') {
+          resources.push(
+            await this.dispatchCreate(action, location, apiToken),
+          );
+        } else if (action.action === 'UPDATE') {
+          resources.push(
+            await this.dispatchUpdate(action, input.currentResources, apiToken),
+          );
+        } else if (action.action === 'DELETE') {
+          const externalId = requireExternalId(action, input.currentResources);
+          await this.dispatchDelete(action.resourceType, externalId, apiToken);
+          deletedExternalIds.push(externalId);
+        }
+      } catch (err) {
+        failures.push({
+          resourceType: action.resourceType,
+          resourceName: action.resourceName,
+          action: action.action,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
+    }
+
+    if (failures.length > 0) {
+      throw new PartialApplyError(resources, deletedExternalIds, failures);
     }
 
     return {

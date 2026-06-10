@@ -13,6 +13,7 @@ import {
 } from './interfaces/provisioning-provider.interface';
 import { IProviderRegistry, PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
 import { normalizeProviderError } from './interfaces/provider-error.interface';
+import { PartialApplyError } from './interfaces/partial-apply.error';
 import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
 
 type AuditEventKind =
@@ -117,7 +118,45 @@ export class ProvisioningExecutorService {
     try {
       providerResult = await provider.apply(input);
     } catch (err) {
-      // Provider error: RUNNING → FAILED; normalized, stored, returned — never re-thrown
+      // PartialApplyError: some actions succeeded, some failed.
+      // Run projection for successfully applied resources, then set PARTIAL_FAILED.
+      if (err instanceof PartialApplyError && err.appliedResources.length > 0) {
+        if (err.appliedResources.length || err.deletedExternalIds.length) {
+          await this.projection.project({
+            operationId: op.id,
+            provisioningProjectId: op.provisioningProjectId,
+            region: op.provisioningProject.region,
+            datacenter: op.provisioningProject.datacenter ?? null,
+            resources: err.appliedResources,
+            deletedExternalIds: err.deletedExternalIds,
+            actorUserId: userId,
+          });
+        }
+        const failSummary = err.failures.map((f) => `${f.action} ${f.resourceType}:${f.resourceName}`).join('; ');
+        const partial = await this.prisma.provisioningOperation.update({
+          where: { id: op.id },
+          data: { status: 'PARTIAL_FAILED' as any, errorMessage: err.message, completedAt: new Date() },
+        });
+        await this.writeAuditEvent({
+          provisioningProjectId: op.provisioningProjectId,
+          operationId: op.id,
+          kind: 'OPERATION_FAILED',
+          actorUserId: userId,
+          fromStatus: 'RUNNING',
+          toStatus: 'PARTIAL_FAILED',
+          detail: {
+            providerType: input.providerType,
+            region: input.region,
+            error: 'PARTIAL_APPLY',
+            message: err.message,
+            failedActions: failSummary,
+            retryable: false,
+          },
+        });
+        return partial;
+      }
+
+      // Total failure: no successful actions (PartialApplyError with 0 applied, or regular error).
       const normalized = normalizeProviderError(err);
       const failed = await this.prisma.provisioningOperation.update({
         where: { id: op.id },
@@ -139,7 +178,7 @@ export class ProvisioningExecutorService {
         },
       });
       return failed;
-      // projection is NOT called — no resource mutations from a failed provider call
+      // projection is NOT called for total failure — no resource mutations occurred
     }
 
     // ── Resource projection (before COMPLETED update) ───────────────────────

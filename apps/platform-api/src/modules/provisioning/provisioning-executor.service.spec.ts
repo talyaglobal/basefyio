@@ -7,6 +7,7 @@ import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { IProvisioningProvider } from './interfaces/provisioning-provider.interface';
 import { IProviderRegistry } from './interfaces/provider-registry.interface';
 import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
+import { PartialApplyError } from './interfaces/partial-apply.error';
 
 // ── Mock factories ───────────────────────────────────────────
 
@@ -849,5 +850,136 @@ describe('ProvisioningExecutorService — Phase 10c: ROLLBACK execution', () => 
     for (const [call] of prisma.provisioningAuditEvent.create.mock.calls) {
       expect(JSON.stringify(call.data.detail ?? {})).not.toContain(OPENBAO_PATH);
     }
+  });
+});
+
+// ── Phase 10d — PARTIAL_FAILED semantics ─────────────────────
+
+describe('ProvisioningExecutorService — Phase 10d: PARTIAL_FAILED semantics', () => {
+  function setupPartial(appliedCount: number, failureCount: number) {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce({ ...stubOp(), status: 'PARTIAL_FAILED' });
+
+    const applied = Array.from({ length: appliedCount }, (_, i) => ({
+      externalId: `ext-${i}`,
+      type: 'server',
+      name: `web-${i}`,
+      desiredSpec: {},
+      actualSpec: {},
+      status: 'ACTIVE' as const,
+    }));
+    const failures = Array.from({ length: failureCount }, (_, i) => ({
+      resourceType: 'server',
+      resourceName: `fail-${i}`,
+      action: 'CREATE',
+      error: 'provider timeout',
+    }));
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(
+      new PartialApplyError(applied, [], failures),
+    );
+
+    return { prisma, provider, applied };
+  }
+
+  it('transitions to PARTIAL_FAILED when some actions succeed and some fail', async () => {
+    const { prisma, provider } = setupPartial(1, 1);
+    const result = await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+    expect(result.status).toBe('PARTIAL_FAILED');
+  });
+
+  it('sets status FAILED (not PARTIAL_FAILED) when zero actions succeeded', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(
+      new PartialApplyError([], [], [{ resourceType: 'server', resourceName: 'web-1', action: 'CREATE', error: 'boom' }]),
+    );
+
+    const result = await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+    expect(result.status).toBe('FAILED');
+  });
+
+  it('calls projection for successfully applied resources on partial failure', async () => {
+    const { prisma, provider } = setupPartial(2, 1);
+    const projection = makeProjection();
+    await new ProvisioningExecutorService(prisma, makeRegistry(provider), projection as any)
+      .executeOperation(USER_ID, OP_ID);
+
+    expect(projection.project).toHaveBeenCalledTimes(1);
+    const call = projection.project.mock.calls[0][0];
+    expect(call.resources).toHaveLength(2);
+  });
+
+  it('does NOT call projection when zero actions succeeded (total failure via PartialApplyError)', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(
+      new PartialApplyError([], [], [{ resourceType: 'server', resourceName: 'web-1', action: 'CREATE', error: 'boom' }]),
+    );
+
+    const projection = makeProjection();
+    await new ProvisioningExecutorService(prisma, makeRegistry(provider), projection as any)
+      .executeOperation(USER_ID, OP_ID);
+    expect(projection.project).not.toHaveBeenCalled();
+  });
+
+  it('emits OPERATION_FAILED audit with toStatus=PARTIAL_FAILED on partial failure', async () => {
+    const { prisma, provider } = setupPartial(1, 1);
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const auditCalls = prisma.provisioningAuditEvent.create.mock.calls.map((c: any) => c[0].data);
+    const failAudit = auditCalls.find((a: any) => a.toStatus === 'PARTIAL_FAILED');
+    expect(failAudit).toBeDefined();
+    expect(failAudit.kind).toBe('OPERATION_FAILED');
+  });
+
+  it('emits OPERATION_FAILED audit with toStatus=FAILED on total failure', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(stubOp('PENDING'));
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningOperation.update
+      .mockResolvedValueOnce(makeRunningOp())
+      .mockResolvedValueOnce(makeFailedOp());
+
+    const provider = makeProvider();
+    (provider.apply as jest.Mock).mockRejectedValue(new Error('total failure'));
+
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const auditCalls = prisma.provisioningAuditEvent.create.mock.calls.map((c: any) => c[0].data);
+    const failAudit = auditCalls.find((a: any) => a.kind === 'OPERATION_FAILED');
+    expect(failAudit.toStatus).toBe('FAILED');
+  });
+
+  it('update call uses status PARTIAL_FAILED when some actions succeeded', async () => {
+    const { prisma, provider } = setupPartial(1, 1);
+    await makeSvc(prisma, makeRegistry(provider)).executeOperation(USER_ID, OP_ID);
+
+    const updateStatuses = prisma.provisioningOperation.update.mock.calls.map((c: any) => c[0].data.status);
+    expect(updateStatuses).toContain('PARTIAL_FAILED');
+  });
+
+  it('PartialApplyError satisfies normalizeProviderError contract (code + retryable fields)', () => {
+    const err = new PartialApplyError([], [], []);
+    expect(err.code).toBe('PARTIAL_APPLY');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain('Partial apply');
   });
 });

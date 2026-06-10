@@ -1273,6 +1273,8 @@ enum ProvisioningOperationStatus {
   RUNNING
   COMPLETED
   FAILED
+  // Some actions succeeded, some failed. Partial resource mutations may have occurred.
+  PARTIAL_FAILED
   ROLLED_BACK
 }
 

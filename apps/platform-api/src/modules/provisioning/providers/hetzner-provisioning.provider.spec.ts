@@ -4,6 +4,7 @@ import { ProvisioningExecuteInput, ProviderCurrentResource } from '../interfaces
 import { MockHetznerTokenResolver } from './mock-hetzner-token-resolver';
 import { MockHetznerClient } from './hetzner/mock-hetzner-client';
 import { CircularDependencyError } from '../provisioning-topo-sort';
+import { PartialApplyError } from '../interfaces/partial-apply.error';
 
 // ── Factories ─────────────────────────────────────────────────
 
@@ -785,9 +786,10 @@ describe('HetznerProvisioningProvider — Phase 9 DELETE', () => {
       externalId: null,
     };
 
-    await expect(
-      provider.apply(realInput([], [currentWithoutExternalId])),
-    ).rejects.toThrow(/externalId is required/);
+    // Per-action try/catch wraps the error in PartialApplyError; the original message is in failures[0].error
+    const err = await provider.apply(realInput([], [currentWithoutExternalId])).catch((e) => e);
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect((err as PartialApplyError).failures[0].error).toMatch(/externalId is required/);
   });
 });
 
