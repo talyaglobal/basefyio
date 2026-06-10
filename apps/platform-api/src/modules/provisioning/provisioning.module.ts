@@ -8,12 +8,24 @@ import { NoopProvisioningProvider } from './providers/noop-provisioning.provider
 import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
 import { MockHetznerTokenResolver } from './providers/mock-hetzner-token-resolver';
+import { OpenBaoHetznerTokenResolver } from './providers/openbao-hetzner-token-resolver';
+import { HetznerClient } from './providers/hetzner/hetzner.client';
 import { MockHetznerClient } from './providers/hetzner/mock-hetzner-client';
 import { ProviderRegistry } from './providers/provider-registry.service';
 import { PROVIDER_REGISTRY, IProviderRegistry } from './interfaces/provider-registry.interface';
-import { HETZNER_TOKEN_RESOLVER } from './interfaces/hetzner-token-resolver.interface';
-import { HETZNER_CLIENT } from './providers/hetzner/hetzner-client.interface';
+import { IHetznerTokenResolver, HETZNER_TOKEN_RESOLVER } from './interfaces/hetzner-token-resolver.interface';
+import { HETZNER_CLIENT, IHetznerClient } from './providers/hetzner/hetzner-client.interface';
 import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
+
+/**
+ * Hetzner provider wiring strategy:
+ *
+ * OPENBAO_URL set  →  OpenBaoHetznerTokenResolver + HetznerClient  (real operations)
+ * OPENBAO_URL unset  →  MockHetznerTokenResolver + MockHetznerClient  (dev / CI)
+ *
+ * OPENBAO_VAULT_TOKEN must be set alongside OPENBAO_URL in production.
+ * Phase 9c: OpenBaoHetznerTokenResolver supports KV v1 and v2 secret shapes.
+ */
 
 @Module({
   providers: [
@@ -28,15 +40,25 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
       useClass: NoopSecretResolver,
     },
     {
-      // Phase 9: replaced by OpenBaoHetznerTokenResolver when OpenBao is wired
       provide: HETZNER_TOKEN_RESOLVER,
-      useFactory: (): MockHetznerTokenResolver => new MockHetznerTokenResolver(
-        process.env.HETZNER_API_TOKEN ?? 'dev-placeholder-token',
-      ),
+      useFactory: (): IHetznerTokenResolver => {
+        const openbaoUrl = process.env.OPENBAO_URL;
+        if (openbaoUrl) {
+          return new OpenBaoHetznerTokenResolver({
+            baseUrl: openbaoUrl,
+            vaultToken: process.env.OPENBAO_VAULT_TOKEN ?? '',
+          });
+        }
+        return new MockHetznerTokenResolver(
+          process.env.HETZNER_API_TOKEN ?? 'dev-placeholder-token',
+        );
+      },
     },
     {
       provide: HETZNER_CLIENT,
-      useClass: MockHetznerClient,
+      useFactory: (): IHetznerClient => {
+        return process.env.OPENBAO_URL ? new HetznerClient() : new MockHetznerClient();
+      },
     },
     {
       provide: PROVIDER_REGISTRY,
