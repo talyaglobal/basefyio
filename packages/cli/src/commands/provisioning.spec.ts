@@ -14,6 +14,8 @@ const { mockApiClient } = vi.hoisted(() => {
     revokeProvisioningCredentialRef: vi.fn(),
     listProvisioningResources: vi.fn(),
     getProvisioningResource: vi.fn(),
+    getProviderHealth: vi.fn(),
+    getAllProviderHealth: vi.fn(),
   };
   return { mockApiClient };
 });
@@ -54,6 +56,7 @@ import {
   logsOperation,
   listResources,
   getResource,
+  providersHealth,
 } from './provisioning.js';
 
 import { success, info, error, printTable } from '../lib/ui.js';
@@ -486,6 +489,69 @@ describe('getResource', () => {
     const err = Object.assign(new Error('Not Found'), { status: 404 });
     mockApiClient.getProvisioningResource.mockRejectedValue(err);
     await expect(getResource('res-001')).rejects.toThrow('Not Found');
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── providersHealth ───────────────────────────────────────────────────────────
+
+describe('providersHealth', () => {
+  const allHealthResponse = {
+    providers: [
+      { name: 'hetzner', healthy: true, latencyMs: 42, checkedAt: new Date().toISOString() },
+      { name: 'docker', healthy: false, latencyMs: null, checkedAt: new Date().toISOString() },
+    ],
+    checkedAt: new Date().toISOString(),
+  };
+
+  const singleHealthResponse = {
+    name: 'hetzner',
+    healthy: true,
+    latencyMs: 42,
+    checkedAt: '2026-06-11T00:00:00.000Z',
+  };
+
+  it('calls getAllProviderHealth when no provider name given and prints JSON', async () => {
+    mockApiClient.getAllProviderHealth.mockResolvedValue(allHealthResponse);
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await providersHealth();
+
+    expect(mockApiClient.getAllProviderHealth).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.getProviderHealth).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('"hetzner"');
+    consoleSpy.mockRestore();
+  });
+
+  it('calls getProviderHealth with the provider name and prints status line', async () => {
+    mockApiClient.getProviderHealth.mockResolvedValue(singleHealthResponse);
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await providersHealth('hetzner');
+
+    expect(mockApiClient.getProviderHealth).toHaveBeenCalledWith('hetzner');
+    expect(mockApiClient.getAllProviderHealth).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('hetzner');
+    expect(output).toContain('healthy');
+    expect(output).toContain('42');
+    consoleSpy.mockRestore();
+  });
+
+  it('calls handleApiError on API error (no provider name)', async () => {
+    const err = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    mockApiClient.getAllProviderHealth.mockRejectedValue(err);
+
+    await expect(providersHealth()).rejects.toThrow('Service Unavailable');
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+
+  it('calls handleApiError on API error (with provider name)', async () => {
+    const err = Object.assign(new Error('Not Found'), { status: 404 });
+    mockApiClient.getProviderHealth.mockRejectedValue(err);
+
+    await expect(providersHealth('unknown-provider')).rejects.toThrow('Not Found');
     expect(handleApiError).toHaveBeenCalledWith(err);
   });
 });

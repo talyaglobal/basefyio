@@ -340,3 +340,15 @@ export interface ListOperationEventsOptions {
   limit?: number;
   cursor?: string;
 }
+
+export interface ProviderHealthResult {
+  name: string;
+  healthy: boolean;
+  latencyMs: number | null;
+  checkedAt: string;
+}
+
+export interface AllProviderHealthResult {
+  providers: ProviderHealthResult[];
+  checkedAt: string;
+}

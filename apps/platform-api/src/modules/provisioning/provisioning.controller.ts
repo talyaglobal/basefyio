@@ -52,6 +52,24 @@ export class ProvisioningController {
     return this.providerRegistry.list();
   }
 
+  @Get('providers/health')
+  @HttpCode(HttpStatus.OK)
+  getAllProviderHealth(@CurrentUser() user: JwtPayload) {
+    // user param satisfies guard; health is not user-scoped
+    void user;
+    return this.service.getAllProviderHealth();
+  }
+
+  @Get('providers/:name/health')
+  @HttpCode(HttpStatus.OK)
+  getProviderHealth(
+    @Param('name') name: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    void user;
+    return this.service.getProviderHealth(name);
+  }
+
   @Post('projects')
   @HttpCode(HttpStatus.CREATED)
   createProject(

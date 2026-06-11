@@ -938,6 +938,33 @@ export class ProvisioningService {
     });
     return { projectId: updated.projectId, provider: updated.provider };
   }
+
+  // ── Provider health ───────────────────────────────────────
+
+  async getProviderHealth(providerName: string) {
+    // resolve() throws NotFoundException for unknown providers — no extra guard needed
+    const provider = this.providerRegistry.resolve(providerName);
+    const checkedAt = new Date().toISOString();
+    const result = await provider.healthCheck();
+    return { name: providerName, healthy: result.healthy, latencyMs: result.latencyMs, checkedAt };
+  }
+
+  async getAllProviderHealth() {
+    const capabilities = this.providerRegistry.list();
+    const checkedAt = new Date().toISOString();
+    const results = await Promise.all(
+      capabilities.map(async (cap) => {
+        try {
+          const provider = this.providerRegistry.resolve(cap.name);
+          const result = await provider.healthCheck();
+          return { name: cap.name, healthy: result.healthy, latencyMs: result.latencyMs, checkedAt };
+        } catch {
+          return { name: cap.name, healthy: false, latencyMs: null, checkedAt };
+        }
+      }),
+    );
+    return { providers: results, checkedAt };
+  }
 }
 
 // ── Cursor helpers ─────────────────────────────────────────

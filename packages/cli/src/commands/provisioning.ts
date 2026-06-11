@@ -344,6 +344,30 @@ export async function listResources(opts: {
   }
 }
 
+// ── providers ─────────────────────────────────────────────────────────────────
+
+export async function providersHealth(providerName?: string) {
+  requireLogin();
+
+  const spinner = createSpinner('Checking provider health...');
+  try {
+    if (providerName) {
+      const result = await apiClient.getProviderHealth(providerName);
+      spinner.stop();
+      const { name, healthy, latencyMs, checkedAt } = result;
+      const status = healthy ? chalk.green('✓ healthy') : chalk.red('✗ unhealthy');
+      console.log(`${chalk.cyan(name)}: ${status}  latency=${latencyMs != null ? latencyMs : 'N/A'}ms  checked=${checkedAt}`);
+    } else {
+      const result = await apiClient.getAllProviderHealth();
+      spinner.stop();
+      console.log(JSON.stringify(result, null, 2));
+    }
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}
+
 export async function getResource(resourceId: string) {
   requireLogin();
 

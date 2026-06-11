@@ -1188,6 +1188,63 @@ describe('createRetryOperation', () => {
   );
 });
 
+// ── ProvisioningService.provider health ──────────────────────
+
+describe('provider health', () => {
+  function makeHealthyRegistry() {
+    return {
+      list: jest.fn().mockReturnValue([
+        { name: 'hetzner' },
+        { name: 'docker' },
+      ]),
+      resolve: jest.fn().mockImplementation((name: string) => ({
+        healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 42 }),
+        getCapabilities: jest.fn().mockReturnValue({ name }),
+      })),
+    } as any;
+  }
+
+  it('getProviderHealth returns healthy result', async () => {
+    const svc = new ProvisioningService(makePrisma(), makeHealthyRegistry());
+    const result = await svc.getProviderHealth('hetzner');
+    expect(result.name).toBe('hetzner');
+    expect(result.healthy).toBe(true);
+    expect(result.latencyMs).toBe(42);
+    expect(result.checkedAt).toBeTruthy();
+  });
+
+  it('getProviderHealth throws 404 for unknown provider', async () => {
+    const registry = {
+      list: jest.fn().mockReturnValue([]),
+      resolve: jest.fn().mockImplementation(() => { throw new NotFoundException('Unknown provider: unknown'); }),
+    } as any;
+    const svc = new ProvisioningService(makePrisma(), registry);
+    await expect(svc.getProviderHealth('unknown')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('getAllProviderHealth returns all providers', async () => {
+    const svc = new ProvisioningService(makePrisma(), makeHealthyRegistry());
+    const result = await svc.getAllProviderHealth();
+    expect(result.providers).toHaveLength(2);
+    expect(result.providers[0].name).toBe('hetzner');
+    expect(result.providers[1].name).toBe('docker');
+    expect(result.checkedAt).toBeTruthy();
+  });
+
+  it('getAllProviderHealth marks unhealthy when healthCheck throws', async () => {
+    const registry = {
+      list: jest.fn().mockReturnValue([{ name: 'hetzner' }]),
+      resolve: jest.fn().mockImplementation(() => ({
+        healthCheck: jest.fn().mockRejectedValue(new Error('timeout')),
+      })),
+    } as any;
+    const svc = new ProvisioningService(makePrisma(), registry);
+    const result = await svc.getAllProviderHealth();
+    expect(result.providers[0].healthy).toBe(false);
+    expect(result.providers[0].latencyMs).toBeNull();
+  });
+});
+
 // ── ProvisioningService.getResource ──────────────────────────
 
 describe('ProvisioningService.getResource', () => {

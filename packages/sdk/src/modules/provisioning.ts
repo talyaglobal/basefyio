@@ -17,6 +17,8 @@ import type {
   ResourceDetail,
   ResourcePage,
   ListResourcesOptions,
+  ProviderHealthResult,
+  AllProviderHealthResult,
 } from '../lib/types.js';
 
 const BASE = '/v1/provisioning';
@@ -250,6 +252,30 @@ export class ProvisioningClient {
         { method: 'DELETE' },
       );
       return { data: null, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  // ── Provider health ───────────────────────────────────
+
+  async getProviderHealth(providerName: string): Promise<BasefyioResponse<ProviderHealthResult>> {
+    try {
+      const data = await this.http.json<ProviderHealthResult>(
+        `${BASE}/providers/${encodeURIComponent(providerName)}/health`,
+      );
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async getAllProviderHealth(): Promise<BasefyioResponse<AllProviderHealthResult>> {
+    try {
+      const data = await this.http.json<AllProviderHealthResult>(
+        `${BASE}/providers/health`,
+      );
+      return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
     }

@@ -356,6 +356,23 @@ export class ApiClient {
     return data as any;
   }
 
+  // Provisioning — provider health
+
+  async getProviderHealth(providerName: string) {
+    const { data } = await this.client.get(
+      `/api/v1/provisioning/providers/${encodeURIComponent(providerName)}/health`,
+    );
+    return data as { name: string; healthy: boolean; latencyMs: number | null; checkedAt: string };
+  }
+
+  async getAllProviderHealth() {
+    const { data } = await this.client.get('/api/v1/provisioning/providers/health');
+    return data as {
+      providers: Array<{ name: string; healthy: boolean; latencyMs: number | null; checkedAt: string }>;
+      checkedAt: string;
+    };
+  }
+
   // Provisioning — credential refs
   async createProvisioningCredentialRef(body: { teamId: string; label: string; openbaoPath: string; provider?: string }) {
     const { data } = await this.client.post('/api/v1/provisioning/credentials', body);

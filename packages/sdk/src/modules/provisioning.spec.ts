@@ -432,6 +432,8 @@ describe('ProvisioningClient — error status mapping', () => {
     ['listResources', (c: ProvisioningClient) => c.listResources('p')],
     ['listCredentialRefs', (c: ProvisioningClient) => c.listCredentialRefs('t')],
     ['getOperationEvents', (c: ProvisioningClient) => c.getOperationEvents('op-id')],
+    ['getProviderHealth', (c: ProvisioningClient) => c.getProviderHealth('hetzner')],
+    ['getAllProviderHealth', (c: ProvisioningClient) => c.getAllProviderHealth()],
   ] as const;
 
   for (const [name, call] of METHODS) {
@@ -613,5 +615,98 @@ describe('ProvisioningClient.listProviders', () => {
     expect(res.data).toBeNull();
     expect(res.error?.status).toBe(503);
     expect(res.error?.message).toBe('Service unavailable');
+  });
+});
+
+// ── getProviderHealth ─────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.getProviderHealth', () => {
+  it('GETs /v1/provisioning/providers/:name/health and returns health result', async () => {
+    const mockHealth = { name: 'hetzner', healthy: true, latencyMs: 42, checkedAt: '2026-06-11T00:00:00.000Z' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockHealth) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getProviderHealth('hetzner');
+
+    expect(res.data).toEqual(mockHealth);
+    expect(res.error).toBeNull();
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toBe('/v1/provisioning/providers/hetzner/health');
+  });
+
+  it('URL-encodes the provider name', async () => {
+    const mockHealth = { name: 'my provider', healthy: true, latencyMs: null, checkedAt: '2026-06-11T00:00:00.000Z' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockHealth) });
+    const client = new ProvisioningClient(http);
+
+    await client.getProviderHealth('my provider');
+
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toBe('/v1/provisioning/providers/my%20provider/health');
+  });
+
+  it('returns null latencyMs when provider is unreachable', async () => {
+    const mockHealth = { name: 'hetzner', healthy: false, latencyMs: null, checkedAt: '2026-06-11T00:00:00.000Z' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockHealth) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getProviderHealth('hetzner');
+
+    expect(res.data?.healthy).toBe(false);
+    expect(res.data?.latencyMs).toBeNull();
+  });
+
+  it('returns error shape on failure', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Not found', status: 404 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getProviderHealth('unknown-provider');
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(404);
+  });
+});
+
+// ── getAllProviderHealth ───────────────────────────────────────────────────────
+
+describe('ProvisioningClient.getAllProviderHealth', () => {
+  it('GETs /v1/provisioning/providers/health and returns all provider health', async () => {
+    const mockResult = {
+      providers: [
+        { name: 'hetzner', healthy: true, latencyMs: 42, checkedAt: '2026-06-11T00:00:00.000Z' },
+        { name: 'aws', healthy: false, latencyMs: null, checkedAt: '2026-06-11T00:00:00.000Z' },
+      ],
+      checkedAt: '2026-06-11T00:00:00.000Z',
+    };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockResult) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getAllProviderHealth();
+
+    expect(res.data).toEqual(mockResult);
+    expect(res.error).toBeNull();
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toBe('/v1/provisioning/providers/health');
+  });
+
+  it('returns empty providers array when no providers registered', async () => {
+    const mockResult = { providers: [], checkedAt: '2026-06-11T00:00:00.000Z' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockResult) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getAllProviderHealth();
+
+    expect(res.data?.providers).toEqual([]);
+    expect(res.error).toBeNull();
+  });
+
+  it('returns error shape on failure', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Service unavailable', status: 503 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getAllProviderHealth();
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(503);
   });
 });

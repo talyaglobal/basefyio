@@ -415,6 +415,21 @@ resources
     await getResource(resourceId);
   });
 
+// ── Provisioning — providers ────────────────────────────────
+
+const providers = program
+  .command('providers')
+  .description('Inspect provisioning provider status');
+
+providers
+  .command('health')
+  .description('Check provider health status')
+  .option('--provider <name>', 'Check a specific provider')
+  .action(async (opts) => {
+    const { providersHealth } = await import('./commands/provisioning.js');
+    await providersHealth(opts.provider);
+  });
+
 program.parseAsync().then(() => {
   // Ensure the process exits even when axios HTTP keep-alive connections
   // are still open (they hold the event loop alive indefinitely).
