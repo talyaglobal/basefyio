@@ -60,4 +60,5 @@ export type {
   ProvisioningCredentialRef,
   ProvisioningCredentialRefCreateInput,
   ProvisioningWaitOptions,
+  ProvisioningAuditEvent,
 } from './lib/types.js';

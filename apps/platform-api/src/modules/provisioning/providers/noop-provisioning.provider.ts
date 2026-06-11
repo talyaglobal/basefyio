@@ -13,9 +13,14 @@ export class NoopProvisioningProvider implements IProvisioningProvider {
   getCapabilities(): ProviderCapability {
     return {
       name: 'noop',
-      displayName: 'No-op (test)',
+      displayName: 'No-op (testing)',
       regions: [],
       resourceTypes: [],
+      supportedResources: [],
+      supportsCreate: true,
+      supportsUpdate: true,
+      supportsRollback: true,
+      supportsDryRun: true,
     };
   }
 

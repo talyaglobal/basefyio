@@ -100,11 +100,43 @@ function makePrisma(projectModules: Record<string, unknown> = {}) {
     },
     provisioningAuditEvent: {
       create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
   prisma.$transaction = jest.fn().mockImplementation((cb: any) => cb(prisma));
   return prisma;
 }
+
+// ── Capability fixtures ──────────────────────────────────────────────────────
+
+const MOCK_HETZNER_CAPABILITY = {
+  name: 'hetzner',
+  displayName: 'Hetzner Cloud',
+  regions: ['eu-central', 'us-east', 'ap-southeast'],
+  resourceTypes: ['server', 'network', 'loadbalancer', 'volume'],
+  supportedResources: [
+    { type: 'server',       description: 'Virtual machine instances' },
+    { type: 'network',      description: 'Private networks and subnets' },
+    { type: 'loadbalancer', description: 'Managed load balancers' },
+    { type: 'volume',       description: 'Block storage volumes' },
+  ],
+  supportsCreate:   true,
+  supportsUpdate:   true,
+  supportsRollback: true,
+  supportsDryRun:   true,
+};
+
+const MOCK_NOOP_CAPABILITY = {
+  name: 'noop',
+  displayName: 'No-op (testing)',
+  regions: [],
+  resourceTypes: [],
+  supportedResources: [],
+  supportsCreate: true,
+  supportsUpdate: true,
+  supportsRollback: true,
+  supportsDryRun: true,
+};
 
 // ── Provider registry mock factory ───────────────────────────────────────────
 
@@ -113,11 +145,12 @@ function makeRegistry(
 ) {
   return {
     resolve: jest.fn().mockReturnValue({
-      getCapabilities: jest.fn().mockReturnValue({ name: 'noop', displayName: 'No-op (test)', regions: [], resourceTypes: [] }),
+      getCapabilities: jest.fn().mockReturnValue(MOCK_NOOP_CAPABILITY),
       plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
       apply: jest.fn().mockResolvedValue(applyResult),
+      healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),
     }),
-    list: jest.fn().mockReturnValue([]),
+    list: jest.fn().mockReturnValue([MOCK_HETZNER_CAPABILITY, MOCK_NOOP_CAPABILITY]),
   };
 }
 
@@ -1198,6 +1231,133 @@ describe('Provisioning controller — integration', () => {
       await request(app.getHttpServer())
         .post(`/v1/provisioning/operations/${OP_ID}/cancel`)
         .expect(404); // guard passed through; service throws NotFoundException
+    });
+  });
+
+  // ── GET /providers — discovery endpoint ─────────────────────────────────
+
+  describe('GET /v1/provisioning/providers', () => {
+    it('returns 200 with an array of provider capabilities', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/providers')
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(2);
+    });
+
+    it('includes hetzner capability with supportsRollback=true', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/providers')
+        .expect(200);
+
+      const hetzner = res.body.find((c: any) => c.name === 'hetzner');
+      expect(hetzner).toBeDefined();
+      expect(hetzner.supportsRollback).toBe(true);
+      expect(hetzner.supportsDryRun).toBe(true);
+      expect(hetzner.supportsCreate).toBe(true);
+      expect(hetzner.supportsUpdate).toBe(true);
+    });
+
+    it('hetzner capability includes supportedResources array', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/providers')
+        .expect(200);
+
+      const hetzner = res.body.find((c: any) => c.name === 'hetzner');
+      expect(Array.isArray(hetzner.supportedResources)).toBe(true);
+      expect(hetzner.supportedResources.length).toBeGreaterThan(0);
+      expect(hetzner.supportedResources[0]).toHaveProperty('type');
+      expect(hetzner.supportedResources[0]).toHaveProperty('description');
+    });
+
+    it('hetzner capability retains backward-compat resourceTypes string array', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/providers')
+        .expect(200);
+
+      const hetzner = res.body.find((c: any) => c.name === 'hetzner');
+      expect(Array.isArray(hetzner.resourceTypes)).toBe(true);
+      expect(hetzner.resourceTypes).toContain('server');
+    });
+  });
+
+  // ── GET /operations/:id/events — audit event log ─────────────────────────
+
+  describe('GET /v1/provisioning/operations/:id/events', () => {
+    const eventRow = (kind: string, seq: number) => ({
+      id: `evt-${seq}`,
+      operationId: OP_ID,
+      provisioningProjectId: PP_ID,
+      resourceId: null,
+      kind,
+      actorUserId: USER_ID,
+      fromStatus: seq === 1 ? null : 'PENDING',
+      toStatus: seq === 1 ? 'PENDING' : 'RUNNING',
+      detail: { step: seq },
+      createdAt: new Date(`2026-06-11T00:00:0${seq}Z`),
+    });
+
+    it('returns 200 with ordered event list for team member', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningOperation.findUnique.mockResolvedValue({
+        ...stubPendingOp(),
+        provisioningProject: {
+          project: { teamId: TEAM_ID },
+        },
+      });
+      prisma.provisioningAuditEvent.findMany.mockResolvedValue([
+        eventRow('OPERATION_STARTED', 1),
+        eventRow('STATUS_CHANGED', 2),
+      ]);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events`)
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(2);
+      expect(res.body[0].kind).toBe('OPERATION_STARTED');
+      expect(res.body[1].kind).toBe('STATUS_CHANGED');
+      expect(res.body[0].id).toBe('evt-1');
+      expect(res.body[0].actorUserId).toBe(USER_ID);
+      expect(res.body[0].metadata).toEqual({ step: 1 });
+      expect(typeof res.body[0].createdAt).toBe('string');
+    });
+
+    it('returns 404 when operation does not exist', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${'00000000-0000-4000-8000-000000000099'}/events`)
+        .expect(404);
+    });
+
+    it('returns 404 when user is not a team member', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningOperation.findUnique.mockResolvedValue({
+        ...stubPendingOp(),
+        provisioningProject: {
+          project: { teamId: TEAM_ID },
+        },
+      });
+      prisma.teamMember.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events`)
+        .expect(404);
     });
   });
 });

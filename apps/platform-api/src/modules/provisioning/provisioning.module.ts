@@ -8,6 +8,7 @@ import { ProvisioningCredentialRefController } from './provisioning-credential-r
 import { ProvisioningCredentialRefService } from './provisioning-credential-ref.service';
 import { NoopProvisioningProvider } from './providers/noop-provisioning.provider';
 import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
+import { DockerProvisioningProvider } from './providers/docker-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
 import { MockHetznerTokenResolver } from './providers/mock-hetzner-token-resolver';
 import { OpenBaoHetznerTokenResolver } from './providers/openbao-hetzner-token-resolver';
@@ -39,6 +40,7 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
     ProvisioningExecutorService,
     NoopProvisioningProvider,
     HetznerProvisioningProvider,
+    DockerProvisioningProvider,
     {
       provide: SECRET_RESOLVER,
       useClass: NoopSecretResolver,
@@ -69,8 +71,9 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
       useFactory: (
         noop: NoopProvisioningProvider,
         hetzner: HetznerProvisioningProvider,
-      ) => [noop, hetzner],
-      inject: [NoopProvisioningProvider, HetznerProvisioningProvider],
+        docker: DockerProvisioningProvider,
+      ) => [noop, hetzner, docker],
+      inject: [NoopProvisioningProvider, HetznerProvisioningProvider, DockerProvisioningProvider],
     },
     ProviderRegistry,
     {

@@ -64,6 +64,16 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
       displayName: 'Hetzner Cloud',
       regions: ['eu-central', 'us-east', 'ap-southeast'],
       resourceTypes: ['server', 'network', 'loadbalancer', 'volume'],
+      supportedResources: [
+        { type: 'server',       description: 'Virtual machine instances' },
+        { type: 'network',      description: 'Private networks and subnets' },
+        { type: 'loadbalancer', description: 'Managed load balancers' },
+        { type: 'volume',       description: 'Block storage volumes' },
+      ],
+      supportsCreate:   true,
+      supportsUpdate:   true,
+      supportsRollback: true,
+      supportsDryRun:   true,
     };
   }
 

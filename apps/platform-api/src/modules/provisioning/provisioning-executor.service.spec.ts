@@ -26,7 +26,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 
 function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisioningProvider {
   return {
-    getCapabilities: jest.fn().mockReturnValue({ name: 'noop', displayName: 'No-op (test)', regions: [], resourceTypes: [] }),
+    getCapabilities: jest.fn().mockReturnValue({ name: 'noop', displayName: 'No-op (testing)', regions: [], resourceTypes: [], supportedResources: [], supportsCreate: true, supportsUpdate: true, supportsRollback: true, supportsDryRun: true }),
     plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
     apply: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
     healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),

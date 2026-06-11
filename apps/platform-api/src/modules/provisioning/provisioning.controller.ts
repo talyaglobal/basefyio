@@ -18,6 +18,7 @@ import { ListResourcesQuery } from './dto/list-resources.query';
 import { ListOperationsQuery } from './dto/list-operations.query';
 import { GetProjectQuery } from './dto/get-project.query';
 import { ProviderCapability } from './dto/provider-capability.dto';
+import { OperationEventResponse } from './dto/operation-event-response';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
@@ -146,5 +147,14 @@ export class ProvisioningController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.cancelOperation(user.sub, id);
+  }
+
+  @Get('operations/:id/events')
+  @HttpCode(HttpStatus.OK)
+  getOperationEvents(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<OperationEventResponse[]> {
+    return this.service.listOperationEvents(user.sub, id);
   }
 }

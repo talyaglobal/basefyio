@@ -335,6 +335,14 @@ operations
     await watchOperation(operationId, options);
   });
 
+operations
+  .command('logs <operationId>')
+  .description('Show audit event timeline for a provisioning operation')
+  .action(async (operationId) => {
+    const { logsOperation } = await import('./commands/provisioning.js');
+    await logsOperation(operationId);
+  });
+
 // ── Provisioning — credentials ──────────────────────────────
 
 const credentials = program

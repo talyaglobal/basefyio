@@ -11,6 +11,7 @@ import type {
   ProvisioningCredentialRef,
   ProvisioningCredentialRefCreateInput,
   ProvisioningWaitOptions,
+  ProvisioningAuditEvent,
 } from '../lib/types.js';
 
 const BASE = '/v1/provisioning';
@@ -134,6 +135,19 @@ export class ProvisioningClient {
         return { data: null, error: { message: `Timed out waiting for operation ${operationId} after ${timeout}ms`, status: 408 } };
       }
       await new Promise<void>((resolve) => setTimeout(resolve, interval));
+    }
+  }
+
+  async getOperationEvents(
+    operationId: string,
+  ): Promise<BasefyioResponse<ProvisioningAuditEvent[]>> {
+    try {
+      const data = await this.http.json<ProvisioningAuditEvent[]>(
+        `${BASE}/operations/${encodeURIComponent(operationId)}/events`,
+      );
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
     }
   }
 

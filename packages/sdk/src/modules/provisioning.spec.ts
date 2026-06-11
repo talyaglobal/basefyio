@@ -296,6 +296,7 @@ describe('ProvisioningClient — error status mapping', () => {
     ['executeOperation', (c: ProvisioningClient) => c.executeOperation('op-id')],
     ['listResources', (c: ProvisioningClient) => c.listResources('p')],
     ['listCredentialRefs', (c: ProvisioningClient) => c.listCredentialRefs('t')],
+    ['getOperationEvents', (c: ProvisioningClient) => c.getOperationEvents('op-id')],
   ] as const;
 
   for (const [name, call] of METHODS) {
@@ -392,5 +393,45 @@ describe('ProvisioningClient.waitForCompletion', () => {
     expect(res.error?.status).toBe(404);
     expect(res.error?.message).toBe('Not found');
     expect((client.getOperation as any).mock.calls.length).toBe(1);
+  });
+});
+
+// ── getOperationEvents ────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.getOperationEvents', () => {
+  it('returns events array on success', async () => {
+    const mockEvents = [{
+      id: 'evt-1', kind: 'STATUS_CHANGED', fromStatus: 'PENDING', toStatus: 'COMPLETED',
+      actorUserId: null, metadata: null, createdAt: '2026-06-11T00:00:00.000Z',
+    }];
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockEvents) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getOperationEvents(OP_ID);
+
+    expect(res.data).toEqual(mockEvents);
+    expect(res.error).toBeNull();
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toContain(`/operations/${OP_ID}/events`);
+  });
+
+  it('returns empty array when no events', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue([]) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getOperationEvents(OP_ID);
+
+    expect(res.data).toEqual([]);
+    expect(res.error).toBeNull();
+  });
+
+  it('returns 404 error when operation not found', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Not found', status: 404 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getOperationEvents(OP_ID);
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(404);
   });
 });

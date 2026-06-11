@@ -224,6 +224,38 @@ export async function listCredentialRefs(opts: { teamId: string }) {
   }
 }
 
+export async function logsOperation(operationId: string) {
+  requireLogin();
+
+  const spinner = createSpinner('Loading operation events...');
+  try {
+    const events = await apiClient.getProvisioningOperationEvents(operationId);
+    spinner.stop();
+
+    if (!events || events.length === 0) {
+      info('No events found for this operation');
+      return;
+    }
+
+    printHeader(`Events for operation ${operationId}`);
+    console.log();
+
+    const rows = events.map((ev: any) => [
+      new Date(ev.createdAt).toLocaleString(),
+      chalk.cyan(ev.kind),
+      ev.fromStatus ? `${ev.fromStatus} → ${ev.toStatus}` : (ev.toStatus ?? '—'),
+      ev.actorUserId ? chalk.gray(ev.actorUserId.slice(0, 8) + '…') : '—',
+    ]);
+
+    printTable(['Time', 'Event', 'Status Change', 'Actor'], rows);
+    console.log();
+    console.log(chalk.gray(`Total: ${events.length} event(s)`));
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}
+
 export async function revokeCredentialRef(credentialRefId: string) {
   requireLogin();
 

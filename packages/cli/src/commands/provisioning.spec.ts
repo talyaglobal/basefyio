@@ -7,6 +7,7 @@ const { mockApiClient } = vi.hoisted(() => {
     listProvisioningOperations: vi.fn(),
     getProvisioningOperation: vi.fn(),
     cancelProvisioningOperation: vi.fn(),
+    getProvisioningOperationEvents: vi.fn(),
     createProvisioningCredentialRef: vi.fn(),
     listProvisioningCredentialRefs: vi.fn(),
     revokeProvisioningCredentialRef: vi.fn(),
@@ -46,9 +47,10 @@ import {
   listCredentialRefs,
   revokeCredentialRef,
   watchOperation,
+  logsOperation,
 } from './provisioning.js';
 
-import { success, info, error } from '../lib/ui.js';
+import { success, info, error, printTable } from '../lib/ui.js';
 import { isLoggedIn } from '../lib/config.js';
 import { handleApiError } from '../lib/api.js';
 
@@ -327,6 +329,44 @@ describe('watchOperation', () => {
     const err = Object.assign(new Error('Not Found'), { status: 404 });
     mockApiClient.getProvisioningOperation.mockRejectedValue(err);
     await expect(watchOperation(OP_ID, { intervalSecs: '0' })).rejects.toThrow('Not Found');
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── logsOperation ─────────────────────────────────────────────────────────────
+
+describe('logsOperation', () => {
+  it('renders event table when events exist', async () => {
+    const event = {
+      id: 'evt-1',
+      kind: 'STATUS_CHANGED',
+      fromStatus: 'PENDING',
+      toStatus: 'COMPLETED',
+      actorUserId: null,
+      metadata: null,
+      createdAt: new Date().toISOString(),
+    };
+    mockApiClient.getProvisioningOperationEvents.mockResolvedValue([event]);
+
+    await logsOperation(OP_ID);
+
+    expect(mockApiClient.getProvisioningOperationEvents).toHaveBeenCalledWith(OP_ID);
+    expect(printTable).toHaveBeenCalled();
+  });
+
+  it('shows info when no events', async () => {
+    mockApiClient.getProvisioningOperationEvents.mockResolvedValue([]);
+
+    await logsOperation(OP_ID);
+
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('No events'));
+  });
+
+  it('calls handleApiError on 404', async () => {
+    const err = Object.assign(new Error('Not Found'), { status: 404 });
+    mockApiClient.getProvisioningOperationEvents.mockRejectedValue(err);
+
+    await expect(logsOperation(OP_ID)).rejects.toThrow('Not Found');
     expect(handleApiError).toHaveBeenCalledWith(err);
   });
 });

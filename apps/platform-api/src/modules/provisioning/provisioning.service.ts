@@ -11,6 +11,7 @@ import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { ListOperationsQuery } from './dto/list-operations.query';
 import { GetProjectQuery } from './dto/get-project.query';
+import { OperationEventResponse } from './dto/operation-event-response';
 
 // ── Response types ────────────────────────────────────────
 
@@ -620,5 +621,43 @@ export class ProvisioningService {
       status: pp.status,
       createdAt: pp.createdAt,
     };
+  }
+
+  // ── Audit events ──────────────────────────────────────────
+
+  async listOperationEvents(
+    userId: string,
+    operationId: string,
+  ): Promise<OperationEventResponse[]> {
+    const op = await this.prisma.provisioningOperation.findUnique({
+      where: { id: operationId },
+      include: {
+        provisioningProject: {
+          select: { project: { select: { teamId: true } } },
+        },
+      },
+    });
+    if (!op) throw new NotFoundException('Operation not found');
+
+    const teamId = op.provisioningProject.project.teamId;
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Operation not found');
+
+    const events = await this.prisma.provisioningAuditEvent.findMany({
+      where: { operationId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return events.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      fromStatus: e.fromStatus ?? null,
+      toStatus: e.toStatus ?? null,
+      actorUserId: e.actorUserId ?? null,
+      metadata: (e.detail ?? null) as Record<string, unknown> | null,
+      createdAt: e.createdAt.toISOString(),
+    }));
   }
 }
