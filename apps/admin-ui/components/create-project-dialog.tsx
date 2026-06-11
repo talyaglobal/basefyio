@@ -434,6 +434,22 @@ export function CreateProjectDialog({
     }
   }
 
+  function hasUnsavedChanges(): boolean {
+    if (view !== 'create' && view !== 'import' && view !== 'import-zip') {
+      return false;
+    }
+    return (
+      name.trim() !== '' ||
+      description.trim() !== '' ||
+      supabaseUrl.trim() !== '' ||
+      serviceRoleKey.trim() !== '' ||
+      databasePassword.trim() !== '' ||
+      (!reimportTarget && importName.trim() !== '') ||
+      zipFile !== null ||
+      zipNewName.trim() !== ''
+    );
+  }
+
   function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
       if (view === 'importing') {
@@ -442,6 +458,12 @@ export function CreateProjectDialog({
         eventSourceRef.current = null;
         setModalShowingImport(false);
         onOpenChange(false);
+        return;
+      }
+      if (
+        hasUnsavedChanges() &&
+        !confirm('You have unsaved changes. Discard them and close?')
+      ) {
         return;
       }
       resetState();
