@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Book, Code, Terminal, Server, Database, Shield, Layers, ScrollText, Cloud, Link2 } from "lucide-react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
@@ -22,17 +21,6 @@ export const metadata: Metadata = {
     description: docsDescription,
   },
 };
-
-const nav = [
-  { href: "/docs", label: "Overview", icon: Book },
-  { href: "/docs/data-engine", label: "Data Engine", icon: Database },
-  { href: "/docs/connect", label: "Connect", icon: Link2 },
-  { href: "/docs/api", label: "API Reference", icon: Server },
-  { href: "/docs/sdk", label: "SDK", icon: Code },
-  { href: "/docs/cli", label: "CLI", icon: Terminal },
-  { href: "/docs/security", label: "Security & RLS", icon: Shield },
-  { href: "/docs/self-hosting", label: "Self-Hosting", icon: Cloud },
-];
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   const appRoot = getAppPortalUrl();
@@ -64,7 +52,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
 
       <div className="mx-auto flex max-w-6xl px-6">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-border py-8 pr-6 md:block">
-          <DocsNav items={nav} />
+          <DocsNav />
         </aside>
 
         <main className="min-w-0 flex-1 py-8 pl-0 md:pl-8">

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 
@@ -11,7 +12,21 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-export function DocsNav({ items }: { items: NavItem[] }) {
+// Defined here (not in the server layout) because component references are
+// not serializable across the server -> client boundary; passing them as
+// props breaks static page generation.
+const items: NavItem[] = [
+  { href: "/docs", label: "Overview", icon: Book },
+  { href: "/docs/data-engine", label: "Data Engine", icon: Database },
+  { href: "/docs/connect", label: "Connect", icon: Link2 },
+  { href: "/docs/api", label: "API Reference", icon: Server },
+  { href: "/docs/sdk", label: "SDK", icon: Code },
+  { href: "/docs/cli", label: "CLI", icon: Terminal },
+  { href: "/docs/security", label: "Security & RLS", icon: Shield },
+  { href: "/docs/self-hosting", label: "Self-Hosting", icon: Cloud },
+];
+
+export function DocsNav() {
   const pathname = usePathname();
 
   return (
