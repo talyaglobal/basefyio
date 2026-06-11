@@ -297,6 +297,39 @@ export class ApiClient {
     });
     return data;
   }
+
+  // Provisioning — operations
+  async listProvisioningOperations(projectId: string, opts: { status?: string; limit?: number } = {}) {
+    const { data } = await this.client.get('/api/v1/provisioning/operations', {
+      params: { projectId, ...opts },
+    });
+    return data as any[];
+  }
+
+  async getProvisioningOperation(operationId: string) {
+    const { data } = await this.client.get(`/api/v1/provisioning/operations/${operationId}`);
+    return data as any;
+  }
+
+  async cancelProvisioningOperation(operationId: string) {
+    const { data } = await this.client.post(`/api/v1/provisioning/operations/${operationId}/cancel`);
+    return data as any;
+  }
+
+  // Provisioning — credential refs
+  async createProvisioningCredentialRef(body: { teamId: string; label: string; openbaoPath: string; provider?: string }) {
+    const { data } = await this.client.post('/api/v1/provisioning/credentials', body);
+    return data as any;
+  }
+
+  async listProvisioningCredentialRefs(teamId: string) {
+    const { data } = await this.client.get('/api/v1/provisioning/credentials', { params: { teamId } });
+    return data as any[];
+  }
+
+  async revokeProvisioningCredentialRef(credentialRefId: string) {
+    await this.client.delete(`/api/v1/provisioning/credentials/${credentialRefId}`);
+  }
 }
 
 export const apiClient = new ApiClient();

@@ -293,6 +293,74 @@ secrets.command('unset <key>')
     await unsetSecret(key);
   });
 
+// ── Provisioning — operations ───────────────────────────────
+
+const operations = program
+  .command('operations')
+  .description('Manage provisioning operations');
+
+operations
+  .command('list')
+  .description('List provisioning operations for a project')
+  .requiredOption('--project-id <id>', 'Project ID')
+  .option('--status <status>', 'Filter by status (PENDING|RUNNING|COMPLETED|FAILED|CANCELLED|DRY_RUN)')
+  .option('--limit <n>', 'Maximum number of results (1–100)')
+  .action(async (options) => {
+    const { listOperations } = await import('./commands/provisioning.js');
+    await listOperations(options);
+  });
+
+operations
+  .command('get <operationId>')
+  .description('Get details of a provisioning operation')
+  .action(async (operationId) => {
+    const { getOperation } = await import('./commands/provisioning.js');
+    await getOperation(operationId);
+  });
+
+operations
+  .command('cancel <operationId>')
+  .description('Cancel a PENDING provisioning operation')
+  .action(async (operationId) => {
+    const { cancelOperation } = await import('./commands/provisioning.js');
+    await cancelOperation(operationId);
+  });
+
+// ── Provisioning — credentials ──────────────────────────────
+
+const credentials = program
+  .command('credentials')
+  .description('Manage provisioning credential refs (OpenBao paths)');
+
+credentials
+  .command('create')
+  .description('Create a new credential ref')
+  .requiredOption('--team-id <id>', 'Team ID')
+  .requiredOption('--label <label>', 'Human-readable label (max 80 chars)')
+  .requiredOption('--path <path>', 'OpenBao secret path (max 200 chars)')
+  .option('--provider <provider>', 'Cloud provider hint (e.g. hetzner)')
+  .action(async (options) => {
+    const { createCredentialRef } = await import('./commands/provisioning.js');
+    await createCredentialRef(options);
+  });
+
+credentials
+  .command('list')
+  .description('List credential refs for a team')
+  .requiredOption('--team-id <id>', 'Team ID')
+  .action(async (options) => {
+    const { listCredentialRefs } = await import('./commands/provisioning.js');
+    await listCredentialRefs(options);
+  });
+
+credentials
+  .command('revoke <credentialRefId>')
+  .description('Revoke a credential ref')
+  .action(async (credentialRefId) => {
+    const { revokeCredentialRef } = await import('./commands/provisioning.js');
+    await revokeCredentialRef(credentialRefId);
+  });
+
 program.parseAsync().then(() => {
   // Ensure the process exits even when axios HTTP keep-alive connections
   // are still open (they hold the event loop alive indefinitely).
