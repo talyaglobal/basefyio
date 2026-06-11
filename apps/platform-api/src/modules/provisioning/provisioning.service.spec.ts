@@ -25,7 +25,10 @@ function makePrisma(overrides: Record<string, any> = {}) {
       create: jest.fn(),
     },
     provisioningResource: { findMany: jest.fn() },
-    provisioningAuditEvent: { create: jest.fn().mockResolvedValue({}) },
+    provisioningAuditEvent: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
   const merged = { ...defaults, ...overrides };
   merged.$transaction = jest.fn().mockImplementation((cb: any) => cb(merged));
@@ -756,5 +759,146 @@ describe('ProvisioningService.createProject', () => {
     expect(auditCall.data.kind).toBe('DRY_RUN_COMPLETED');
 
     expect(result.operation.dryRun).toBe(true);
+  });
+});
+
+// ── listOperationEvents — pagination ─────────────────────────
+
+const OP_ID = 'op-events-1';
+
+function makeOp() {
+  return {
+    id: OP_ID,
+    provisioningProject: { project: { teamId: TEAM_ID } },
+  };
+}
+
+function makeEventRow(seq: number, createdAt?: Date): any {
+  const ts = createdAt ?? new Date(Date.UTC(2026, 5, 11, 0, 0, seq));
+  return {
+    id: `evt-${seq.toString().padStart(3, '0')}`,
+    operationId: OP_ID,
+    kind: 'STATUS_CHANGED',
+    actorUserId: USER_ID,
+    fromStatus: null,
+    toStatus: 'RUNNING',
+    detail: null,
+    createdAt: ts,
+  };
+}
+
+function makeEventSvc(prisma: any) {
+  return new ProvisioningService(prisma);
+}
+
+describe('ProvisioningService.listOperationEvents', () => {
+  function basePrisma(rows: any[]) {
+    const prisma = makePrisma();
+    prisma.provisioningOperation.findUnique.mockResolvedValue(makeOp());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningAuditEvent.findMany.mockResolvedValue(rows);
+    return prisma;
+  }
+
+  it('returns { events, nextCursor: null } when rows ≤ default limit', async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => makeEventRow(i + 1));
+    const svc = makeEventSvc(basePrisma(rows));
+    const result = await svc.listOperationEvents(USER_ID, OP_ID);
+    expect(result.events).toHaveLength(3);
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it('default order is createdAt ASC (orderBy passed to findMany)', async () => {
+    const svc = makeEventSvc(basePrisma([]));
+    await svc.listOperationEvents(USER_ID, OP_ID);
+    const call = basePrisma([]).provisioningAuditEvent.findMany.mock?.calls;
+    // Verify directly on the mock we control
+    const prisma = basePrisma([]);
+    prisma.provisioningAuditEvent.findMany.mockResolvedValue([]);
+    const svc2 = makeEventSvc(prisma);
+    await svc2.listOperationEvents(USER_ID, OP_ID);
+    const orderBy = prisma.provisioningAuditEvent.findMany.mock.calls[0][0].orderBy;
+    expect(orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+  });
+
+  it('nextCursor is returned when rows exceed limit', async () => {
+    // Default limit is 50; return 51 rows
+    const rows = Array.from({ length: 51 }, (_, i) => makeEventRow(i + 1));
+    const prisma = basePrisma(rows);
+    const svc = makeEventSvc(prisma);
+    const result = await svc.listOperationEvents(USER_ID, OP_ID);
+    expect(result.events).toHaveLength(50);
+    expect(result.nextCursor).not.toBeNull();
+    expect(typeof result.nextCursor).toBe('string');
+  });
+
+  it('respects custom limit', async () => {
+    const rows = Array.from({ length: 6 }, (_, i) => makeEventRow(i + 1));
+    const prisma = basePrisma(rows);
+    const svc = makeEventSvc(prisma);
+    const result = await svc.listOperationEvents(USER_ID, OP_ID, { limit: 5 });
+    expect(result.events).toHaveLength(5);
+    expect(result.nextCursor).not.toBeNull();
+  });
+
+  it('nextCursor is null when exactly limit rows returned', async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => makeEventRow(i + 1));
+    const prisma = basePrisma(rows);
+    const svc = makeEventSvc(prisma);
+    const result = await svc.listOperationEvents(USER_ID, OP_ID, { limit: 5 });
+    expect(result.events).toHaveLength(5);
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it('cursor filter is applied to findMany where clause', async () => {
+    const anchor = makeEventRow(3);
+    const cursor = Buffer.from(
+      JSON.stringify({ createdAt: anchor.createdAt.toISOString(), id: anchor.id }),
+    ).toString('base64url');
+
+    const prisma = basePrisma([]);
+    const svc = makeEventSvc(prisma);
+    await svc.listOperationEvents(USER_ID, OP_ID, { cursor });
+
+    const where = prisma.provisioningAuditEvent.findMany.mock.calls[0][0].where;
+    expect(where).toHaveProperty('OR');
+    expect(Array.isArray(where.OR)).toBe(true);
+  });
+
+  it('invalid cursor throws 400 BadRequestException', async () => {
+    const svc = makeEventSvc(basePrisma([]));
+    await expect(
+      svc.listOperationEvents(USER_ID, OP_ID, { cursor: 'not-valid-base64url!!!' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('truncated JSON cursor throws 400', async () => {
+    const bad = Buffer.from('{createdAt:').toString('base64url');
+    const svc = makeEventSvc(basePrisma([]));
+    await expect(
+      svc.listOperationEvents(USER_ID, OP_ID, { cursor: bad }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('cursor with missing id field throws 400', async () => {
+    const bad = Buffer.from(JSON.stringify({ createdAt: '2026-01-01T00:00:00Z' })).toString('base64url');
+    const svc = makeEventSvc(basePrisma([]));
+    await expect(
+      svc.listOperationEvents(USER_ID, OP_ID, { cursor: bad }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 404 when operation not found', async () => {
+    const prisma = basePrisma([]);
+    prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+    const svc = makeEventSvc(prisma);
+    await expect(svc.listOperationEvents(USER_ID, OP_ID)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('returns 404 when user is not a team member', async () => {
+    const prisma = basePrisma([]);
+    prisma.teamMember.findUnique.mockResolvedValue(null);
+    const svc = makeEventSvc(prisma);
+    await expect(svc.listOperationEvents(USER_ID, OP_ID)).rejects.toMatchObject({ status: 404 });
   });
 });

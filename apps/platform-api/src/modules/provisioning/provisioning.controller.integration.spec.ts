@@ -1290,11 +1290,11 @@ describe('Provisioning controller — integration', () => {
     });
   });
 
-  // ── GET /operations/:id/events — audit event log ─────────────────────────
+  // ── GET /operations/:id/events — paginated audit event log ──────────────
 
   describe('GET /v1/provisioning/operations/:id/events', () => {
     const eventRow = (kind: string, seq: number) => ({
-      id: `evt-${seq}`,
+      id: `evt-${String(seq).padStart(3, '0')}`,
       operationId: OP_ID,
       provisioningProjectId: PP_ID,
       resourceId: null,
@@ -1303,35 +1303,98 @@ describe('Provisioning controller — integration', () => {
       fromStatus: seq === 1 ? null : 'PENDING',
       toStatus: seq === 1 ? 'PENDING' : 'RUNNING',
       detail: { step: seq },
-      createdAt: new Date(`2026-06-11T00:00:0${seq}Z`),
+      createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, seq)),
     });
 
-    it('returns 200 with ordered event list for team member', async () => {
+    function buildEventsApp(rows: any[]) {
       const prisma = makePrisma();
       prisma.provisioningOperation.findUnique.mockResolvedValue({
         ...stubPendingOp(),
-        provisioningProject: {
-          project: { teamId: TEAM_ID },
-        },
+        provisioningProject: { project: { teamId: TEAM_ID } },
       });
-      prisma.provisioningAuditEvent.findMany.mockResolvedValue([
-        eventRow('OPERATION_STARTED', 1),
-        eventRow('STATUS_CHANGED', 2),
-      ]);
-      app = await buildApp(prisma, makeRegistry());
+      prisma.provisioningAuditEvent.findMany.mockResolvedValue(rows);
+      return buildApp(prisma, makeRegistry());
+    }
+
+    it('returns 200 with { events, nextCursor } shape', async () => {
+      app = await buildEventsApp([eventRow('OPERATION_STARTED', 1), eventRow('STATUS_CHANGED', 2)]);
 
       const res = await request(app.getHttpServer())
         .get(`/v1/provisioning/operations/${OP_ID}/events`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body).toHaveLength(2);
-      expect(res.body[0].kind).toBe('OPERATION_STARTED');
-      expect(res.body[1].kind).toBe('STATUS_CHANGED');
-      expect(res.body[0].id).toBe('evt-1');
-      expect(res.body[0].actorUserId).toBe(USER_ID);
-      expect(res.body[0].metadata).toEqual({ step: 1 });
-      expect(typeof res.body[0].createdAt).toBe('string');
+      expect(res.body).toHaveProperty('events');
+      expect(res.body).toHaveProperty('nextCursor');
+      expect(Array.isArray(res.body.events)).toBe(true);
+    });
+
+    it('events are in ascending order and nextCursor is null when ≤ limit', async () => {
+      app = await buildEventsApp([eventRow('OPERATION_STARTED', 1), eventRow('STATUS_CHANGED', 2)]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events`)
+        .expect(200);
+
+      expect(res.body.events).toHaveLength(2);
+      expect(res.body.events[0].kind).toBe('OPERATION_STARTED');
+      expect(res.body.events[1].kind).toBe('STATUS_CHANGED');
+      expect(res.body.nextCursor).toBeNull();
+    });
+
+    it('event shape: id, kind, fromStatus, toStatus, actorUserId, metadata, createdAt', async () => {
+      app = await buildEventsApp([eventRow('OPERATION_STARTED', 1)]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events`)
+        .expect(200);
+
+      const ev = res.body.events[0];
+      expect(ev.id).toBe('evt-001');
+      expect(ev.actorUserId).toBe(USER_ID);
+      expect(ev.metadata).toEqual({ step: 1 });
+      expect(typeof ev.createdAt).toBe('string');
+    });
+
+    it('returns nextCursor when findMany returns limit+1 rows', async () => {
+      // Simulate service receiving limit+1 rows (default limit=50, so mock 51)
+      const rows = Array.from({ length: 51 }, (_, i) => eventRow('STATUS_CHANGED', i + 1));
+      app = await buildEventsApp(rows);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events`)
+        .expect(200);
+
+      expect(res.body.events).toHaveLength(50);
+      expect(typeof res.body.nextCursor).toBe('string');
+      expect(res.body.nextCursor).not.toBeNull();
+    });
+
+    it('respects ?limit query param', async () => {
+      const rows = Array.from({ length: 6 }, (_, i) => eventRow('STATUS_CHANGED', i + 1));
+      app = await buildEventsApp(rows);
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events?limit=5`)
+        .expect(200);
+
+      expect(res.body.events).toHaveLength(5);
+      expect(res.body.nextCursor).not.toBeNull();
+    });
+
+    it('returns 400 when limit exceeds 100', async () => {
+      app = await buildEventsApp([]);
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events?limit=101`)
+        .expect(400);
+    });
+
+    it('returns 400 for an invalid cursor', async () => {
+      app = await buildEventsApp([]);
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/operations/${OP_ID}/events?cursor=!!!not-valid!!!`)
+        .expect(400);
     });
 
     it('returns 404 when operation does not exist', async () => {
@@ -1348,9 +1411,7 @@ describe('Provisioning controller — integration', () => {
       const prisma = makePrisma();
       prisma.provisioningOperation.findUnique.mockResolvedValue({
         ...stubPendingOp(),
-        provisioningProject: {
-          project: { teamId: TEAM_ID },
-        },
+        provisioningProject: { project: { teamId: TEAM_ID } },
       });
       prisma.teamMember.findUnique.mockResolvedValue(null);
       app = await buildApp(prisma, makeRegistry());

@@ -12,6 +12,8 @@ import { CreateProvisioningOperationDto } from './dto/create-provisioning-operat
 import { ListOperationsQuery } from './dto/list-operations.query';
 import { GetProjectQuery } from './dto/get-project.query';
 import { OperationEventResponse } from './dto/operation-event-response';
+import { OperationEventsPage } from './dto/operation-events-page.dto';
+import { ListOperationEventsQuery } from './dto/list-operation-events.query';
 
 // ── Response types ────────────────────────────────────────
 
@@ -628,7 +630,10 @@ export class ProvisioningService {
   async listOperationEvents(
     userId: string,
     operationId: string,
-  ): Promise<OperationEventResponse[]> {
+    query: ListOperationEventsQuery = {},
+  ): Promise<OperationEventsPage> {
+    const limit = query.limit ?? 50;
+
     const op = await this.prisma.provisioningOperation.findUnique({
       where: { id: operationId },
       include: {
@@ -645,19 +650,65 @@ export class ProvisioningService {
     });
     if (!member) throw new NotFoundException('Operation not found');
 
-    const events = await this.prisma.provisioningAuditEvent.findMany({
-      where: { operationId },
-      orderBy: { createdAt: 'asc' },
+    // Decode cursor — throws 400 on malformed input
+    let cursorFilter: Record<string, unknown> = {};
+    if (query.cursor) {
+      const decoded = decodeCursor(query.cursor);
+      cursorFilter = {
+        OR: [
+          { createdAt: { gt: decoded.createdAt } },
+          { createdAt: { equals: decoded.createdAt }, id: { gt: decoded.id } },
+        ],
+      };
+    }
+
+    // Fetch one extra row to determine whether a next page exists
+    const rows = await this.prisma.provisioningAuditEvent.findMany({
+      where: { operationId, ...cursorFilter },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
     });
 
-    return events.map((e) => ({
-      id: e.id,
-      kind: e.kind,
-      fromStatus: e.fromStatus ?? null,
-      toStatus: e.toStatus ?? null,
-      actorUserId: e.actorUserId ?? null,
-      metadata: (e.detail ?? null) as Record<string, unknown> | null,
-      createdAt: e.createdAt.toISOString(),
-    }));
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore
+      ? encodeCursor({ createdAt: page[page.length - 1].createdAt, id: page[page.length - 1].id })
+      : null;
+
+    return {
+      events: page.map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        fromStatus: e.fromStatus ?? null,
+        toStatus: e.toStatus ?? null,
+        actorUserId: e.actorUserId ?? null,
+        metadata: (e.detail ?? null) as Record<string, unknown> | null,
+        createdAt: e.createdAt.toISOString(),
+      })),
+      nextCursor,
+    };
+  }
+}
+
+// ── Cursor helpers ─────────────────────────────────────────
+
+interface EventCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeCursor(cursor: EventCursor): string {
+  return Buffer.from(
+    JSON.stringify({ createdAt: cursor.createdAt.toISOString(), id: cursor.id }),
+  ).toString('base64url');
+}
+
+function decodeCursor(raw: string): { createdAt: Date; id: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (!parsed.createdAt || !parsed.id) throw new Error('missing fields');
+    return { createdAt: new Date(parsed.createdAt), id: parsed.id };
+  } catch {
+    throw new BadRequestException('Invalid cursor');
   }
 }
