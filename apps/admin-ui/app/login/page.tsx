@@ -79,8 +79,10 @@ function LoginForm() {
         toast.success('Welcome back');
         // Restore CLI state that was stashed before the OAuth redirect
         const cliState = sessionStorage.getItem('basefyio_cli_state');
+        const retried = sessionStorage.getItem('basefyio_cli_retried');
         sessionStorage.removeItem('basefyio_cli_state');
-        window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}` : '/dashboard');
+        sessionStorage.removeItem('basefyio_cli_retried');
+        window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : '/dashboard');
         return;
       }
     }
@@ -104,7 +106,8 @@ function LoginForm() {
       }
       toast.success('Welcome back');
       const cliState = searchParams.get('cli_state');
-      window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}` : '/dashboard');
+      const retried = searchParams.get('retried');
+      window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : '/dashboard');
     } catch (err: any) {
       const rawMessage = String(err?.message || '');
       const normalizedMessage = rawMessage.toUpperCase();
@@ -172,7 +175,9 @@ function LoginForm() {
     try {
       // Stash CLI state so we can restore it after the OAuth redirect
       const cliState = searchParams.get('cli_state');
+      const retried = searchParams.get('retried');
       if (cliState) sessionStorage.setItem('basefyio_cli_state', cliState);
+      if (retried) sessionStorage.setItem('basefyio_cli_retried', retried);
       const { url } = await api.auth.getOAuthRedirect(provider, window.location.origin + '/login');
       window.location.href = url;
     } catch (err: any) {

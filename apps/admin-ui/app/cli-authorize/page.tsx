@@ -32,17 +32,21 @@ function CliAuthorizeContent() {
         setPort(data.port);
         setStatus('ready');
       })
-      .catch((err) => {
-        // If the session token is expired/invalid, clear it and redirect to
-        // login so the user re-authenticates automatically instead of seeing
-        // a dead-end error page.
-        const status = err?.response?.status ?? err?.status;
-        if (status === 401 || status === 403) {
-          clearTokens();
-          window.location.assign(`/login?cli_state=${encodeURIComponent(cliState ?? '')}`);
+      .catch(() => {
+        // Any failure (expired token, invalid/expired cli_state, network
+        // error) → clear tokens and redirect to login so the user
+        // re-authenticates automatically instead of seeing a dead-end error.
+        // The `retried=1` flag prevents an infinite redirect loop: if we
+        // already retried once and still failed, show the error page.
+        const alreadyRetried = new URLSearchParams(window.location.search).get('retried') === '1';
+        if (alreadyRetried) {
+          setStatus('error');
           return;
         }
-        setStatus('error');
+        clearTokens();
+        window.location.assign(
+          `/login?cli_state=${encodeURIComponent(cliState ?? '')}&retried=1`,
+        );
       });
   }, [cliState]);
 
