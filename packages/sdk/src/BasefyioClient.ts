@@ -7,12 +7,14 @@ import { DatabaseClient, QueryBuilder } from './modules/database.js';
 import { StorageClient } from './modules/storage.js';
 import { CollectionManager, CollectionClient } from './modules/collection.js';
 import { DataEngineClient, EntityClient } from './modules/data-engine.js';
+import { ProvisioningClient } from './modules/provisioning.js';
 
 export class BasefyioClient {
   readonly auth: AuthClient;
   readonly storage: StorageClient;
   readonly collections: CollectionManager;
   readonly data: DataEngineClient;
+  readonly provisioning: ProvisioningClient;
 
   private db: DatabaseClient;
   private http: BasefyioFetchClient;
@@ -45,6 +47,7 @@ export class BasefyioClient {
     this.storage = new StorageClient(this.http, this.projectId);
     this.collections = new CollectionManager(this.http, this.projectId);
     this.data = new DataEngineClient(this.http, this.projectId);
+    this.provisioning = new ProvisioningClient(this.http);
   }
 
   /**

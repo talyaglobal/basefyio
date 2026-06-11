@@ -195,3 +195,96 @@ export interface UploadOptions {
 export interface SignedUrlOptions {
   expiresIn?: number;
 }
+
+// ── Provisioning types ──────────────────────────────────
+
+export interface ProvisioningProjectCreateInput {
+  projectId: string;
+  credentialRefId: string;
+  region: string;
+  datacenter?: string;
+  provider?: string;
+  desiredSpec: Record<string, unknown>;
+  dryRun: boolean;
+  idempotencyKey: string;
+}
+
+export interface ProvisioningProjectCreateResult {
+  provisioningProjectId: string;
+  provider: string;
+  status: string;
+  operation: {
+    provisioningOperationId: string;
+    status: string;
+    dryRun: boolean;
+    idempotent: boolean;
+  };
+}
+
+export interface ProvisioningProjectStatus {
+  provisioningProjectId: string;
+  provider: string;
+  region: string;
+  datacenter: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface ProvisioningOperationCreateInput {
+  projectId: string;
+  type: 'CREATE' | 'UPDATE' | 'DELETE' | 'ROLLBACK';
+  idempotencyKey: string;
+  desiredSpec: Record<string, unknown>;
+  dryRun: boolean;
+}
+
+export interface ProvisioningOperation {
+  id: string;
+  projectId: string;
+  type: string;
+  status: string;
+  dryRun: boolean;
+  idempotencyKey: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: { message: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ProvisioningListOperationsOptions {
+  projectId: string;
+  status?: string;
+  limit?: number;
+}
+
+export interface ProvisioningResource {
+  id: string;
+  projectId: string;
+  type: string;
+  name: string;
+  status: string;
+  externalId: string | null;
+  desiredSpec: Record<string, unknown>;
+  actualSpec: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProvisioningCredentialRef {
+  credentialRefId: string;
+  teamId: string;
+  label: string;
+  openbaoPath: string;
+  provider: string;
+  createdAt: string;
+}
+
+export interface ProvisioningCredentialRefCreateInput {
+  teamId: string;
+  label: string;
+  openbaoPath: string;
+  provider?: string;
+}

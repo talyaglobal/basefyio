@@ -46,3 +46,17 @@ export type {
   DataEngineFilter,
   DataEngineSort,
 } from './modules/data-engine.js';
+
+export { ProvisioningClient } from './modules/provisioning.js';
+
+export type {
+  ProvisioningProjectCreateInput,
+  ProvisioningProjectCreateResult,
+  ProvisioningProjectStatus,
+  ProvisioningOperationCreateInput,
+  ProvisioningOperation,
+  ProvisioningListOperationsOptions,
+  ProvisioningResource,
+  ProvisioningCredentialRef,
+  ProvisioningCredentialRefCreateInput,
+} from './lib/types.js';
