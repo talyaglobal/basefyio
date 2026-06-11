@@ -31,15 +31,24 @@ export class ObservabilityController {
 
   @Get('audit-logs')
   @RequireManagementPermission('canViewAuditLogs')
-  async listAuditLogs(@Query('limit') limit?: string) {
-    if (limit == null || limit.trim() === '') {
-      return this.observability.listAuditLogs(undefined);
-    }
-    const n = Number(limit);
-    if (!Number.isFinite(n) || n <= 0) {
-      return this.observability.listAuditLogs(undefined);
-    }
-    return this.observability.listAuditLogs(Math.floor(n));
+  async listAuditLogs(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('severity') severity?: string,
+    @Query('success') success?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.observability.listAuditLogs({
+      page: page ? Math.floor(Number(page)) : undefined,
+      limit: limit ? Math.floor(Number(limit)) : undefined,
+      search: search?.trim() || undefined,
+      severity: severity?.trim() || undefined,
+      success: success?.trim() || undefined,
+      dateFrom: dateFrom?.trim() || undefined,
+      dateTo: dateTo?.trim() || undefined,
+    });
   }
 
   @Get('audit-logs/:id')

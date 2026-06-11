@@ -283,19 +283,80 @@ export class ObservabilityService {
     });
   }
 
-  /** Upper bound for a single list response (safety). Omit `limit` to use this maximum. */
-  private static readonly AUDIT_LOG_LIST_MAX = 500_000;
+  private static readonly AUDIT_PAGE_MAX = 100;
 
-  async listAuditLogs(limit?: number) {
-    const take =
-      limit != null && Number.isFinite(limit) && limit > 0
-        ? Math.min(Math.floor(limit), ObservabilityService.AUDIT_LOG_LIST_MAX)
-        : ObservabilityService.AUDIT_LOG_LIST_MAX;
-    const rows = await this.prisma.auditLog.findMany({
-      orderBy: { createdAt: 'desc' },
-      take,
-    });
-    return this.attachUserLabelsToAuditLogs(rows);
+  async listAuditLogs(opts: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    severity?: string;
+    success?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}) {
+    const page = Math.max(opts.page ?? 1, 1);
+    const take = Math.min(Math.max(opts.limit ?? 50, 1), ObservabilityService.AUDIT_PAGE_MAX);
+    const skip = (page - 1) * take;
+
+    const where: Record<string, unknown> = {};
+    const andConditions: Record<string, unknown>[] = [];
+
+    // Severity filter
+    if (opts.severity && opts.severity !== 'ALL') {
+      andConditions.push({ severity: opts.severity });
+    }
+
+    // Success filter
+    if (opts.success === 'SUCCESS') {
+      andConditions.push({ success: true });
+    } else if (opts.success === 'FAILED') {
+      andConditions.push({ success: false });
+    }
+
+    // Date range
+    if (opts.dateFrom) {
+      andConditions.push({ createdAt: { gte: new Date(`${opts.dateFrom}T00:00:00Z`) } });
+    }
+    if (opts.dateTo) {
+      andConditions.push({ createdAt: { lte: new Date(`${opts.dateTo}T23:59:59.999Z`) } });
+    }
+
+    // Search (action, traceId, actorUserId, resourceType, resourceId)
+    if (opts.search?.trim()) {
+      const q = opts.search.trim();
+      andConditions.push({
+        OR: [
+          { action: { contains: q, mode: 'insensitive' } },
+          { traceId: { contains: q, mode: 'insensitive' } },
+          { actorUserId: { contains: q, mode: 'insensitive' } },
+          { resourceType: { contains: q, mode: 'insensitive' } },
+          { resourceId: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    const enriched = await this.attachUserLabelsToAuditLogs(rows);
+    return {
+      data: enriched,
+      total,
+      page,
+      limit: take,
+      totalPages: Math.ceil(total / take),
+    };
   }
 
   async getAuditLogById(id: string) {

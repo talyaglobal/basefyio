@@ -355,6 +355,9 @@ class PgEntityCollection implements EntityCollection {
     const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
     const offset = Math.max(q.offset ?? 0, 0);
 
+    // Snapshot filter-only params for the COUNT query BEFORE adding limit/offset
+    const countParams = params.slice();
+
     params.push(limit, offset);
     const limitIdx = paramIdx;
     const offsetIdx = paramIdx + 1;
@@ -366,7 +369,7 @@ class PgEntityCollection implements EntityCollection {
       ),
       pool.query(
         `SELECT COUNT(*)::int AS total FROM ${SCHEMA}.${RECORDS_TABLE} WHERE ${where}`,
-        params.slice(0, paramIdx), // exclude limit/offset
+        countParams,
       ),
     ]);
 

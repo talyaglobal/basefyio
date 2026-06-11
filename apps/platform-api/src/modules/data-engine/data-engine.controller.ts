@@ -9,7 +9,6 @@ import {
   Body,
   Query,
   UseGuards,
-  UseInterceptors,
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
@@ -19,11 +18,9 @@ import {
 import { DataEngineService } from './data-engine.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 
 @Controller('v1/projects/:projectId')
 @UseGuards(JwtOrApiKeyGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class DataEngineController {
   constructor(private readonly dataEngine: DataEngineService) {}
 

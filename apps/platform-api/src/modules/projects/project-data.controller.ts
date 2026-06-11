@@ -9,7 +9,6 @@ import {
   Body,
   Req,
   UseGuards,
-  UseInterceptors,
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
@@ -21,7 +20,6 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 import {
   ProjectActivityKind,
   ProjectActivityService,
@@ -29,7 +27,6 @@ import {
 
 @Controller('projects/:projectId')
 @UseGuards(JwtOrApiKeyGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class ProjectDataController {
   constructor(
     private readonly dataService: ProjectDataService,

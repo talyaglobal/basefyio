@@ -130,6 +130,11 @@ export default function ManagementPage() {
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const AUDIT_PAGE_SIZE = 50;
   const [projectDeletionReasons, setProjectDeletionReasons] = useState<ProjectDeletionReasonEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
@@ -188,42 +193,39 @@ export default function ManagementPage() {
   const canAccessManagement = isRoot || !!managementPermissions?.canAccessManagement;
   const USERS_PAGE_SIZE = 20;
 
-  const filteredAuditLogs = useMemo(() => {
-    const q = auditSearch.trim().toLowerCase();
-    const fromTs = auditDateFrom ? new Date(`${auditDateFrom}T00:00:00`).getTime() : null;
-    const toTs = auditDateTo ? new Date(`${auditDateTo}T23:59:59.999`).getTime() : null;
+  const fetchAuditLogs = useCallback(async (pg: number) => {
+    setAuditLoading(true);
+    try {
+      const result = await api.observability.listAuditLogs({
+        page: pg,
+        limit: AUDIT_PAGE_SIZE,
+        search: auditSearch.trim() || undefined,
+        severity: auditSeverityFilter,
+        success: auditResultFilter,
+        dateFrom: auditDateFrom || undefined,
+        dateTo: auditDateTo || undefined,
+      });
+      setAuditLogs(result.data);
+      setAuditTotal(result.total);
+      setAuditTotalPages(result.totalPages);
+      setAuditPage(result.page);
+    } catch {
+      // keep current state
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditSearch, auditSeverityFilter, auditResultFilter, auditDateFrom, auditDateTo]);
 
-    return auditLogs.filter((log) => {
-      if (q) {
-        const matchesSearch =
-          log.action.toLowerCase().includes(q) ||
-          log.actorUserId.toLowerCase().includes(q) ||
-          (log.actorDisplayName || '').toLowerCase().includes(q) ||
-          (log.resourceDisplayName || '').toLowerCase().includes(q) ||
-          log.resourceType.toLowerCase().includes(q) ||
-          (log.resourceId || '').toLowerCase().includes(q) ||
-          log.traceId.toLowerCase().includes(q);
-        if (!matchesSearch) return false;
-      }
-
-      if (auditSeverityFilter !== 'ALL' && log.severity !== auditSeverityFilter) {
-        return false;
-      }
-
-      if (auditResultFilter !== 'ALL') {
-        if (auditResultFilter === 'SUCCESS' && !log.success) return false;
-        if (auditResultFilter === 'FAILED' && log.success) return false;
-      }
-
-      if (fromTs !== null || toTs !== null) {
-        const created = new Date(log.createdAt).getTime();
-        if (Number.isFinite(fromTs) && created < (fromTs as number)) return false;
-        if (Number.isFinite(toTs) && created > (toTs as number)) return false;
-      }
-
-      return true;
-    });
-  }, [auditLogs, auditSearch, auditDateFrom, auditDateTo, auditSeverityFilter, auditResultFilter]);
+  // Re-fetch when filters change (debounced for search)
+  const auditSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (activeTab !== 'audit') return;
+    if (auditSearchTimerRef.current) clearTimeout(auditSearchTimerRef.current);
+    auditSearchTimerRef.current = setTimeout(() => {
+      void fetchAuditLogs(1);
+    }, auditSearch ? 400 : 0);
+    return () => { if (auditSearchTimerRef.current) clearTimeout(auditSearchTimerRef.current); };
+  }, [activeTab, fetchAuditLogs, auditSearch]);
 
   const usersTotalPages = Math.max(1, Math.ceil(usersTotal / USERS_PAGE_SIZE));
 
@@ -298,8 +300,7 @@ export default function ManagementPage() {
         const teamsData = await api.auth.managementTeams();
         setTeams(teamsData);
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
-        const auditData = await api.observability.listAuditLogs();
-        setAuditLogs(auditData);
+        // Initial load handled by the fetchAuditLogs effect
       } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
         // Root alerts tab uses its own component-level fetch.
       } else if (tab === 'permissions' && isRoot) {
@@ -2235,9 +2236,7 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Audit Logs</h2>
           <p className="text-xs text-muted-foreground">
-            {filteredAuditLogs.length === auditLogs.length
-              ? `${auditLogs.length} records (all loaded)`
-              : `${filteredAuditLogs.length} shown · ${auditLogs.length} loaded`}
+            {auditLoading ? 'Loading...' : `${auditTotal.toLocaleString()} records · Page ${auditPage} of ${auditTotalPages}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2297,6 +2296,7 @@ export default function ManagementPage() {
                 setAuditDateTo('');
                 setAuditSeverityFilter('ALL');
                 setAuditResultFilter('ALL');
+                setAuditPage(1);
               }}
             >
               Clear Filters
@@ -2317,14 +2317,14 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredAuditLogs.length === 0 ? (
+              {auditLogs.length === 0 ? (
                 <tr>
                   <td className="px-2 py-6 text-center text-muted-foreground" colSpan={7}>
                     No matching audit records.
                   </td>
                 </tr>
               ) : (
-                filteredAuditLogs.map((log) => (
+                auditLogs.map((log) => (
                   <tr key={log.id} className="border-b last:border-0">
                     <td className="px-2 py-2 text-muted-foreground">
                       {new Date(log.createdAt).toLocaleString()}
@@ -2386,6 +2386,50 @@ export default function ManagementPage() {
             </tbody>
           </table>
         </div>
+        {auditTotalPages > 1 && (
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-muted-foreground">
+              Showing {((auditPage - 1) * AUDIT_PAGE_SIZE) + 1}–{Math.min(auditPage * AUDIT_PAGE_SIZE, auditTotal)} of {auditTotal.toLocaleString()}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditPage <= 1 || auditLoading}
+                onClick={() => fetchAuditLogs(1)}
+              >
+                First
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditPage <= 1 || auditLoading}
+                onClick={() => fetchAuditLogs(auditPage - 1)}
+              >
+                Prev
+              </Button>
+              <span className="px-2 text-sm">
+                {auditPage} / {auditTotalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditPage >= auditTotalPages || auditLoading}
+                onClick={() => fetchAuditLogs(auditPage + 1)}
+              >
+                Next
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditPage >= auditTotalPages || auditLoading}
+                onClick={() => fetchAuditLogs(auditTotalPages)}
+              >
+                Last
+              </Button>
+            </div>
+          </div>
+        )}
       </section>
       )}
 

@@ -1797,12 +1797,31 @@ export const api = {
         method: 'PATCH',
       });
     },
-    listAuditLogs(limit?: number) {
-      const qs =
-        limit != null && Number.isFinite(limit) && limit > 0
-          ? `?limit=${Math.floor(limit)}`
-          : '';
-      return request<AuditLogEntry[]>(`/observability/audit-logs${qs}`);
+    listAuditLogs(opts?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      severity?: string;
+      success?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    }) {
+      const params = new URLSearchParams();
+      if (opts?.page) params.set('page', String(opts.page));
+      if (opts?.limit) params.set('limit', String(opts.limit));
+      if (opts?.search) params.set('search', opts.search);
+      if (opts?.severity && opts.severity !== 'ALL') params.set('severity', opts.severity);
+      if (opts?.success && opts.success !== 'ALL') params.set('success', opts.success);
+      if (opts?.dateFrom) params.set('dateFrom', opts.dateFrom);
+      if (opts?.dateTo) params.set('dateTo', opts.dateTo);
+      const qs = params.toString();
+      return request<{
+        data: AuditLogEntry[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/observability/audit-logs${qs ? `?${qs}` : ''}`);
     },
     getAuditLog(id: string) {
       return request<AuditLogEntry>(`/observability/audit-logs/${id}`);

@@ -15,17 +15,44 @@ import { UsageService } from '../../modules/billing/usage.service';
 export class UsageTrackingMiddleware implements NestMiddleware {
   private readonly logger = new Logger(UsageTrackingMiddleware.name);
 
+  private static readonly CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+  private static readonly MAX_CACHE_SIZE = 500;
+  private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
   private projectTeamCache = new Map<
     string,
     { teamId: string; expiresAt: number }
   >();
 
+  private evictionTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly usage: UsageService,
-  ) {}
+  ) {
+    // Periodically evict expired entries to prevent memory leak
+    this.evictionTimer = setInterval(() => this.evictExpired(), UsageTrackingMiddleware.EVICTION_INTERVAL_MS);
+    if (typeof (this.evictionTimer as any).unref === 'function') {
+      (this.evictionTimer as any).unref();
+    }
+  }
+
+  private evictExpired() {
+    const now = Date.now();
+    for (const [key, entry] of this.projectTeamCache) {
+      if (entry.expiresAt <= now) {
+        this.projectTeamCache.delete(key);
+      }
+    }
+  }
 
   async use(req: Request, res: Response, next: NextFunction) {
+    // Skip non-API routes — only track public REST/data API calls
+    const path = req.originalUrl || req.url;
+    if (!path.startsWith('/rest/') && !path.startsWith('/api/')) {
+      return next();
+    }
+
     const teamId = await this.resolveTeamId(req);
 
     if (teamId) {
@@ -95,10 +122,7 @@ export class UsageTrackingMiddleware implements NestMiddleware {
         select: { teamId: true },
       });
       if (project) {
-        this.projectTeamCache.set(cacheKey, {
-          teamId: project.teamId,
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
+        this.setCacheEntry(cacheKey, project.teamId);
         return project.teamId;
       }
     } catch {
@@ -123,15 +147,24 @@ export class UsageTrackingMiddleware implements NestMiddleware {
         select: { teamId: true },
       });
       if (project) {
-        this.projectTeamCache.set(cacheKey, {
-          teamId: project.teamId,
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
+        this.setCacheEntry(cacheKey, project.teamId);
         return project.teamId;
       }
     } catch {
       this.logger.debug('Failed to resolve teamId by API key');
     }
     return null;
+  }
+
+  private setCacheEntry(key: string, teamId: string) {
+    // Enforce max cache size — evict oldest entries when full
+    if (this.projectTeamCache.size >= UsageTrackingMiddleware.MAX_CACHE_SIZE) {
+      const firstKey = this.projectTeamCache.keys().next().value;
+      if (firstKey) this.projectTeamCache.delete(firstKey);
+    }
+    this.projectTeamCache.set(key, {
+      teamId,
+      expiresAt: Date.now() + UsageTrackingMiddleware.CACHE_TTL_MS,
+    });
   }
 }

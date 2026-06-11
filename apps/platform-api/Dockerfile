@@ -28,6 +28,7 @@ RUN npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /packages/data-engine /packages/data-engine

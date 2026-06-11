@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { ProvisioningService } from './provisioning.service';
 import { ProvisioningExecutorService } from './provisioning-executor.service';
@@ -21,12 +20,10 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 import { RequireModule } from '../../common/decorators/require-module.decorator';
 
 @Controller('v1/provisioning')
 @UseGuards(JwtOrApiKeyGuard, ModuleEnabledGuard)
-@UseInterceptors(AuditLogInterceptor)
 @RequireModule('provisioning')
 export class ProvisioningController {
   constructor(

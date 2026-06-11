@@ -8,7 +8,6 @@ import {
   Body,
   Query,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { IntegrationsService } from './integrations.service';
 import { ConnectGitHubDto } from './dto/connect-github.dto';
@@ -18,11 +17,9 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 
 @Controller('projects/:projectId/integrations')
 @UseGuards(JwtAuthGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class IntegrationsController {
   constructor(private readonly service: IntegrationsService) {}
 

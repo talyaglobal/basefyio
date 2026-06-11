@@ -24,13 +24,11 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 import { ProjectActivityService } from './project-activity.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,

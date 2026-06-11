@@ -1,9 +1,11 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { UsageTrackingMiddleware } from './common/middleware/usage-tracking.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { GuardsModule } from './common/guards/guards.module';
+import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 import { QueueModule } from './modules/queue/queue.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -76,6 +78,9 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DrizzleModule,
     RagModule,
     AgentModule,
+  ],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
   ],
 })
 export class AppModule implements NestModule {

@@ -5,17 +5,14 @@ import {
   Param,
   Post,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { DataStructuresService } from './data-structures.service';
 import { CreateDataStructureDto } from './dto/create-data-structure.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 
 @Controller('v1/projects/:projectId/structures')
 @UseGuards(JwtOrApiKeyGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class DataStructuresController {
   constructor(private readonly service: DataStructuresService) {}
 

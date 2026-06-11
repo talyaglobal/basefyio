@@ -3,7 +3,6 @@ import {
   Post,
   Body,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { SqlService } from './sql.service';
 import { ExecuteSqlDto } from './dto/execute-sql.dto';
@@ -12,11 +11,9 @@ import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
-import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
 
 @Controller('sql')
 @UseGuards(JwtOrApiKeyGuard)
-@UseInterceptors(AuditLogInterceptor)
 export class SqlController {
   constructor(private readonly sqlService: SqlService) {}
 
