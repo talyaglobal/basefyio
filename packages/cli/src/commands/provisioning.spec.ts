@@ -45,6 +45,7 @@ import {
   createCredentialRef,
   listCredentialRefs,
   revokeCredentialRef,
+  watchOperation,
 } from './provisioning.js';
 
 import { success, info, error } from '../lib/ui.js';
@@ -282,6 +283,50 @@ describe('revokeCredentialRef', () => {
     mockApiClient.revokeProvisioningCredentialRef.mockRejectedValue(err);
 
     await expect(revokeCredentialRef(CRED_ID)).rejects.toThrow();
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── watchOperation ────────────────────────────────────────────────────────────
+
+describe('watchOperation', () => {
+  it('exits immediately on COMPLETED and calls success', async () => {
+    mockApiClient.getProvisioningOperation.mockResolvedValue(
+      makeOp({ status: 'COMPLETED', error: null, result: null }),
+    );
+    await watchOperation(OP_ID, { intervalSecs: '0' });
+    expect(success).toHaveBeenCalledWith(expect.stringContaining(OP_ID));
+  });
+
+  it('exits immediately on FAILED and calls error', async () => {
+    mockApiClient.getProvisioningOperation.mockResolvedValue(
+      makeOp({ status: 'FAILED', error: null, result: null }),
+    );
+    await watchOperation(OP_ID, { intervalSecs: '0' });
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(OP_ID));
+  });
+
+  it('exits immediately on CANCELLED and calls error', async () => {
+    mockApiClient.getProvisioningOperation.mockResolvedValue(
+      makeOp({ status: 'CANCELLED', error: null, result: null }),
+    );
+    await watchOperation(OP_ID, { intervalSecs: '0' });
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(OP_ID));
+  });
+
+  it('polls until COMPLETED — calls getProvisioningOperation twice and success once', async () => {
+    mockApiClient.getProvisioningOperation
+      .mockResolvedValueOnce(makeOp({ status: 'PENDING' }))
+      .mockResolvedValueOnce(makeOp({ status: 'COMPLETED', error: null, result: null }));
+    await watchOperation(OP_ID, { intervalSecs: '0' });
+    expect(mockApiClient.getProvisioningOperation).toHaveBeenCalledTimes(2);
+    expect(success).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls handleApiError when getProvisioningOperation rejects', async () => {
+    const err = Object.assign(new Error('Not Found'), { status: 404 });
+    mockApiClient.getProvisioningOperation.mockRejectedValue(err);
+    await expect(watchOperation(OP_ID, { intervalSecs: '0' })).rejects.toThrow('Not Found');
     expect(handleApiError).toHaveBeenCalledWith(err);
   });
 });

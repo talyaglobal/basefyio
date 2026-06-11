@@ -326,6 +326,15 @@ operations
     await cancelOperation(operationId);
   });
 
+operations
+  .command('watch <operationId>')
+  .description('Poll a provisioning operation until it reaches a terminal status')
+  .option('--interval-secs <n>', 'Polling interval in seconds (default: 3)')
+  .action(async (operationId, options) => {
+    const { watchOperation } = await import('./commands/provisioning.js');
+    await watchOperation(operationId, options);
+  });
+
 // ── Provisioning — credentials ──────────────────────────────
 
 const credentials = program

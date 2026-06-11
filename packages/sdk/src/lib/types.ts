@@ -288,3 +288,8 @@ export interface ProvisioningCredentialRefCreateInput {
   openbaoPath: string;
   provider?: string;
 }
+
+export interface ProvisioningWaitOptions {
+  pollingIntervalMs?: number;
+  timeoutMs?: number;
+}

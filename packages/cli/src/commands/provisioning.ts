@@ -114,6 +114,42 @@ export async function cancelOperation(operationId: string) {
   }
 }
 
+export async function watchOperation(operationId: string, opts: { intervalSecs?: string } = {}) {
+  requireLogin();
+
+  const intervalMs = (opts.intervalSecs ? parseInt(opts.intervalSecs, 10) : 3) * 1000;
+  const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'PARTIAL_FAILED']);
+
+  const spinner = createSpinner(`Watching operation ${operationId}…`);
+  const start = Date.now();
+
+  try {
+    while (true) {
+      const op = await apiClient.getProvisioningOperation(operationId);
+      const elapsed = Math.round((Date.now() - start) / 1000);
+
+      if (TERMINAL.has(op.status)) {
+        spinner.stop();
+        if (op.status === 'COMPLETED') {
+          success(`Operation ${chalk.cyan(operationId)} → ${statusColor(op.status)} (${elapsed}s)`);
+        } else {
+          error(`Operation ${chalk.cyan(operationId)} → ${statusColor(op.status)} (${elapsed}s)`);
+        }
+        if (op.error) console.log(chalk.red('Error:'), JSON.stringify(op.error, null, 2));
+        if (op.result) console.log(chalk.gray('Result:'), JSON.stringify(op.result, null, 2));
+        return;
+      }
+
+      spinner.stop();
+      process.stdout.write(`\r${chalk.cyan('●')} ${operationId} — ${statusColor(op.status)} (${elapsed}s)   `);
+      await new Promise<void>((r) => setTimeout(r, intervalMs));
+    }
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}
+
 // ── credential refs ───────────────────────────────────────────────────────────
 
 export async function createCredentialRef(opts: {

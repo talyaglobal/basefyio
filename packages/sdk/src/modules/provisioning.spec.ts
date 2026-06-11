@@ -311,3 +311,86 @@ describe('ProvisioningClient — error status mapping', () => {
     });
   }
 });
+
+// ── waitForCompletion ─────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.waitForCompletion', () => {
+  it('returns immediately on COMPLETED status', async () => {
+    const mockOp = { id: OP_ID, status: 'COMPLETED' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0 });
+
+    expect(res.data?.status).toBe('COMPLETED');
+    expect(res.error).toBeNull();
+    expect((http.json as any).mock.calls.length).toBe(1);
+  });
+
+  it('returns immediately on FAILED status', async () => {
+    const mockOp = { id: OP_ID, status: 'FAILED' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0 });
+
+    expect(res.data?.status).toBe('FAILED');
+    expect(res.error).toBeNull();
+  });
+
+  it('returns immediately on CANCELLED status', async () => {
+    const mockOp = { id: OP_ID, status: 'CANCELLED' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0 });
+
+    expect(res.data?.status).toBe('CANCELLED');
+    expect(res.error).toBeNull();
+  });
+
+  it('polls until terminal status', async () => {
+    const pendingOp   = { id: OP_ID, status: 'PENDING' };
+    const completedOp = { id: OP_ID, status: 'COMPLETED' };
+    const http = makeHttp({
+      json: vi.fn()
+        .mockResolvedValueOnce(pendingOp)
+        .mockResolvedValueOnce(completedOp),
+    });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0 });
+
+    expect(res.data?.status).toBe('COMPLETED');
+    expect(res.error).toBeNull();
+    expect((http.json as any).mock.calls.length).toBe(2);
+  });
+
+  it('returns timeout error when deadline exceeded', async () => {
+    const pendingOp = { id: OP_ID, status: 'PENDING' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(pendingOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0, timeoutMs: 0 });
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(408);
+    expect(res.error?.message).toContain(OP_ID);
+  });
+
+  it('propagates getOperation error without looping', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(null) });
+    const client = new ProvisioningClient(http);
+    vi.spyOn(client, 'getOperation').mockResolvedValue({
+      data: null,
+      error: { message: 'Not found', status: 404 },
+    });
+
+    const res = await client.waitForCompletion(OP_ID, { pollingIntervalMs: 0 });
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(404);
+    expect(res.error?.message).toBe('Not found');
+    expect((client.getOperation as any).mock.calls.length).toBe(1);
+  });
+});

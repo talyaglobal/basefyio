@@ -10,6 +10,7 @@ import type {
   ProvisioningResource,
   ProvisioningCredentialRef,
   ProvisioningCredentialRefCreateInput,
+  ProvisioningWaitOptions,
 } from '../lib/types.js';
 
 const BASE = '/v1/provisioning';
@@ -112,6 +113,27 @@ export class ProvisioningClient {
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async waitForCompletion(
+    operationId: string,
+    opts: ProvisioningWaitOptions = {},
+  ): Promise<BasefyioResponse<ProvisioningOperation>> {
+    const interval = opts.pollingIntervalMs ?? 2000;
+    const timeout  = opts.timeoutMs ?? 300_000;
+    const deadline = Date.now() + timeout;
+
+    const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'PARTIAL_FAILED']);
+
+    while (true) {
+      const res = await this.getOperation(operationId);
+      if (res.error) return res;
+      if (TERMINAL.has(res.data!.status as string)) return res;
+      if (Date.now() >= deadline) {
+        return { data: null, error: { message: `Timed out waiting for operation ${operationId} after ${timeout}ms`, status: 408 } };
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, interval));
     }
   }
 
