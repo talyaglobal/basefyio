@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [production]
+  pull_request:
+    branches: [main, production]
+
+jobs:
+  test-api:
+    name: Platform API — lint + test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/platform-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/platform-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Rebrand env gate (no KOLAYBASE_* outside allowlist)
+        run: npm run lint:rebrand
+
+      - name: Unit + integration tests
+        run: npm test -- --no-coverage --forceExit
