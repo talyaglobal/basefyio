@@ -273,6 +273,33 @@ export interface ProvisioningResource {
   updatedAt: string;
 }
 
+export interface ResourceDetail {
+  id: string;
+  projectId: string;
+  provider: string;
+  resourceType: string;
+  name: string;
+  externalId: string | null;
+  status: string;
+  desiredSpec: Record<string, unknown>;
+  actualSpec: Record<string, unknown> | null;
+  destroyedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResourcePage {
+  items: ResourceDetail[];
+  nextCursor: string | null;
+}
+
+export interface ListResourcesOptions {
+  status?: string;
+  provider?: string;
+  limit?: number;
+  cursor?: string;
+}
+
 export interface ProvisioningCredentialRef {
   credentialRefId: string;
   teamId: string;

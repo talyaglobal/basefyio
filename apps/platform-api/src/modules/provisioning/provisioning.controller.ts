@@ -22,6 +22,7 @@ import { ProviderCapability } from './dto/provider-capability.dto';
 import { OperationEventsPage } from './dto/operation-events-page.dto';
 import { ListOperationEventsQuery } from './dto/list-operation-events.query';
 import { SetProjectProviderDto } from './dto/set-project-provider.dto';
+import { ListProjectResourcesQuery } from './dto/list-project-resources.query';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
@@ -115,6 +116,25 @@ export class ProvisioningController {
       query.projectId,
       query.includeDestroyed ?? false,
     );
+  }
+
+  @Get('resources/:id')
+  @HttpCode(HttpStatus.OK)
+  getResource(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.getResource(user.sub, id);
+  }
+
+  @Get('projects/:projectId/resources')
+  @HttpCode(HttpStatus.OK)
+  listProjectResources(
+    @Param('projectId') projectId: string,
+    @Query() query: ListProjectResourcesQuery,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.listProjectResources(user.sub, projectId, query);
   }
 
   /**

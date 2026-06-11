@@ -275,3 +275,93 @@ export async function revokeCredentialRef(credentialRefId: string) {
     await handleApiError(err);
   }
 }
+
+// ── resources ─────────────────────────────────────────────────────────────────
+
+export async function listResources(opts: {
+  projectId: string;
+  status?: string;
+  provider?: string;
+  limit?: string;
+  cursor?: string;
+}) {
+  requireLogin();
+
+  const spinner = createSpinner('Loading resources...');
+  try {
+    const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+    const { items, nextCursor } = await apiClient.listProvisioningResources(opts.projectId, {
+      status: opts.status,
+      provider: opts.provider,
+      limit,
+      cursor: opts.cursor,
+    });
+    spinner.stop();
+
+    if (!items || items.length === 0) {
+      info('No resources found');
+      return;
+    }
+
+    printHeader(`Resources for project ${opts.projectId}`);
+    console.log();
+
+    const rows = items.map((r: any) => [
+      chalk.cyan(r.id.slice(0, 8) + '…'),
+      r.resourceType ?? r.kind ?? '—',
+      r.name ?? '—',
+      r.status,
+      r.externalId ?? '—',
+      new Date(r.createdAt).toLocaleString(),
+    ]);
+
+    printTable(['ID', 'Type', 'Name', 'Status', 'External ID', 'Created'], rows);
+    console.log();
+    console.log(chalk.gray(`Total: ${items.length} resource(s)`));
+
+    if (nextCursor) {
+      console.log();
+      console.log(chalk.gray(`More resources available — use --cursor ${nextCursor} to fetch the next page.`));
+    }
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}
+
+export async function getResource(resourceId: string) {
+  requireLogin();
+
+  const spinner = createSpinner('Loading resource...');
+  try {
+    const r = await apiClient.getProvisioningResource(resourceId);
+    spinner.stop();
+
+    printHeader(`Resource ${resourceId}`);
+    console.log();
+    console.log(chalk.gray('ID:          '), chalk.cyan(r.id));
+    console.log(chalk.gray('Type:        '), r.resourceType ?? r.kind ?? '—');
+    console.log(chalk.gray('Name:        '), r.name ?? '—');
+    console.log(chalk.gray('Status:      '), r.status);
+    console.log(chalk.gray('Provider:    '), r.provider ?? '—');
+    console.log(chalk.gray('Project ID:  '), r.projectId ?? '—');
+    console.log(chalk.gray('External ID: '), r.externalId ?? '—');
+    if (r.actualSpec) {
+      console.log();
+      console.log(chalk.gray('Actual spec:'), JSON.stringify(r.actualSpec, null, 2));
+    }
+    if (r.desiredSpec) {
+      console.log();
+      console.log(chalk.gray('Desired spec:'), JSON.stringify(r.desiredSpec, null, 2));
+    }
+    console.log();
+    console.log(chalk.gray('Created:  '), new Date(r.createdAt).toLocaleString());
+    console.log(chalk.gray('Updated:  '), new Date(r.updatedAt).toLocaleString());
+    if (r.destroyedAt) {
+      console.log(chalk.gray('Destroyed:'), new Date(r.destroyedAt).toLocaleString());
+    }
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}

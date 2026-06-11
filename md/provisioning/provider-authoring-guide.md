@@ -86,6 +86,20 @@ The control plane writes `ApplyResult.resources` to the `ProvisionedResource` ta
 
 ---
 
+## Resources as Durable State
+
+Resources are the canonical source of provisioned infrastructure state. Operations are transient — they execute, succeed or fail, and end. Resources are durable — they persist across operations and represent the actual infrastructure that exists.
+
+When your `apply()` method returns `{ resources, ... }`, the platform writes those resources to the database. Subsequent operations for the same project read from this resource table to understand current state before planning the next diff.
+
+Key implications for provider authors:
+- Return all resources the provider manages after every apply, not just new ones.
+- Set `externalId` to the cloud provider's resource ID — this is the link to real infrastructure.
+- Set `actualSpec` to the observed state returned by the provider API, not the desired spec. These may differ (e.g. auto-assigned IP addresses).
+- Never expose `rollbackSpec` in your public API surface — it is a platform internal used for rollback orchestration.
+
+---
+
 ## Dry-Run Semantics
 
 When `input.dryRun === true`, skip all mutating API calls and return an empty or mocked result. The contract:

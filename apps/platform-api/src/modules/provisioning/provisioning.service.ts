@@ -16,6 +16,7 @@ import { OperationEventsPage } from './dto/operation-events-page.dto';
 import { ListOperationEventsQuery } from './dto/list-operation-events.query';
 import { ProviderRegistry } from './providers/provider-registry.service';
 import { SetProjectProviderDto } from './dto/set-project-provider.dto';
+import { ListProjectResourcesQuery } from './dto/list-project-resources.query';
 
 // ── Response types ────────────────────────────────────────
 
@@ -88,6 +89,31 @@ function toGetResourceResponse(
     actualSpec: (row.actualSpec ?? null) as Record<string, unknown> | null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toResourceDetail(
+  r: {
+    id: string; kind: string; name: string; status: string;
+    externalId: string | null; desiredSpec: any; actualSpec: any;
+    destroyedAt: Date | null; createdAt: Date; updatedAt: Date;
+  },
+  projectId: string,
+  provider: string,
+) {
+  return {
+    id: r.id,
+    projectId,
+    provider,
+    resourceType: r.kind,
+    name: r.name,
+    externalId: r.externalId ?? null,
+    status: r.status,
+    desiredSpec: r.desiredSpec,
+    actualSpec: r.actualSpec ?? null,
+    destroyedAt: r.destroyedAt ? r.destroyedAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
   };
 }
 
@@ -565,6 +591,111 @@ export class ProvisioningService {
     });
 
     return rows.map((r) => toGetResourceResponse(r, projectId));
+  }
+
+  async listProjectResources(
+    userId: string,
+    projectId: string,
+    query: ListProjectResourcesQuery = {},
+  ) {
+    const limit = query.limit ?? 50;
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Project not found');
+
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId },
+      select: { id: true, provider: true },
+    });
+    if (!pp) return { items: [], nextCursor: null };
+
+    // Provider filter — project has exactly one provider
+    if (query.provider && pp.provider !== query.provider) {
+      return { items: [], nextCursor: null };
+    }
+
+    const baseWhere: any = { provisioningProjectId: pp.id };
+    if (query.status) {
+      baseWhere.status = query.status;
+    } else {
+      baseWhere.destroyedAt = null; // default: exclude destroyed
+    }
+
+    let cursorFilter = {};
+    if (query.cursor) {
+      const decoded = decodeCursor(query.cursor);
+      cursorFilter = {
+        OR: [
+          { createdAt: { gt: decoded.createdAt } },
+          { createdAt: { equals: decoded.createdAt }, id: { gt: decoded.id } },
+        ],
+      };
+    }
+
+    const rows = await this.prisma.provisioningResource.findMany({
+      where: { ...baseWhere, ...cursorFilter },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+      select: {
+        id: true, kind: true, name: true, status: true,
+        externalId: true, desiredSpec: true, actualSpec: true,
+        destroyedAt: true, createdAt: true, updatedAt: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore
+      ? encodeCursor({ createdAt: items[items.length - 1].createdAt, id: items[items.length - 1].id })
+      : null;
+
+    return {
+      items: items.map((r) => toResourceDetail(r as any, projectId, pp.provider)),
+      nextCursor,
+    };
+  }
+
+  async getResource(userId: string, resourceId: string) {
+    const resource = await this.prisma.provisioningResource.findUnique({
+      where: { id: resourceId },
+      select: {
+        id: true, kind: true, name: true, status: true,
+        externalId: true, desiredSpec: true, actualSpec: true,
+        destroyedAt: true, createdAt: true, updatedAt: true,
+        provisioningProject: {
+          select: {
+            projectId: true,
+            provider: true,
+            project: { select: { teamId: true } },
+          },
+        },
+      },
+    });
+    if (!resource) throw new NotFoundException('Resource not found');
+
+    const member = await this.prisma.teamMember.findUnique({
+      where: {
+        teamId_userId: {
+          teamId: resource.provisioningProject.project.teamId,
+          userId,
+        },
+      },
+    });
+    if (!member) throw new NotFoundException('Resource not found');
+
+    return toResourceDetail(
+      resource as any,
+      resource.provisioningProject.projectId,
+      resource.provisioningProject.provider,
+    );
   }
 
   // ── List + project status ─────────────────────────────────

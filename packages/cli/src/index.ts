@@ -380,6 +380,33 @@ credentials
     await revokeCredentialRef(credentialRefId);
   });
 
+// ── Provisioning — resources ────────────────────────────────
+
+const resources = program
+  .command('resources')
+  .description('List and inspect provisioned resources');
+
+resources
+  .command('list')
+  .description('List provisioned resources for a project')
+  .requiredOption('--project-id <id>', 'Project ID')
+  .option('--status <status>', 'Filter by status (ACTIVE|PENDING|DESTROYED|ERROR)')
+  .option('--provider <provider>', 'Filter by provider (e.g. hetzner, docker)')
+  .option('--limit <n>', 'Maximum number of results (1–100)')
+  .option('--cursor <cursor>', 'Pagination cursor from a previous response')
+  .action(async (options) => {
+    const { listResources } = await import('./commands/provisioning.js');
+    await listResources(options);
+  });
+
+resources
+  .command('get <resourceId>')
+  .description('Get details of a provisioned resource')
+  .action(async (resourceId) => {
+    const { getResource } = await import('./commands/provisioning.js');
+    await getResource(resourceId);
+  });
+
 program.parseAsync().then(() => {
   // Ensure the process exits even when axios HTTP keep-alive connections
   // are still open (they hold the event loop alive indefinitely).

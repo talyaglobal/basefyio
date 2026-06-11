@@ -63,4 +63,7 @@ export type {
   ProvisioningAuditEvent,
   ProvisioningEventPage,
   ListOperationEventsOptions,
+  ResourceDetail,
+  ResourcePage,
+  ListResourcesOptions,
 } from './lib/types.js';

@@ -94,6 +94,7 @@ function makePrisma(projectModules: Record<string, unknown> = {}) {
     provisioningResource: {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({}),
@@ -1287,6 +1288,132 @@ describe('Provisioning controller — integration', () => {
       await request(app.getHttpServer())
         .patch(`/v1/provisioning/projects/${PROJECT_ID}/provider`)
         .send({ provider: 'hetzner' })
+        .expect(404);
+    });
+  });
+
+  // ── 12. GET /projects/:projectId/resources — paginated resource list ────────
+
+  describe('GET /v1/provisioning/projects/:projectId/resources', () => {
+    const resourceRow = {
+      id: 'res-001',
+      kind: 'server',
+      name: 'web-1',
+      status: 'ACTIVE',
+      externalId: 'ext-123',
+      desiredSpec: { serverType: 'cx11' },
+      actualSpec: { ip: '1.2.3.4' },
+      destroyedAt: null,
+      createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 1)),
+      updatedAt: new Date(Date.UTC(2026, 5, 11, 0, 1, 0)),
+    };
+
+    it('returns 200 with { items, nextCursor } when resources exist', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningResource.findMany.mockResolvedValue([resourceRow]);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/projects/${PROJECT_ID}/resources`)
+        .expect(200);
+
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.nextCursor).toBeNull();
+    });
+
+    it('returns empty items array when no provisioning project', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/projects/${PROJECT_ID}/resources`)
+        .expect(200);
+
+      expect(res.body.items).toEqual([]);
+    });
+
+    it('nextCursor present when more than limit rows', async () => {
+      const rows = [
+        { ...resourceRow, id: 'res-001', createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 1)) },
+        { ...resourceRow, id: 'res-002', createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 2)) },
+        { ...resourceRow, id: 'res-003', createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 3)) },
+      ];
+      const prisma = makePrisma();
+      prisma.provisioningResource.findMany.mockResolvedValue(rows);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/provisioning/projects/${PROJECT_ID}/resources`)
+        .query({ limit: 2 })
+        .expect(200);
+
+      expect(res.body.items).toHaveLength(2);
+      expect(res.body.nextCursor).not.toBeNull();
+    });
+
+    it('returns 400 when limit > 100', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/projects/${PROJECT_ID}/resources`)
+        .query({ limit: 101 })
+        .expect(400);
+    });
+
+    it('returns 400 when limit < 1', async () => {
+      app = await buildApp(makePrisma(), makeRegistry());
+
+      await request(app.getHttpServer())
+        .get(`/v1/provisioning/projects/${PROJECT_ID}/resources`)
+        .query({ limit: 0 })
+        .expect(400);
+    });
+  });
+
+  // ── 13. GET /resources/:id — resource detail ─────────────────────────────
+
+  describe('GET /v1/provisioning/resources/:id', () => {
+    const resourceRow = {
+      id: 'res-001',
+      kind: 'server',
+      name: 'web-1',
+      status: 'ACTIVE',
+      externalId: 'ext-123',
+      desiredSpec: { serverType: 'cx11' },
+      actualSpec: { ip: '1.2.3.4' },
+      destroyedAt: null,
+      createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 1)),
+      updatedAt: new Date(Date.UTC(2026, 5, 11, 0, 1, 0)),
+      provisioningProject: {
+        projectId: PROJECT_ID,
+        provider: 'noop',
+        project: { teamId: TEAM_ID },
+      },
+    };
+
+    it('returns 200 with resource detail', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningResource.findUnique.mockResolvedValue(resourceRow);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/resources/res-001')
+        .expect(200);
+
+      expect(res.body.id).toBe('res-001');
+      expect(res.body.resourceType).toBe('server');
+      expect(res.body.provider).toBe('noop');
+      expect(res.body.projectId).toBe(PROJECT_ID);
+    });
+
+    it('returns 404 when resource not found', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningResource.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .get('/v1/provisioning/resources/missing-res')
         .expect(404);
     });
   });

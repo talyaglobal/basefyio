@@ -26,7 +26,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
       findUnique: jest.fn(),
       create: jest.fn(),
     },
-    provisioningResource: { findMany: jest.fn() },
+    provisioningResource: { findMany: jest.fn(), findUnique: jest.fn() },
     provisioningAuditEvent: {
       create: jest.fn().mockResolvedValue({}),
       findMany: jest.fn().mockResolvedValue([]),
@@ -966,5 +966,169 @@ describe('ProvisioningService.setProjectProvider', () => {
     prisma.teamMember.findUnique.mockResolvedValue(null); // not a member
     const svc = new ProvisioningService(prisma as any, makeRegistry());
     await expect(svc.setProjectProvider(USER_ID, PROJECT_ID_LOCAL, { provider: 'hetzner' })).rejects.toThrow(NotFoundException);
+  });
+});
+
+// ── ProvisioningService.listProjectResources ──────────────────
+
+describe('ProvisioningService.listProjectResources', () => {
+  function stubResourceRow(seq: number) {
+    return {
+      id: `res-${seq.toString().padStart(3, '0')}`,
+      kind: 'server',
+      name: `web-${seq}`,
+      status: 'ACTIVE',
+      externalId: `ext-${seq}`,
+      desiredSpec: { serverType: 'cx11' },
+      actualSpec: { ip: `1.2.3.${seq}` },
+      destroyedAt: null,
+      createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, seq)),
+      updatedAt: new Date(Date.UTC(2026, 5, 11, 0, 1, seq)),
+    };
+  }
+
+  it('returns { items: [], nextCursor: null } when no provisioning project exists', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningProject.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    const result = await svc.listProjectResources(USER_ID, PROJECT_ID);
+
+    expect(result).toEqual({ items: [], nextCursor: null });
+    expect(prisma.provisioningResource.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns items when resources exist', async () => {
+    const rows = [stubResourceRow(1), stubResourceRow(2)];
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID, provider: 'noop' });
+    prisma.provisioningResource.findMany.mockResolvedValue(rows);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    const result = await svc.listProjectResources(USER_ID, PROJECT_ID);
+
+    expect(result.items).toHaveLength(2);
+    expect(result.nextCursor).toBeNull();
+    expect(result.items[0].resourceType).toBe('server');
+    expect(result.items[0].provider).toBe('noop');
+    expect(result.items[0].projectId).toBe(PROJECT_ID);
+  });
+
+  it('provider filter: returns empty when query.provider !== pp.provider', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID, provider: 'hetzner' });
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    const result = await svc.listProjectResources(USER_ID, PROJECT_ID, { provider: 'docker' });
+
+    expect(result).toEqual({ items: [], nextCursor: null });
+    expect(prisma.provisioningResource.findMany).not.toHaveBeenCalled();
+  });
+
+  it('status filter: passes status to findMany where clause', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID, provider: 'noop' });
+    prisma.provisioningResource.findMany.mockResolvedValue([]);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await svc.listProjectResources(USER_ID, PROJECT_ID, { status: 'DESTROYED' });
+
+    const whereArg = prisma.provisioningResource.findMany.mock.calls[0][0].where;
+    expect(whereArg.status).toBe('DESTROYED');
+    expect(whereArg.destroyedAt).toBeUndefined();
+  });
+
+  it('nextCursor returned when findMany returns limit+1 rows', async () => {
+    const rows = [stubResourceRow(1), stubResourceRow(2), stubResourceRow(3)];
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(stubProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID, provider: 'noop' });
+    prisma.provisioningResource.findMany.mockResolvedValue(rows);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    const result = await svc.listProjectResources(USER_ID, PROJECT_ID, { limit: 2 });
+
+    expect(result.items).toHaveLength(2);
+    expect(result.nextCursor).not.toBeNull();
+    expect(typeof result.nextCursor).toBe('string');
+  });
+
+  it('throws NotFoundException when project not found', async () => {
+    const prisma = makePrisma();
+    prisma.project.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await expect(
+      svc.listProjectResources(USER_ID, 'missing'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+// ── ProvisioningService.getResource ──────────────────────────
+
+describe('ProvisioningService.getResource', () => {
+  function stubResourceWithProject() {
+    return {
+      id: 'res-001',
+      kind: 'server',
+      name: 'web-1',
+      status: 'ACTIVE',
+      externalId: 'ext-123',
+      desiredSpec: { serverType: 'cx11' },
+      actualSpec: { ip: '1.2.3.4' },
+      destroyedAt: null,
+      createdAt: new Date(Date.UTC(2026, 5, 11, 0, 0, 1)),
+      updatedAt: new Date(Date.UTC(2026, 5, 11, 0, 1, 0)),
+      provisioningProject: {
+        projectId: PROJECT_ID,
+        provider: 'noop',
+        project: { teamId: TEAM_ID },
+      },
+    };
+  }
+
+  it('returns resource detail with projectId and provider from provisioningProject join', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findUnique.mockResolvedValue(stubResourceWithProject());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    const result = await svc.getResource(USER_ID, 'res-001');
+
+    expect(result.id).toBe('res-001');
+    expect(result.projectId).toBe(PROJECT_ID);
+    expect(result.provider).toBe('noop');
+    expect(result.resourceType).toBe('server');
+    expect(result.status).toBe('ACTIVE');
+  });
+
+  it('throws NotFoundException when resource not found', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await expect(
+      svc.getResource(USER_ID, 'missing-res'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException when user not a team member', async () => {
+    const prisma = makePrisma();
+    prisma.provisioningResource.findUnique.mockResolvedValue(stubResourceWithProject());
+    prisma.teamMember.findUnique.mockResolvedValue(null);
+
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await expect(
+      svc.getResource(USER_ID, 'res-001'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

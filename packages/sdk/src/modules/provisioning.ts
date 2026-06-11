@@ -14,6 +14,9 @@ import type {
   ProvisioningAuditEvent,
   ProvisioningEventPage,
   ListOperationEventsOptions,
+  ResourceDetail,
+  ResourcePage,
+  ListResourcesOptions,
 } from '../lib/types.js';
 
 const BASE = '/v1/provisioning';
@@ -170,13 +173,28 @@ export class ProvisioningClient {
 
   async listResources(
     projectId: string,
-    options: { includeDestroyed?: boolean } = {},
-  ): Promise<BasefyioResponse<ProvisioningResource[]>> {
+    options: ListResourcesOptions = {},
+  ): Promise<BasefyioResponse<ResourcePage>> {
     try {
-      const params = new URLSearchParams({ projectId });
-      if (options.includeDestroyed) params.set('includeDestroyed', 'true');
-      const data = await this.http.json<ProvisioningResource[]>(
-        `${BASE}/resources?${params}`,
+      const params = new URLSearchParams();
+      if (options.status) params.set('status', options.status);
+      if (options.provider) params.set('provider', options.provider);
+      if (options.limit != null) params.set('limit', String(options.limit));
+      if (options.cursor) params.set('cursor', options.cursor);
+      const qs = params.toString();
+      const data = await this.http.json<ResourcePage>(
+        `${BASE}/projects/${encodeURIComponent(projectId)}/resources${qs ? `?${qs}` : ''}`,
+      );
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async getResource(resourceId: string): Promise<BasefyioResponse<ResourceDetail>> {
+    try {
+      const data = await this.http.json<ResourceDetail>(
+        `${BASE}/resources/${encodeURIComponent(resourceId)}`,
       );
       return { data, error: null };
     } catch (err: any) {

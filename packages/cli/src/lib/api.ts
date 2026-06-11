@@ -327,6 +327,30 @@ export class ApiClient {
     return data as { events: any[]; nextCursor: string | null };
   }
 
+  // Provisioning — resources
+  async listProvisioningResources(
+    projectId: string,
+    opts: { status?: string; provider?: string; limit?: number; cursor?: string } = {},
+  ) {
+    const params: Record<string, any> = { projectId };
+    if (opts.status) params.status = opts.status;
+    if (opts.provider) params.provider = opts.provider;
+    if (opts.limit != null) params.limit = opts.limit;
+    if (opts.cursor) params.cursor = opts.cursor;
+    const { data } = await this.client.get(
+      `/api/v1/provisioning/projects/${encodeURIComponent(projectId)}/resources`,
+      { params },
+    );
+    return data as { items: any[]; nextCursor: string | null };
+  }
+
+  async getProvisioningResource(resourceId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/provisioning/resources/${encodeURIComponent(resourceId)}`,
+    );
+    return data as any;
+  }
+
   // Provisioning — credential refs
   async createProvisioningCredentialRef(body: { teamId: string; label: string; openbaoPath: string; provider?: string }) {
     const { data } = await this.client.post('/api/v1/provisioning/credentials', body);

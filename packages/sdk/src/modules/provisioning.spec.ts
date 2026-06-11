@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProvisioningClient } from './provisioning.js';
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import type { ResourceDetail } from '../lib/types.js';
 
 // ── Minimal fetch client stub ─────────────────────────────────────────────────
 
@@ -196,26 +197,119 @@ describe('ProvisioningClient.executeOperation', () => {
 
 // ── listResources ─────────────────────────────────────────────────────────────
 
+const mockResource: ResourceDetail = {
+  id: 'res-001',
+  projectId: 'proj-abc',
+  provider: 'hetzner',
+  resourceType: 'server',
+  name: 'web-1',
+  externalId: 'ext-123',
+  status: 'ACTIVE',
+  desiredSpec: { serverType: 'cx11' },
+  actualSpec: { ip: '1.2.3.4' },
+  destroyedAt: null,
+  createdAt: '2026-06-11T00:00:01.000Z',
+  updatedAt: '2026-06-11T00:01:00.000Z',
+};
+
 describe('ProvisioningClient.listResources', () => {
-  it('GETs /v1/provisioning/resources?projectId=...', async () => {
-    const http = makeHttp({ json: vi.fn().mockResolvedValue([]) });
+  it('GETs /v1/provisioning/projects/:projectId/resources', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ items: [mockResource], nextCursor: null }) });
     const client = new ProvisioningClient(http);
 
-    await client.listResources(PROJECT_ID);
+    const res = await client.listResources(PROJECT_ID);
 
     const url: string = (http.json as any).mock.calls[0][0];
-    expect(url).toContain(`projectId=${PROJECT_ID}`);
-    expect(url).not.toContain('includeDestroyed');
+    expect(url).toContain(`/projects/${PROJECT_ID}/resources`);
+    expect(res.data?.items).toEqual([mockResource]);
+    expect(res.data?.nextCursor).toBeNull();
+    expect(res.error).toBeNull();
   });
 
-  it('appends includeDestroyed=true when option is set', async () => {
-    const http = makeHttp({ json: vi.fn().mockResolvedValue([]) });
+  it('returns paginated resource page with nextCursor', async () => {
+    const page = { items: [mockResource], nextCursor: 'cursor-xyz' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(page) });
     const client = new ProvisioningClient(http);
 
-    await client.listResources(PROJECT_ID, { includeDestroyed: true });
+    const res = await client.listResources(PROJECT_ID);
+
+    expect(res.data?.nextCursor).toBe('cursor-xyz');
+  });
+
+  it('appends status filter when provided', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ items: [], nextCursor: null }) });
+    const client = new ProvisioningClient(http);
+
+    await client.listResources(PROJECT_ID, { status: 'ACTIVE' });
 
     const url: string = (http.json as any).mock.calls[0][0];
-    expect(url).toContain('includeDestroyed=true');
+    expect(url).toContain('status=ACTIVE');
+  });
+
+  it('appends provider filter when provided', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ items: [], nextCursor: null }) });
+    const client = new ProvisioningClient(http);
+
+    await client.listResources(PROJECT_ID, { provider: 'hetzner' });
+
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toContain('provider=hetzner');
+  });
+
+  it('appends limit and cursor when provided', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ items: [], nextCursor: null }) });
+    const client = new ProvisioningClient(http);
+
+    await client.listResources(PROJECT_ID, { limit: 10, cursor: 'abc' });
+
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toContain('limit=10');
+    expect(url).toContain('cursor=abc');
+  });
+
+  it('returns error shape on failure', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Forbidden', status: 403 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.listResources(PROJECT_ID);
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(403);
+  });
+});
+
+// ── getResource ───────────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.getResource', () => {
+  it('returns resource detail on success', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockResource) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getResource(mockResource.id);
+
+    expect(res.data).toEqual(mockResource);
+    expect(res.error).toBeNull();
+  });
+
+  it('passes resourceId in the URL', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockResource) });
+    const client = new ProvisioningClient(http);
+
+    await client.getResource('res-001');
+
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toBe('/v1/provisioning/resources/res-001');
+  });
+
+  it('returns error shape on 404', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Not found', status: 404 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.getResource('missing-res');
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(404);
+    expect(res.error?.message).toBe('Not found');
   });
 });
 

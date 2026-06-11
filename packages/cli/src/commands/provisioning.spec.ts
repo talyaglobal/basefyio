@@ -11,6 +11,8 @@ const { mockApiClient } = vi.hoisted(() => {
     createProvisioningCredentialRef: vi.fn(),
     listProvisioningCredentialRefs: vi.fn(),
     revokeProvisioningCredentialRef: vi.fn(),
+    listProvisioningResources: vi.fn(),
+    getProvisioningResource: vi.fn(),
   };
   return { mockApiClient };
 });
@@ -48,6 +50,8 @@ import {
   revokeCredentialRef,
   watchOperation,
   logsOperation,
+  listResources,
+  getResource,
 } from './provisioning.js';
 
 import { success, info, error, printTable } from '../lib/ui.js';
@@ -378,5 +382,79 @@ describe('logsOperation', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('cursor-xyz');
     consoleSpy.mockRestore();
+  });
+});
+
+// ── listResources ─────────────────────────────────────────────────────────────
+
+describe('listResources', () => {
+  const resource = {
+    id: 'res-001',
+    resourceType: 'server',
+    name: 'web-1',
+    status: 'ACTIVE',
+    externalId: 'ext-123',
+    createdAt: new Date().toISOString(),
+  };
+
+  it('renders resource table when resources exist', async () => {
+    mockApiClient.listProvisioningResources.mockResolvedValue({ items: [resource], nextCursor: null });
+
+    await listResources({ projectId: 'proj-abc' });
+
+    expect(mockApiClient.listProvisioningResources).toHaveBeenCalledWith('proj-abc', expect.any(Object));
+    expect(printTable).toHaveBeenCalled();
+  });
+
+  it('shows info when no resources', async () => {
+    mockApiClient.listProvisioningResources.mockResolvedValue({ items: [], nextCursor: null });
+
+    await listResources({ projectId: 'proj-abc' });
+
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('No resources'));
+  });
+
+  it('shows nextCursor hint when more pages exist', async () => {
+    mockApiClient.listProvisioningResources.mockResolvedValue({ items: [resource], nextCursor: 'cursor-xyz' });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await listResources({ projectId: 'proj-abc' });
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('cursor-xyz');
+    consoleSpy.mockRestore();
+  });
+});
+
+// ── getResource ──────────────────────────────────────────────────────────────
+
+describe('getResource', () => {
+  const resource = {
+    id: 'res-001',
+    resourceType: 'server',
+    name: 'web-1',
+    status: 'ACTIVE',
+    provider: 'hetzner',
+    projectId: 'proj-abc',
+    externalId: 'ext-123',
+    desiredSpec: { serverType: 'cx11' },
+    actualSpec: { ip: '1.2.3.4' },
+    destroyedAt: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  it('prints resource detail', async () => {
+    mockApiClient.getProvisioningResource.mockResolvedValue(resource);
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await getResource('res-001');
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('ACTIVE');
+    consoleSpy.mockRestore();
+  });
+
+  it('calls handleApiError on 404', async () => {
+    const err = Object.assign(new Error('Not Found'), { status: 404 });
+    mockApiClient.getProvisioningResource.mockRejectedValue(err);
+    await expect(getResource('res-001')).rejects.toThrow('Not Found');
+    expect(handleApiError).toHaveBeenCalledWith(err);
   });
 });
