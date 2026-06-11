@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     path: `/integrations/${i.slug}`,
     title: i.title,
     description: i.description,
-    keywords: [`${i.name} backend`, `basefyio ${i.name}`, `${i.name} PostgreSQL`],
+    keywords: [`${i.name} backend`, `basefyio ${i.name}`, `${i.name} database`],
   });
 }
 
@@ -135,7 +135,7 @@ export default async function IntegrationPage({ params }: Params) {
               Build your {i.name} backend on basefyio
             </h2>
             <p className="mt-1 text-muted-foreground">
-              PostgreSQL, auth, storage, and a REST API — running in minutes.
+              database, auth, storage, and a REST API — running in minutes.
             </p>
           </div>
           <Link

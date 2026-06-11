@@ -14,9 +14,9 @@ export const SITE = {
   lang: "en",
   twitter: "@basefyio",
   defaultTitle:
-    "basefyio — PostgreSQL BaaS & REST API for Developers",
+    "basefyio — Backend-as-a-Service & REST API for Developers",
   defaultDescription:
-    "basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.",
+    "basefyio: hosted database, auth, storage, and auto REST API for developers. SDK, CLI, powerful query syntax. Ship backends in minutes.",
   /** Path (relative to site root) of the default social share image. */
   defaultOgImage: "/og-image.png",
   keywords: [
@@ -24,14 +24,14 @@ export const SITE = {
     "backend as a service",
     "BaaS",
     "developer backend",
-    "PostgreSQL API",
+    "Database API",
     "REST API",
     "JavaScript SDK",
     "TypeScript SDK",
     "authentication API",
-    "hosted postgres",
-    "PostgREST compatible",
-    "hosted PostgreSQL",
+    "hosted database",
+    "REST API",
+    "hosted database",
     "no-code backend",
     "CLI database",
   ],

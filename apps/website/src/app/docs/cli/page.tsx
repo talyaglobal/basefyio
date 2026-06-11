@@ -35,7 +35,7 @@ export default function CliDocs() {
 
       <p>
         Log in to your basefyio account. The CLI opens your default browser,
-        where you authenticate via Keycloak. After signing in you are shown a
+        where you authenticate via auth service. After signing in you are shown a
         confirmation page — click <strong>Allow access</strong> to connect the
         CLI to your account, or <strong>Cancel</strong> to abort. The browser
         tab can be closed once the terminal confirms you are logged in.
@@ -200,7 +200,7 @@ basefyio logs --tail 50`}</code></pre>
 basefyio secrets list
 
 # Set
-basefyio secrets set DATABASE_URL "postgres://..."
+basefyio secrets set DATABASE_URL "database://..."
 
 # Remove
 basefyio secrets unset DATABASE_URL`}</code></pre>

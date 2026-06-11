@@ -3,7 +3,7 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "basefyio REST API: authentication headers, PostgREST-style queries, storage, and project-scoped endpoints.";
+  "basefyio REST API: authentication headers, auto-generated queries, storage, and project-scoped endpoints.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/api", {
@@ -53,9 +53,9 @@ export default function ApiDocs() {
       </table>
 
       {/* ── Public REST API ─────────────────────────── */}
-      <h2>Public REST API (PostgREST-style)</h2>
+      <h2>Public REST API (Auto-generated)</h2>
       <p>
-        These endpoints use the API key and follow a PostgREST-style query
+        These endpoints use the API key and follow an auto-generated query
         interface. Base path: <code>/api/rest/v1</code>.
       </p>
 
@@ -147,7 +147,7 @@ Body: { "otp": "123456" }`}</code></pre>
   — Returns: { url } — redirect user to this URL
 
 GET /api/rest/v1/auth/callback/:projectId/:provider
-  — Keycloak redirects here after OAuth
+  — auth service redirects here after OAuth
   — Redirects to your app with tokens in URL hash`}</code></pre>
 
       <h3>Refresh Token</h3>

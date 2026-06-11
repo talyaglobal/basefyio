@@ -28,13 +28,13 @@ const STEPS = [
   {
     num: "02",
     label: "Database",
-    pill: "postgres",
+    pill: "database",
     mock: (
       <>
-        <div className="mock-head">postgres &middot; cluster</div>
+        <div className="mock-head">database &middot; cluster</div>
         <div className="mock-row">
           <span className="mk">engine</span>
-          <span className="mv">Postgres 16</span>
+          <span className="mv">Database engine</span>
         </div>
         <div className="mock-row">
           <span className="mk">isolation</span>
@@ -54,10 +54,10 @@ const STEPS = [
   {
     num: "03",
     label: "REST API",
-    pill: "postgREST",
+    pill: "REST API",
     mock: (
       <>
-        <div className="mock-head">postgREST &middot; endpoints</div>
+        <div className="mock-head">REST API &middot; endpoints</div>
         <div className="mock-row">
           <span className="mk">GET</span>
           <span className="mv">/users</span>
@@ -80,10 +80,10 @@ const STEPS = [
   {
     num: "04",
     label: "Authentication",
-    pill: "keycloak",
+    pill: "auth",
     mock: (
       <>
-        <div className="mock-head">auth &middot; keycloak</div>
+        <div className="mock-head">auth &middot; realm</div>
         <div className="mock-row">
           <span className="mk">email/pass</span>
           <span className="mt">enabled &#10003;</span>

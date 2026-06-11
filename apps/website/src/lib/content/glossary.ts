@@ -36,7 +36,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "A backend-as-a-service removes the undifferentiated work of standing up a backend. Instead of wiring a database, an auth system, file storage, and an API layer yourself, a BaaS exposes them as managed services you configure and call.",
       "Typical BaaS features include a hosted database, user authentication (email and OAuth), object storage for files, and an automatically generated API. Many also offer serverless functions, realtime updates, and an admin dashboard.",
-      "BaaS is most valuable when the backend is undifferentiated work — most apps need the same accounts, data, and storage plumbing. Teams building on standard technologies like PostgreSQL also keep portability, avoiding lock-in.",
+      "BaaS is most valuable when the backend is undifferentiated work — most apps need the same accounts, data, and storage plumbing. Teams building on standard technologies like SQL databases also keep portability, avoiding lock-in.",
     ],
     related: ["rest-api", "row-level-security", "object-storage", "multi-tenancy"],
     seeAlso: [
@@ -55,26 +55,26 @@ export const GLOSSARY: GlossaryTerm[] = [
       "A key advantage of REST is caching: GET responses cache at the browser, CDN, and proxy layers with no extra work. This makes REST APIs fast and scalable for read-heavy workloads.",
       "Modern REST APIs can be generated directly from a database schema, adding filtering, ordering, pagination, and related-resource embedding without hand-written controllers.",
     ],
-    related: ["postgrest", "crud", "api-key", "webhook"],
+    related: ["rest-api", "crud", "api-key", "webhook"],
     seeAlso: [
-      { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
   {
-    slug: "postgrest",
-    term: "PostgREST",
+    slug: "rest-api",
+    term: "Auto-generated REST API",
     definition:
-      "PostgREST is an approach (and tool) that turns a PostgreSQL database directly into a RESTful API, generating endpoints from your schema and enforcing access with database permissions.",
+      "An auto-generated REST API turns a database directly into a RESTful API, generating endpoints from your schema and enforcing access with database permissions.",
     body: [
-      "PostgREST and PostgREST-style APIs expose your PostgreSQL tables and views as REST endpoints automatically. Querying, filtering, ordering, and pagination are driven by the URL, so you don't write CRUD controllers.",
-      "Security stays in the database: PostgreSQL roles and row-level security policies determine what each request can read or write, rather than scattering permission checks across application code.",
+      "Auto-generated APIs expose your database tables and views as REST endpoints automatically. Querying, filtering, ordering, and pagination are driven by the URL, so you don't write CRUD controllers.",
+      "Security stays in the database: database roles and row-level security policies determine what each request can read or write, rather than scattering permission checks across application code.",
       "This pattern dramatically reduces backend boilerplate while keeping standard SQL as the single source of truth for both data and access control.",
     ],
     related: ["rest-api", "row-level-security", "database-schema", "crud"],
     seeAlso: [
-      { label: "REST API on PostgreSQL without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
@@ -83,16 +83,16 @@ export const GLOSSARY: GlossaryTerm[] = [
     term: "Row-Level Security",
     aka: "RLS",
     definition:
-      "Row-level security (RLS) is a PostgreSQL feature that restricts which rows a user can read or modify using policies enforced by the database on every query.",
+      "Row-level security (RLS) is a database feature that restricts which rows a user can read or modify using policies enforced by the database on every query.",
     body: [
-      "With RLS, you attach policies to a table. Each policy is a SQL expression that decides which rows are visible or writable for the current user. Once enabled, PostgreSQL applies it automatically to every query.",
+      "With RLS, you attach policies to a table. Each policy is a SQL expression that decides which rows are visible or writable for the current user. Once enabled, the database applies it automatically to every query.",
       "RLS is the foundation of secure multi-tenancy and per-user access. A single policy keyed on a tenant or owner column guarantees isolation no matter which client — API, SQL console, or background job — runs the query.",
       "Because the rule lives in the database, you define access control once instead of re-checking it in every endpoint, eliminating a whole class of data-leak bugs.",
     ],
-    related: ["multi-tenancy", "postgrest", "acid-transactions", "database-schema"],
+    related: ["multi-tenancy", "rest-api", "acid-transactions", "database-schema"],
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
-      { label: "PostgreSQL row-level security: a practical guide", href: "/blog/postgresql-row-level-security-guide" },
+      { label: "Row-level security: a practical guide", href: "/blog/row-level-security-guide" },
     ],
   },
   {
@@ -102,7 +102,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Object storage is a system for storing files (images, documents, backups) as objects with metadata, typically accessed over an S3-compatible API and served via signed URLs.",
     body: [
       "Unlike a traditional file system, object storage manages data as discrete objects in a flat namespace, each with a unique key and metadata. It scales to huge numbers of files and is the standard way apps store user uploads and media.",
-      "The S3 API has become the de facto interface, and S3-compatible servers like MinIO let you run object storage on your own infrastructure with the same client libraries.",
+      "The S3 API has become the de facto interface, and S3-compatible servers let you run object storage on your own infrastructure with the same client libraries.",
       "Access is usually controlled with signed URLs — time-limited links that grant temporary access to a private object without exposing credentials.",
     ],
     related: ["backend-as-a-service", "api-key", "webhook"],
@@ -170,7 +170,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Hand-writing CRUD endpoints for every table is repetitive and error-prone, which is why auto-generated APIs that derive CRUD from the database schema have become popular.",
       "Good CRUD design also considers validation, access control, and consistency — concerns best enforced close to the data, in the database.",
     ],
-    related: ["rest-api", "postgrest", "database-schema"],
+    related: ["rest-api", "rest-api", "database-schema"],
   },
   {
     slug: "connection-pooling",
@@ -178,9 +178,9 @@ export const GLOSSARY: GlossaryTerm[] = [
     definition:
       "Connection pooling reuses a set of open database connections across many requests, avoiding the cost of opening a new connection each time and protecting the database from overload.",
     body: [
-      "Opening a PostgreSQL connection is relatively expensive, and the database has a finite connection limit. A pool keeps a fixed number of connections open and hands them out to requests as needed.",
+      "Opening a database connection is relatively expensive, and the database has a finite connection limit. A pool keeps a fixed number of connections open and hands them out to requests as needed.",
       "Pooling is essential for serverless and high-concurrency apps, where thousands of short-lived requests would otherwise exhaust the database's connections.",
-      "Poolers like PgBouncer sit between the app and PostgreSQL, multiplexing many client connections onto fewer database connections.",
+      "Poolers like PgBouncer sit between the app and the database, multiplexing many client connections onto fewer server connections.",
     ],
     related: ["serverless-database", "database-index", "acid-transactions"],
   },
@@ -208,7 +208,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "Migrations capture schema changes as ordered scripts checked into version control, so every environment — local, staging, production — can be brought to the same state reproducibly.",
       "Good migration practice includes making changes backward-compatible where possible, testing rollbacks, and running migrations as part of deployment.",
-      "Because migrations are SQL against standard PostgreSQL, they remain portable and transparent rather than hidden behind a proprietary abstraction.",
+      "Because migrations are SQL against the database, they remain portable and transparent rather than hidden behind a proprietary abstraction.",
     ],
     related: ["database-schema", "acid-transactions", "serverless-database"],
   },
@@ -218,11 +218,11 @@ export const GLOSSARY: GlossaryTerm[] = [
     definition:
       "A database schema is the structure of a database — its tables, columns, types, relationships, and constraints — that defines how data is organized and validated.",
     body: [
-      "The schema is the blueprint of your data. In PostgreSQL it includes tables and columns, data types, primary and foreign keys, indexes, and constraints that enforce integrity.",
+      "The schema is the blueprint of your data. It includes tables and columns, data types, primary and foreign keys, indexes, and constraints that enforce integrity.",
       "A well-designed relational schema models real relationships with foreign keys, preventing inconsistent data at the source instead of relying on application code.",
-      "With PostgREST-style tooling, the schema also becomes the API surface — adding a table instantly exposes a corresponding endpoint.",
+      "With auto-generated REST API tooling, the schema also becomes the API surface — adding a table instantly exposes a corresponding endpoint.",
     ],
-    related: ["database-index", "crud", "postgrest", "database-migration"],
+    related: ["database-index", "crud", "rest-api", "database-migration"],
   },
   {
     slug: "database-index",
@@ -231,7 +231,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "A database index is a data structure that speeds up reads by letting the database find rows without scanning the whole table, at the cost of extra storage and slower writes.",
     body: [
       "Indexes work like a book's index: instead of reading every page, the database jumps straight to matching rows. They're essential for fast filtering, sorting, and joins on large tables.",
-      "Common index types in PostgreSQL include B-tree (the default, great for equality and ranges), GIN (for full-text and JSON), and partial indexes for subsets of rows.",
+      "Common index types include B-tree (the default, great for equality and ranges), GIN (for full-text and JSON), and partial indexes for subsets of rows.",
       "Indexes also matter for security and performance together — for example, indexing the columns referenced by row-level security policies keeps policy checks fast.",
     ],
     related: ["database-schema", "connection-pooling", "row-level-security"],
@@ -244,7 +244,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "ACID is what makes relational databases reliable. Atomicity ensures all-or-nothing changes; Consistency keeps data valid; Isolation prevents concurrent transactions from interfering; Durability survives crashes.",
       "Transactions are critical for operations like checkout, where an order and its line items must commit together — a guarantee document databases often can't provide.",
-      "PostgreSQL provides full ACID compliance, which is why it's trusted for financial, e-commerce, and other correctness-critical workloads.",
+      "SQL databases provide full ACID compliance, which is why it's trusted for financial, e-commerce, and other correctness-critical workloads.",
     ],
     related: ["database-schema", "row-level-security", "database-migration"],
   },
@@ -282,7 +282,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "It excels when many different clients consume the same data graph or when UIs are deeply nested. The trade-offs are harder HTTP caching (it's typically one POST endpoint) and the operational cost of running and securing a GraphQL server.",
       "REST and GraphQL both work well; the choice depends on your clients, caching needs, and how much infrastructure you want to run. Auto-generated REST often wins on simplicity and caching.",
     ],
-    related: ["rest-api", "postgrest", "crud"],
+    related: ["rest-api", "rest-api", "crud"],
     seeAlso: [
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
       { label: "basefyio vs. Nhost", href: "/compare/basefyio-vs-nhost" },
@@ -321,8 +321,8 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Full-text search finds documents matching natural-language queries by indexing words and their variants, ranking results by relevance rather than exact matching.",
     body: [
       "Unlike a simple LIKE query, full-text search understands word boundaries, stemming (matching 'run' and 'running'), and relevance ranking. It's how search boxes return useful results quickly over large text columns.",
-      "PostgreSQL has built-in full-text search using tsvector and tsquery types and GIN indexes, so you can add search to your data without a separate search service for many workloads.",
-      "For very search-heavy products, a dedicated search engine may be warranted, but Postgres full-text search covers a wide range of needs with no extra infrastructure.",
+      "The database has built-in full-text search using tsvector and tsquery types and GIN indexes, so you can add search to your data without a separate search service for many workloads.",
+      "For very search-heavy products, a dedicated search engine may be warranted, but Built-in full-text search covers a wide range of needs with no extra infrastructure.",
     ],
     related: ["database-index", "database-schema", "rest-api"],
     seeAlso: [
@@ -338,7 +338,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "Foreign keys express relationships — an order belongs to a customer, a message to a conversation — and let the database guarantee those references stay valid. You can't insert an order for a customer that doesn't exist.",
       "They also enable cascading behavior, such as deleting child rows when a parent is removed, and they document the data model directly in the schema.",
-      "Relational integrity through foreign keys is a major advantage of PostgreSQL over schemaless stores, where relationships must be maintained in application code.",
+      "Relational integrity through foreign keys is a major advantage of SQL databases over schemaless stores, where relationships must be maintained in application code.",
     ],
     related: ["database-schema", "acid-transactions", "database-index"],
     seeAlso: [
@@ -367,9 +367,9 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "ORMs translate between rows and language objects, handling CRUD, relationships, and migrations through a typed API. They speed up development and reduce boilerplate.",
       "The trade-off is a layer of abstraction that can hide what SQL actually runs, sometimes causing performance surprises like N+1 queries. Many teams mix an ORM for common access with raw SQL for complex queries.",
-      "A PostgREST-style REST API offers a different path: you get a query interface over your schema without an ORM, while keeping raw SQL available when needed.",
+      "An auto-generated REST API offers a different path: you get a query interface over your schema without an ORM, while keeping raw SQL available when needed.",
     ],
-    related: ["crud", "postgrest", "database-schema", "rest-api"],
+    related: ["crud", "rest-api", "database-schema", "rest-api"],
   },
   {
     slug: "pagination",
@@ -403,9 +403,9 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "A view stores a SELECT statement under a name. Querying the view runs the underlying query, so you can hide joins and calculations behind a clean, table-like surface.",
       "Views are great for reporting and for shaping data for an API: define a metric or denormalized shape once, then read it everywhere. Materialized views go further by caching results for speed.",
-      "With a PostgREST-style API, a view is exposed as an endpoint just like a table, making complex queries available to clients without custom code.",
+      "With an auto-generated REST API, a view is exposed as an endpoint just like a table, making complex queries available to clients without custom code.",
     ],
-    related: ["database-schema", "postgrest", "full-text-search", "rest-api"],
+    related: ["database-schema", "rest-api", "full-text-search", "rest-api"],
   },
   {
     slug: "stored-procedure",
@@ -414,7 +414,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "A stored procedure (or function) is logic stored and executed inside the database, letting you run complex operations close to the data in a single call.",
     body: [
       "Stored procedures and functions encapsulate multi-step logic — validation, calculations, multiple writes — on the database server. They run in one round trip and can enforce invariants centrally.",
-      "In PostgreSQL, functions can be written in SQL or PL/pgSQL and called from queries or APIs. They're useful for atomic operations and for logic that must always run regardless of the client.",
+      "Database functions can be written in SQL or PL/pgSQL and called from queries or APIs. They're useful for atomic operations and for logic that must always run regardless of the client.",
       "Used judiciously, they reduce network chatter and keep critical rules next to the data; overused, they can scatter business logic, so balance is key.",
     ],
     related: ["acid-transactions", "database-schema", "database-view"],
@@ -426,7 +426,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "Database replication copies data from a primary database to one or more replicas, improving availability, read scalability, and disaster recovery.",
     body: [
       "Replication streams changes from a primary to replicas. Read replicas absorb read traffic and serve as standbys that can be promoted if the primary fails.",
-      "It can be synchronous (a write waits for replicas, stronger durability, higher latency) or asynchronous (faster, with a small lag). PostgreSQL supports streaming replication natively.",
+      "It can be synchronous (a write waits for replicas, stronger durability, higher latency) or asynchronous (faster, with a small lag). SQL databases support streaming replication natively.",
       "Replication underpins high availability and is a key part of operating a database reliably, alongside backups and failover planning.",
     ],
     related: ["connection-pooling", "acid-transactions", "serverless-database"],
@@ -438,7 +438,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       "An upsert inserts a row, or updates it if a row with the same key already exists — a single operation that means 'insert or update'.",
     body: [
       "Upserts avoid the race-prone pattern of checking for a row and then inserting or updating. The database does it atomically in one statement.",
-      "In PostgreSQL this is INSERT ... ON CONFLICT, where you specify the conflicting key and what to update. It's ideal for syncing data, counters, and idempotent writes.",
+      "This is typically INSERT ... ON CONFLICT, where you specify the conflicting key and what to update. It's ideal for syncing data, counters, and idempotent writes.",
       "Many client SDKs expose upsert directly, so you can write 'create or update this record' without custom transaction logic.",
     ],
     related: ["crud", "acid-transactions", "primary-key"],
@@ -464,7 +464,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     body: [
       "UUIDs let independent systems generate IDs that won't collide, which is handy for distributed apps, client-generated keys, and merging data from multiple sources.",
       "Compared to sequential integer keys, UUIDs don't leak row counts and can be created offline, but they're larger and less index-friendly; newer time-ordered variants improve locality.",
-      "PostgreSQL supports UUIDs natively as a type and can generate them, making them a practical primary-key choice for many schemas.",
+      "SQL databases support UUIDs natively as a type and can generate them, making them a practical primary-key choice for many schemas.",
     ],
     related: ["primary-key", "database-index", "database-schema"],
   },

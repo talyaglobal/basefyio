@@ -10,7 +10,7 @@ import { INTEGRATIONS } from "@/lib/content/integrations";
 
 const TITLE = "Integrations";
 const DESCRIPTION =
-  "Use basefyio with your stack — Next.js, React, Vue, SvelteKit, React Native, Node.js, and more. PostgreSQL, auth, and storage via the basefyio-js SDK.";
+  "Use basefyio with your stack — Next.js, React, Vue, SvelteKit, React Native, Node.js, and more. database, auth, and storage via the basefyio-js SDK.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({

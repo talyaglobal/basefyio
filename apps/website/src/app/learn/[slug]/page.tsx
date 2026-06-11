@@ -119,7 +119,7 @@ export default async function TermPage({ params }: Params) {
           <div>
             <h2 className="text-xl font-semibold">See it in practice</h2>
             <p className="mt-1 text-muted-foreground">
-              basefyio gives you PostgreSQL, auth, storage, and a REST API in
+              basefyio gives you database, auth, storage, and a REST API in
               minutes.
             </p>
           </div>

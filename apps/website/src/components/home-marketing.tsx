@@ -50,23 +50,23 @@ const frameworks = [
 const FEATURES = [
   {
     icon: Database,
-    title: "PostgreSQL Database",
-    desc: "Every project gets its own PostgreSQL database. Full SQL power, no shared tables, no noisy neighbors.",
-    pills: ["Postgres", "PostgREST", "Row-level auth"],
+    title: "Dedicated Database",
+    desc: "Every project gets its own isolated database. Full SQL power, no shared tables, no noisy neighbors.",
+    pills: ["SQL", "REST API", "Row-level auth"],
     band: "base.db",
   },
   {
     icon: Lock,
     title: "Authentication",
     desc: "Email/password, Google, GitHub, and 8+ OAuth providers. User management, sessions, and JWT — ready out of the box.",
-    pills: ["Keycloak", "OAuth", "JWT"],
+    pills: ["OAuth", "JWT", "SSO"],
     band: "base.auth",
   },
   {
     icon: Zap,
     title: "Instant REST API",
-    desc: "Create a table, get a REST API instantly. PostgREST-compatible filters, pagination, and sorting — no code needed.",
-    pills: ["PostgREST", "Auto-gen", "Filters"],
+    desc: "Create a table, get a REST API instantly. Powerful filters, pagination, and sorting — no code needed.",
+    pills: ["Auto-gen", "Filters", "Pagination"],
     band: "base.api",
   },
   {
@@ -89,7 +89,7 @@ const COMING_SOON = [
   {
     icon: "📱",
     title: "NoSQL for Mobile",
-    desc: "An offline-first document store that syncs to your Postgres — mobile apps work offline and converge automatically.",
+    desc: "An offline-first document store that syncs to your database — mobile apps work offline and converge automatically.",
     pills: ["Offline-first", "Sync", "Document DB"],
     band: "base.mobile",
   },
@@ -177,12 +177,12 @@ export function HomeMarketing() {
               </p>
               <div className="mt-6 flex flex-col gap-0">
                 <div className="layer-row">
-                  <span className="layer-key">Postgres + REST</span>
+                  <span className="layer-key">Database + REST</span>
                   <span className="layer-val">relational data, instant API</span>
                 </div>
                 <div className="layer-row">
                   <span className="layer-key">Authentication</span>
-                  <span className="layer-val">Keycloak, OAuth, JWT</span>
+                  <span className="layer-val">OAuth, JWT, SSO</span>
                 </div>
                 <div className="layer-row">
                   <span className="layer-key">Storage</span>
@@ -214,14 +214,14 @@ export function HomeMarketing() {
                   <span className="tok-var">db</span> = basefyio.
                   <span className="tok-prop">db</span>
                   {"           "}
-                  <span className="tok-com">{"// postgres + REST"}</span>
+                  <span className="tok-com">{"// database + REST"}</span>
                 </div>
                 <div>
                   <span className="tok-key">const</span>{" "}
                   <span className="tok-var">auth</span> = basefyio.
                   <span className="tok-prop">auth</span>
                   {"       "}
-                  <span className="tok-com">{"// keycloak + OAuth"}</span>
+                  <span className="tok-com">{"// auth + OAuth"}</span>
                 </div>
                 <div>
                   <span className="tok-key">const</span>{" "}
@@ -233,7 +233,7 @@ export function HomeMarketing() {
                 <div>&nbsp;</div>
                 <div>
                   <span className="tok-com">
-                    {"// query your data with full PostgREST syntax"}
+                    {"// query your data with powerful REST syntax"}
                   </span>
                 </div>
                 <div>
@@ -390,7 +390,7 @@ export function HomeMarketing() {
                     The assistant reasons over your project context in the
                     dashboard &mdash; so answers stay relevant to{" "}
                     <span className="font-medium text-foreground">your</span>{" "}
-                    schema, not generic Postgres trivia.
+                    schema, not generic database trivia.
                   </p>
                 </CardFooter>
               </Card>
@@ -617,7 +617,7 @@ export function HomeMarketing() {
               <span className="gradient-text">one command away.</span>
             </h2>
             <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-              No glue code. No five vendors. One project for Postgres, auth,
+              No glue code. No five vendors. One project for database, auth,
               storage and instant API.
             </p>
           </ScrollReveal>

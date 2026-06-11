@@ -141,7 +141,8 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   minio:
     image: minio/minio:latest
@@ -332,6 +333,8 @@ services:
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.services.api.loadbalancer.server.port=4000
+      # Flush SSE frames immediately instead of buffering
+      - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
 
   admin-ui:
     image: ghcr.io/${GHCR_OWNER}/basefyio-ui:latest
@@ -352,6 +355,9 @@ services:
       - traefik.http.routers.ui.entrypoints=websecure
       - traefik.http.routers.ui.tls.certresolver=le
       - traefik.http.services.ui.loadbalancer.server.port=3000
+      - traefik.http.services.ui.loadbalancer.server.scheme=http
+      # SSE streams need longer response timeouts (default 30s kills long-lived connections)
+      - traefik.http.services.ui.loadbalancer.responseforwarding.flushinterval=100ms
 
   website:
     image: ghcr.io/${GHCR_OWNER}/basefyio-website:latest

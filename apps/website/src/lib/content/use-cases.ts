@@ -25,15 +25,15 @@ export const USE_CASES: UseCase[] = [
   {
     slug: "saas-applications",
     label: "SaaS apps",
-    title: "The Backend for SaaS Applications — PostgreSQL, Auth & REST API",
+    title: "The Backend for SaaS Applications — Database, Auth & REST API",
     description:
-      "Build multi-tenant SaaS faster with basefyio: per-project PostgreSQL, row-level security, authentication, and an auto-generated REST API. Ship features, not plumbing.",
+      "Build multi-tenant SaaS faster with basefyio: per-project dedicated database, row-level security, authentication, and an auto-generated REST API. Ship features, not plumbing.",
     intro:
-      "SaaS products live and die by their data model and access control. basefyio gives you a real PostgreSQL database with row-level security and auth built in, so multi-tenant isolation is enforced at the database — not bolted on in application code.",
+      "SaaS products live and die by their data model and access control. basefyio gives you a dedicated database with row-level security and auth built in, so multi-tenant isolation is enforced at the database — not bolted on in application code.",
     benefits: [
       {
         title: "Tenant isolation with RLS",
-        body: "Use PostgreSQL row-level security to guarantee each tenant only ever reads its own rows, enforced by the database on every query.",
+        body: "Use row-level security to guarantee each tenant only ever reads its own rows, enforced by the database on every query.",
       },
       {
         title: "Auth that's ready on day one",
@@ -58,12 +58,12 @@ create policy "members read their org's projects"
       {
         question: "How does basefyio handle multi-tenancy?",
         answer:
-          "You model tenants in your schema (e.g. an org_id column) and enforce isolation with PostgreSQL row-level security policies. The REST API and SDK respect these policies automatically.",
+          "You model tenants in your schema (e.g. an org_id column) and enforce isolation with row-level security policies. The REST API and SDK respect these policies automatically.",
       },
       {
         question: "Can I bring my own auth provider?",
         answer:
-          "basefyio auth is built on Keycloak, which supports email, OAuth, and standard identity providers. Each project gets its own realm.",
+          "basefyio auth supports email, OAuth, and standard identity providers. Each project gets its own isolated auth realm.",
       },
     ],
   },
@@ -72,9 +72,9 @@ create policy "members read their org's projects"
     label: "Mobile apps",
     title: "A Backend for Mobile Apps — Instant REST API, Auth & Storage",
     description:
-      "Power your iOS, Android, or React Native app with basefyio: hosted PostgreSQL, authentication, file storage, and a REST API the SDK talks to directly. No server code to maintain.",
+      "Power your iOS, Android, or React Native app with basefyio: a dedicated database, authentication, file storage, and a REST API the SDK talks to directly. No server code to maintain.",
     intro:
-      "Mobile apps need a backend, but you don't want to run servers for every endpoint. basefyio exposes your PostgreSQL data over a secure REST API your app calls directly, with auth and file storage included.",
+      "Mobile apps need a backend, but you don't want to run servers for every endpoint. basefyio exposes your data over a secure REST API your app calls directly, with auth and file storage included.",
     benefits: [
       {
         title: "Talk to your data directly",
@@ -108,22 +108,22 @@ create policy "members read their org's projects"
       {
         question: "How do I secure data accessed from a mobile client?",
         answer:
-          "Use authentication plus PostgreSQL row-level security. Policies run in the database, so even direct API calls only return rows the signed-in user is allowed to see.",
+          "Use authentication plus row-level security. Policies run in the database, so even direct API calls only return rows the signed-in user is allowed to see.",
       },
     ],
   },
   {
     slug: "ecommerce",
     label: "E-commerce",
-    title: "A Backend for E-commerce — Products, Orders, and Auth on PostgreSQL",
+    title: "A Backend for E-commerce — Products, Orders, and Auth",
     description:
-      "Build an online store backend with basefyio: relational products and orders in PostgreSQL, transactional integrity, customer auth, and a REST API for your storefront.",
+      "Build an online store backend with basefyio: relational products and orders, transactional integrity, customer auth, and a REST API for your storefront.",
     intro:
-      "E-commerce is relational by nature — products, variants, carts, orders, and customers all reference each other. basefyio gives you PostgreSQL with transactions and constraints, so your catalog and checkout stay consistent, plus auth and an API for the storefront.",
+      "E-commerce is relational by nature — products, variants, carts, orders, and customers all reference each other. basefyio gives you a relational database with transactions and constraints, so your catalog and checkout stay consistent, plus auth and an API for the storefront.",
     benefits: [
       {
         title: "Transactional checkout",
-        body: "Use PostgreSQL transactions so an order and its line items either all commit or all roll back — no half-written carts.",
+        body: "Use database transactions so an order and its line items either all commit or all roll back — no half-written carts.",
       },
       {
         title: "Relational catalog",
@@ -149,7 +149,7 @@ commit;`,
       {
         question: "Can basefyio handle inventory and orders consistently?",
         answer:
-          "Yes. PostgreSQL transactions and constraints keep orders, line items, and inventory consistent, which is hard to guarantee on a document database.",
+          "Yes. Database transactions and constraints keep orders, line items, and inventory consistent, which is hard to guarantee on a document database.",
       },
       {
         question: "How do customers only see their own orders?",
@@ -163,9 +163,9 @@ commit;`,
     label: "Internal tools",
     title: "A Backend for Internal Tools — Instant API Over Your Data",
     description:
-      "Power dashboards, admin panels, and internal tools with basefyio: a real PostgreSQL database, an instant REST API, auth, and role-based access without building a backend.",
+      "Power dashboards, admin panels, and internal tools with basefyio: a dedicated database, an instant REST API, auth, and role-based access without building a backend.",
     intro:
-      "Internal tools usually need the same thing: a database, an API over it, and access control — fast. basefyio turns a PostgreSQL schema into a secured REST API instantly, so you can focus on the tool's UI instead of plumbing.",
+      "Internal tools usually need the same thing: a database, an API over it, and access control — fast. basefyio turns your database schema into a secured REST API instantly, so you can focus on the tool's UI instead of plumbing.",
     benefits: [
       {
         title: "Instant CRUD API",
@@ -173,11 +173,11 @@ commit;`,
       },
       {
         title: "Role-based access",
-        body: "Use PostgreSQL roles and row-level security to give teams the right level of access to internal data.",
+        body: "Use database roles and row-level security to give teams the right level of access to internal data.",
       },
       {
         title: "Real SQL for reporting",
-        body: "Run ad-hoc queries, views, and aggregates directly in PostgreSQL for the metrics your team needs.",
+        body: "Run ad-hoc queries, views, and aggregates directly in the database for the metrics your team needs.",
       },
       {
         title: "Self-host for compliance",
@@ -194,27 +194,27 @@ commit;`,
       {
         question: "Is basefyio good for admin panels and dashboards?",
         answer:
-          "Yes. The instant REST API over PostgreSQL is ideal for internal CRUD tools, and full SQL access makes reporting and aggregation straightforward.",
+          "Yes. The instant REST API over your database is ideal for internal CRUD tools, and full SQL access makes reporting and aggregation straightforward.",
       },
       {
         question: "Can I restrict which team members see which data?",
         answer:
-          "Yes. Combine authentication with PostgreSQL roles and row-level security to control access per team, per row.",
+          "Yes. Combine authentication with database roles and row-level security to control access per team, per row.",
       },
     ],
   },
   {
     slug: "ai-applications",
     label: "AI apps",
-    title: "A Backend for AI Applications — Postgres, Auth, and Storage for LLM Apps",
+    title: "A Backend for AI Applications — Database, Auth, and Storage for LLM Apps",
     description:
-      "Build AI and LLM applications on basefyio: store users, conversations, and documents in PostgreSQL, manage auth and file uploads, and serve it all through a REST API.",
+      "Build AI and LLM applications on basefyio: store users, conversations, and documents in a dedicated database, manage auth and file uploads, and serve it all through a REST API.",
     intro:
-      "AI apps still need a normal backend: user accounts, conversation history, uploaded documents, and usage tracking. basefyio handles that foundation — PostgreSQL, auth, storage, and a REST API — so you can focus on the model and the product.",
+      "AI apps still need a normal backend: user accounts, conversation history, uploaded documents, and usage tracking. basefyio handles that foundation — database, auth, storage, and a REST API — so you can focus on the model and the product.",
     benefits: [
       {
         title: "Store chats and history",
-        body: "Keep conversations, messages, and prompts in PostgreSQL with relational structure and fast queries.",
+        body: "Keep conversations, messages, and prompts in a relational database with structure and fast queries.",
       },
       {
         title: "Document storage for RAG",
@@ -225,8 +225,8 @@ commit;`,
         body: "Authenticate users and model usage limits in your schema, enforced with row-level security.",
       },
       {
-        title: "Standard SQL, pgvector-ready",
-        body: "Because it's real PostgreSQL, you can adopt extensions and patterns the ecosystem already supports.",
+        title: "Standard SQL, extensible",
+        body: "Because it's a real SQL database, you can adopt extensions and patterns the ecosystem already supports.",
       },
     ],
     codeTitle: "Save a conversation turn",
@@ -239,27 +239,27 @@ commit;`,
       {
         question: "Can I build a chatbot or LLM app backend on basefyio?",
         answer:
-          "Yes. Store users, conversations, messages, and documents in PostgreSQL, handle auth and file uploads, and serve everything through the REST API while your app calls the model.",
+          "Yes. Store users, conversations, messages, and documents in your database, handle auth and file uploads, and serve everything through the REST API while your app calls the model.",
       },
       {
         question: "Does basefyio work for retrieval-augmented generation (RAG)?",
         answer:
-          "You can store documents in object storage and their metadata in PostgreSQL. Since it's standard Postgres, you can use the broader ecosystem of extensions and tooling around it.",
+          "You can store documents in object storage and their metadata in the database. Since it's standard SQL, you can use the broader ecosystem of extensions and tooling around it.",
       },
     ],
   },
   {
     slug: "realtime-chat",
     label: "Chat & messaging",
-    title: "A Backend for Chat & Messaging Apps on PostgreSQL",
+    title: "A Backend for Chat & Messaging Apps",
     description:
-      "Build messaging and chat apps with basefyio: store conversations and messages in PostgreSQL, authenticate users, and serve message history through a fast REST API.",
+      "Build messaging and chat apps with basefyio: store conversations and messages in a dedicated database, authenticate users, and serve message history through a fast REST API.",
     intro:
-      "Messaging apps need durable, queryable history and solid access control. basefyio stores conversations and messages in PostgreSQL, authenticates users, and exposes message history over a REST API your client reads directly.",
+      "Messaging apps need durable, queryable history and solid access control. basefyio stores conversations and messages in a relational database, authenticates users, and exposes message history over a REST API your client reads directly.",
     benefits: [
       {
         title: "Durable message history",
-        body: "Persist every message in PostgreSQL with indexes for fast retrieval and pagination.",
+        body: "Persist every message in the database with indexes for fast retrieval and pagination.",
       },
       {
         title: "Per-conversation access",
@@ -270,8 +270,8 @@ commit;`,
         body: "Load and send messages with plain HTTP from web or mobile, with filtering and ordering built in.",
       },
       {
-        title: "Scales with PostgreSQL",
-        body: "Handle growing message volume with Postgres indexing, partitioning, and concurrency.",
+        title: "Scales with your data",
+        body: "Handle growing message volume with database indexing, partitioning, and concurrency.",
       },
     ],
     codeTitle: "Load a conversation's messages",
@@ -296,15 +296,15 @@ commit;`,
   {
     slug: "analytics-dashboards",
     label: "Analytics dashboards",
-    title: "A Backend for Analytics Dashboards — SQL Power on PostgreSQL",
+    title: "A Backend for Analytics Dashboards — Full SQL Power",
     description:
-      "Build analytics dashboards on basefyio: aggregate data with full PostgreSQL SQL, expose metrics through a REST API, and control access with roles and row-level security.",
+      "Build analytics dashboards on basefyio: aggregate data with full SQL, expose metrics through a REST API, and control access with roles and row-level security.",
     intro:
-      "Dashboards live on aggregation — sums, group-bys, time buckets, and joins. basefyio gives you full PostgreSQL for those queries plus a REST API and access control, so you can ship metrics without standing up a separate analytics backend.",
+      "Dashboards live on aggregation — sums, group-bys, time buckets, and joins. basefyio gives you full SQL for those queries plus a REST API and access control, so you can ship metrics without standing up a separate analytics backend.",
     benefits: [
       {
         title: "Real SQL aggregation",
-        body: "Use group-by, window functions, and date bucketing in PostgreSQL to compute the metrics your dashboard needs.",
+        body: "Use group-by, window functions, and date bucketing in SQL to compute the metrics your dashboard needs.",
       },
       {
         title: "Views as endpoints",
@@ -329,7 +329,7 @@ group by 1;`,
       {
         question: "Can I build dashboards on basefyio?",
         answer:
-          "Yes. Full PostgreSQL means you can write aggregation queries and views, then read them through the REST API to power charts and metrics.",
+          "Yes. Full SQL means you can write aggregation queries and views, then read them through the REST API to power charts and metrics.",
       },
       {
         question: "How do I expose a complex metric to the frontend?",

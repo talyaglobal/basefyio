@@ -10,7 +10,7 @@ import { COMPARISONS } from "@/lib/content/comparisons";
 
 const TITLE = "Compare basefyio";
 const DESCRIPTION =
-  "Honest comparisons of basefyio with other backend platforms — Supabase, Firebase, and more. See how the PostgreSQL backend stacks up on isolation, queries, and lock-in.";
+  "Honest comparisons of basefyio with other backend platforms — Supabase, Firebase, and more. See how the database backend stacks up on isolation, queries, and lock-in.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({

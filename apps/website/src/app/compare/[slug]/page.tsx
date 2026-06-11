@@ -135,7 +135,7 @@ export default async function ComparisonPage({ params }: Params) {
               Try basefyio for your next project
             </h2>
             <p className="mt-1 text-muted-foreground">
-              PostgreSQL, auth, storage, and a REST API — running in minutes.
+              database, auth, storage, and a REST API — running in minutes.
             </p>
           </div>
           <div className="flex items-center gap-3">

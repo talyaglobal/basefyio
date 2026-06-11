@@ -7,16 +7,16 @@ import { itemListSchema } from "@/lib/seo/json-ld";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import { getTermsSorted } from "@/lib/content/glossary";
 
-const TITLE = "Learn — Backend & PostgreSQL Glossary";
+const TITLE = "Learn — Backend & database Glossary";
 const DESCRIPTION =
-  "Clear definitions of backend, PostgreSQL, and API concepts — REST, row-level security, multi-tenancy, OAuth, ACID, and more. The basefyio glossary.";
+  "Clear definitions of backend, database, and API concepts — REST, row-level security, multi-tenancy, OAuth, ACID, and more. The basefyio glossary.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({
     path: "/learn",
     title: TITLE,
     description: DESCRIPTION,
-    keywords: ["backend glossary", "postgresql terms", "api glossary"],
+    keywords: ["backend glossary", "databaseql terms", "api glossary"],
   });
 }
 

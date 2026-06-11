@@ -10,9 +10,9 @@ import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
 
 const defaultTitle =
-  "basefyio — PostgreSQL BaaS & REST API for Developers";
+  "basefyio — database BaaS & REST API for Developers";
 const defaultDescription =
-  "basefyio: hosted PostgreSQL, auth, storage, and auto REST API for developers. SDK, CLI, PostgREST-style queries. Ship backends in minutes.";
+  "basefyio: hosted database, auth, storage, and auto REST API for developers. SDK, CLI, powerful query syntax. Ship backends in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = await getSiteUrlFromRequest();
@@ -36,14 +36,14 @@ export async function generateMetadata(): Promise<Metadata> {
       "backend as a service",
       "BaaS",
       "developer backend",
-      "PostgreSQL API",
+      "database API",
       "REST API",
       "JavaScript SDK",
       "TypeScript SDK",
       "authentication API",
-      "hosted postgres",
-      "PostgREST compatible",
-      "hosted PostgreSQL",
+      "hosted database",
+      "REST API",
+      "hosted database",
       "no-code backend",
       "CLI database",
     ],

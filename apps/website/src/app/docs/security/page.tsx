@@ -14,21 +14,21 @@ export default function SecurityDocs() {
       <h1>Security & Row-Level Security</h1>
       <p>
         basefyio uses a layered security model: API keys authenticate requests, JWT tokens identify users,
-        and PostgreSQL Row-Level Security (RLS) policies control data access at the database level.
+        and database Row-Level Security (RLS) policies control data access at the database level.
       </p>
 
       <h2>Authentication Flow</h2>
       <pre><code>{`Client → API Key (apikey header) → Platform API
   │
   ├── Anonymous access (anon key, no JWT)
-  │   └── PostgreSQL role: anon
+  │   └── database role: anon
   │
   └── Authenticated access (anon key + JWT Bearer)
-      └── PostgreSQL role: authenticated
+      └── database role: authenticated
           └── RLS policies filter rows based on auth.uid()
 
 Server → Service Key (apikey header)
-  └── PostgreSQL role: service_role (bypasses RLS)`}</code></pre>
+  └── database role: service_role (bypasses RLS)`}</code></pre>
 
       <h2>API Keys</h2>
       <table>
@@ -43,7 +43,7 @@ Server → Service Key (apikey header)
       <h2>JWT Tokens</h2>
       <p>
         When a user signs in, basefyio issues a JWT containing their user ID, email, and roles.
-        The JWT is verified against the project&apos;s Keycloak realm JWKS endpoint. Claims are
+        The JWT is verified against the project&apos;s auth realm JWKS endpoint. Claims are
         exposed to RLS policies via helper functions.
       </p>
       <table>

@@ -17,12 +17,12 @@ export default function DataEngineDocs() {
       <h1>Basefyio Data Engine</h1>
       <p>
         The <strong>Basefyio Data Engine</strong> is a document data plane that runs alongside your existing
-        PostgreSQL databases. Store flexible, schema-driven documents with nested objects, arrays, versioning,
+        dedicated databases. Store flexible, schema-driven documents with nested objects, arrays, versioning,
         soft-delete, and automatic multi-tenant isolation.
       </p>
       <p>
         The Data Engine supports two storage providers — a dedicated <strong>NoSQL store</strong> for production
-        workloads and a <strong>PostgreSQL JSONB</strong> fallback for development. Both implement the same
+        workloads and a <strong>database JSONB</strong> fallback for development. Both implement the same
         interface; your application code works identically regardless of which provider is active.
       </p>
 
@@ -34,7 +34,7 @@ export default function DataEngineDocs() {
         <li><strong>Soft delete</strong> — Deleted documents are recoverable. Query with <code>includeSoftDeleted</code> to see them.</li>
         <li><strong>Multi-tenant isolation</strong> — Every query has <code>_projectId</code> injected server-side. Project A can never read Project B&apos;s data.</li>
         <li><strong>Event system</strong> — Every write produces an outbox event: <code>document.created</code>, <code>document.updated</code>, <code>document.deleted</code>.</li>
-        <li><strong>Provider-agnostic</strong> — Switch between NoSQL store and PostgreSQL with a single environment variable.</li>
+        <li><strong>Provider-agnostic</strong> — Switch between NoSQL store and database with a single environment variable.</li>
       </ul>
 
       <h2>Document Envelope</h2>
@@ -172,7 +172,7 @@ const { data: health } = await bf.data.health()
 
       <h2>Entity Schema System</h2>
       <p>
-        Entity definitions live in PostgreSQL metadata, not in the document store.
+        Entity definitions live in database metadata, not in the document store.
         Each entity has typed fields that compile to JSON Schema for validation.
       </p>
 
@@ -219,7 +219,7 @@ const { data: health } = await bf.data.health()
         <thead><tr><th>Provider</th><th>When to Use</th><th>Configuration</th></tr></thead>
         <tbody>
           <tr><td><strong>NoSQL store</strong></td><td>Production — optimized for document workloads, full-text search, KV access</td><td><code>DATA_ENGINE_PROVIDER=nosql</code></td></tr>
-          <tr><td><strong>PostgreSQL</strong></td><td>Development — no extra infrastructure, uses existing project DB</td><td><code>DATA_ENGINE_PROVIDER=postgres</code></td></tr>
+          <tr><td><strong>database</strong></td><td>Development — no extra infrastructure, uses existing project DB</td><td><code>DATA_ENGINE_PROVIDER=database</code></td></tr>
           <tr><td><strong>Disabled</strong></td><td>Skip Data Engine entirely (existing features unaffected)</td><td><code>DATA_ENGINE_PROVIDER=disabled</code></td></tr>
         </tbody>
       </table>
@@ -228,7 +228,7 @@ const { data: health } = await bf.data.health()
       <table>
         <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>DATA_ENGINE_PROVIDER</code></td><td><code>disabled</code></td><td>Provider: <code>nosql</code>, <code>postgres</code>, or <code>disabled</code></td></tr>
+          <tr><td><code>DATA_ENGINE_PROVIDER</code></td><td><code>disabled</code></td><td>Provider: <code>nosql</code>, <code>database</code>, or <code>disabled</code></td></tr>
           <tr><td><code>NOSQL_CONNSTR</code></td><td>—</td><td>NoSQL store connection string</td></tr>
           <tr><td><code>NOSQL_USERNAME</code></td><td>—</td><td>Store admin username</td></tr>
           <tr><td><code>NOSQL_PASSWORD</code></td><td>—</td><td>Store admin password</td></tr>

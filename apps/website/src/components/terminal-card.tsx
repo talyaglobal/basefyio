@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 
 const SERVICES = [
-  { svc: "postgres", status: "cluster ready" },
-  { svc: "postgREST", status: "REST API live" },
+  { svc: "database", status: "cluster ready" },
+  { svc: "REST API", status: "REST API live" },
   { svc: "storage", status: "buckets + CDN" },
-  { svc: "auth", status: "Keycloak ready" },
+  { svc: "auth", status: "auth service ready" },
   { svc: "ai-assistant", status: "context loaded" },
 ];
 

@@ -38,11 +38,11 @@ export const INTEGRATIONS: Integration[] = [
     slug: "nextjs",
     name: "Next.js",
     category: "Framework",
-    title: "basefyio + Next.js: PostgreSQL Backend for Your App",
+    title: "basefyio + Next.js: Database Backend for Your App",
     description:
-      "Use basefyio with Next.js for a PostgreSQL backend, auth, storage, and a REST API. Works in Server Components, Route Handlers, and the client with the basefyio-js SDK.",
+      "Use basefyio with Next.js for a database backend, auth, storage, and a REST API. Works in Server Components, Route Handlers, and the client with the basefyio-js SDK.",
     intro:
-      "Next.js handles the frontend and server rendering; basefyio gives it a backend — PostgreSQL, authentication, storage, and a REST API — without standing up your own server.",
+      "Next.js handles the frontend and server rendering; basefyio gives it a backend — database, authentication, storage, and a REST API — without standing up your own server.",
     install: INSTALL,
     setupTitle: "Create the client",
     setup: `// lib/basefyio.ts
@@ -99,9 +99,9 @@ export default async function Posts() {
     category: "Framework",
     title: "basefyio + React: A Backend for Your React App",
     description:
-      "Connect a React app to basefyio for PostgreSQL data, authentication, and storage via the basefyio-js SDK — no custom backend required.",
+      "Connect a React app to basefyio for database access, authentication, and storage via the basefyio-js SDK — no custom backend required.",
     intro:
-      "Give your React app a real backend. With basefyio-js you query PostgreSQL, authenticate users, and store files directly from your components.",
+      "Give your React app a real backend. With basefyio-js you query the database, authenticate users, and store files directly from your components.",
     install: INSTALL,
     setupTitle: "Create a shared client",
     setup: `// src/basefyio.ts
@@ -127,7 +127,7 @@ export function Posts() {
     benefits: [
       {
         title: "Talk to the backend directly",
-        body: "Query PostgreSQL from components with filtering, ordering, and pagination built in.",
+        body: "Query your database from components with filtering, ordering, and pagination built in.",
       },
       {
         title: "Built-in auth state",
@@ -155,9 +155,9 @@ export function Posts() {
     slug: "vue",
     name: "Vue",
     category: "Framework",
-    title: "basefyio + Vue: PostgreSQL Backend for Vue Apps",
+    title: "basefyio + Vue: Database Backend for Vue Apps",
     description:
-      "Use basefyio with Vue 3 for a PostgreSQL backend, auth, and storage. The basefyio-js SDK works cleanly with the Composition API.",
+      "Use basefyio with Vue 3 for a database backend, auth, and storage. The basefyio-js SDK works cleanly with the Composition API.",
     intro:
       "Pair Vue's reactivity with a basefyio backend. The basefyio-js SDK fits naturally into composables for data, auth, and storage.",
     install: INSTALL,
@@ -194,7 +194,7 @@ export function usePosts() {
         body: "Database, auth, and storage in one SDK — no separate services to wire.",
       },
       {
-        title: "Standard PostgreSQL",
+        title: "Standard SQL",
         body: "Real SQL and row-level security, fully portable with pg_dump.",
       },
     ],
@@ -217,7 +217,7 @@ export function usePosts() {
     category: "Framework",
     title: "basefyio + SvelteKit: Backend for Svelte Apps",
     description:
-      "Use basefyio with SvelteKit for PostgreSQL data, auth, and storage. The basefyio-js SDK works in load functions, endpoints, and components.",
+      "Use basefyio with SvelteKit for database access, auth, and storage. The basefyio-js SDK works in load functions, endpoints, and components.",
     intro:
       "SvelteKit covers routing and rendering; basefyio covers the backend. Use basefyio-js in load functions and server endpoints to fetch and mutate data.",
     install: INSTALL,
@@ -263,7 +263,7 @@ export async function load() {
       {
         question: "Does row-level security still apply?",
         answer:
-          "Yes. With the anon key, every query is constrained by your PostgreSQL row-level security policies.",
+          "Yes. With the anon key, every query is constrained by your row-level security policies.",
       },
     ],
   },
@@ -273,9 +273,9 @@ export async function load() {
     category: "Mobile",
     title: "basefyio + React Native: Backend for Mobile Apps",
     description:
-      "Build iOS and Android apps on basefyio with React Native. The basefyio-js SDK provides PostgreSQL data, auth, and storage over a REST API.",
+      "Build iOS and Android apps on basefyio with React Native. The basefyio-js SDK provides database access, auth, and storage over a REST API.",
     intro:
-      "React Native apps need a backend they can call directly. basefyio-js works in React Native to query PostgreSQL, authenticate users, and upload files.",
+      "React Native apps need a backend they can call directly. basefyio-js works in React Native to query the database, authenticate users, and upload files.",
     install: INSTALL,
     setupTitle: "Create the client",
     setup: `// basefyio.ts
@@ -319,7 +319,7 @@ const { data } = await bf
       {
         question: "How is mobile data kept secure?",
         answer:
-          "Authentication plus PostgreSQL row-level security means even direct API calls only return rows the signed-in user is allowed to access.",
+          "Authentication plus row-level security means even direct API calls only return rows the signed-in user is allowed to access.",
       },
     ],
   },
@@ -329,7 +329,7 @@ const { data } = await bf
     category: "Runtime",
     title: "basefyio + Node.js: Backend Data Access from the Server",
     description:
-      "Use basefyio from Node.js for PostgreSQL queries, auth, and storage. Ideal for server-side logic, background jobs, and scripts with the basefyio-js SDK.",
+      "Use basefyio from Node.js for database queries, auth, and storage. Ideal for server-side logic, background jobs, and scripts with the basefyio-js SDK.",
     intro:
       "From Node.js you can run trusted server-side logic against basefyio — background jobs, webhooks, scripts, and APIs — using a service key for full access.",
     install: INSTALL,
@@ -388,7 +388,7 @@ const { data: stats } = await bf.sql(
     description:
       "Use basefyio with Astro to power dynamic data, auth, and storage. The basefyio-js SDK works in Astro components and server endpoints.",
     intro:
-      "Astro is great for fast content sites with islands of interactivity. basefyio adds the dynamic backend — PostgreSQL, auth, and storage — when you need it.",
+      "Astro is great for fast content sites with islands of interactivity. basefyio adds the dynamic backend — database, auth, and storage — when you need it.",
     install: INSTALL,
     setupTitle: "Create the client",
     setup: `// src/lib/basefyio.ts
@@ -438,9 +438,9 @@ const { data: posts } = await bf.from("posts").select("id, title");
     slug: "remix",
     name: "Remix",
     category: "Framework",
-    title: "basefyio + Remix: PostgreSQL Backend with Loaders and Actions",
+    title: "basefyio + Remix: Database Backend with Loaders and Actions",
     description:
-      "Use basefyio with Remix for PostgreSQL data, auth, and storage. The basefyio-js SDK fits Remix loaders and actions for server-side data access.",
+      "Use basefyio with Remix for database access, auth, and storage. The basefyio-js SDK fits Remix loaders and actions for server-side data access.",
     intro:
       "Remix's loaders and actions are a natural home for backend calls. Use basefyio-js server-side to read and mutate basefyio data on each request.",
     install: INSTALL,
@@ -499,11 +499,11 @@ export default function Posts() {
     slug: "nuxt",
     name: "Nuxt",
     category: "Framework",
-    title: "basefyio + Nuxt: PostgreSQL Backend for Nuxt Apps",
+    title: "basefyio + Nuxt: Database Backend for Nuxt Apps",
     description:
-      "Use basefyio with Nuxt 3 for a PostgreSQL backend, auth, and storage. The basefyio-js SDK works in composables, server routes, and plugins.",
+      "Use basefyio with Nuxt 3 for a database backend, auth, and storage. The basefyio-js SDK works in composables, server routes, and plugins.",
     intro:
-      "Nuxt handles rendering and routing on top of Vue; basefyio provides the backend — PostgreSQL, auth, and storage — through the basefyio-js SDK on both server and client.",
+      "Nuxt handles rendering and routing on top of Vue; basefyio provides the backend — database, auth, and storage — through the basefyio-js SDK on both server and client.",
     install: INSTALL,
     setupTitle: "Create the client",
     setup: `// utils/basefyio.ts
@@ -532,7 +532,7 @@ const { data: posts } = await useAsyncData("posts", async () => {
       },
       {
         title: "No backend boilerplate",
-        body: "Query PostgreSQL directly instead of writing server routes for basic CRUD.",
+        body: "Query the database directly instead of writing server routes for basic CRUD.",
       },
       {
         title: "Auth and storage included",
@@ -558,7 +558,7 @@ const { data: posts } = await useAsyncData("posts", async () => {
     category: "Framework",
     title: "basefyio + Angular: A Backend for Angular Apps",
     description:
-      "Connect an Angular app to basefyio for PostgreSQL data, auth, and storage via the basefyio-js SDK, wrapped in an injectable service.",
+      "Connect an Angular app to basefyio for database access, auth, and storage via the basefyio-js SDK, wrapped in an injectable service.",
     intro:
       "Give your Angular app a backend without building one. Wrap the basefyio-js SDK in an injectable service and use it across components and resolvers.",
     install: INSTALL,
@@ -624,7 +624,7 @@ export class PostsComponent {
     category: "Framework",
     title: "basefyio + SolidJS: Backend for Solid Apps",
     description:
-      "Use basefyio with SolidJS for PostgreSQL data, auth, and storage. The basefyio-js SDK pairs cleanly with Solid resources and signals.",
+      "Use basefyio with SolidJS for database access, auth, and storage. The basefyio-js SDK pairs cleanly with Solid resources and signals.",
     intro:
       "SolidJS gives you fine-grained reactivity; basefyio gives it a backend. Load data with createResource and the basefyio-js SDK.",
     install: INSTALL,
@@ -659,7 +659,7 @@ export function Posts() {
         body: "Database, auth, and storage in one SDK.",
       },
       {
-        title: "Standard PostgreSQL",
+        title: "Standard SQL",
         body: "Real SQL and row-level security, fully portable with pg_dump.",
       },
     ],
@@ -682,9 +682,9 @@ export function Posts() {
     category: "Runtime",
     title: "basefyio + Express: Backend Data Access in Node.js APIs",
     description:
-      "Use basefyio from an Express server for PostgreSQL queries, auth, and storage. Ideal for custom APIs, webhooks, and trusted server-side logic.",
+      "Use basefyio from an Express server for database queries, auth, and storage. Ideal for custom APIs, webhooks, and trusted server-side logic.",
     intro:
-      "Running an Express API? Use basefyio-js server-side to read and write PostgreSQL data, with a service key for trusted operations that bypass row-level security.",
+      "Running an Express API? Use basefyio-js server-side to read and write database access, with a service key for trusted operations that bypass row-level security.",
     install: INSTALL,
     setupTitle: "Create a server client",
     setup: `// basefyio.js

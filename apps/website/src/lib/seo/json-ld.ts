@@ -19,7 +19,7 @@ export function organizationSchema(url: string): Thing {
     url,
     logo: `${url}/logo.svg`,
     description:
-      "Backend-as-a-service platform for developers: PostgreSQL, authentication, storage, and auto-generated REST API.",
+      "Backend-as-a-service platform for developers: database, authentication, storage, and auto-generated REST API.",
   };
 }
 
@@ -32,7 +32,7 @@ export function webSiteSchema(url: string): Thing {
     publisher: { "@id": `${url}/#organization` },
     inLanguage: SITE.lang,
     description:
-      "Hosted PostgreSQL, auth, REST API, SDK and CLI for building production backends quickly.",
+      "Hosted database, auth, REST API, SDK and CLI for building production backends quickly.",
   };
 }
 
@@ -45,7 +45,7 @@ export function softwareApplicationSchema(url: string): Thing {
     operatingSystem: "Web",
     url,
     description:
-      "Cloud backend platform with PostgreSQL, Keycloak auth, S3-compatible storage, REST API, JavaScript SDK, and CLI.",
+      "Cloud backend platform with dedicated database, auth, S3-compatible storage, REST API, JavaScript SDK, and CLI.",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -53,8 +53,8 @@ export function softwareApplicationSchema(url: string): Thing {
       description: "Free tier and paid plans available",
     },
     featureList: [
-      "PostgreSQL database per project",
-      "REST API and PostgREST-style queries",
+      "Dedicated database per project",
+      "REST API with powerful query syntax",
       "OAuth and email authentication",
       "Object storage",
       "basefyio-js SDK",

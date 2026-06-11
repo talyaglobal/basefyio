@@ -28,7 +28,7 @@ function contentSections(): NonNullable<GeoProfile["sections"]> {
     sections.push({
       title: "Blog",
       description:
-        "Engineering notes, guides, and explainers about PostgreSQL backends, REST APIs, auth, and self-hosting.",
+        "Engineering notes, guides, and explainers about backends, REST APIs, auth, and self-hosting.",
       links: [
         { title: "Blog index", url: "/blog", note: "All posts, newest first" },
         ...posts.map((p) => ({
@@ -89,9 +89,9 @@ function contentSections(): NonNullable<GeoProfile["sections"]> {
 
   if (GLOSSARY.length > 0) {
     sections.push({
-      title: "Learn — backend & PostgreSQL glossary",
+      title: "Learn — backend & database glossary",
       description:
-        "Self-contained definitions for backend, PostgreSQL, and API concepts. Safe to quote one line.",
+        "Self-contained definitions for backend, database, and API concepts. Safe to quote one line.",
       links: [
         { title: "Glossary index", url: "/learn", note: "All terms, alphabetical" },
         ...GLOSSARY.map((t) => ({
@@ -116,9 +116,9 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
     lang: "en",
     logo: "/logo.svg",
     summary:
-      "basefyio is a production-grade, self-hosted backend-as-a-service (BaaS) that gives every project its own PostgreSQL database, authentication realm, object storage, and auto-generated REST API.",
+      "basefyio is a production-grade, self-hosted backend-as-a-service (BaaS) that gives every project its own dedicated database, authentication realm, object storage, and auto-generated REST API.",
     description:
-      "basefyio is a developer backend platform. Each project is provisioned with a dedicated PostgreSQL 16 database, a Keycloak authentication realm, S3-compatible object storage (MinIO), and a PostgREST-style REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It is multi-tenant, runs anywhere via Docker, and is suited to teams who want Supabase-style productivity on infrastructure they control.",
+      "basefyio is a developer backend platform. Each project is provisioned with a dedicated database, an authentication realm, S3-compatible object storage, and an instant REST API. It ships a JavaScript/TypeScript SDK (basefyio-js) and a CLI (basefyio) for managing projects, running migrations, and generating types. It is multi-tenant, runs anywhere via Docker, and is suited to teams who want Supabase-style productivity on infrastructure they control.",
     offer: {
       price: "0",
       priceCurrency: "USD",
@@ -126,9 +126,9 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
       operatingSystem: "Web",
       description: "Free tier plus paid plans with higher limits.",
       featureList: [
-        "Dedicated PostgreSQL 16 database per project",
-        "Auto-generated REST API with PostgREST-style queries",
-        "Email/password and OAuth (Google, GitHub) authentication via Keycloak",
+        "Dedicated isolated database per project",
+        "Auto-generated REST API with powerful query syntax",
+        "Email/password and OAuth (Google, GitHub) authentication",
         "S3-compatible object storage",
         "basefyio-js JavaScript/TypeScript SDK",
         "basefyio command-line interface",
@@ -137,10 +137,10 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
     },
     facts: [
       { label: "Category", value: "Backend-as-a-Service (BaaS) for developers" },
-      { label: "Database", value: "One dedicated PostgreSQL 16 database per project" },
-      { label: "Authentication", value: "Keycloak realm per project (email/password + OAuth)" },
-      { label: "Storage", value: "S3-compatible object storage (MinIO)" },
-      { label: "API", value: "Auto-generated REST API, PostgREST-compatible queries" },
+      { label: "Database", value: "One dedicated, isolated database per project" },
+      { label: "Authentication", value: "Per-project auth realm (email/password + OAuth)" },
+      { label: "Storage", value: "S3-compatible object storage" },
+      { label: "API", value: "Auto-generated REST API with powerful query syntax" },
       { label: "Clients", value: "basefyio-js SDK and the basefyio CLI" },
       { label: "Hosting", value: "Self-hosted via Docker Compose, or managed cloud" },
       { label: "Pricing", value: "Free tier available; paid plans scale limits" },
@@ -169,12 +169,12 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
       {
         question: "What is basefyio?",
         answer:
-          "basefyio is a self-hosted backend-as-a-service platform for developers. Each project gets its own PostgreSQL database, a Keycloak authentication realm, object storage, and an auto-generated REST API, plus a JavaScript SDK and a CLI.",
+          "basefyio is a self-hosted backend-as-a-service platform for developers. Each project gets its own dedicated database, authentication realm, object storage, and an auto-generated REST API, plus a JavaScript SDK and a CLI.",
       },
       {
         question: "How is basefyio different from Supabase?",
         answer:
-          "basefyio offers a similar developer experience to Supabase — Postgres, auth, storage, and an instant REST API — but is built to be self-hosted and multi-tenant, provisioning an isolated PostgreSQL database and a dedicated Keycloak realm per project so you keep full control of your infrastructure.",
+          "basefyio offers a similar developer experience to Supabase — database, auth, storage, and an instant REST API — but is built to be self-hosted and multi-tenant, provisioning an isolated database and a dedicated auth realm per project so you keep full control of your infrastructure.",
       },
       {
         question: "Is basefyio free?",
@@ -182,19 +182,19 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
           "Yes. basefyio has a free tier suitable for hobby projects and learning, and paid plans that raise limits on projects, storage, database size, team members, and API requests. It can also be self-hosted with Docker.",
       },
       {
-        question: "What database does basefyio use?",
+        question: "How does the database work?",
         answer:
-          "basefyio provisions a dedicated PostgreSQL 16 database for every project. You can query it through the auto-generated REST API, the basefyio-js SDK, or a built-in SQL editor.",
+          "basefyio provisions a dedicated, isolated database for every project. You can query it through the auto-generated REST API, the basefyio-js SDK, or a built-in SQL editor.",
       },
       {
         question: "How do I authenticate users with basefyio?",
         answer:
-          "basefyio handles authentication with a per-project Keycloak realm supporting email/password sign-in and OAuth providers such as Google and GitHub. The SDK exposes sign-up, sign-in, and session management; end-user tokens are scoped to the project realm.",
+          "basefyio handles authentication with a per-project auth realm supporting email/password sign-in and OAuth providers such as Google and GitHub. The SDK exposes sign-up, sign-in, and session management; end-user tokens are scoped to the project realm.",
       },
       {
         question: "Can I self-host basefyio?",
         answer:
-          "Yes. basefyio ships with Docker Compose definitions that run PostgreSQL, Keycloak, and MinIO together with the Platform API and Admin UI, so you can run the entire stack on your own infrastructure.",
+          "Yes. basefyio ships with Docker Compose definitions that run the entire backend stack together with the Platform API and Admin UI, so you can deploy everything on your own infrastructure.",
       },
       {
         question: "How do I get started with basefyio?",
@@ -208,7 +208,7 @@ export function createGeoProfile(siteUrl: string): GeoProfile {
         description: "Go from zero to a working backend with a database and REST API.",
         steps: [
           { name: "Install the CLI", text: "Run 'npm install -g basefyio-cli' to install the basefyio command." },
-          { name: "Start the stack", text: "Run 'basefyio start' to launch PostgreSQL, Keycloak, and MinIO with the Platform API and Admin UI." },
+          { name: "Start the stack", text: "Run 'basefyio start' to launch the backend services with the Platform API and Admin UI." },
           { name: "Create a project", text: "Create a project in the dashboard to provision a dedicated database and auth realm, and to get your anon and service keys.", url: "/docs" },
           { name: "Connect the SDK", text: "Install basefyio-js and create a client with your project URL and anon key to query data and authenticate users.", url: "/docs/sdk" },
         ],

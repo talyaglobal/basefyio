@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
-  "basefyio documentation: PostgreSQL database, NoSQL data engine, authentication, storage, REST API, SDK, CLI, and self-hosting guides.";
+  "basefyio documentation: dedicated database, NoSQL data engine, authentication, storage, REST API, SDK, CLI, and self-hosting guides.";
 
 export const metadata: Metadata = {
   title: {

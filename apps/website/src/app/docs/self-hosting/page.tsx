@@ -4,7 +4,7 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/self-hosting", {
     title: "Self-Hosting Guide",
-    description: "Deploy basefyio with Docker Compose: PostgreSQL, Keycloak, MinIO, NoSQL store, PgBouncer, and Traefik reverse proxy.",
+    description: "Deploy basefyio with Docker Compose: database, auth service, object storage, NoSQL store, PgBouncer, and Traefik reverse proxy.",
   });
 }
 
@@ -22,10 +22,10 @@ export default function SelfHostingDocs() {
       <table>
         <thead><tr><th>Service</th><th>Image</th><th>Purpose</th><th>Default Port</th></tr></thead>
         <tbody>
-          <tr><td><strong>PostgreSQL</strong></td><td><code>pgvector/pgvector:pg16</code></td><td>Primary database (with pgvector)</td><td>5432</td></tr>
-          <tr><td><strong>Keycloak</strong></td><td><code>quay.io/keycloak/keycloak:24.0</code></td><td>Authentication (OAuth2/OIDC)</td><td>8080</td></tr>
+          <tr><td><strong>database</strong></td><td><code>pgvector/pgvector:pg16</code></td><td>Primary database (with pgvector)</td><td>5432</td></tr>
+          <tr><td><strong>auth service</strong></td><td><code>quay.io/auth/auth:24.0</code></td><td>Authentication (OAuth2/OIDC)</td><td>8080</td></tr>
           <tr><td><strong>Redis</strong></td><td><code>redis:7-alpine</code></td><td>Caching, queues (BullMQ)</td><td>6379</td></tr>
-          <tr><td><strong>MinIO</strong></td><td><code>minio/minio:latest</code></td><td>S3-compatible file storage</td><td>9000/9001</td></tr>
+          <tr><td><strong>object storage</strong></td><td><code>storage/storage:latest</code></td><td>S3-compatible file storage</td><td>9000/9001</td></tr>
           <tr><td><strong>PgBouncer</strong></td><td><code>edoburu/pgbouncer:latest</code></td><td>Connection pooling</td><td>6432</td></tr>
           <tr><td><strong>NoSQL Store</strong></td><td><code>couchbase/server:community</code></td><td>Document data engine</td><td>8091/8093/11210</td></tr>
           <tr><td><strong>Traefik</strong></td><td><code>traefik:v3.1</code></td><td>Reverse proxy, SSL termination</td><td>80/443</td></tr>
@@ -55,15 +55,15 @@ cp .env.production.example .env.production
 DOMAIN=basefyio.com
 ACME_EMAIL=admin@basefyio.com
 
-# PostgreSQL
+# database
 POSTGRES_USER=basefyio
 POSTGRES_PASSWORD=<strong-random-password>
 
-# Keycloak
+# auth service
 KEYCLOAK_ADMIN_USER=admin
 KEYCLOAK_ADMIN_PASSWORD=<strong-random-password>
 
-# MinIO
+# object storage
 MINIO_ROOT_USER=basefyio
 MINIO_ROOT_PASSWORD=<strong-random-password>
 
@@ -115,8 +115,8 @@ curl -u basefyio:<password> https://localhost:8091/pools`}</code></pre>
           <tr><td><code>basefyio.com</code></td><td>Website</td><td>A</td></tr>
           <tr><td><code>app.basefyio.com</code></td><td>Admin Dashboard</td><td>A</td></tr>
           <tr><td><code>api.basefyio.com</code></td><td>Platform API</td><td>A</td></tr>
-          <tr><td><code>auth.basefyio.com</code></td><td>Keycloak</td><td>A</td></tr>
-          <tr><td><code>storage.basefyio.com</code></td><td>MinIO S3 API</td><td>A</td></tr>
+          <tr><td><code>auth.basefyio.com</code></td><td>auth service</td><td>A</td></tr>
+          <tr><td><code>storage.basefyio.com</code></td><td>object storage S3 API</td><td>A</td></tr>
           <tr><td><code>db.basefyio.com</code></td><td>PgBouncer (external)</td><td>A</td></tr>
         </tbody>
       </table>
@@ -127,7 +127,7 @@ curl -u basefyio:<password> https://localhost:8091/pools`}</code></pre>
 docker compose up -d
 
 # Or run individual services
-docker compose up -d postgres keycloak redis minio nosql nosql-init
+docker compose up -d database auth redis storage nosql nosql-init
 
 # Run API locally (outside Docker)
 cd apps/platform-api
@@ -137,15 +137,15 @@ npm run start:dev
 cd apps/admin-ui
 npm run dev`}</code></pre>
       <p>
-        For development without the NoSQL store, set <code>DATA_ENGINE_PROVIDER=postgres</code> in
-        your <code>.env</code> — the Data Engine will use PostgreSQL JSONB instead.
+        For development without the NoSQL store, set <code>DATA_ENGINE_PROVIDER=database</code> in
+        your <code>.env</code> — the Data Engine will use database JSONB instead.
       </p>
 
       <h2>Backup & Restore</h2>
       <ul>
-        <li><strong>PostgreSQL</strong> — Use <code>pg_dump</code> or the project export feature in the dashboard</li>
-        <li><strong>MinIO</strong> — Use <code>mc mirror</code> (MinIO client) for bucket backup</li>
-        <li><strong>Keycloak</strong> — Export realms via the Keycloak admin API or dashboard</li>
+        <li><strong>database</strong> — Use <code>pg_dump</code> or the project export feature in the dashboard</li>
+        <li><strong>object storage</strong> — Use <code>mc mirror</code> (object storage client) for bucket backup</li>
+        <li><strong>auth service</strong> — Export realms via the auth service admin API or dashboard</li>
         <li><strong>NoSQL store</strong> — Use the store&apos;s built-in backup tool</li>
         <li><strong>Full project export</strong> — Dashboard &rarr; Backup & Export creates a ZIP with database, auth, and storage</li>
       </ul>
@@ -156,7 +156,7 @@ npm run dev`}</code></pre>
         <li><strong>Platform API</strong> — <code>GET /health</code> returns platform status</li>
         <li><strong>Data Engine</strong> — <code>GET /v1/projects/:id/data-engine/health</code> returns NoSQL store reachability</li>
         <li><strong>Traefik dashboard</strong> — Available at <code>traefik.basefyio.com</code> (protected by basic auth)</li>
-        <li><strong>MinIO console</strong> — Available at <code>minio-console.basefyio.com</code></li>
+        <li><strong>object storage console</strong> — Available at <code>storage-console.basefyio.com</code></li>
       </ul>
 
       <h2>Updating</h2>
@@ -169,16 +169,16 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 # Database migrations run automatically on API startup (prisma db push)`}</code></pre>
 
       <h2>Troubleshooting</h2>
-      <h3>Keycloak won&apos;t start</h3>
+      <h3>auth service won&apos;t start</h3>
       <p>
-        Check PostgreSQL is healthy first. Keycloak depends on it for its database.
-        View logs: <code>docker compose logs keycloak --tail=50</code>
+        Check database is healthy first. auth service depends on it for its database.
+        View logs: <code>docker compose logs auth --tail=50</code>
       </p>
 
-      <h3>Platform API depends on Keycloak</h3>
+      <h3>Platform API depends on auth service</h3>
       <p>
-        The API waits for Keycloak&apos;s health check. If Keycloak is stuck, the API won&apos;t start.
-        Fix Keycloak first, then the API will auto-start.
+        The API waits for auth service&apos;s health check. If auth service is stuck, the API won&apos;t start.
+        Fix auth service first, then the API will auto-start.
       </p>
 
       <h3>NoSQL store not healthy</h3>

@@ -23,7 +23,7 @@ import {
 const ogTitle =
   "basefyio — The Open Source Supabase Alternative";
 const ogDescription =
-  "basefyio: PostgreSQL database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
+  "basefyio: Database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {
@@ -150,10 +150,6 @@ export default async function Home() {
             </Link>
             <AuthNav appUrl={appRoot} />
             <ThemeToggle />
-            <span className="hidden items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary lg:inline-flex">
-              <Check className="h-3 w-3" />
-              No credit card
-            </span>
             <Link
               href={appSignup}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90 active:scale-[0.98]"
@@ -181,7 +177,7 @@ export default async function Home() {
             </h1>
             <div className="animate-fade-in mt-7 max-w-md [animation-delay:160ms] motion-reduce:animate-none">
               <p className="font-mono text-sm text-muted-foreground">
-                postgres &middot; postgREST &middot; auth &middot; storage
+                database &middot; REST API &middot; auth &middot; storage
                 &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">

@@ -5,7 +5,7 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "basefyio is a self-hosted backend-as-a-service platform. PostgreSQL databases, NoSQL data engine, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
+  "basefyio is a self-hosted backend-as-a-service platform. dedicated databases, NoSQL data engine, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs", {
@@ -36,7 +36,7 @@ export default function DocsOverview() {
       <h1>Documentation</h1>
       <p>
         basefyio is a <strong>self-hosted backend-as-a-service platform</strong> that gives every project
-        its own PostgreSQL database, NoSQL document data engine, authentication system, file storage,
+        its own dedicated database, NoSQL document data engine, authentication system, file storage,
         and auto-generated REST API. Deploy with Docker Compose, manage via the Admin Dashboard, and
         build applications with the SDK or CLI.
       </p>
@@ -62,7 +62,7 @@ const bf = createClient({
 })`}</code></pre>
 
       <h3>3. Start Building</h3>
-      <pre><code>{`// Query relational data (PostgreSQL)
+      <pre><code>{`// Query relational data (database)
 const { data: posts } = await bf.from('posts').select().eq('published', true)
 
 // Insert a document (Data Engine)
@@ -130,11 +130,11 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
           </tr>
         </thead>
         <tbody>
-          <tr><td><strong>Database</strong></td><td>PostgreSQL 16</td><td>Relational data with full SQL, RLS, pgvector, foreign keys, triggers</td></tr>
+          <tr><td><strong>Database</strong></td><td>Database</td><td>Relational data with full SQL, RLS, pgvector, foreign keys, triggers</td></tr>
           <tr><td><strong>Data Engine</strong></td><td>NoSQL store + PG fallback</td><td>Schema-driven document storage for application records, nested data, flexible schemas</td></tr>
-          <tr><td><strong>Authentication</strong></td><td>Keycloak 24</td><td>Email/password, magic links, OAuth (Google, GitHub), JWT tokens, per-project realms</td></tr>
-          <tr><td><strong>Storage</strong></td><td>MinIO (S3-compatible)</td><td>File upload, download, signed URLs, public/private buckets</td></tr>
-          <tr><td><strong>REST API</strong></td><td>NestJS + PostgREST-style</td><td>Auto-generated CRUD endpoints, filtering, pagination, ordering</td></tr>
+          <tr><td><strong>Authentication</strong></td><td>auth service 24</td><td>Email/password, magic links, OAuth (Google, GitHub), JWT tokens, per-project realms</td></tr>
+          <tr><td><strong>Storage</strong></td><td>object storage (S3-compatible)</td><td>File upload, download, signed URLs, public/private buckets</td></tr>
+          <tr><td><strong>REST API</strong></td><td>Auto-generated</td><td>Auto-generated CRUD endpoints, filtering, pagination, ordering</td></tr>
           <tr><td><strong>Real-time</strong></td><td>Server-Sent Events</td><td>Live updates for project activity, data changes</td></tr>
           <tr><td><strong>Admin Dashboard</strong></td><td>Next.js</td><td>Visual management: SQL editor, table editor, data browser, storage browser, auth config</td></tr>
           <tr><td><strong>Connection Pooling</strong></td><td>PgBouncer</td><td>Efficient database connection reuse for high concurrency</td></tr>
@@ -158,11 +158,11 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
         basefyio gives you two ways to store data, both accessible from the same SDK:
       </p>
       <ul>
-        <li><strong>PostgreSQL (relational)</strong> — Full SQL power. Use <code>bf.from(&apos;table&apos;)</code> for structured data with relations, constraints, RLS policies, and joins. Best for: users, orders, products, anything with strong schemas and relationships.</li>
+        <li><strong>database (relational)</strong> — Full SQL power. Use <code>bf.from(&apos;table&apos;)</code> for structured data with relations, constraints, RLS policies, and joins. Best for: users, orders, products, anything with strong schemas and relationships.</li>
         <li><strong>Data Engine (documents)</strong> — Schema-driven NoSQL. Use <code>bf.data.collection(&apos;entity&apos;)</code> for flexible documents with nested objects, arrays, versioning, and soft-delete. Best for: CMS content, form submissions, AI-generated data, mobile app records, IoT events.</li>
       </ul>
       <p>
-        Both planes are available simultaneously. PostgreSQL handles system metadata and relational data;
+        Both planes are available simultaneously. database handles system metadata and relational data;
         the Data Engine handles application records and document workloads.
         See the <Link href="/docs/data-engine">Data Engine guide</Link> for details.
       </p>
@@ -178,7 +178,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
 
       <h3>Authentication</h3>
       <p>
-        Each project has its own Keycloak realm with independent users, sessions, and OAuth providers.
+        Each project has its own auth realm with independent users, sessions, and OAuth providers.
         Supported authentication methods:
       </p>
       <ul>
@@ -194,19 +194,19 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
 
       <h3>Storage</h3>
       <p>
-        S3-compatible file storage powered by MinIO. Each project can have multiple storage buckets:
+        S3-compatible file storage powered by object storage. Each project can have multiple storage buckets:
       </p>
       <ul>
         <li><strong>Private buckets</strong> — Files accessible only via signed URLs (time-limited) or the service key</li>
         <li><strong>Public buckets</strong> — Files accessible via permanent public URLs</li>
-        <li>Upload files up to 10 MB via the API, larger files via direct MinIO access</li>
+        <li>Upload files up to 10 MB via the API, larger files via direct object storage access</li>
         <li>Organize files into folders within buckets</li>
       </ul>
 
       <h3>Row-Level Security (RLS)</h3>
       <p>
         Every project database comes with RLS roles pre-installed: <code>anon</code>, <code>authenticated</code>, and <code>service_role</code>.
-        Write PostgreSQL RLS policies to control which rows each role can see, insert, update, or delete.
+        Write database RLS policies to control which rows each role can see, insert, update, or delete.
         The API automatically switches to the correct role based on the JWT token.
         See the <Link href="/docs/security">Security & RLS guide</Link>.
       </p>
@@ -220,7 +220,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
 
       <h3>Table Editor</h3>
       <p>
-        Visual spreadsheet-style editor for your PostgreSQL tables. Create tables, add/edit/delete columns,
+        Visual spreadsheet-style editor for your database tables. Create tables, add/edit/delete columns,
         insert rows, inline-edit cells, manage foreign keys, sort, filter, paginate, and deduplicate — all
         without writing SQL.
       </p>
@@ -267,12 +267,12 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
 └──────┬──────────┬──────────┬─────────────┘
        │          │          │
   ┌────▼────┐ ┌──▼───┐ ┌───▼────┐
-  │PostgreSQL│ │NoSQL │ │Keycloak│
+  │database│ │NoSQL │ │auth service│
   │  16      │ │Store │ │  24    │
   └─────────┘ └──────┘ └────────┘
        │                    │
   ┌────▼────┐          ┌───▼────┐
-  │PgBouncer│          │ MinIO  │
+  │PgBouncer│          │ object storage  │
   └─────────┘          └────────┘`}</code></pre>
 
       {/* ── Admin Dashboard ──────────────────────────────── */}
@@ -298,7 +298,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
           <tr><td><strong>Storage</strong></td><td>Manage buckets, upload/download files, signed URLs, public toggle</td></tr>
           <tr><td><strong>Auth</strong></td><td>User management, OAuth provider config, email settings, password policies</td></tr>
           <tr><td><strong>REST API</strong></td><td>API explorer with endpoint documentation and testing</td></tr>
-          <tr><td><strong>Connection</strong></td><td>Database URIs, pooler URIs, API endpoints, Keycloak realm info</td></tr>
+          <tr><td><strong>Connection</strong></td><td>Database URIs, pooler URIs, API endpoints, auth realm info</td></tr>
           <tr><td><strong>Backup & Export</strong></td><td>Full project export (database + auth + storage) as ZIP</td></tr>
           <tr><td><strong>Integrations</strong></td><td>GitHub and Vercel connections</td></tr>
           <tr><td><strong>AI / Embeddings</strong></td><td>pgvector embeddings, semantic search, schema indexing</td></tr>
