@@ -193,46 +193,51 @@ services:
 
   # ── NoSQL Store (Data Engine) ─────────────────────────────
 
-  nosql:
-    image: couchbase/server:community-7.6.2
+  # CouchDB backs the Data Engine (DATA_ENGINE_PROVIDER=couchdb). Internal
+  # network only — platform-api reaches it as http://couchdb:5984.
+  couchdb:
+    image: apache/couchdb:3
     restart: always
     environment:
-      COUCHBASE_ADMINISTRATOR_USERNAME: ${NOSQL_USERNAME}
-      COUCHBASE_ADMINISTRATOR_PASSWORD: ${NOSQL_PASSWORD}
+      COUCHDB_USER: ${NOSQL_USERNAME}
+      COUCHDB_PASSWORD: ${NOSQL_PASSWORD}
     volumes:
-      - nosql_data:/opt/couchbase/var
+      - couchdb_data:/opt/couchdb/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -u ${NOSQL_USERNAME}:${NOSQL_PASSWORD} http://localhost:8091/pools || curl -sf http://localhost:8091/pools || exit 1"]
+      # /_up is reachable without credentials by design (monitoring endpoint).
+      test: ["CMD-SHELL", "curl -sf http://localhost:5984/_up || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 60s
+      retries: 18
+      start_period: 20s
     deploy:
       resources:
         limits:
           memory: 1G
 
-  nosql-init:
+  # One-shot: create CouchDB's system databases (_users, _replicator,
+  # _global_changes) so single-node mode is fully initialized and stops
+  # logging missing-db errors. Idempotent — re-runs are no-ops (HTTP 412).
+  couchdb-init:
     image: curlimages/curl:latest
     depends_on:
-      nosql:
-        condition: service_started
-    volumes:
-      - ./scripts/init-nosql.sh:/init-nosql.sh:ro
+      couchdb:
+        condition: service_healthy
     environment:
-      CB_HOST: nosql
-      CB_PORT: 8091
-      CB_USER: ${NOSQL_USERNAME}
-      CB_PASS: ${NOSQL_PASSWORD}
-      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
-      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
-      CB_BUCKET_RAM_MB: ${CB_BUCKET_RAM_MB:-512}
-    entrypoint: ["sh", "/init-nosql.sh"]
+      COUCHDB_USER: ${NOSQL_USERNAME}
+      COUCHDB_PASSWORD: ${NOSQL_PASSWORD}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        for db in _users _replicator _global_changes; do
+          curl -s -o /dev/null -u "$$COUCHDB_USER:$$COUCHDB_PASSWORD" -X PUT "http://couchdb:5984/$$db" || true
+        done
     networks:
       - internal
-    restart: on-failure:3
+    restart: "no"
 
   # ── Applications (pulled from GHCR) ────────────────────
 
@@ -325,8 +330,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-      nosql:
-        condition: service_started
+      couchdb:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
@@ -377,7 +382,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
-  nosql_data:
+  couchdb_data:
   pgbouncer_config:
   letsencrypt_data:
 

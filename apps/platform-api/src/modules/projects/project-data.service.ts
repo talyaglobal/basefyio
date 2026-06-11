@@ -179,11 +179,17 @@ export class ProjectDataService {
     orderBy?: string,
     orderDir?: 'asc' | 'desc',
   ) {
-    const { pool } = await this.getProjectPool(projectId, ownerId);
+    // Allow longer timeout for search queries on large tables
+    const { pool } = await this.getProjectPool(projectId, ownerId, {
+      statementTimeoutMs: search?.trim() ? 60_000 : 15_000,
+    });
     const client = await pool.connect();
     const offset = (page - 1) * limit;
 
     try {
+      // Wrap in explicit transaction so SET LOCAL takes effect
+      await client.query('BEGIN');
+
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
 
@@ -295,12 +301,19 @@ export class ProjectDataService {
         }
       }
 
+      // Raise timeout for filtered queries — ILIKE on 1M+ rows needs more than 15s
+      if (trimmedSearch) {
+        await client.query(`SET LOCAL statement_timeout = '60s'`);
+      }
+
       const limitParamIdx = params.length + 1;
       const offsetParamIdx = params.length + 2;
       const dataResult = await client.query(
         `SELECT t.* ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
         [...params, limit, offset],
       );
+
+      await client.query('COMMIT');
 
       return {
         rows: dataResult.rows,
@@ -314,6 +327,9 @@ export class ProjectDataService {
         limit,
         totalPages: Math.max(1, Math.ceil(total / limit)),
       };
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
     } finally {
       client.release();
       await pool.end();

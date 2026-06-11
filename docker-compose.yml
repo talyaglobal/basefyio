@@ -92,6 +92,27 @@ services:
 
   # ── NoSQL Store (Data Engine) ─────────────────────────────
 
+  # Alternative document store backend for the Data Engine. Opt-in:
+  #   docker compose --profile couchdb up -d couchdb
+  # then set DATA_ENGINE_PROVIDER=couchdb and NOSQL_CONNSTR=http://couchdb:5984
+  couchdb:
+    image: apache/couchdb:3
+    profiles: ["couchdb"]
+    restart: unless-stopped
+    ports:
+      - "${COUCHDB_PORT:-5984}:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    environment:
+      COUCHDB_USER: ${NOSQL_USERNAME:-basefyio}
+      COUCHDB_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5984/_up || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   nosql:
     image: couchbase/server:community-7.6.2
     restart: unless-stopped
@@ -252,4 +273,5 @@ volumes:
   redis_data:
   minio_data:
   nosql_data:
+  couchdb_data:
   pgbouncer_config:

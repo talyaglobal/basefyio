@@ -1,19 +1,33 @@
 'use client';
 
-import { Suspense } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
-import { CollectionsEditor } from '@/components/collections-editor';
+import { Suspense, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
-function CollectionsPageInner() {
+/**
+ * Collections merged into the unified Data editor (/tables). This route
+ * remains only so old links and bookmarks keep working.
+ */
+function CollectionsRedirectInner() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  return <CollectionsEditor projectId={id} initialCollection={searchParams.get('open')} />;
+  const router = useRouter();
+
+  useEffect(() => {
+    const open = searchParams.get('open');
+    router.replace(
+      `/dashboard/projects/${id}/tables${
+        open ? `?open=${encodeURIComponent(`nosql:${open}`)}` : '?filter=nosql'
+      }`,
+    );
+  }, [id, searchParams, router]);
+
+  return null;
 }
 
 export default function CollectionsPage() {
   return (
     <Suspense fallback={null}>
-      <CollectionsPageInner />
+      <CollectionsRedirectInner />
     </Suspense>
   );
 }

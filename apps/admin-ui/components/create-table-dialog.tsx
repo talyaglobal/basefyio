@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Plus, Trash2, Key, Braces, Table2 } from 'lucide-react';
+import { Plus, Trash2, Key, Braces, ScrollText, Table2 } from 'lucide-react';
 import { FieldTypeSelector } from '@/components/field-type-selector';
 import { DEFAULT_SUGGESTIONS } from '@/lib/pg-field-types';
 
@@ -35,6 +35,11 @@ interface CreateTableDialogProps {
   onOpenChange: (o: boolean) => void;
   projectId: string;
   onCreated: (created?: CreatedDataObject) => void;
+  /**
+   * When provided, a third "Entity" option appears; choosing it hands off to
+   * the Data Engine entity builder (the parent closes this dialog).
+   */
+  onCreateEntity?: () => void;
 }
 
 let nextId = 1;
@@ -46,8 +51,8 @@ function makeIdColumn(): ColumnDef {
   return { id: nextId++, name: 'id', type: 'uuid', nullable: false, isPrimary: true, defaultValue: 'gen_random_uuid()' };
 }
 
-export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: CreateTableDialogProps) {
-  const [kind, setKind] = useState<'sql' | 'nosql'>('sql');
+export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, onCreateEntity }: CreateTableDialogProps) {
+  const [kind, setKind] = useState<'sql' | 'nosql' | 'entity'>('sql');
   const [tableName, setTableName] = useState('');
   const [collectionName, setCollectionName] = useState('');
   const [columns, setColumns] = useState<ColumnDef[]>([makeIdColumn(), { ...makeColumn(), name: 'created_at', type: 'timestamptz', nullable: false, defaultValue: 'now()' }]);
@@ -148,11 +153,17 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
           <DialogDescription>
             {kind === 'sql'
               ? 'A SQL table with typed columns, constraints, and defaults.'
-              : 'A NoSQL collection of schema-flexible JSON documents.'}
+              : kind === 'nosql'
+                ? 'A NoSQL collection of schema-flexible JSON documents.'
+                : 'A Data Engine entity with schema-validated documents.'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Data type">
+        <div
+          className={`grid gap-2 ${onCreateEntity ? 'grid-cols-3' : 'grid-cols-2'}`}
+          role="radiogroup"
+          aria-label="Data type"
+        >
           <button
             type="button"
             role="radio"
@@ -191,6 +202,27 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
               <p className="text-[11px] text-muted-foreground truncate">Schema-flexible JSON documents</p>
             </div>
           </button>
+          {onCreateEntity && (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={kind === 'entity'}
+              onClick={() => setKind('entity')}
+              className={`flex items-center gap-2.5 rounded-lg border-2 p-2.5 text-left transition-all ${
+                kind === 'entity'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/40 hover:bg-muted/50'
+              }`}
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                <ScrollText className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Entity</p>
+                <p className="text-[11px] text-muted-foreground truncate">Data Engine documents</p>
+              </div>
+            </button>
+          )}
         </div>
 
         {kind === 'sql' ? (
@@ -312,7 +344,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
               </Button>
             </DialogFooter>
           </form>
-        ) : (
+        ) : kind === 'nosql' ? (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="cc-name">Collection Name</Label>
@@ -339,6 +371,22 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated }: 
               </Button>
             </DialogFooter>
           </form>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Entities are managed by the Data Engine: documents are validated
+              against a versioned schema and served through the records API.
+              Continue to define the entity.
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => onCreateEntity?.()}>
+                Continue
+              </Button>
+            </DialogFooter>
+          </div>
         )}
       </DialogContent>
     </Dialog>

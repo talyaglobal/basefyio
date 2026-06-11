@@ -1,9 +1,19 @@
-'use client';
+﻿'use client';
 
-import { useParams } from 'next/navigation';
-import { DataBrowser } from '@/components/data-browser';
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 
+/**
+ * Data Engine entities merged into the unified Data editor (/tables). This
+ * route remains only so old links and bookmarks keep working.
+ */
 export default function DataPage() {
   const { id } = useParams<{ id: string }>();
-  return <DataBrowser projectId={id} />;
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(`/dashboard/projects/${id}/tables?filter=entity`);
+  }, [id, router]);
+
+  return null;
 }

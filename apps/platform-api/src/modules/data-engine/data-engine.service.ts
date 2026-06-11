@@ -45,7 +45,7 @@ export class DataEngineService implements OnModuleInit {
     }
 
     this.engine = await createDataEngine({
-      provider: provider as 'nosql' | 'postgres',
+      provider: provider as 'nosql' | 'postgres' | 'couchdb',
       connectionString,
       username: this.config.get<string>('dataEngine.username') || '',
       password: this.config.get<string>('dataEngine.password') || '',
@@ -70,10 +70,10 @@ export class DataEngineService implements OnModuleInit {
       await this.tryInitWithProvider(configuredProvider);
       this.initAttempts = 0;
     } catch (err: any) {
-      // If nosql provider fails (missing couchbase module, connection refused, etc.),
-      // automatically fall back to postgres provider.
-      if (configuredProvider === 'nosql') {
-        this.logger.warn(`NoSQL provider failed: ${err.message}. Falling back to postgres provider.`);
+      // If a document-store provider fails (missing SDK module, connection
+      // refused, etc.), automatically fall back to the postgres provider.
+      if (configuredProvider === 'nosql' || configuredProvider === 'couchdb') {
+        this.logger.warn(`Provider "${configuredProvider}" failed: ${err.message}. Falling back to postgres provider.`);
         try {
           await this.tryInitWithProvider('postgres');
           this.initAttempts = 0;

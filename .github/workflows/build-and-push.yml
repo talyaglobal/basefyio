@@ -140,5 +140,6 @@ jobs:
             # Pull updated images
             docker compose -f docker-compose.prod.yml --env-file .env.production pull platform-api admin-ui website
 
-            # Start/update all services (nosql + nosql-init will auto-run on first deploy)
+            # Start/update all services (couchdb + couchdb-init auto-run; --remove-orphans
+            # cleans up services dropped from the compose file, e.g. the old couchbase pair)
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans

@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { TableInfo, ColumnInfo, TableRows, ForeignKeyInfo, CollectionInfo } from '@/lib/types';
+import type {
+  TableInfo,
+  ColumnInfo,
+  TableRows,
+  ForeignKeyInfo,
+  CollectionInfo,
+  EntityDefinitionInfo,
+} from '@/lib/types';
+import { CollectionDocumentsPanel } from '@/components/collection-documents-panel';
+import { EntityDocumentsPanel } from '@/components/entity-documents-panel';
+import { CreateEntityDialog } from '@/components/create-entity-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,13 +36,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
-  ExternalLink,
   Key,
   Link2,
   MoreVertical,
   Pencil,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
   Table2,
   Trash2,
@@ -53,6 +62,29 @@ import { DEFAULT_SUGGESTIONS } from '@/lib/pg-field-types';
 
 interface TableEditorProps {
   projectId: string;
+  /** Deep-link target: `sql:users`, `nosql:posts`, or `entity:customers`. Consumed once. */
+  initialOpen?: string | null;
+  /** Initial kind filter: 'sql' | 'nosql' | 'entity'. */
+  initialFilter?: string | null;
+}
+
+/** The unified editor browses three kinds of data objects in one place. */
+type DataKind = 'sql' | 'nosql' | 'entity';
+
+function keyOf(kind: DataKind, name: string): string {
+  return `${kind}:${name}`;
+}
+
+/** Parse an item key; bare names (legacy persisted state) are SQL tables. */
+function parseKey(key: string): { kind: DataKind; name: string } {
+  const idx = key.indexOf(':');
+  if (idx > 0) {
+    const kind = key.slice(0, idx);
+    if (kind === 'sql' || kind === 'nosql' || kind === 'entity') {
+      return { kind, name: key.slice(idx + 1) };
+    }
+  }
+  return { kind: 'sql', name: key };
 }
 
 // ── Add Column Dialog ──────────────────────────────────────
@@ -617,15 +649,25 @@ function AddForeignKeyDialog({
 
 // ── Main Table Editor ──────────────────────────────────────
 
-export function TableEditor({ projectId }: TableEditorProps) {
-  const router = useRouter();
+export function TableEditor({ projectId, initialOpen = null, initialFilter = null }: TableEditorProps) {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
+  const [entities, setEntities] = useState<EntityDefinitionInfo[]>([]);
+  const [kindFilter, setKindFilter] = useState<'all' | DataKind>(
+    initialFilter === 'sql' || initialFilter === 'nosql' || initialFilter === 'entity'
+      ? initialFilter
+      : 'all',
+  );
+  // Deep-link target is consumed once; later refreshes restore normally.
+  const initialOpenRef = useRef<string | null>(initialOpen);
 
   // Look up schema for a given table name from the listTables result so the
   // backend resolves "public.users" vs "auth.users" unambiguously.
   const schemaFor = (name: string | null): string | undefined =>
     name ? tables.find((t) => t.name === name)?.schema : undefined;
+  /** Selected sidebar item key (`kind:name`); null = nothing open. */
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  /** SQL table name currently driving the grid — set only for kind 'sql'. */
   const [selected, setSelected] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
@@ -634,6 +676,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const [dataLoading, setDataLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createEntityOpen, setCreateEntityOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [dedupeOpen, setDedupeOpen] = useState(false);
 
@@ -711,17 +754,33 @@ export function TableEditor({ projectId }: TableEditorProps) {
   const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
   const tableSearchLower = tableSearch.trim().toLowerCase();
 
-  // Single sidebar list mixing SQL tables and NoSQL collections, each item
-  // labeled with its kind so the user always knows what they are looking at.
-  type SidebarItem = { kind: 'sql' | 'nosql'; name: string; count: number };
+  // Single sidebar list mixing SQL tables, NoSQL collections, and Data Engine
+  // entities — each item labeled with its kind so the user always knows what
+  // they are looking at. Filterable by kind via the chips above the list.
+  type SidebarItem = { kind: DataKind; name: string; label: string; count: number | null };
   const sidebarItems: SidebarItem[] = [
-    ...tables.map((t) => ({ kind: 'sql' as const, name: t.name, count: t.rowCount })),
-    ...collections.map((c) => ({ kind: 'nosql' as const, name: c.name, count: c.documentCount })),
-  ].sort((a, b) => a.name.localeCompare(b.name));
-  const filteredItems =
-    tableSearchLower.length === 0
-      ? sidebarItems
-      : sidebarItems.filter((i) => i.name.toLowerCase().includes(tableSearchLower));
+    ...tables.map((t) => ({
+      kind: 'sql' as const, name: t.name, label: t.name, count: t.rowCount as number | null,
+    })),
+    ...collections.map((c) => ({
+      kind: 'nosql' as const, name: c.name, label: c.name, count: c.documentCount as number | null,
+    })),
+    ...entities.map((e) => ({
+      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: null,
+    })),
+  ].sort((a, b) => a.label.localeCompare(b.label));
+  const filteredItems = sidebarItems.filter(
+    (i) =>
+      (kindFilter === 'all' || i.kind === kindFilter) &&
+      (tableSearchLower.length === 0 || i.label.toLowerCase().includes(tableSearchLower)),
+  );
+
+  const KIND_CHIPS: { value: 'all' | DataKind; label: string; count: number }[] = [
+    { value: 'all', label: 'All', count: sidebarItems.length },
+    { value: 'sql', label: 'SQL', count: tables.length },
+    { value: 'nosql', label: 'JSON', count: collections.length },
+    { value: 'entity', label: 'Entities', count: entities.length },
+  ];
 
   /**
    * localStorage key for the per-project Table Editor state (active table +
@@ -743,40 +802,52 @@ export function TableEditor({ projectId }: TableEditorProps) {
     localStorage.setItem('basefyio_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
   }, [columnPanelOpen]);
 
-  // Persist active table + tab strip whenever they change. Skip the initial
+  // Persist active item + tab strip whenever they change. Skip the initial
   // "empty" state — writing `{selected: null, openTabs: []}` before tables
   // have loaded would wipe out a perfectly good saved state on every refresh.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!selected && openTabs.length === 0) return;
+    if (!selectedKey && openTabs.length === 0) return;
     try {
       localStorage.setItem(
         stateStorageKey,
-        JSON.stringify({ selected, openTabs }),
+        JSON.stringify({ selected: selectedKey, openTabs }),
       );
     } catch {
       // localStorage can throw in private mode or when quota is exceeded.
       // Persistence is best-effort; refreshes just won't remember.
     }
-  }, [selected, openTabs, stateStorageKey]);
+  }, [selectedKey, openTabs, stateStorageKey]);
 
   async function loadTables() {
     setLoading(true);
     try {
-      // Collections live in the same project DB (nosql schema); a failure
-      // there must not break the SQL table list, so it degrades to [].
-      const [result, colls] = await Promise.all([
+      // Collections (nosql schema in the project DB) and Data Engine entities
+      // each degrade to [] on failure — neither may break the SQL table list.
+      const [result, colls, ents] = await Promise.all([
         api.projects.tables(projectId),
         api.projects.listCollections(projectId).catch(() => [] as CollectionInfo[]),
+        api.projects.listEntityDefinitions(projectId).catch(() => [] as EntityDefinitionInfo[]),
       ]);
       setTables(result);
       setCollections(colls);
+      setEntities(ents);
 
-      // Try to restore from localStorage on first load. Stale entries —
-      // tables that no longer exist — get filtered out so we don't try to
-      // open a phantom. If nothing in saved state survives validation, fall
-      // back to whatever's currently `selected` (in-memory) or the first
-      // available table.
+      // An item key is valid only if its backing object still exists.
+      const normalize = (key: string) => {
+        const { kind, name } = parseKey(key);
+        return keyOf(kind, name);
+      };
+      const validKey = (key: string): boolean => {
+        const { kind, name } = parseKey(key);
+        if (kind === 'sql') return result.some((t) => t.name === name);
+        if (kind === 'nosql') return colls.some((c) => c.name === name);
+        return ents.some((e) => e.logicalName === name);
+      };
+
+      // Try to restore from localStorage on first load. Legacy entries are
+      // bare table names — parseKey treats those as SQL. Stale entries get
+      // filtered out so we don't try to open a phantom.
       let restoredSelected: string | null = null;
       let restoredTabs: string[] = [];
       if (typeof window !== 'undefined') {
@@ -788,15 +859,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
               openTabs?: string[];
             };
             if (Array.isArray(parsed.openTabs)) {
-              restoredTabs = parsed.openTabs.filter((name) =>
-                result.some((t) => t.name === name),
-              );
+              restoredTabs = parsed.openTabs.map(normalize).filter(validKey);
             }
-            if (
-              typeof parsed.selected === 'string' &&
-              result.some((t) => t.name === parsed.selected)
-            ) {
-              restoredSelected = parsed.selected;
+            if (typeof parsed.selected === 'string' && validKey(normalize(parsed.selected))) {
+              restoredSelected = normalize(parsed.selected);
             }
           }
         } catch {
@@ -804,18 +870,36 @@ export function TableEditor({ projectId }: TableEditorProps) {
         }
       }
 
+      // A deep link (?open=kind:name) wins over restored state, once.
+      const deepLinkRaw = initialOpenRef.current;
+      initialOpenRef.current = null;
+      const deepLinkKey =
+        deepLinkRaw && validKey(normalize(deepLinkRaw)) ? normalize(deepLinkRaw) : null;
+
       if (restoredTabs.length > 0) {
         setOpenTabs(restoredTabs);
       } else {
-        setOpenTabs((prev) => prev.filter((name) => result.some((t) => t.name === name)));
+        setOpenTabs((prev) => prev.map(normalize).filter(validKey));
       }
 
-      if (result.length > 0) {
-        const target =
-          restoredSelected ??
-          (selected && result.some((t) => t.name === selected) ? selected : result[0].name);
-        openTable(target);
+      const firstAvailable =
+        result.length > 0
+          ? keyOf('sql', result[0].name)
+          : colls.length > 0
+            ? keyOf('nosql', colls[0].name)
+            : ents.length > 0
+              ? keyOf('entity', ents[0].logicalName)
+              : null;
+
+      const target =
+        deepLinkKey ??
+        restoredSelected ??
+        (selectedKey && validKey(selectedKey) ? selectedKey : firstAvailable);
+
+      if (target) {
+        openItem(target);
       } else {
+        setSelectedKey(null);
         setSelected(null);
         setOpenTabs([]);
         setColumns([]);
@@ -828,19 +912,41 @@ export function TableEditor({ projectId }: TableEditorProps) {
     }
   }
 
-  function openTable(name: string) {
-    setOpenTabs((prev) => (prev.includes(name) ? prev : [...prev, name]));
-    selectTable(name);
+  function openItem(key: string) {
+    setOpenTabs((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    selectItem(key);
   }
 
-  function closeTab(name: string) {
+  function openTable(name: string) {
+    openItem(keyOf('sql', name));
+  }
+
+  function selectItem(key: string) {
+    const { kind, name } = parseKey(key);
+    setSelectedKey(key);
+    if (kind === 'sql') {
+      void selectTable(name);
+    } else {
+      // Non-SQL items render their own panel; clear the SQL grid state so
+      // the SQL rows effect stays dormant (it bails when `selected` is null).
+      setSelected(null);
+      setColumns([]);
+      setData(null);
+      setEditingCell(null);
+      setAddingRow(false);
+      setSelectedRows(new Set());
+    }
+  }
+
+  function closeTab(key: string) {
     setOpenTabs((prev) => {
-      const next = prev.filter((t) => t !== name);
-      if (selected === name) {
+      const next = prev.filter((t) => t !== key);
+      if (selectedKey === key) {
         const fallback = next[next.length - 1] ?? null;
         if (fallback) {
-          selectTable(fallback);
+          selectItem(fallback);
         } else {
+          setSelectedKey(null);
           setSelected(null);
           setColumns([]);
           setData(null);
@@ -966,17 +1072,15 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       await api.projects.dropTable(projectId, name);
       toast.success(`Table "${name}" dropped`);
-      setOpenTabs((prev) => prev.filter((t) => t !== name));
-      if (selected === name) setSelected(null);
+      setOpenTabs((prev) => prev.filter((t) => t !== keyOf('sql', name)));
+      if (selected === name) {
+        setSelected(null);
+        setSelectedKey(null);
+      }
       loadTables();
     } catch (err: any) {
       toast.error(err.message);
     }
-  }
-
-  /** NoSQL collections open in the Collections editor, preselected. */
-  function openCollectionInEditor(name: string) {
-    router.push(`/dashboard/projects/${projectId}/collections?open=${encodeURIComponent(name)}`);
   }
 
   async function handleDropCollection(name: string) {
@@ -984,6 +1088,9 @@ export function TableEditor({ projectId }: TableEditorProps) {
     try {
       await api.projects.dropCollection(projectId, name);
       toast.success(`Collection "${name}" dropped`);
+      const key = keyOf('nosql', name);
+      setOpenTabs((prev) => prev.filter((t) => t !== key));
+      if (selectedKey === key) setSelectedKey(null);
       loadTables();
     } catch (err: any) {
       toast.error(err.message);
@@ -1178,14 +1285,18 @@ export function TableEditor({ projectId }: TableEditorProps) {
     URL.revokeObjectURL(url);
   }
 
+  const selParsed = selectedKey ? parseKey(selectedKey) : null;
+  const selKind = selParsed?.kind ?? null;
+  const selName = selParsed?.name ?? null;
+
   return (
     <div className="flex flex-col h-full">
-      {tables.length === 0 && collections.length === 0 ? (
+      {tables.length === 0 && collections.length === 0 && entities.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
           <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
-          <p className="font-medium">No tables or collections yet</p>
+          <p className="font-medium">No data objects yet</p>
           <p className="mb-4 text-sm text-muted-foreground">
-            Create a SQL table or a NoSQL collection to get started.
+            Create a SQL table, a NoSQL collection, or a Data Engine entity to get started.
           </p>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -1225,29 +1336,46 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   </button>
                 )}
               </div>
+              {/* Kind filter chips */}
+              <div className="mt-2 flex flex-wrap gap-1" role="radiogroup" aria-label="Filter by data type">
+                {KIND_CHIPS.map((chip) => (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={kindFilter === chip.value}
+                    onClick={() => setKindFilter(chip.value)}
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                      kindFilter === chip.value
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
+                    )}
+                  >
+                    {chip.label}
+                    <span className="ml-1 opacity-60">{chip.count}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-              {filteredItems.length === 0 && tableSearchLower.length > 0 ? (
+              {filteredItems.length === 0 ? (
                 <div className="px-3 py-6">
                   <p className="text-xs text-muted-foreground">
-                    No tables or collections match &quot;{tableSearch}&quot;.
+                    {tableSearchLower.length > 0
+                      ? `No items match "${tableSearch}".`
+                      : 'No items of this type yet.'}
                   </p>
                 </div>
               ) : (
                 filteredItems.map((t) => (
                   <div key={`${t.kind}:${t.name}`} className="group relative">
                     <button
-                      onClick={() => {
-                        if (t.kind === 'sql') {
-                          openTable(t.name);
-                        } else {
-                          openCollectionInEditor(t.name);
-                        }
-                      }}
+                      onClick={() => openItem(keyOf(t.kind, t.name))}
                       className={cn(
                         'flex w-full items-center justify-between gap-1.5 rounded-md px-3 py-2 text-sm transition-colors pr-9',
-                        t.kind === 'sql' && selected === t.name
+                        selectedKey === keyOf(t.kind, t.name)
                           ? 'bg-primary/10 font-medium text-primary'
                           : 'text-muted-foreground hover:bg-accent',
                       )}
@@ -1255,10 +1383,12 @@ export function TableEditor({ projectId }: TableEditorProps) {
                       <span className="flex items-center gap-2 truncate">
                         {t.kind === 'sql' ? (
                           <Table2 className="h-3.5 w-3.5 shrink-0" />
-                        ) : (
+                        ) : t.kind === 'nosql' ? (
                           <Braces className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                        ) : (
+                          <ScrollText className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                         )}
-                        <span className="truncate">{t.name}</span>
+                        <span className="truncate">{t.label}</span>
                       </span>
                       <span className="flex items-center gap-1 shrink-0">
                         <span
@@ -1266,53 +1396,59 @@ export function TableEditor({ projectId }: TableEditorProps) {
                             'rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide',
                             t.kind === 'sql'
                               ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
-                              : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+                              : t.kind === 'nosql'
+                                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
                           )}
-                          title={t.kind === 'sql' ? 'SQL table' : 'NoSQL collection'}
+                          title={
+                            t.kind === 'sql'
+                              ? 'SQL table'
+                              : t.kind === 'nosql'
+                                ? 'NoSQL collection'
+                                : 'Data Engine entity'
+                          }
                         >
-                          {t.kind === 'sql' ? 'SQL' : 'JSON'}
+                          {t.kind === 'sql' ? 'SQL' : t.kind === 'nosql' ? 'JSON' : 'ENTITY'}
                         </span>
-                        <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
-                          {formatCount(t.count)}
-                        </Badge>
+                        {t.count !== null && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
+                            {formatCount(t.count)}
+                          </Badge>
+                        )}
                       </span>
                     </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
-                          title={t.kind === 'sql' ? 'Table options' : 'Collection options'}
-                        >
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        {t.kind === 'sql' ? (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                openTable(t.name);
-                                setColumnPanelOpen(true);
-                              }}
-                            >
-                              <Pencil className="mr-2 h-3.5 w-3.5" />
-                              Edit table
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => handleDropTable(t.name)}
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" />
-                              Delete table
-                            </DropdownMenuItem>
-                          </>
-                        ) : (
-                          <>
-                            <DropdownMenuItem onClick={() => openCollectionInEditor(t.name)}>
-                              <ExternalLink className="mr-2 h-3.5 w-3.5" />
-                              Open collection
-                            </DropdownMenuItem>
+                    {t.kind !== 'entity' && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+                            title={t.kind === 'sql' ? 'Table options' : 'Collection options'}
+                          >
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {t.kind === 'sql' ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  openTable(t.name);
+                                  setColumnPanelOpen(true);
+                                }}
+                              >
+                                <Pencil className="mr-2 h-3.5 w-3.5" />
+                                Edit table
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => handleDropTable(t.name)}
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                Delete table
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => handleDropCollection(t.name)}
@@ -1320,10 +1456,10 @@ export function TableEditor({ projectId }: TableEditorProps) {
                               <Trash2 className="mr-2 h-3.5 w-3.5" />
                               Delete collection
                             </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 ))
               )}
@@ -1339,16 +1475,17 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
           {/* Main content */}
           <div className="flex-1 min-w-0 flex flex-col">
-            {selected ? (
+            {selectedKey ? (
               <>
                 <div className="flex items-center border-b bg-muted/30 px-2 py-1.5">
                   <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
                     {openTabs.map((tab) => {
-                      const active = tab === selected;
+                      const active = tab === selectedKey;
+                      const { kind: tabKind, name: tabName } = parseKey(tab);
                       return (
                         <div
                           key={tab}
-                          onClick={() => selectTable(tab)}
+                          onClick={() => selectItem(tab)}
                           className={cn(
                             'inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors',
                             active
@@ -1356,10 +1493,17 @@ export function TableEditor({ projectId }: TableEditorProps) {
                               : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
                           )}
                         >
-                          <span className="max-w-[140px] truncate">{tab}</span>
+                          {tabKind === 'sql' ? (
+                            <Table2 className="h-3 w-3 shrink-0" />
+                          ) : tabKind === 'nosql' ? (
+                            <Braces className="h-3 w-3 shrink-0 text-violet-500" />
+                          ) : (
+                            <ScrollText className="h-3 w-3 shrink-0 text-amber-500" />
+                          )}
+                          <span className="max-w-[140px] truncate">{tabName}</span>
                           <button
                             type="button"
-                            aria-label={`Close ${tab}`}
+                            aria-label={`Close ${tabName}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               closeTab(tab);
@@ -1373,28 +1517,32 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     })}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadTables} title="Refresh tables">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadTables} title="Refresh">
                       <RefreshCw className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)}>
-                      <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
-                      Import Data
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setDedupeOpen(true)}
-                      disabled={!selected || tables.length === 0}
-                      title={
-                        !selected || tables.length === 0
-                          ? 'Select a table in the sidebar first'
-                          : 'Remove rows that match on chosen columns'
-                      }
-                    >
-                      <CopyMinus className="mr-1.5 h-3.5 w-3.5" />
-                      Clean duplicates
-                    </Button>
+                    {selKind === 'sql' && (
+                      <>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)}>
+                          <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
+                          Import Data
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setDedupeOpen(true)}
+                          disabled={!selected || tables.length === 0}
+                          title={
+                            !selected || tables.length === 0
+                              ? 'Select a table in the sidebar first'
+                              : 'Remove rows that match on chosen columns'
+                          }
+                        >
+                          <CopyMinus className="mr-1.5 h-3.5 w-3.5" />
+                          Clean duplicates
+                        </Button>
+                      </>
+                    )}
                     <div className="relative">
                       <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)}>
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -1412,6 +1560,16 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   </div>
                 </div>
 
+                {selKind === 'nosql' && selName ? (
+                  <CollectionDocumentsPanel projectId={projectId} collectionName={selName} />
+                ) : selKind === 'entity' && selName ? (
+                  <EntityDocumentsPanel projectId={projectId} entityName={selName} />
+                ) : !selected ? (
+                  <div className="flex flex-1 items-center justify-center text-muted-foreground">
+                    Select an item from the sidebar
+                  </div>
+                ) : (
+                <>
                 {/* Toolbar */}
                 <div className="flex items-center justify-between gap-3 border-b px-4 py-2 bg-card">
                   <div className="flex items-center gap-3 min-w-0">
@@ -1769,10 +1927,12 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     />
                   )}
                 </div>
+                </>
+                )}
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-                <p>Select a table from the sidebar</p>
+                <p>Select an item from the sidebar</p>
                 <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   New
@@ -1790,13 +1950,23 @@ export function TableEditor({ projectId }: TableEditorProps) {
         projectId={projectId}
         onCreated={(created) => {
           loadTables();
-          if (created?.kind === 'sql') {
-            setTimeout(() => openTable(created.name), 0);
-          } else if (created?.kind === 'nosql') {
-            // Jump straight to the Collections editor so documents can be
-            // inserted right away.
-            openCollectionInEditor(created.name);
+          if (created) {
+            // Open the new object inline so data can be added right away.
+            setTimeout(() => openItem(keyOf(created.kind, created.name)), 0);
           }
+        }}
+        onCreateEntity={() => {
+          setCreateOpen(false);
+          setCreateEntityOpen(true);
+        }}
+      />
+      <CreateEntityDialog
+        open={createEntityOpen}
+        onOpenChange={setCreateEntityOpen}
+        projectId={projectId}
+        onCreated={(logicalName) => {
+          loadTables();
+          setTimeout(() => openItem(keyOf('entity', logicalName)), 0);
         }}
       />
       <ImportDataDialog

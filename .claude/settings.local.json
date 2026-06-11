@@ -41,7 +41,10 @@
       "Bash(Find \"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\packages\" -name \"package.json\")",
       "Bash(Find \"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\packages\\\\data-engine\\\\src\" -name \"*.ts\" -type f)",
       "Bash(Find \"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\platform-api\\\\src\\\\modules\\\\infrastructure\" -name \"*.ts\" -type f)",
-      "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui; $out = npx tsc -p tsconfig.json --noEmit 2>$null; $errs = $out | Select-String -Pattern 'error TS'; \"Total: $\\($errs.Count\\)\"; $errs | Select-Object -First 15; npm run check:english-ui)"
+      "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui; $out = npx tsc -p tsconfig.json --noEmit 2>$null; $errs = $out | Select-String -Pattern 'error TS'; \"Total: $\\($errs.Count\\)\"; $errs | Select-Object -First 15; npm run check:english-ui)",
+      "PowerShell(gh auth status)",
+      "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui; npx tsc -p tsconfig.json --noEmit; \"tsc exit code: $LASTEXITCODE\")",
+      "PowerShell(git -C C:\\\\IT\\\\Projects\\\\kolaybase-new diff -- \"apps/admin-ui/app/dashboard/projects/[id]/layout.tsx\"; $b = [System.IO.File]::ReadAllBytes\\(\"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui\\\\app\\\\dashboard\\\\projects\\\\[id]\\\\data\\\\page.tsx\"\\)[0..5]; $b -join ',')"
     ]
   }
 }

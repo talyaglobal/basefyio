@@ -134,7 +134,7 @@ export interface DataEngineEvent {
 // ── Configuration ──────────────────────────────────────────
 
 export interface DataEngineConfig {
-  provider: 'nosql' | 'postgres';
+  provider: 'nosql' | 'postgres' | 'couchdb';
   /** NoSQL store connection string. */
   connectionString?: string;
   username?: string;

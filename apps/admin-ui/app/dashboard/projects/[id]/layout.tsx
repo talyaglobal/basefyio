@@ -24,7 +24,6 @@ import {
   FolderOpen,
   Globe,
   Key,
-  Layers,
   Link2,
   Plug,
   Settings,
@@ -109,9 +108,8 @@ function SidebarModeIosSegmented({
 
 const navItems = [
   { label: 'Overview', href: '', icon: Database },
-  { label: 'Table Editor', href: '/tables', icon: Table2 },
-  { label: 'Collections', href: '/collections', icon: Layers },
-  { label: 'Data', href: '/data', icon: ScrollText },
+  // Tables, collections, and Data Engine entities live in one unified editor.
+  { label: 'Data', href: '/tables', icon: Table2 },
   { label: 'SQL Editor', href: '/sql', icon: Terminal },
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },

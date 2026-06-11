@@ -1,9 +1,25 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { TableEditor } from '@/components/table-editor';
 
-export default function TablesPage() {
+function TablesPageInner() {
   const { id } = useParams<{ id: string }>();
-  return <TableEditor projectId={id} />;
+  const searchParams = useSearchParams();
+  return (
+    <TableEditor
+      projectId={id}
+      initialOpen={searchParams.get('open')}
+      initialFilter={searchParams.get('filter')}
+    />
+  );
+}
+
+export default function TablesPage() {
+  return (
+    <Suspense fallback={null}>
+      <TablesPageInner />
+    </Suspense>
+  );
 }

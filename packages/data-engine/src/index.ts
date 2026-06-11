@@ -158,6 +158,7 @@ import type { DataEngineConfig } from './interfaces/types';
  *
  * DATA_ENGINE_PROVIDER=nosql → requires couchbase peer dependency
  * DATA_ENGINE_PROVIDER=postgres → requires pg peer dependency
+ * DATA_ENGINE_PROVIDER=couchdb → no SDK dependency (plain HTTP via fetch)
  */
 export async function createDataEngine(config: DataEngineConfig): Promise<DataEngine> {
   switch (config.provider) {
@@ -169,9 +170,13 @@ export async function createDataEngine(config: DataEngineConfig): Promise<DataEn
       const { PostgresDataEngine } = await import('./providers/postgres/postgres-engine');
       return new PostgresDataEngine(config);
     }
+    case 'couchdb': {
+      const { CouchDbDataEngine } = await import('./providers/couchdb/couchdb-engine');
+      return new CouchDbDataEngine(config);
+    }
     default:
       throw new Error(
-        `Unknown DATA_ENGINE_PROVIDER: "${config.provider}". Expected "nosql" or "postgres".`,
+        `Unknown DATA_ENGINE_PROVIDER: "${config.provider}". Expected "nosql", "postgres", or "couchdb".`,
       );
   }
 }

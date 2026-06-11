@@ -204,6 +204,21 @@ Every stored document carries these reserved fields:
 
 **When to use:** Production deployments requiring high-throughput document workloads.
 
+### CouchDB Provider (`DATA_ENGINE_PROVIDER=couchdb`)
+
+- One CouchDB database per project (`{container}--{projectId}`, name-sanitized)
+- Plain HTTP/JSON via global `fetch` — **no SDK dependency**
+- Envelope stored under an `envelope` sub-object (CouchDB reserves top-level `_` fields); user data under `data`
+- Filters compiled to Mango selectors (`_find` with bookmark paging)
+- CAS via CouchDB `_rev` (physical) + envelope `version` (public contract)
+- Mango (`_index`) indexes via `ensureIndexes()`; baseline indexes created on `provisionTenant()`
+- Sorting/total are computed in memory over server-filtered matches (capped at 10k per scan) because Mango has no COUNT and needs a matching index per sort
+
+**Connection:** `NOSQL_CONNSTR=http://host:5984` + `NOSQL_USERNAME`/`NOSQL_PASSWORD`.
+Dev container: `docker compose --profile couchdb up -d couchdb`.
+
+**When to use:** Deployments that already operate CouchDB, or when an HTTP-only document store without an SDK dependency is preferred. For very large collections prefer the `nosql` provider (server-side counts/sorts).
+
 ### Adding a New Provider
 
 1. Create `packages/data-engine/src/providers/<name>/<name>-engine.ts`
@@ -775,7 +790,7 @@ All configuration via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATA_ENGINE_PROVIDER` | `disabled` | Provider: `nosql`, `postgres`, or `disabled` |
+| `DATA_ENGINE_PROVIDER` | `disabled` | Provider: `nosql`, `couchdb`, `postgres`, or `disabled` |
 | `NOSQL_CONNSTR` | — | Connection string (e.g. `couchbase://nosql`) |
 | `NOSQL_USERNAME` | `basefyio` | Store admin username |
 | `NOSQL_PASSWORD` | `basefyio_secret` | Store admin password |
