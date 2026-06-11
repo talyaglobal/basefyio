@@ -15,6 +15,7 @@ import {
 import type { Request } from 'express';
 import { ProjectDataService } from './project-data.service';
 import { ProjectsService } from './projects.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
   CurrentUser,
@@ -32,6 +33,7 @@ export class ProjectDataController {
     private readonly dataService: ProjectDataService,
     private readonly projectsService: ProjectsService,
     private readonly activity: ProjectActivityService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('tables')
@@ -304,6 +306,28 @@ export class ProjectDataController {
     }
 
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.dataService.getConnectionStrings(project);
+    const connStrings = this.dataService.getConnectionStrings(project);
+
+    // Include permission info for the current user
+    let canResetDbPassword = false;
+    if (user?.sub && project.teamId) {
+      try {
+        const member = await this.prisma.teamMember.findUnique({
+          where: { teamId_userId: { teamId: project.teamId, userId: user.sub } },
+        });
+        if (member?.role === 'OWNER') {
+          canResetDbPassword = true;
+        } else if (member) {
+          const perms = await this.prisma.teamRolePermission.findUnique({
+            where: { teamId_role: { teamId: project.teamId, role: member.role } },
+          });
+          canResetDbPassword = perms?.canResetDbPassword ?? false;
+        }
+      } catch {
+        // Permission check failed — default to false
+      }
+    }
+
+    return { ...connStrings, canResetDbPassword };
   }
 }

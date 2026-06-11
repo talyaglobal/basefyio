@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPostgresUri,
+  getPgbouncerClientEndpoints,
   getPostgresDirectClientEndpoints,
 } from './postgres-uri.util';
 
@@ -960,30 +961,33 @@ export class ProjectDataService {
   }
 
   getConnectionStrings(project: any) {
-    const poolerHost = project.dbHost;
-    const poolerPort = project.dbPort;
+    const internalHost = project.dbHost;
+    const internalPort = project.dbPort;
     const db = project.dbName;
     const user = project.dbUser;
     const password = project.dbPassword;
     const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
     const publicBaseUrl = publicApiUrl.replace(/\/+$/, '');
 
+    // External PgBouncer endpoint — what users connect to from pgAdmin, DBeaver, etc.
+    const { host: extPoolerHost, port: extPoolerPort } = getPgbouncerClientEndpoints(this.config);
+
     const { host: directHost, port: directPort } = getPostgresDirectClientEndpoints(
       this.config,
-      poolerHost,
-      poolerPort,
+      extPoolerHost,
+      extPoolerPort,
     );
 
     return {
       uri: buildPostgresUri(directHost, directPort, user, password, db),
-      poolerUri: buildPostgresUri(poolerHost, poolerPort, user, password, db),
-      host: poolerHost,
+      poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, user, password, db),
+      host: extPoolerHost,
       port: directPort,
       database: db,
       user,
       password,
-      poolerHost,
-      poolerPort,
+      poolerHost: extPoolerHost,
+      poolerPort: extPoolerPort,
       restUrl: `${publicApiUrl}/rest/v1`,
       publicBaseUrl,
       keycloakRealm: project.keycloakRealm,

@@ -159,6 +159,8 @@ model TeamRolePermission {
   canDeleteProjects         Boolean        @default(false) @map("can_delete_projects")
   canRestoreProjects        Boolean        @default(false) @map("can_restore_projects")
   canMoveProjects           Boolean        @default(false) @map("can_move_projects")
+  // Database
+  canResetDbPassword        Boolean        @default(false) @map("can_reset_db_password")
   // Billing
   canViewBilling            Boolean        @default(false) @map("can_view_billing")
   canManageBilling          Boolean        @default(false) @map("can_manage_billing")

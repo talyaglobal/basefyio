@@ -624,6 +624,7 @@ export interface ConnectionStrings {
   keycloakUrl: string;
   anonKey: string;
   serviceKey: string;
+  canResetDbPassword?: boolean;
 }
 
 export interface StorageBucket {

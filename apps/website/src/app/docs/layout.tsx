@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Book, Code, Terminal, Server, Database, Shield, Layers, ScrollText, Cloud } from "lucide-react";
+import { Book, Code, Terminal, Server, Database, Shield, Layers, ScrollText, Cloud, Link2 } from "lucide-react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
@@ -23,6 +23,7 @@ export const metadata: Metadata = {
 const nav = [
   { href: "/docs", label: "Overview", icon: Book },
   { href: "/docs/data-engine", label: "Data Engine", icon: Database },
+  { href: "/docs/connect", label: "Connect", icon: Link2 },
   { href: "/docs/api", label: "API Reference", icon: Server },
   { href: "/docs/sdk", label: "SDK", icon: Code },
   { href: "/docs/cli", label: "CLI", icon: Terminal },

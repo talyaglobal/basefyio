@@ -937,6 +937,8 @@ export default function TeamSettingsPage() {
                   { key: 'canDeleteProjects', label: 'Delete projects' },
                   { key: 'canRestoreProjects', label: 'Restore deleted projects' },
                   { key: 'canMoveProjects', label: 'Move projects between teams' },
+                  { key: '', label: 'Database', isHeader: true },
+                  { key: 'canResetDbPassword', label: 'Reset database password' },
                   { key: '', label: 'Billing', isHeader: true },
                   { key: 'canViewBilling', label: 'View billing & invoices' },
                   { key: 'canManageBilling', label: 'Manage plans & payments' },

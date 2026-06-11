@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import {
   ChevronDown,
@@ -259,6 +260,7 @@ export function ConnectionStringsView({
   const [nextPassword, setNextPassword] = useState('');
   const [rotatingPassword, setRotatingPassword] = useState(false);
   const [showKeycloakDetails, setShowKeycloakDetails] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -575,16 +577,34 @@ datasource db {
 
       {activeTab === 'basefyio' && (
       <>
-      {/* Direct Database Connection (PgBouncer) */}
+      {/* External Database Access */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Database className="h-5 w-5" />
+          External Database Access
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Connect from any database client — pgAdmin, DBeaver, DataGrip, TablePlus, or your terminal.
+          Copy the connection string or use the individual fields below.
+        </p>
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800 dark:bg-blue-950">
+          <p className="font-medium text-blue-800 dark:text-blue-200">Quick connect</p>
+          <ul className="mt-1.5 list-inside list-disc text-blue-700 dark:text-blue-300 space-y-1">
+            <li><strong>pgAdmin:</strong> Add Server → Connection tab → paste Host, Port, Database, Username, Password below</li>
+            <li><strong>DBeaver:</strong> New Connection → select PostgreSQL → paste Host, Port, Database, Username, Password</li>
+            <li><strong>Terminal:</strong> <code className="rounded bg-blue-100 dark:bg-blue-900 px-1 text-xs">psql &quot;{conn.poolerUri}&quot;</code></li>
+          </ul>
+        </div>
+      </section>
+
+      {/* Connection Details */}
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <Layers className="h-5 w-5" />
-          Direct Connection (Pooler)
+          Connection Details (Pooler)
         </h2>
         <p className="text-sm text-muted-foreground">
-          Connect directly to your database with connection pooling via
-          PgBouncer. Use this for Prisma, Drizzle, pgAdmin, or any PostgreSQL
-          client.
+          Connection pooling endpoint. Use this for Prisma, Drizzle, pgAdmin, DBeaver, or any SQL client.
         </p>
         <CopyBlock
           label="Pooler Connection URI"
@@ -607,58 +627,82 @@ datasource db {
           <CopyBlock label="Password" value={conn.password} icon={Key} />
           <CopyBlock label="Project ID" value={projectId} icon={Database} />
         </div>
-        <div className="rounded-md border bg-card p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-            Reset database password
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Enter your own strong password or generate a secure one.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-            <Input
-              type="text"
-              placeholder="Enter new password"
-              value={nextPassword}
-              onChange={(e) => setNextPassword(e.target.value)}
-              aria-label="New database password"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setNextPassword(generateStrongPassword())}
-              disabled={rotatingPassword}
-            >
-              Generate
-            </Button>
-            <Button
-              type="button"
-              onClick={() => handleRotatePassword(false)}
-              disabled={rotatingPassword || nextPassword.length === 0}
-            >
-              {rotatingPassword ? 'Resetting...' : 'Reset'}
-            </Button>
-          </div>
-          {passwordValidation && !passwordValidation.success && (
-            <p className="text-xs text-red-600">
-              {passwordValidation.error.issues[0]?.message}
-            </p>
-          )}
-          <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-            <li>Minimum 12 characters</li>
-            <li>At least one uppercase and one lowercase letter</li>
-            <li>At least one number and one special character</li>
-            <li>No spaces allowed</li>
-          </ul>
+        {conn.canResetDbPassword && (
           <Button
-            type="button"
             variant="outline"
-            onClick={() => handleRotatePassword(true)}
-            disabled={rotatingPassword}
+            onClick={() => { setNextPassword(''); setShowPasswordModal(true); }}
+            className="gap-2"
           >
-            {rotatingPassword ? 'Resetting...' : 'Generate and reset automatically'}
+            <RefreshCw className="h-4 w-4" />
+            Reset database password
           </Button>
-        </div>
+        )}
+
+        <Dialog open={showPasswordModal} onOpenChange={setShowPasswordModal}>
+          <DialogContent className="max-w-md">
+            <DialogTitle>Reset Database Password</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Enter your own strong password or generate a secure one.
+              Active connections will be disconnected.
+            </p>
+            <div className="space-y-4 pt-2">
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Enter new password"
+                  value={nextPassword}
+                  onChange={(e) => setNextPassword(e.target.value)}
+                  aria-label="New database password"
+                  className="flex-1 font-mono"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setNextPassword(generateStrongPassword())}
+                  disabled={rotatingPassword}
+                >
+                  Generate
+                </Button>
+              </div>
+              {passwordValidation && !passwordValidation.success && (
+                <p className="text-xs text-red-600">
+                  {passwordValidation.error.issues[0]?.message}
+                </p>
+              )}
+              <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
+                <li>Minimum 12 characters</li>
+                <li>At least one uppercase and one lowercase letter</li>
+                <li>At least one number and one special character</li>
+                <li>No spaces allowed</li>
+              </ul>
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    await handleRotatePassword(false);
+                    setShowPasswordModal(false);
+                  }}
+                  disabled={rotatingPassword || nextPassword.length === 0}
+                  className="flex-1"
+                >
+                  {rotatingPassword ? 'Resetting...' : 'Reset password'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    await handleRotatePassword(true);
+                    setShowPasswordModal(false);
+                  }}
+                  disabled={rotatingPassword}
+                  className="flex-1"
+                >
+                  {rotatingPassword ? 'Resetting...' : 'Auto-generate'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         <CodeExample label="Prisma" language="prisma" code={prismaExample} />
       </section>
 
@@ -669,7 +713,7 @@ datasource db {
           REST API
         </h2>
         <p className="text-sm text-muted-foreground">
-          Access your data via a PostgREST-compatible HTTP API. Use <code className="rounded bg-muted px-1">anon key</code> for
+          Access your data via a REST API. Use <code className="rounded bg-muted px-1">anon key</code> for
           read-only access and <code className="rounded bg-muted px-1">service key</code> for full CRUD.
         </p>
         <CopyBlock label="REST URL" value={conn.restUrl} icon={Globe} />

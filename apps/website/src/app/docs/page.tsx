@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Server, Code, Terminal, Database, Shield, Cloud, Layers, ScrollText, FolderOpen, Globe, Key, Users, CreditCard, Zap, FileJson, Lock } from "lucide-react";
+import { Server, Code, Terminal, Database, Shield, Cloud, Layers, ScrollText, FolderOpen, Globe, Key, Users, CreditCard, Zap, FileJson, Lock, Link2 } from "lucide-react";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
@@ -95,6 +95,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
       <div className="not-prose grid gap-4 sm:grid-cols-3 mt-6">
         {[
           { href: "/docs/data-engine", icon: Database, title: "Data Engine", desc: "NoSQL document storage with schema validation and nested queries" },
+          { href: "/docs/connect", icon: Link2, title: "External Access", desc: "Connect with pgAdmin, DBeaver, DataGrip, psql, or any SQL client" },
           { href: "/docs/api", icon: Server, title: "API Reference", desc: "REST endpoints for data, auth, storage, and the data engine" },
           { href: "/docs/sdk", icon: Code, title: "SDK Reference", desc: "JavaScript/TypeScript client with typed query builders" },
           { href: "/docs/cli", icon: Terminal, title: "CLI Reference", desc: "Project management, migrations, type generation" },

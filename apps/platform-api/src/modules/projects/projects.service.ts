@@ -435,7 +435,7 @@ export class ProjectsService {
       where: { id: projectId, status: { not: 'DELETED' } },
     });
     if (!project) throw new NotFoundException('Project not found');
-    await this.assertTeamMember(project.teamId, userId);
+    await this.assertTeamPermission(project.teamId, userId, 'canResetDbPassword');
 
     const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
     this.assertStrongDbPassword(password);
@@ -1041,6 +1041,32 @@ export class ProjectsService {
       where: { teamId_userId: { teamId, userId } },
     });
     if (!m) throw new ForbiddenException('Not a member of this team');
+  }
+
+  private async assertTeamPermission(
+    teamId: string,
+    userId: string,
+    permission: string,
+  ) {
+    if (!teamId) throw new ForbiddenException('No team specified');
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this team');
+
+    // OWNER always has all permissions
+    if (member.role === 'OWNER') return;
+
+    const rolePerms = await this.prisma.teamRolePermission.findUnique({
+      where: { teamId_role: { teamId, role: member.role } },
+    });
+
+    // If no role permissions configured, deny by default for non-owners
+    if (!rolePerms || !(rolePerms as any)[permission]) {
+      throw new ForbiddenException(
+        `Your role does not have the "${permission}" permission in this team`,
+      );
+    }
   }
 
   private assertStrongDbPassword(password: string) {
