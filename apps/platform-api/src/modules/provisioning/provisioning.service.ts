@@ -496,6 +496,7 @@ export class ProvisioningService {
         provisioningProject: {
           select: {
             projectId: true,
+            provider: true,
             project: { select: { teamId: true } },
           },
         },
@@ -511,12 +512,24 @@ export class ProvisioningService {
     });
     if (!member) throw new NotFoundException('Operation not found');
 
-    // 3. Only PENDING operations can be cancelled
-    if (op.status !== 'PENDING') {
-      throw new BadRequestException('Only PENDING operations can be cancelled');
+    // 3. Only PENDING or RUNNING operations can be cancelled
+    if (op.status !== 'PENDING' && op.status !== 'RUNNING') {
+      throw new BadRequestException(
+        `Only PENDING or RUNNING operations can be cancelled. Current status: ${op.status}`,
+      );
     }
 
-    // 4. Update to CANCELLED + completedAt=now + write STATUS_CHANGED audit event
+    // 4. Best-effort provider cleanup for RUNNING operations (errors are swallowed)
+    if (op.status === 'RUNNING') {
+      try {
+        const provider = this.providerRegistry.resolve(op.provisioningProject.provider as string);
+        await provider.cancel?.(op.id);
+      } catch {
+        // cleanup failure must not block cancellation
+      }
+    }
+
+    // 5. Update to CANCELLED + completedAt=now + write STATUS_CHANGED audit event
     const now = new Date();
     const cancelled = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.provisioningOperation.update({
@@ -537,7 +550,7 @@ export class ProvisioningService {
         operationId: op.id,
         kind: 'STATUS_CHANGED',
         actorUserId: userId,
-        fromStatus: 'PENDING',
+        fromStatus: op.status,
         toStatus: 'CANCELLED',
       });
 

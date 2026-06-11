@@ -174,12 +174,13 @@ export class ProvisioningController {
   }
 
   /**
-   * Cancel a PENDING operation before execution starts.
+   * Cancel a PENDING or RUNNING operation.
    *
-   * Only PENDING operations may be cancelled.
-   * RUNNING / COMPLETED / FAILED / DRY_RUN / ROLLED_BACK / CANCELLED all return 400.
+   * PENDING and RUNNING operations may be cancelled.
+   * COMPLETED / FAILED / DRY_RUN / ROLLED_BACK / CANCELLED all return 400.
    * Cancellation sets status → CANCELLED and completedAt → now.
-   * A STATUS_CHANGED audit event is written (fromStatus: PENDING, toStatus: CANCELLED).
+   * A STATUS_CHANGED audit event is written (fromStatus: PENDING|RUNNING, toStatus: CANCELLED).
+   * For RUNNING operations, best-effort provider cleanup is attempted before the DB update.
    */
   @Post('operations/:id/cancel')
   @HttpCode(HttpStatus.OK)

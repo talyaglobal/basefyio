@@ -777,20 +777,35 @@ describe('Provisioning controller — integration', () => {
         .expect(400);
     });
 
-    it('400: RUNNING operation → 400', async () => {
+    it('200: RUNNING operation → CANCELLED', async () => {
       const prisma = makePrisma();
-      prisma.provisioningOperation.findUnique.mockResolvedValue({
+      const runningOp = {
         ...stubUpdatedOp('RUNNING', { startedAt: new Date(), completedAt: null }),
+        provisioningProject: {
+          projectId: PROJECT_ID,
+          provider: 'noop',
+          project: { teamId: TEAM_ID },
+        },
+      };
+      const cancelledOp = {
+        ...runningOp,
+        status: 'CANCELLED',
+        completedAt: new Date(),
         provisioningProject: {
           projectId: PROJECT_ID,
           project: { teamId: TEAM_ID },
         },
-      });
+      };
+      prisma.provisioningOperation.findUnique.mockResolvedValue(runningOp);
+      prisma.provisioningOperation.update.mockResolvedValue(cancelledOp);
+      prisma.provisioningAuditEvent.create.mockResolvedValue({});
       app = await buildApp(prisma, makeRegistry());
 
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post(`/v1/provisioning/operations/${OP_ID}/cancel`)
-        .expect(400);
+        .expect(200);
+
+      expect(res.body.status).toBe('CANCELLED');
     });
 
     it('404: Operation not found → 404', async () => {

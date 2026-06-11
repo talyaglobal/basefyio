@@ -115,4 +115,11 @@ export interface IProvisioningProvider {
    * Probe provider connectivity and return health status with latency.
    */
   healthCheck(): Promise<{ healthy: boolean; latencyMs: number }>;
+
+  /**
+   * Optional: attempt best-effort cleanup when a RUNNING operation is cancelled.
+   * Implementations may be a no-op. Errors are swallowed by the caller — cancel
+   * always proceeds to CANCELLED regardless of whether cleanup succeeds.
+   */
+  cancel?(operationId: string): Promise<void>;
 }

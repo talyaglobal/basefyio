@@ -1304,3 +1304,130 @@ describe('ProvisioningService.getResource', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+// ── ProvisioningService.cancelOperation ──────────────────────
+
+const OP_CANCEL_ID = 'op-cancel-1';
+
+function stubCancelOp(status: string) {
+  return {
+    id: OP_CANCEL_ID,
+    status,
+    type: 'CREATE',
+    dryRun: false,
+    input: null,
+    result: null,
+    errorMessage: null,
+    retryOfOperationId: null,
+    startedAt: null,
+    completedAt: null,
+    createdAt: new Date(),
+    idempotencyKey: 'key-cancel',
+    provisioningProjectId: PP_ID,
+    provisioningProject: {
+      projectId: PROJECT_ID,
+      provider: 'noop',
+      project: { teamId: TEAM_ID },
+    },
+  };
+}
+
+describe('ProvisioningService.cancelOperation', () => {
+  it.each(['COMPLETED', 'FAILED', 'PARTIAL_FAILED', 'DRY_RUN', 'ROLLED_BACK', 'CANCELLED'])(
+    'returns 400 for terminal status %s',
+    async (status) => {
+      const prisma = makePrisma({
+        provisioningOperation: {
+          findUnique: jest.fn().mockResolvedValue(stubCancelOp(status)),
+          update: jest.fn(),
+        },
+        teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+      });
+      const svc = new ProvisioningService(prisma, makeRegistry());
+      await expect(svc.cancelOperation(USER_ID, OP_CANCEL_ID)).rejects.toBeInstanceOf(BadRequestException);
+    },
+  );
+
+  it('cancels a RUNNING operation and calls provider.cancel', async () => {
+    const cancelFn = jest.fn().mockResolvedValue(undefined);
+    const registry = {
+      ...makeRegistry(),
+      resolve: jest.fn().mockReturnValue({ cancel: cancelFn }),
+    } as any;
+
+    const cancelledOp = {
+      ...stubCancelOp('RUNNING'),
+      status: 'CANCELLED',
+      completedAt: new Date(),
+      provisioningProject: { projectId: PROJECT_ID, project: { teamId: TEAM_ID } },
+    };
+
+    const prisma = makePrisma({
+      provisioningOperation: {
+        findUnique: jest.fn().mockResolvedValue(stubCancelOp('RUNNING')),
+        update: jest.fn().mockResolvedValue(cancelledOp),
+      },
+      teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+    });
+
+    const svc = new ProvisioningService(prisma, registry);
+    const result = await svc.cancelOperation(USER_ID, OP_CANCEL_ID);
+
+    expect(cancelFn).toHaveBeenCalledWith(OP_CANCEL_ID);
+    expect(result.status).toBe('CANCELLED');
+  });
+
+  it('cancels RUNNING even when provider.cancel throws', async () => {
+    const registry = {
+      ...makeRegistry(),
+      resolve: jest.fn().mockReturnValue({
+        cancel: jest.fn().mockRejectedValue(new Error('provider unreachable')),
+      }),
+    } as any;
+
+    const cancelledOp = {
+      ...stubCancelOp('RUNNING'),
+      status: 'CANCELLED',
+      completedAt: new Date(),
+      provisioningProject: { projectId: PROJECT_ID, project: { teamId: TEAM_ID } },
+    };
+
+    const prisma = makePrisma({
+      provisioningOperation: {
+        findUnique: jest.fn().mockResolvedValue(stubCancelOp('RUNNING')),
+        update: jest.fn().mockResolvedValue(cancelledOp),
+      },
+      teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+    });
+
+    const svc = new ProvisioningService(prisma, registry);
+    const result = await svc.cancelOperation(USER_ID, OP_CANCEL_ID);
+    expect(result.status).toBe('CANCELLED');
+  });
+
+  it('cancels RUNNING when provider has no cancel method', async () => {
+    const registry = {
+      ...makeRegistry(),
+      resolve: jest.fn().mockReturnValue({}), // no cancel method
+    } as any;
+
+    const cancelledOp = {
+      ...stubCancelOp('RUNNING'),
+      status: 'CANCELLED',
+      completedAt: new Date(),
+      provisioningProject: { projectId: PROJECT_ID, project: { teamId: TEAM_ID } },
+    };
+
+    const prisma = makePrisma({
+      provisioningOperation: {
+        findUnique: jest.fn().mockResolvedValue(stubCancelOp('RUNNING')),
+        update: jest.fn().mockResolvedValue(cancelledOp),
+      },
+      teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+    });
+
+    const svc = new ProvisioningService(prisma, registry);
+    const result = await svc.cancelOperation(USER_ID, OP_CANCEL_ID);
+    expect(result.status).toBe('CANCELLED');
+  });
+});
