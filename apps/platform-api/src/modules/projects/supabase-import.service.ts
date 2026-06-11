@@ -809,6 +809,28 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
               sourcePool, pool, table.table_name, columns,
             );
             strategyUsed = 'Direct SQL';
+            // Fallback to PostgREST if Direct SQL returned 0 rows —
+            // the table may exist in a non-public schema, have column
+            // mismatches, or the direct connection may lack privileges.
+            if (rowCount === 0) {
+              this.logger.log(
+                `"${table.table_name}": Direct SQL returned 0 rows — retrying via PostgREST`,
+              );
+              if (onProgress) {
+                await onProgress(
+                  `Retrying "${table.table_name}" via PostgREST (${i + 1}/${tables.length})`,
+                  pct,
+                  'PostgREST',
+                );
+              }
+              const result = await this.copyTableDataFromRest(
+                baseUrl, headers, pool, table.table_name, columns,
+              );
+              if (result.rowCount > 0) {
+                rowCount = result.rowCount;
+                strategyUsed = result.strategyLabel;
+              }
+            }
           } else {
             const result = await this.copyTableDataFromRest(
               baseUrl, headers, pool, table.table_name, columns,
@@ -1206,7 +1228,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (error) {
       const code = (error as any).code || '';
       if (this.isRangeError(error.message, code)) return null;
-      if (this.isAccessDeniedError(error.message, code)) return null;
+      if (this.isAccessDeniedError(error.message, code)) {
+        throw new Error(`[sb-range] Access denied: ${error.message} (code=${code})`);
+      }
       throw new Error(`[sb-range] ${error.message} (code=${code})`);
     }
     return Array.isArray(data) ? data : [];
@@ -1229,7 +1253,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (error) {
       const code = (error as any).code || '';
       if (this.isRangeError(error.message, code)) return null;
-      if (this.isAccessDeniedError(error.message, code)) return null;
+      if (this.isAccessDeniedError(error.message, code)) {
+        throw new Error(`[sb-explicit] Access denied: ${error.message} (code=${code})`);
+      }
       throw new Error(`[sb-explicit] ${error.message} (code=${code})`);
     }
     return Array.isArray(data) ? data : [];
