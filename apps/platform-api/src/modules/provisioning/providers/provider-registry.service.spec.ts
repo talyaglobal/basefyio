@@ -17,6 +17,7 @@ function makeHetznerProvider(): IProvisioningProvider {
     getCapabilities: () => HETZNER_CAPABILITIES,
     plan: jest.fn(),
     apply: jest.fn(),
+    healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),
   };
 }
 
@@ -80,6 +81,7 @@ describe('ProviderRegistry', () => {
         getCapabilities: () => noopCapabilities,
         plan: jest.fn(),
         apply: jest.fn(),
+        healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),
       };
       const hetzner = makeHetznerProvider();
       const registry = makeRegistry([noopProvider, hetzner]);
