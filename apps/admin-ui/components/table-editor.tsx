@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { TableInfo, ColumnInfo, TableRows, ForeignKeyInfo } from '@/lib/types';
+import type { TableInfo, ColumnInfo, TableRows, ForeignKeyInfo, CollectionInfo } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,10 +22,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Braces,
   Check,
   ChevronLeft,
   ChevronRight,
   Columns3,
+  ExternalLink,
   Key,
   Link2,
   MoreVertical,
@@ -615,7 +618,9 @@ function AddForeignKeyDialog({
 // ── Main Table Editor ──────────────────────────────────────
 
 export function TableEditor({ projectId }: TableEditorProps) {
+  const router = useRouter();
   const [tables, setTables] = useState<TableInfo[]>([]);
+  const [collections, setCollections] = useState<CollectionInfo[]>([]);
 
   // Look up schema for a given table name from the listTables result so the
   // backend resolves "public.users" vs "auth.users" unambiguously.
@@ -705,10 +710,18 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
   const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
   const tableSearchLower = tableSearch.trim().toLowerCase();
-  const filteredTables =
+
+  // Single sidebar list mixing SQL tables and NoSQL collections, each item
+  // labeled with its kind so the user always knows what they are looking at.
+  type SidebarItem = { kind: 'sql' | 'nosql'; name: string; count: number };
+  const sidebarItems: SidebarItem[] = [
+    ...tables.map((t) => ({ kind: 'sql' as const, name: t.name, count: t.rowCount })),
+    ...collections.map((c) => ({ kind: 'nosql' as const, name: c.name, count: c.documentCount })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const filteredItems =
     tableSearchLower.length === 0
-      ? tables
-      : tables.filter((t) => t.name.toLowerCase().includes(tableSearchLower));
+      ? sidebarItems
+      : sidebarItems.filter((i) => i.name.toLowerCase().includes(tableSearchLower));
 
   /**
    * localStorage key for the per-project Table Editor state (active table +
@@ -750,8 +763,14 @@ export function TableEditor({ projectId }: TableEditorProps) {
   async function loadTables() {
     setLoading(true);
     try {
-      const result = await api.projects.tables(projectId);
+      // Collections live in the same project DB (nosql schema); a failure
+      // there must not break the SQL table list, so it degrades to [].
+      const [result, colls] = await Promise.all([
+        api.projects.tables(projectId),
+        api.projects.listCollections(projectId).catch(() => [] as CollectionInfo[]),
+      ]);
       setTables(result);
+      setCollections(colls);
 
       // Try to restore from localStorage on first load. Stale entries —
       // tables that no longer exist — get filtered out so we don't try to
@@ -955,6 +974,22 @@ export function TableEditor({ projectId }: TableEditorProps) {
     }
   }
 
+  /** NoSQL collections open in the Collections editor, preselected. */
+  function openCollectionInEditor(name: string) {
+    router.push(`/dashboard/projects/${projectId}/collections?open=${encodeURIComponent(name)}`);
+  }
+
+  async function handleDropCollection(name: string) {
+    if (!confirm(`Drop collection "${name}"? This will delete all documents permanently.`)) return;
+    try {
+      await api.projects.dropCollection(projectId, name);
+      toast.success(`Collection "${name}" dropped`);
+      loadTables();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   function getPkWhere(row: Record<string, unknown>): Record<string, unknown> {
     const where: Record<string, unknown> = {};
     for (const pk of pkColumns) {
@@ -1145,16 +1180,16 @@ export function TableEditor({ projectId }: TableEditorProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {tables.length === 0 ? (
+      {tables.length === 0 && collections.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
           <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
-          <p className="font-medium">No tables yet</p>
+          <p className="font-medium">No tables or collections yet</p>
           <p className="mb-4 text-sm text-muted-foreground">
-            Create your first table to get started.
+            Create a SQL table or a NoSQL collection to get started.
           </p>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            Create Table
+            Create New
           </Button>
         </div>
       ) : (
@@ -1173,11 +1208,11 @@ export function TableEditor({ projectId }: TableEditorProps) {
                   aria-hidden
                 />
                 <Input
-                  placeholder="Search tables by name…"
+                  placeholder="Search tables & collections…"
                   value={tableSearch}
                   onChange={(e) => setTableSearch(e.target.value)}
                   className="h-9 bg-background pl-8 pr-8 text-sm shadow-sm"
-                  aria-label="Search tables by name"
+                  aria-label="Search tables and collections by name"
                 />
                 {tableSearch.trim().length > 0 && (
                   <button
@@ -1193,61 +1228,100 @@ export function TableEditor({ projectId }: TableEditorProps) {
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-              {filteredTables.length === 0 && tableSearchLower.length > 0 ? (
+              {filteredItems.length === 0 && tableSearchLower.length > 0 ? (
                 <div className="px-3 py-6">
                   <p className="text-xs text-muted-foreground">
-                    No tables match &quot;{tableSearch}&quot;.
+                    No tables or collections match &quot;{tableSearch}&quot;.
                   </p>
                 </div>
               ) : (
-                filteredTables.map((t) => (
-                  <div key={t.name} className="group relative">
+                filteredItems.map((t) => (
+                  <div key={`${t.kind}:${t.name}`} className="group relative">
                     <button
                       onClick={() => {
-                        openTable(t.name);
+                        if (t.kind === 'sql') {
+                          openTable(t.name);
+                        } else {
+                          openCollectionInEditor(t.name);
+                        }
                       }}
                       className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors pr-9',
-                        selected === t.name
+                        'flex w-full items-center justify-between gap-1.5 rounded-md px-3 py-2 text-sm transition-colors pr-9',
+                        t.kind === 'sql' && selected === t.name
                           ? 'bg-primary/10 font-medium text-primary'
                           : 'text-muted-foreground hover:bg-accent',
                       )}
                     >
                       <span className="flex items-center gap-2 truncate">
-                        <Table2 className="h-3.5 w-3.5 shrink-0" />
+                        {t.kind === 'sql' ? (
+                          <Table2 className="h-3.5 w-3.5 shrink-0" />
+                        ) : (
+                          <Braces className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                        )}
                         <span className="truncate">{t.name}</span>
                       </span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
-                        {formatCount(t.rowCount)}
-                      </Badge>
+                      <span className="flex items-center gap-1 shrink-0">
+                        <span
+                          className={cn(
+                            'rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide',
+                            t.kind === 'sql'
+                              ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                              : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+                          )}
+                          title={t.kind === 'sql' ? 'SQL table' : 'NoSQL collection'}
+                        >
+                          {t.kind === 'sql' ? 'SQL' : 'JSON'}
+                        </span>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
+                          {formatCount(t.count)}
+                        </Badge>
+                      </span>
                     </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
                           onClick={(e) => e.stopPropagation()}
                           className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
-                          title="Table options"
+                          title={t.kind === 'sql' ? 'Table options' : 'Collection options'}
                         >
                           <MoreVertical className="h-3.5 w-3.5" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            openTable(t.name);
-                            setColumnPanelOpen(true);
-                          }}
-                        >
-                          <Pencil className="mr-2 h-3.5 w-3.5" />
-                          Edit table
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => handleDropTable(t.name)}
-                        >
-                          <Trash2 className="mr-2 h-3.5 w-3.5" />
-                          Delete table
-                        </DropdownMenuItem>
+                      <DropdownMenuContent align="end" className="w-44">
+                        {t.kind === 'sql' ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                openTable(t.name);
+                                setColumnPanelOpen(true);
+                              }}
+                            >
+                              <Pencil className="mr-2 h-3.5 w-3.5" />
+                              Edit table
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => handleDropTable(t.name)}
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              Delete table
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          <>
+                            <DropdownMenuItem onClick={() => openCollectionInEditor(t.name)}>
+                              <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                              Open collection
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => handleDropCollection(t.name)}
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              Delete collection
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1324,7 +1398,7 @@ export function TableEditor({ projectId }: TableEditorProps) {
                     <div className="relative">
                       <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)}>
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
-                        New Table
+                        New
                       </Button>
                       <button
                         type="button"
@@ -1697,8 +1771,12 @@ export function TableEditor({ projectId }: TableEditorProps) {
                 </div>
               </>
             ) : (
-              <div className="flex flex-1 items-center justify-center text-muted-foreground">
-                Select a table from the sidebar
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <p>Select a table from the sidebar</p>
+                <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  New
+                </Button>
               </div>
             )}
           </div>
@@ -1710,10 +1788,14 @@ export function TableEditor({ projectId }: TableEditorProps) {
         open={createOpen}
         onOpenChange={setCreateOpen}
         projectId={projectId}
-        onCreated={(createdTableName) => {
+        onCreated={(created) => {
           loadTables();
-          if (createdTableName) {
-            setTimeout(() => openTable(createdTableName), 0);
+          if (created?.kind === 'sql') {
+            setTimeout(() => openTable(created.name), 0);
+          } else if (created?.kind === 'nosql') {
+            // Jump straight to the Collections editor so documents can be
+            // inserted right away.
+            openCollectionInEditor(created.name);
           }
         }}
       />

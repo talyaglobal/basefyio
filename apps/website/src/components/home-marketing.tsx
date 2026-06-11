@@ -96,7 +96,7 @@ const COMING_SOON = [
   {
     icon: "📊",
     title: "Microsoft Integration",
-    desc: "Import and sync MS Excel, SharePoint and Microsoft 365 data straight into your project — every data type, one backend.",
+    desc: "Import and sync MS Excel, SharePoint and Microsoft 365 data straight into your project — every data type, one platform.",
     pills: ["Excel", "Microsoft 365", "SharePoint"],
     band: "base.msft",
   },
@@ -119,9 +119,9 @@ export function HomeMarketing() {
       <section className="relative px-6 py-20 md:py-28" id="features">
         <div className="mx-auto max-w-6xl">
           <ScrollReveal>
-            <span className="section-label">One project, every layer</span>
+            <span className="section-label">One project, everything included</span>
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Everything your app needs. Nothing it doesn&apos;t.
+              A database that comes with everything.
             </h2>
           </ScrollReveal>
 
@@ -173,7 +173,7 @@ export function HomeMarketing() {
                 <span className="block">EVERY LAYER.</span>
               </h2>
               <p className="mt-6 text-muted-foreground">
-                basefyio gives every app:
+                Every basefyio project includes:
               </p>
               <div className="mt-6 flex flex-col gap-0">
                 <div className="layer-row">
@@ -297,13 +297,13 @@ export function HomeMarketing() {
                   Intelligent assistant
                 </Badge>
                 <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-                  Chat with your project &mdash; not just your tables
+                  Chat with your database &mdash; not just your tables
                 </h2>
                 <p className="mt-4 text-lg text-muted-foreground">
                   basefyio includes a smart AI that understands your schema and
-                  project context. Ask in plain language: explore relationships,
-                  catch risky patterns, get migration ideas, or summarize how
-                  your API surface maps to the database.
+                  data model. Ask in plain language: explore relationships,
+                  catch risky patterns, get migration ideas, or discover how
+                  your tables connect.
                 </p>
                 <ul className="mt-8 space-y-3 text-sm">
                   {[
@@ -494,12 +494,12 @@ export function HomeMarketing() {
             </h2>
             <p className="mt-5 max-w-xl text-muted-foreground">
               basefyio is merging the SaaS, mobile and data worlds into a single
-              backend &mdash; so one connection string powers your web product,
+              database platform &mdash; so one project powers your web product,
               your mobile app and your AI.
             </p>
             <p className="mt-4 text-base font-semibold text-amber-400">
-              basefyio is able to handle every type of data &mdash; including MS
-              Excel.
+              basefyio handles every type of data &mdash; relational, documents,
+              files, even MS Excel.
             </p>
           </ScrollReveal>
 
@@ -613,12 +613,12 @@ export function HomeMarketing() {
         <div className="relative mx-auto max-w-4xl text-center">
           <ScrollReveal>
             <h2 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
-              Your backend is{" "}
-              <span className="gradient-text">one command away.</span>
+              Your database is{" "}
+              <span className="gradient-text">one click away.</span>
             </h2>
             <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-              No glue code. No five vendors. One project for database, auth,
-              storage and instant API.
+              Create a project. Get a database with auth, storage, and an
+              instant API. Start querying in seconds.
             </p>
           </ScrollReveal>
           <ScrollReveal delay={1}>

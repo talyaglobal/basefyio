@@ -20,6 +20,14 @@ enum ProjectStatus {
   DELETED
 }
 
+/// How the project stores application data: relational tables in the
+/// project's PostgreSQL database, or schema-flexible document collections
+/// served by the Data Engine.
+enum ProjectDatabaseType {
+  RELATIONAL
+  NOSQL
+}
+
 enum TeamMemberRole {
   OWNER
   ADMIN
@@ -211,6 +219,10 @@ model Project {
   teamId        String        @map("team_id")
   createdBy     String?       @map("created_by")
   importSource  String        @default("MANUAL") @map("import_source")
+  /// Developer's choice in the New Project wizard. NOSQL projects use the
+  /// Data Engine document store for app data; a PostgreSQL database is still
+  /// provisioned for auth/system features either way.
+  databaseType  ProjectDatabaseType @default(RELATIONAL) @map("database_type")
   /// Last successful Supabase import summary (tables, auth, storage, warnings).
   supabaseImportLog Json?     @map("supabase_import_log")
   status        ProjectStatus @default(ACTIVE)

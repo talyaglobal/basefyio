@@ -39,6 +39,8 @@ import {
 
 interface CollectionsEditorProps {
   projectId: string;
+  /** Collection to select on first load (e.g. from ?open= deep links). */
+  initialCollection?: string | null;
 }
 
 // ── Create Collection Dialog ────────────────────────────────
@@ -285,8 +287,10 @@ function EditDocumentDialog({
 
 // ── Main Collections Editor ─────────────────────────────────
 
-export function CollectionsEditor({ projectId }: CollectionsEditorProps) {
+export function CollectionsEditor({ projectId, initialCollection = null }: CollectionsEditorProps) {
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
+  // Deep-link target is consumed once so later refreshes restore normally.
+  const pendingInitialRef = useRef<string | null>(initialCollection);
   const [selected, setSelected] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [docs, setDocs] = useState<DocumentListResult | null>(null);
@@ -402,8 +406,15 @@ export function CollectionsEditor({ projectId }: CollectionsEditorProps) {
       if (restoredTabs.length > 0) setOpenTabs(restoredTabs);
       else setOpenTabs((prev) => prev.filter((name) => result.some((c) => c.name === name)));
 
+      const deepLinked =
+        pendingInitialRef.current && result.some((c) => c.name === pendingInitialRef.current)
+          ? pendingInitialRef.current
+          : null;
+      pendingInitialRef.current = null;
+
       if (result.length > 0) {
         const target =
+          deepLinked ??
           restoredSelected ??
           (selected && result.some((c) => c.name === selected) ? selected : result[0].name);
         openCollection(target);

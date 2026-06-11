@@ -2150,12 +2150,24 @@ function DroppableProjectCard({
         onOpen();
       }}
     >
-      {/* Status + selection checkbox */}
+      {/* Status + database type + selection checkbox */}
       <div className="flex items-start justify-between gap-2">
-        <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[project.status] ?? 'bg-gray-400'}`} />
-          {project.status.charAt(0) + project.status.slice(1).toLowerCase()}
-        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[project.status] ?? 'bg-gray-400'}`} />
+            {project.status.charAt(0) + project.status.slice(1).toLowerCase()}
+          </span>
+          <span
+            className={`status-badge ${
+              project.databaseType === 'NOSQL'
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                : 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+            }`}
+            title="Database type"
+          >
+            {project.databaseType === 'NOSQL' ? 'NoSQL' : 'PostgreSQL'}
+          </span>
+        </div>
         {/* Checkbox – always visible, click to select */}
         <span
           onClick={(e) => { e.stopPropagation(); onSelect(); }}

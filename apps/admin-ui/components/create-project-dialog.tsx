@@ -22,12 +22,14 @@ import {
 import {
   ArrowLeft,
   Database,
+  FileJson,
   Shield,
   HardDrive,
   Loader2,
   CheckCircle2,
   AlertTriangle,
   Minus,
+  Table2,
 } from 'lucide-react';
 import {
   normalizeImportProgressData,
@@ -54,7 +56,9 @@ interface CreateProjectDialogProps {
   reimportSource?: ReimportSource | null;
 }
 
-type DialogView = 'create' | 'import' | 'import-zip' | 'importing' | 'result';
+type DialogView = 'db-type' | 'create' | 'import' | 'import-zip' | 'importing' | 'result';
+
+type ProjectDatabaseType = 'RELATIONAL' | 'NOSQL';
 
 interface ImportStep {
   key: string;
@@ -108,8 +112,9 @@ export function CreateProjectDialog({
   reimportSource = null,
 }: CreateProjectDialogProps) {
   const router = useRouter();
-  const [view, setView] = useState<DialogView>('create');
+  const [view, setView] = useState<DialogView>('db-type');
 
+  const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -375,7 +380,8 @@ export function CreateProjectDialog({
   ]);
 
   function resetState() {
-    setView('create');
+    setView('db-type');
+    setDatabaseType(null);
     setName('');
     setDescription('');
     setSupabaseUrl('');
@@ -435,7 +441,9 @@ export function CreateProjectDialog({
   }
 
   function hasUnsavedChanges(): boolean {
-    if (view !== 'create' && view !== 'import' && view !== 'import-zip') {
+    // 'db-type' is included so a name typed on step 2 is not silently lost
+    // after navigating back to step 1 and closing.
+    if (view !== 'db-type' && view !== 'create' && view !== 'import' && view !== 'import-zip') {
       return false;
     }
     return (
@@ -479,6 +487,7 @@ export function CreateProjectDialog({
         name,
         description: description || undefined,
         teamId,
+        databaseType: databaseType ?? 'RELATIONAL',
       });
       toast.success(`Project "${project.name}" created`);
       resetState();
@@ -793,13 +802,145 @@ export function CreateProjectDialog({
           if (view === 'importing') e.preventDefault();
         }}
       >
-        {view === 'create' && (
+        {view === 'db-type' && (
           <>
             <DialogHeader>
               <DialogTitle>Create Project</DialogTitle>
               <DialogDescription>
-                A new database and authentication realm will be provisioned
-                automatically.
+                Step 1 of 2 — Choose how your project stores data. This
+                determines which database is provisioned for it.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3" role="radiogroup" aria-label="Database type">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={databaseType === 'RELATIONAL'}
+                onClick={() => setDatabaseType('RELATIONAL')}
+                className={`w-full rounded-lg border-2 p-3.5 text-left transition-all ${
+                  databaseType === 'RELATIONAL'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/40 hover:bg-muted/50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400">
+                    <Table2 className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">Relational</span>
+                      <Badge variant="secondary" className="text-[10px]">
+                        PostgreSQL
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Structured tables with SQL, joins, constraints, and
+                      row-level security. Best for transactional apps with a
+                      well-defined schema.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={databaseType === 'NOSQL'}
+                onClick={() => setDatabaseType('NOSQL')}
+                className={`w-full rounded-lg border-2 p-3.5 text-left transition-all ${
+                  databaseType === 'NOSQL'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/40 hover:bg-muted/50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400">
+                    <FileJson className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">NoSQL</span>
+                      <Badge variant="secondary" className="text-[10px]">
+                        Document store
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Schema-flexible collections of JSON documents. Best for
+                      evolving data models and document-centric apps.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={!databaseType}
+                onClick={() => setView('create')}
+              >
+                Continue
+              </Button>
+            </DialogFooter>
+
+            <div className="relative my-2">
+              <Separator />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
+                or
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setView('import')}
+              className="w-full flex items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 transition-all hover:border-emerald-400 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/50"
+            >
+              <SupabaseLogo className="h-5 w-5" />
+              Import from Supabase
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('import-zip')}
+              className="mt-2 w-full flex items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700 transition-all hover:border-blue-400 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
+            >
+              <HardDrive className="h-5 w-5" />
+              Import from ZIP
+            </button>
+          </>
+        )}
+
+        {view === 'create' && (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView('db-type')}
+                  className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <DialogTitle>Project Details</DialogTitle>
+                <Badge variant="secondary" className="text-[10px]">
+                  {databaseType === 'NOSQL'
+                    ? 'NoSQL · Document store'
+                    : 'Relational · PostgreSQL'}
+                </Badge>
+              </div>
+              <DialogDescription>
+                {databaseType === 'NOSQL'
+                  ? 'Step 2 of 2 — A document store namespace and an authentication realm will be provisioned automatically.'
+                  : 'Step 2 of 2 — A dedicated PostgreSQL database and an authentication realm will be provisioned automatically.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -832,39 +973,15 @@ export function CreateProjectDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => handleOpenChange(false)}
+                  onClick={() => setView('db-type')}
                 >
-                  Cancel
+                  Back
                 </Button>
                 <Button type="submit" disabled={loading || !name.trim()}>
                   {loading ? 'Creating...' : 'Create Project'}
                 </Button>
               </DialogFooter>
             </form>
-
-            <div className="relative my-2">
-              <Separator />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
-                or
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setView('import')}
-              className="w-full flex items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 transition-all hover:border-emerald-400 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/50"
-            >
-              <SupabaseLogo className="h-5 w-5" />
-              Import from Supabase
-            </button>
-            <button
-              type="button"
-              onClick={() => setView('import-zip')}
-              className="mt-2 w-full flex items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700 transition-all hover:border-blue-400 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:border-blue-600 dark:hover:bg-blue-950/50"
-            >
-              <HardDrive className="h-5 w-5" />
-              Import from ZIP
-            </button>
           </>
         )}
 
@@ -875,7 +992,7 @@ export function CreateProjectDialog({
                 <button
                   type="button"
                   onClick={() =>
-                    reimportTarget ? handleOpenChange(false) : setView('create')
+                    reimportTarget ? handleOpenChange(false) : setView('db-type')
                   }
                   className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                   aria-label={reimportTarget ? 'Close' : 'Back'}
@@ -1038,7 +1155,7 @@ export function CreateProjectDialog({
                   type="button"
                   variant="outline"
                   onClick={() =>
-                    reimportTarget ? handleOpenChange(false) : setView('create')
+                    reimportTarget ? handleOpenChange(false) : setView('db-type')
                   }
                 >
                   {reimportTarget ? 'Cancel' : 'Back'}
@@ -1068,7 +1185,7 @@ export function CreateProjectDialog({
                 <button
                   type="button"
                   onClick={() =>
-                    reimportTarget ? handleOpenChange(false) : setView('create')
+                    reimportTarget ? handleOpenChange(false) : setView('db-type')
                   }
                   className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                   aria-label={reimportTarget ? 'Close' : 'Back'}

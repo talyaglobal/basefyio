@@ -427,6 +427,7 @@ export class ProjectDataService {
       const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
       const values = keys.map((k) => data[k] === null || data[k] === 'NULL' ? null : data[k]);
 
+      await client.query('SET LOCAL row_security = off');
       const result = await client.query(
         `INSERT INTO ${qualified} (${cols}) VALUES (${placeholders}) RETURNING *`,
         values,
@@ -474,6 +475,7 @@ export class ProjectDataService {
         ...whereCols.map((k) => pkWhere[k]),
       ];
 
+      await client.query('SET LOCAL row_security = off');
       const result = await client.query(
         `UPDATE ${qualified} SET ${setClause} WHERE ${whereClause} RETURNING *`,
         values,
@@ -511,6 +513,10 @@ export class ProjectDataService {
         .map((k, i) => `"${k}" = $${i + 1}`)
         .join(' AND ');
       const values = whereCols.map((k) => pkWhere[k]);
+
+      // Dashboard is an admin surface — bypass RLS so deletes always work
+      // even when the table has no DELETE policy for the project DB role.
+      await client.query('SET LOCAL row_security = off');
 
       const result = await client.query(
         `DELETE FROM ${qualified} WHERE ${whereClause}`,

@@ -21,9 +21,9 @@ import {
 } from "@/lib/site-url";
 
 const ogTitle =
-  "basefyio — The Open Source Supabase Alternative";
+  "basefyio — The Open Source Database Platform";
 const ogDescription =
-  "basefyio: Database, auth, storage, and instant REST API. The open-source alternative to Supabase and Firebase. Ship your app in minutes.";
+  "basefyio: Managed database with built-in auth, storage, and instant REST API. Create a project, get a database — ready to query in seconds.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/", {
@@ -150,12 +150,7 @@ export default async function Home() {
             </Link>
             <AuthNav appUrl={appRoot} />
             <ThemeToggle />
-            <Link
-              href={appSignup}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90 active:scale-[0.98]"
-            >
-              Start free &rarr;
-            </Link>
+            <HomeNavCta appRoot={appRoot} signupUrl={appSignup} />
           </div>
         </nav>
       </header>
@@ -169,9 +164,9 @@ export default async function Home() {
               30 days free trial
             </div>
             <h1 className="animate-fade-in text-4xl font-bold leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
-              The complete backend for{" "}
+              Your database,{" "}
               <span className="gradient-text relative">
-                data &amp; apps.
+                instantly.
                 <span className="absolute bottom-[-2px] left-0 right-0 h-0.5 rounded bg-primary" />
               </span>
             </h1>
@@ -181,8 +176,8 @@ export default async function Home() {
                 &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">
-                &mdash; provisioned as one project, one connection string, fully
-                under your control.
+                &mdash; create a project, get a dedicated database with instant
+                API, auth, and storage. Fully under your control.
               </p>
             </div>
             <p className="animate-fade-in mt-5 text-[15px] font-semibold text-amber-400 [animation-delay:200ms] motion-reduce:animate-none">
@@ -229,15 +224,15 @@ export default async function Home() {
       <div className="proof-bar">
         <div className="mx-auto max-w-6xl px-6">
           <div className="proof-items">
+            <span>Dedicated database per project</span>
+            <span className="proof-sep">&middot;</span>
             <span>Self-hostable</span>
             <span className="proof-sep">&middot;</span>
             <span>Open Source</span>
             <span className="proof-sep">&middot;</span>
             <span>GDPR-ready</span>
             <span className="proof-sep">&middot;</span>
-            <span>Sovereign infra</span>
-            <span className="proof-sep">&middot;</span>
-            <span>Per-project isolation</span>
+            <span>Connect from pgAdmin, DBeaver &amp; more</span>
           </div>
         </div>
       </div>
@@ -340,10 +335,10 @@ export default async function Home() {
           <div>
             <BasefyioLogo />
             <p className="mt-4 max-w-[200px] text-xs text-muted-foreground leading-relaxed">
-              The all-in-one backend for data &amp; apps.
+              The database platform for modern teams.
             </p>
             <p className="mt-3 text-xs text-muted-foreground">
-              Part of the fyio platform
+              The database platform for modern teams
             </p>
           </div>
           <div>
@@ -428,6 +423,32 @@ export default async function Home() {
       {/* Nav scroll behavior */}
       <NavScrollScript />
     </div>
+  );
+}
+
+async function HomeNavCta({ appRoot, signupUrl }: { appRoot: string; signupUrl: string }) {
+  const { cookies } = await import("next/headers");
+  const cookieStore = await cookies();
+  const loggedIn = cookieStore.get("bf_logged_in")?.value === "1";
+
+  if (loggedIn) {
+    return (
+      <Link
+        href={`${appRoot}/dashboard`}
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90 active:scale-[0.98]"
+      >
+        Dashboard
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      href={signupUrl}
+      className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90 active:scale-[0.98]"
+    >
+      Start free &rarr;
+    </Link>
   );
 }
 

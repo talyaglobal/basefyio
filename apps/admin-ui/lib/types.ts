@@ -90,6 +90,8 @@ export interface Project {
   anonKey: string;
   serviceKey: string;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
+  /** Database model chosen in the New Project wizard. */
+  databaseType?: 'RELATIONAL' | 'NOSQL';
   createdAt: string;
   updatedAt: string;
   importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP';
@@ -137,6 +139,8 @@ export interface ProjectListItem {
   slug: string;
   description: string | null;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
+  /** Database model chosen in the New Project wizard. */
+  databaseType?: 'RELATIONAL' | 'NOSQL';
   folderId: string | null;
   folder?: { id: string; name: string; color: string } | null;
   tags?: { tag: { id: string; name: string; color: string } }[];

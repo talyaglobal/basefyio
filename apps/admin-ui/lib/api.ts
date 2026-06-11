@@ -521,7 +521,12 @@ export const api = {
         totalPages: number;
       }>(`/projects/${id}/activity?limit=${limit}&page=${page}`);
     },
-    create(data: { name: string; description?: string; teamId: string }) {
+    create(data: {
+      name: string;
+      description?: string;
+      teamId: string;
+      databaseType?: 'RELATIONAL' | 'NOSQL';
+    }) {
       return request<Project>('/projects', {
         method: 'POST',
         body: JSON.stringify(data),

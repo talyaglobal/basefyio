@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Book, Code, Terminal, Server, Database, Shield, Layers, ScrollText, Cloud, Link2 } from "lucide-react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AuthNav } from "@/components/auth-nav";
+import { DocsNav } from "./docs-nav";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
@@ -50,37 +53,18 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
             </Link>
           </div>
           <nav className="flex items-center gap-4">
-            <Link
-              href={appRoot}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Dashboard
-            </Link>
+            <Suspense fallback={null}>
+              <AuthNav appUrl={appRoot} />
+            </Suspense>
             <ThemeToggle />
-            <Link
-              href={appSignup}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
-            >
-              Get Started
-            </Link>
+            <DocsHeaderCta appRoot={appRoot} signupUrl={appSignup} />
           </nav>
         </div>
       </header>
 
       <div className="mx-auto flex max-w-6xl px-6">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-border py-8 pr-6 md:block">
-          <nav className="space-y-1">
-            {nav.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </Link>
-            ))}
-          </nav>
+          <DocsNav items={nav} />
         </aside>
 
         <main className="min-w-0 flex-1 py-8 pl-0 md:pl-8">
@@ -107,5 +91,31 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         </main>
       </div>
     </div>
+  );
+}
+
+async function DocsHeaderCta({ appRoot, signupUrl }: { appRoot: string; signupUrl: string }) {
+  const { cookies } = await import("next/headers");
+  const cookieStore = await cookies();
+  const loggedIn = cookieStore.get("bf_logged_in")?.value === "1";
+
+  if (loggedIn) {
+    return (
+      <Link
+        href={`${appRoot}/dashboard`}
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
+      >
+        Dashboard
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      href={signupUrl}
+      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-subtle transition-opacity hover:opacity-90"
+    >
+      Get Started
+    </Link>
   );
 }

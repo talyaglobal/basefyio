@@ -207,7 +207,23 @@ export default function DashboardPage() {
           setProjects(p);
           setMembers(m);
         })
-        .catch((err) => toast.error(err.message))
+        .catch((err) => {
+          const msg = err?.message || '';
+          if (msg.includes('Not a member') || msg.includes('Forbidden')) {
+            // User's active team is stale — switch to first available team
+            const fallback = teams.find((t) => t.id !== viewTeamId) ?? teams[0];
+            if (fallback) {
+              toast.warning('Switched to a different team — previous team was inaccessible.');
+              setViewTeamId(fallback.id);
+              setActiveTeamId(fallback.id);
+              void api.teams.setActive(fallback.id).catch(() => {});
+            } else {
+              toast.error(msg);
+            }
+          } else {
+            toast.error(msg);
+          }
+        })
         .finally(() => setLoading(false));
     }
   }, [viewTeamId, teams, refreshKey]);

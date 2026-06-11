@@ -18,6 +18,7 @@ import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { QuotaService } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
 import { InfrastructureService } from '../infrastructure/infrastructure.service';
+import { DataEngineService } from '../data-engine/data-engine.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import {
   ProjectActivityKind,
@@ -62,6 +63,7 @@ export class ProjectsService {
     private readonly usageService: UsageService,
     private readonly infra: InfrastructureService,
     private readonly realtime: RealtimeEventsService,
+    private readonly dataEngine: DataEngineService,
   ) {}
 
   /**
@@ -118,6 +120,8 @@ export class ProjectsService {
 
     await this.assertTeamMember(dto.teamId, userId);
     await this.quota.assertCanCreateProject(dto.teamId);
+
+    const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
 
     // Keep provisioning architecture consistent across plans to avoid migration issues
     // during plan upgrades/downgrades (free -> pro/business and vice versa).
@@ -208,17 +212,24 @@ export class ProjectsService {
         teamId: dto.teamId,
         createdBy: userId,
         importSource,
+        databaseType,
         // Requires `prisma generate` after pulling this change.
         ...({ rlsBootstrappedAt: new Date() } as any),
       },
     });
 
-    this.logger.log(`Project "${project.name}" created (${project.id})`);
+    this.logger.log(`Project "${project.name}" created (${project.id}, ${databaseType})`);
+
+    if (databaseType === 'NOSQL') {
+      // Best-effort: a slow or unreachable document store must not fail
+      // project creation. Status is tracked in DataPlaneProvisioning.
+      this.provisionNosqlDataPlane(project.id).catch(() => {});
+    }
 
     await this.activity.append(project.id, {
       userId,
       kind: ProjectActivityKind.PROJECT_CREATED,
-      title: `Project created: ${project.name}`,
+      title: `Project created: ${project.name} (${databaseType === 'NOSQL' ? 'NoSQL' : 'Relational'})`,
     });
 
     // Realtime: notify every team member. Normal users get the toast too —
@@ -250,6 +261,46 @@ export class ProjectsService {
     return project;
   }
 
+  /**
+   * Provision the Data Engine tenant for a NOSQL project. Best-effort:
+   * if the engine is disabled or unreachable, record a PENDING row in
+   * DataPlaneProvisioning so the tenant can be provisioned later (the
+   * engine also auto-provisions lazily on first data access).
+   */
+  private async provisionNosqlDataPlane(projectId: string): Promise<void> {
+    if (this.dataEngine.isAvailable()) {
+      try {
+        await this.dataEngine.provisionTenant(projectId);
+        return;
+      } catch (err: any) {
+        // provisionTenant already recorded FAILED with the error message.
+        this.logger.warn(
+          `NoSQL data plane provisioning failed for ${projectId}: ${err.message}`,
+        );
+        return;
+      }
+    }
+
+    try {
+      await this.prisma.dataPlaneProvisioning.upsert({
+        where: { projectId },
+        create: {
+          projectId,
+          status: 'PENDING',
+          provider: this.config.get<string>('dataEngine.provider') || 'postgres',
+        },
+        update: {},
+      });
+      this.logger.warn(
+        `Data Engine unavailable — NoSQL data plane for ${projectId} marked PENDING`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not record pending data plane for ${projectId}: ${err.message}`,
+      );
+    }
+  }
+
   async findAll(teamId: string, userId: string) {
     await this.assertTeamMember(teamId, userId);
 
@@ -262,6 +313,7 @@ export class ProjectsService {
         slug: true,
         description: true,
         status: true,
+        databaseType: true,
         folderId: true,
         folder: { select: { id: true, name: true, color: true } },
         tags: {

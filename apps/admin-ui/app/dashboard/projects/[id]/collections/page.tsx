@@ -1,9 +1,19 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { CollectionsEditor } from '@/components/collections-editor';
 
-export default function CollectionsPage() {
+function CollectionsPageInner() {
   const { id } = useParams<{ id: string }>();
-  return <CollectionsEditor projectId={id} />;
+  const searchParams = useSearchParams();
+  return <CollectionsEditor projectId={id} initialCollection={searchParams.get('open')} />;
+}
+
+export default function CollectionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <CollectionsPageInner />
+    </Suspense>
+  );
 }
