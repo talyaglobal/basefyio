@@ -135,6 +135,7 @@ model Team {
   billingAccount             BillingAccount?
   rolePermissions            TeamRolePermission[]
   provisioningCredentialRefs ProvisioningCredentialRef[]
+  blueprints                 Blueprint[]
 
   @@map("teams")
 }
@@ -274,6 +275,7 @@ model Project {
   dataStructures      DataStructure[]
   engineEndpoints     ProjectEngineEndpoint[]
   provisioningProject ProvisioningProject?
+  blueprints          Blueprint[]
 
   @@map("projects")
 }
@@ -1462,4 +1464,83 @@ model ProvisioningAuditEvent {
   @@index([provisioningProjectId, createdAt(sort: Desc)])
   @@index([resourceId, createdAt(sort: Desc)])
   @@map("provisioning_audit_events")
+}
+
+// ── Excel→App pipeline ────────────────────────────────────────────────────────
+
+// Root pipeline model. Pre-generation: projectId is null (project created at
+// generate time). append-only versioning: currentVersionId points to the live
+// ApplicationVersion; older rows are never updated.
+model Blueprint {
+  id               String   @id @default(uuid())
+  teamId           String   @map("team_id")
+  projectId        String?  @map("project_id")
+  status           String   @default("draft") @db.VarChar(20)
+  domainIntelligence Json   @default("{}") @map("domain_intelligence")
+  dataModel         Json    @default("{}") @map("data_model")
+  businessModel     Json    @default("{}") @map("business_model")
+  uiModel           Json    @default("{}") @map("ui_model")
+  currentVersionId  String? @map("current_version_id")
+  createdBy         String  @map("created_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  team     Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project  Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  versions ApplicationVersion[]
+
+  @@index([teamId, status])
+  @@index([projectId])
+  @@map("blueprints")
+}
+
+// Append-only version log. Never updated after creation.
+// Each AI or manual Application Model edit produces a new row.
+model ApplicationVersion {
+  id               String   @id @default(uuid())
+  blueprintId      String   @map("blueprint_id")
+  version          Int
+  applicationModel Json     @map("application_model")
+  changeSummary    String   @default("") @map("change_summary") @db.VarChar(500)
+  aiGenerated      Boolean  @default(false) @map("ai_generated")
+  createdBy        String   @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@unique([blueprintId, version])
+  @@index([blueprintId, createdAt(sort: Desc)])
+  @@map("application_versions")
+}
+
+// Semantic layer metadata created at generation time.
+// AI features (chat, future agents) read this instead of raw table names.
+model AppEntity {
+  id          String  @id @default(uuid())
+  projectId   String  @map("project_id")
+  entityName  String  @map("entity_name") @db.VarChar(100)
+  tableName   String  @map("table_name") @db.VarChar(100)
+  description String  @default("") @db.VarChar(500)
+  metadata    Json    @default("{}")
+
+  @@unique([projectId, tableName])
+  @@index([projectId])
+  @@map("app_entities")
+}
+
+// Domain template row. Seeded; later editable via admin without deploys.
+// workflowTemplates and agentTemplates are empty in V1 — schema reserved.
+model DomainTemplate {
+  slug                String @id @db.VarChar(50)
+  promptExamples      Json   @default("[]") @map("prompt_examples")
+  applicationDefaults Json   @default("{}") @map("application_defaults")
+  uiOverrides         Json   @default("{}") @map("ui_overrides")
+  dashboardTemplates  Json   @default("[]") @map("dashboard_templates")
+  chartTemplates      Json   @default("[]") @map("chart_templates")
+  kpiTemplates        Json   @default("[]") @map("kpi_templates")
+  workflowTemplates   Json   @default("[]") @map("workflow_templates")
+  agentTemplates      Json   @default("[]") @map("agent_templates")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("domain_templates")
 }

@@ -1,0 +1,27 @@
+{
+  "name": "@basefyio/blueprint",
+  "version": "0.1.0",
+  "description": "Zod schemas and pure functions for the Excel→App pipeline",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.8"
+  }
+}

@@ -33,6 +33,7 @@ import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embeddi
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { DataStructuresModule } from './modules/data-structures/data-structures.module';
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
+import { BlueprintModule } from './modules/blueprint/blueprint.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
 import { AgentModule } from './modules/agent/agent.module';
@@ -75,6 +76,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DataEngineModule,
     DataStructuresModule,
     ProvisioningModule,
+    BlueprintModule,
     DrizzleModule,
     RagModule,
     AgentModule,
