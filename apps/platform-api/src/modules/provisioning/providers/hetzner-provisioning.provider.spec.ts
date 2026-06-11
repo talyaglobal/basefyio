@@ -891,3 +891,140 @@ describe('HetznerProvisioningProvider — Phase 10b: dependency ordering', () =>
     await expect(provider.apply(input)).rejects.toThrow(CircularDependencyError);
   });
 });
+
+// ── Phase 10d — partial failure loop ─────────────────────────
+
+describe('HetznerProvisioningProvider — Phase 10d: partial failure loop', () => {
+  it('one succeeds + one fails → PartialApplyError with 1 applied, 1 failure', async () => {
+    const { provider, client } = makeRealProvider();
+
+    // First createServer resolves normally; second rejects.
+    const createSpy = jest.spyOn(client, 'createServer');
+    createSpy
+      .mockResolvedValueOnce({
+        id: 9001,
+        name: 'web-1',
+        status: 'running',
+        serverType: 'cx11',
+        publicIpv4: '10.0.0.1',
+        locationName: 'nbg1',
+        datacenterName: 'nbg1-dc1',
+      })
+      .mockRejectedValueOnce(new Error('quota exceeded'));
+
+    const err = await provider
+      .apply(
+        realInput([
+          { type: 'server', name: 'web-1', spec: { server_type: 'cx11' } },
+          { type: 'server', name: 'web-2', spec: { server_type: 'cx11' } },
+        ]),
+      )
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect(err.appliedResources).toHaveLength(1);
+    expect(err.failures).toHaveLength(1);
+    expect(err.failures[0].error).toContain('quota exceeded');
+  });
+
+  it('all actions fail → PartialApplyError with 0 applied', async () => {
+    const { provider, client } = makeRealProvider();
+
+    jest
+      .spyOn(client, 'createServer')
+      .mockRejectedValue(new Error('network error'));
+
+    const err = await provider
+      .apply(
+        realInput([
+          { type: 'server', name: 'web-1', spec: { server_type: 'cx11' } },
+          { type: 'server', name: 'web-2', spec: { server_type: 'cx11' } },
+        ]),
+      )
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect(err.appliedResources).toHaveLength(0);
+    expect(err.failures).toHaveLength(2);
+  });
+
+  it('appliedResources contains the correct externalId for the succeeded action', async () => {
+    const { provider, client } = makeRealProvider();
+
+    const mockServerId = 9002;
+    jest
+      .spyOn(client, 'createServer')
+      .mockResolvedValueOnce({
+        id: mockServerId,
+        name: 'web-1',
+        status: 'running',
+        serverType: 'cx11',
+        publicIpv4: '10.0.0.2',
+        locationName: 'nbg1',
+        datacenterName: 'nbg1-dc1',
+      })
+      .mockRejectedValueOnce(new Error('quota exceeded'));
+
+    const err = await provider
+      .apply(
+        realInput([
+          { type: 'server', name: 'web-1', spec: { server_type: 'cx11' } },
+          { type: 'server', name: 'web-2', spec: { server_type: 'cx11' } },
+        ]),
+      )
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect(err.appliedResources[0].externalId).toBe(String(mockServerId));
+  });
+
+  it('failures record resourceType, resourceName, action, error', async () => {
+    const { provider, client } = makeRealProvider();
+
+    jest
+      .spyOn(client, 'createServer')
+      .mockRejectedValueOnce(new Error('quota exceeded'));
+
+    const err = await provider
+      .apply(realInput([{ type: 'server', name: 'web-1', spec: { server_type: 'cx11' } }]))
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect(err.failures[0]).toMatchObject({
+      resourceType: 'server',
+      resourceName: 'web-1',
+      action: 'CREATE',
+      error: 'quota exceeded',
+    });
+  });
+
+  it('loop continues after first failure (second action still runs)', async () => {
+    const { provider, client } = makeRealProvider();
+
+    const createSpy = jest.spyOn(client, 'createServer');
+    createSpy
+      .mockRejectedValueOnce(new Error('quota exceeded'))
+      .mockResolvedValueOnce({
+        id: 9003,
+        name: 'web-2',
+        status: 'running',
+        serverType: 'cx11',
+        publicIpv4: '10.0.0.3',
+        locationName: 'nbg1',
+        datacenterName: 'nbg1-dc1',
+      });
+
+    const err = await provider
+      .apply(
+        realInput([
+          { type: 'server', name: 'web-1', spec: { server_type: 'cx11' } },
+          { type: 'server', name: 'web-2', spec: { server_type: 'cx11' } },
+        ]),
+      )
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PartialApplyError);
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    expect(err.appliedResources).toHaveLength(1);
+  });
+});

@@ -4,6 +4,8 @@ import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { ProvisioningResourceProjectionService } from './provisioning-resource-projection.service';
 import { ProvisioningPlannerService } from './provisioning-planner.service';
 import { ProvisioningController } from './provisioning.controller';
+import { ProvisioningCredentialRefController } from './provisioning-credential-ref.controller';
+import { ProvisioningCredentialRefService } from './provisioning-credential-ref.service';
 import { NoopProvisioningProvider } from './providers/noop-provisioning.provider';
 import { HetznerProvisioningProvider } from './providers/hetzner-provisioning.provider';
 import { NoopSecretResolver } from './providers/noop-secret-resolver';
@@ -30,6 +32,7 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
 @Module({
   providers: [
     ProvisioningService,
+    ProvisioningCredentialRefService,
     ProvisioningResourceProjectionService,
     ProvisioningPlannerService,
     ProvisioningExecutorService,
@@ -74,7 +77,7 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
       inject: [NoopProvisioningProvider, HetznerProvisioningProvider],
     },
   ],
-  controllers: [ProvisioningController],
+  controllers: [ProvisioningController, ProvisioningCredentialRefController],
   exports: [ProvisioningService, ProvisioningExecutorService],
 })
 export class ProvisioningModule {}

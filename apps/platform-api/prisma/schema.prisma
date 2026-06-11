@@ -1294,6 +1294,8 @@ enum ProvisioningOperationStatus {
   // Some actions succeeded, some failed. Partial resource mutations may have occurred.
   PARTIAL_FAILED
   ROLLED_BACK
+  // Cancelled before execution started; only PENDING operations can be cancelled.
+  CANCELLED
 }
 
 enum ProvisioningOperationType {

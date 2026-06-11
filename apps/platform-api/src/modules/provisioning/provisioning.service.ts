@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -8,6 +9,8 @@ import { type ProvisioningProject, type ProvisioningOperation } from '@prisma/cl
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
+import { ListOperationsQuery } from './dto/list-operations.query';
+import { GetProjectQuery } from './dto/get-project.query';
 
 // ── Response types ────────────────────────────────────────
 
@@ -448,6 +451,66 @@ export class ProvisioningService {
     return toGetOperationResponse(op);
   }
 
+  async cancelOperation(userId: string, operationId: string): Promise<GetOperationResponse> {
+    // 1. Load operation with project+team for ownership check
+    const op = await this.prisma.provisioningOperation.findUnique({
+      where: { id: operationId },
+      include: {
+        provisioningProject: {
+          select: {
+            projectId: true,
+            project: { select: { teamId: true } },
+          },
+        },
+      },
+    });
+
+    // 404 for both not-found and wrong-team — no cross-team existence leakage
+    if (!op) throw new NotFoundException('Operation not found');
+
+    const teamId = op.provisioningProject.project.teamId;
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Operation not found');
+
+    // 3. Only PENDING operations can be cancelled
+    if (op.status !== 'PENDING') {
+      throw new BadRequestException('Only PENDING operations can be cancelled');
+    }
+
+    // 4. Update to CANCELLED + completedAt=now + write STATUS_CHANGED audit event
+    const now = new Date();
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.provisioningOperation.update({
+        where: { id: op.id },
+        data: { status: 'CANCELLED' as any, completedAt: now },
+        include: {
+          provisioningProject: {
+            select: {
+              projectId: true,
+              project: { select: { teamId: true } },
+            },
+          },
+        },
+      });
+
+      await this.writeAuditEvent(tx, {
+        provisioningProjectId: op.provisioningProjectId,
+        operationId: op.id,
+        kind: 'STATUS_CHANGED',
+        actorUserId: userId,
+        fromStatus: 'PENDING',
+        toStatus: 'CANCELLED',
+      });
+
+      return updated;
+    });
+
+    // 5. Return mapped response (same shape as getOperation)
+    return toGetOperationResponse(cancelled as OperationWithProject);
+  }
+
   async listResources(
     userId: string,
     projectId: string,
@@ -494,5 +557,68 @@ export class ProvisioningService {
     });
 
     return rows.map((r) => toGetResourceResponse(r, projectId));
+  }
+
+  // ── List + project status ─────────────────────────────────
+
+  async listOperations(
+    userId: string,
+    query: ListOperationsQuery,
+  ): Promise<GetOperationResponse[]> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: query.projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId: query.projectId },
+      select: { id: true },
+    });
+    if (!pp) return [];
+
+    const ops = await this.prisma.provisioningOperation.findMany({
+      where: {
+        provisioningProjectId: pp.id,
+        ...(query.status ? { status: query.status as any } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: query.limit ?? 20,
+      include: {
+        provisioningProject: {
+          select: {
+            projectId: true,
+            project: { select: { teamId: true } },
+          },
+        },
+      },
+    });
+
+    return ops.map((op) => toGetOperationResponse(op as OperationWithProject));
+  }
+
+  async getProject(userId: string, query: GetProjectQuery) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: query.projectId },
+      select: { teamId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamMember(project.teamId, userId);
+
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId: query.projectId },
+      select: { id: true, provider: true, region: true, datacenter: true, status: true, createdAt: true },
+    });
+    if (!pp) throw new NotFoundException('No provisioning project found for this project');
+
+    return {
+      provisioningProjectId: pp.id,
+      provider: pp.provider,
+      region: pp.region,
+      datacenter: pp.datacenter ?? null,
+      status: pp.status,
+      createdAt: pp.createdAt,
+    };
   }
 }

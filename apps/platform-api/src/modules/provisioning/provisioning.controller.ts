@@ -14,6 +14,8 @@ import { ProvisioningExecutorService } from './provisioning-executor.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { ListResourcesQuery } from './dto/list-resources.query';
+import { ListOperationsQuery } from './dto/list-operations.query';
+import { GetProjectQuery } from './dto/get-project.query';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
@@ -61,12 +63,28 @@ export class ProvisioningController {
     return result;
   }
 
+  @Get('operations')
+  listOperations(
+    @Query() query: ListOperationsQuery,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.listOperations(user.sub, query);
+  }
+
   @Get('operations/:id')
   getOperation(
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.getOperation(user.sub, id);
+  }
+
+  @Get('projects')
+  getProject(
+    @Query() query: GetProjectQuery,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.getProject(user.sub, query);
   }
 
   @Get('resources')
@@ -97,5 +115,22 @@ export class ProvisioningController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.executor.executeOperation(user.sub, id);
+  }
+
+  /**
+   * Cancel a PENDING operation before execution starts.
+   *
+   * Only PENDING operations may be cancelled.
+   * RUNNING / COMPLETED / FAILED / DRY_RUN / ROLLED_BACK / CANCELLED all return 400.
+   * Cancellation sets status → CANCELLED and completedAt → now.
+   * A STATUS_CHANGED audit event is written (fromStatus: PENDING, toStatus: CANCELLED).
+   */
+  @Post('operations/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancelOperation(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.cancelOperation(user.sub, id);
   }
 }
