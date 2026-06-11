@@ -47,12 +47,15 @@ class NoopInterceptor implements NestInterceptor {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const USER_ID    = '00000000-0000-4000-8000-000000000001';
-const TEAM_ID    = '00000000-0000-4000-8000-000000000002';
-const PROJECT_ID = '00000000-0000-4000-8000-000000000003';
-const PP_ID      = '00000000-0000-4000-8000-000000000004';
-const OP_ID      = '00000000-0000-4000-8000-000000000005';
-const IDEM_KEY = 'key-integ-abc';
+const USER_ID      = '00000000-0000-4000-8000-000000000001';
+const TEAM_ID      = '00000000-0000-4000-8000-000000000002';
+const PROJECT_ID   = '00000000-0000-4000-8000-000000000003';
+const PP_ID        = '00000000-0000-4000-8000-000000000004';
+const OP_ID        = '00000000-0000-4000-8000-000000000005';
+const CRED_ID      = '00000000-0000-4000-8000-000000000006';
+const OTHER_TEAM   = '00000000-0000-4000-8000-000000000099';
+const IDEM_KEY     = 'key-integ-abc';
+const PROJ_IDEM    = 'proj-idem-1';
 
 // ── Prisma mock factory ───────────────────────────────────────────────────────
 
@@ -539,6 +542,144 @@ describe('Provisioning controller — integration', () => {
         .get('/v1/provisioning/resources')
         .query({ projectId: PROJECT_ID })
         .expect(403);
+    });
+  });
+
+  // ── 6. POST /projects → project + first operation creation ─────────────────
+
+  describe('POST /v1/provisioning/projects', () => {
+    const validBody = () => ({
+      projectId: PROJECT_ID,
+      credentialRefId: CRED_ID,
+      region: 'eu-central',
+      desiredSpec: {},
+      dryRun: false,
+      idempotencyKey: PROJ_IDEM,
+    });
+
+    const createdPP = () => ({
+      id: PP_ID,
+      projectId: PROJECT_ID,
+      provider: 'hetzner',
+      region: 'eu-central',
+      datacenter: null,
+      status: 'PENDING',
+      credentialRefId: CRED_ID,
+    });
+
+    const createdOp = (status = 'PENDING', dryRun = false) => ({
+      id: OP_ID,
+      provisioningProjectId: PP_ID,
+      type: 'CREATE',
+      status,
+      dryRun,
+      idempotencyKey: PROJ_IDEM,
+      requestedBy: USER_ID,
+      createdAt: new Date('2026-06-11T00:00:00Z'),
+      startedAt: dryRun ? new Date('2026-06-11T00:00:00Z') : null,
+      completedAt: dryRun ? new Date('2026-06-11T00:00:00Z') : null,
+    });
+
+    it('returns 201 with PENDING when dryRun=false (new project)', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      prisma.provisioningProject.create.mockResolvedValue(createdPP());
+      prisma.provisioningOperation.create.mockResolvedValue(createdOp('PENDING', false));
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send(validBody())
+        .expect(201);
+
+      expect(res.body.provisioningProjectId).toBe(PP_ID);
+      expect(res.body.operation.status).toBe('PENDING');
+      expect(res.body.operation.dryRun).toBe(false);
+      expect(res.body.operation.idempotent).toBe(false);
+    });
+
+    it('returns 201 with DRY_RUN when dryRun=true', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      prisma.provisioningProject.create.mockResolvedValue(createdPP());
+      prisma.provisioningOperation.create.mockResolvedValue(createdOp('DRY_RUN', true));
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send({ ...validBody(), dryRun: true })
+        .expect(201);
+
+      expect(res.body.operation.status).toBe('DRY_RUN');
+      expect(res.body.operation.dryRun).toBe(true);
+    });
+
+    it('returns 201 idempotent replay when same projectId + same key', async () => {
+      const prisma = makePrisma();
+      // provisioningProject.findUnique returns existing PP (non-null — default in makePrisma)
+      prisma.provisioningOperation.findUnique.mockResolvedValue(createdOp('PENDING', false));
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send(validBody())
+        .expect(201);
+
+      expect(res.body.operation.idempotent).toBe(true);
+      // No create calls — pure read path
+      expect(prisma.provisioningProject.create).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when project already exists with a different idempotencyKey', async () => {
+      const prisma = makePrisma();
+      // PP exists (default in makePrisma); op not found → different key
+      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send(validBody())
+        .expect(409);
+    });
+
+    it('returns 403 when credentialRef belongs to a different team', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      prisma.provisioningCredentialRef.findUnique.mockResolvedValue({
+        teamId: OTHER_TEAM,
+        revokedAt: null,
+      });
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send(validBody())
+        .expect(403);
+    });
+
+    it('returns 409 when credentialRef is revoked', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      prisma.provisioningCredentialRef.findUnique.mockResolvedValue({
+        teamId: TEAM_ID,
+        revokedAt: new Date('2026-01-01T00:00:00Z'),
+      });
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send(validBody())
+        .expect(409);
+    });
+
+    it('returns 400 when required fields are missing', async () => {
+      const prisma = makePrisma();
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .post('/v1/provisioning/projects')
+        .send({ region: 'eu-central' }) // missing projectId, credentialRefId, desiredSpec, dryRun, idempotencyKey
+        .expect(400);
     });
   });
 });
