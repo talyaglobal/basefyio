@@ -11,6 +11,7 @@ import {
   ProvisioningExecuteResult,
   ProvisioningResourceResult,
 } from '../interfaces/provisioning-provider.interface';
+import { ProviderCapability } from '../dto/provider-capability.dto';
 import {
   HETZNER_TOKEN_RESOLVER,
   IHetznerTokenResolver,
@@ -54,6 +55,17 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
     @Inject(HETZNER_CLIENT)
     private readonly client?: IHetznerClient,
   ) {}
+
+  // ── getCapabilities() ────────────────────────────────────────
+
+  getCapabilities(): ProviderCapability {
+    return {
+      name: 'hetzner',
+      displayName: 'Hetzner Cloud',
+      regions: ['eu-central', 'us-east', 'ap-southeast'],
+      resourceTypes: ['server', 'network', 'loadbalancer', 'volume'],
+    };
+  }
 
   // ── plan() ───────────────────────────────────────────────────
 

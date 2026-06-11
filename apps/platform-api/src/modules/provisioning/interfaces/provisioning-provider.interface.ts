@@ -88,7 +88,15 @@ export interface ProvisioningExecuteResult {
 
 // ── Provider interface ───────────────────────────────────────
 
+import { ProviderCapability } from '../dto/provider-capability.dto';
+
 export interface IProvisioningProvider {
+  /**
+   * Return static capability metadata for this provider (name, regions, resource types).
+   * Used by ProviderRegistry.list() to power the discovery API.
+   */
+  getCapabilities(): ProviderCapability;
+
   /**
    * Compute a provider-specific plan from current + desired state.
    * Validates resource kinds and returns validation errors for unsupported types

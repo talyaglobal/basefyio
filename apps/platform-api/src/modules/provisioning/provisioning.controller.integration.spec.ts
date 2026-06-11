@@ -32,6 +32,7 @@ import { ProvisioningResourceProjectionService } from './provisioning-resource-p
 import { ProvisioningPlannerService } from './provisioning-planner.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
+import { ProviderRegistry } from './providers/provider-registry.service';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { AuditLogInterceptor } from '../../common/interceptors/audit-log.interceptor';
@@ -112,9 +113,11 @@ function makeRegistry(
 ) {
   return {
     resolve: jest.fn().mockReturnValue({
+      getCapabilities: jest.fn().mockReturnValue({ name: 'noop', displayName: 'No-op (test)', regions: [], resourceTypes: [] }),
       plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
       apply: jest.fn().mockResolvedValue(applyResult),
     }),
+    list: jest.fn().mockReturnValue([]),
   };
 }
 
@@ -169,6 +172,7 @@ async function buildApp(prisma: any, registry: any): Promise<INestApplication> {
       ModuleEnabledGuard,
       { provide: PrismaService, useValue: prisma },
       { provide: PROVIDER_REGISTRY, useValue: registry },
+      { provide: ProviderRegistry, useValue: registry },
     ],
   })
     // Bypass JWT auth — inject fixed user so CurrentUser() works

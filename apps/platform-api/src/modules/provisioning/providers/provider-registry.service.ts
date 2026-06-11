@@ -1,19 +1,27 @@
-import { BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { PROVIDER_REGISTRY_PROVIDERS } from '../provisioning.constants';
 import { IProviderRegistry } from '../interfaces/provider-registry.interface';
 import { IProvisioningProvider } from '../interfaces/provisioning-provider.interface';
+import { ProviderCapability } from '../dto/provider-capability.dto';
 
+@Injectable()
 export class ProviderRegistry implements IProviderRegistry {
-  private readonly map = new Map<string, IProvisioningProvider>();
-
-  register(providerType: string, provider: IProvisioningProvider): void {
-    this.map.set(providerType, provider);
-  }
+  constructor(
+    @Inject(PROVIDER_REGISTRY_PROVIDERS)
+    private readonly providers: IProvisioningProvider[],
+  ) {}
 
   resolve(providerType: string): IProvisioningProvider {
-    const provider = this.map.get(providerType);
+    const provider = this.providers.find(
+      (p) => p.getCapabilities().name === providerType,
+    );
     if (!provider) {
-      throw new BadRequestException(`Unknown provider type: ${providerType}`);
+      throw new NotFoundException(`Unknown provider: ${providerType}`);
     }
     return provider;
+  }
+
+  list(): ProviderCapability[] {
+    return this.providers.map((p) => p.getCapabilities());
   }
 }

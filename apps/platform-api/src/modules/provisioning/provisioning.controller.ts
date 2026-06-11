@@ -11,11 +11,13 @@ import {
 } from '@nestjs/common';
 import { ProvisioningService } from './provisioning.service';
 import { ProvisioningExecutorService } from './provisioning-executor.service';
+import { ProviderRegistry } from './providers/provider-registry.service';
 import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.dto';
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { ListResourcesQuery } from './dto/list-resources.query';
 import { ListOperationsQuery } from './dto/list-operations.query';
 import { GetProjectQuery } from './dto/get-project.query';
+import { ProviderCapability } from './dto/provider-capability.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
@@ -31,7 +33,19 @@ export class ProvisioningController {
   constructor(
     private readonly service: ProvisioningService,
     private readonly executor: ProvisioningExecutorService,
+    private readonly providerRegistry: ProviderRegistry,
   ) {}
+
+  /**
+   * Discovery endpoint — returns capabilities for all registered providers.
+   * Does not require a project context; the ModuleEnabledGuard passes when no projectId
+   * is present in the request.
+   */
+  @Get('providers')
+  @HttpCode(HttpStatus.OK)
+  listProviders(): ProviderCapability[] {
+    return this.providerRegistry.list();
+  }
 
   @Post('projects')
   @HttpCode(HttpStatus.CREATED)

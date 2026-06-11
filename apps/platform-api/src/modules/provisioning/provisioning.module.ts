@@ -14,7 +14,8 @@ import { OpenBaoHetznerTokenResolver } from './providers/openbao-hetzner-token-r
 import { HetznerClient } from './providers/hetzner/hetzner.client';
 import { MockHetznerClient } from './providers/hetzner/mock-hetzner-client';
 import { ProviderRegistry } from './providers/provider-registry.service';
-import { PROVIDER_REGISTRY, IProviderRegistry } from './interfaces/provider-registry.interface';
+import { PROVIDER_REGISTRY } from './interfaces/provider-registry.interface';
+import { PROVIDER_REGISTRY_PROVIDERS } from './provisioning.constants';
 import { IHetznerTokenResolver, HETZNER_TOKEN_RESOLVER } from './interfaces/hetzner-token-resolver.interface';
 import { HETZNER_CLIENT, IHetznerClient } from './providers/hetzner/hetzner-client.interface';
 import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
@@ -64,20 +65,20 @@ import { SECRET_RESOLVER } from './interfaces/secret-resolver.interface';
       },
     },
     {
-      provide: PROVIDER_REGISTRY,
+      provide: PROVIDER_REGISTRY_PROVIDERS,
       useFactory: (
         noop: NoopProvisioningProvider,
         hetzner: HetznerProvisioningProvider,
-      ): IProviderRegistry => {
-        const registry = new ProviderRegistry();
-        registry.register('noop', noop);
-        registry.register('hetzner', hetzner);
-        return registry;
-      },
+      ) => [noop, hetzner],
       inject: [NoopProvisioningProvider, HetznerProvisioningProvider],
+    },
+    ProviderRegistry,
+    {
+      provide: PROVIDER_REGISTRY,
+      useExisting: ProviderRegistry,
     },
   ],
   controllers: [ProvisioningController, ProvisioningCredentialRefController],
-  exports: [ProvisioningService, ProvisioningExecutorService],
+  exports: [ProvisioningService, ProvisioningExecutorService, ProviderRegistry],
 })
 export class ProvisioningModule {}

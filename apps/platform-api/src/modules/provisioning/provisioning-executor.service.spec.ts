@@ -26,6 +26,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 
 function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisioningProvider {
   return {
+    getCapabilities: jest.fn().mockReturnValue({ name: 'noop', displayName: 'No-op (test)', regions: [], resourceTypes: [] }),
     plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
     apply: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
     healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),
@@ -34,7 +35,10 @@ function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisio
 }
 
 function makeRegistry(provider: IProvisioningProvider = makeProvider()): IProviderRegistry {
-  return { resolve: jest.fn().mockReturnValue(provider) };
+  return {
+    resolve: jest.fn().mockReturnValue(provider),
+    list: jest.fn().mockReturnValue([]),
+  };
 }
 
 function makeProjection(): jest.Mocked<Pick<ProvisioningResourceProjectionService, 'project'>> {
@@ -326,6 +330,7 @@ describe('ProvisioningExecutorService — invalid provider', () => {
       resolve: jest.fn().mockImplementation(() => {
         throw new BadRequestException('Unknown provider type: unknown');
       }),
+      list: jest.fn().mockReturnValue([]),
     };
     const svc = new ProvisioningExecutorService(prisma, registry, makeProjection() as any);
     await expect(svc.executeOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(BadRequestException);
@@ -340,6 +345,7 @@ describe('ProvisioningExecutorService — invalid provider', () => {
       resolve: jest.fn().mockImplementation(() => {
         throw new BadRequestException('Unknown provider type: unknown');
       }),
+      list: jest.fn().mockReturnValue([]),
     };
     const svc = new ProvisioningExecutorService(prisma, registry, makeProjection() as any);
     await expect(svc.executeOperation(USER_ID, OP_ID)).rejects.toThrow();

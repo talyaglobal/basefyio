@@ -5,10 +5,20 @@ import {
   ProvisioningExecuteInput,
   ProvisioningExecuteResult,
 } from '../interfaces/provisioning-provider.interface';
+import { ProviderCapability } from '../dto/provider-capability.dto';
 
 /** No-op provider for local/test environments. Returns no resources and performs no I/O. */
 @Injectable()
 export class NoopProvisioningProvider implements IProvisioningProvider {
+  getCapabilities(): ProviderCapability {
+    return {
+      name: 'noop',
+      displayName: 'No-op (test)',
+      regions: [],
+      resourceTypes: [],
+    };
+  }
+
   plan(_input: ProvisioningExecuteInput): ProviderPlan {
     return { actions: [], validationErrors: [] };
   }
