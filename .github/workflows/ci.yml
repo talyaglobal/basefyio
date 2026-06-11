@@ -36,8 +36,8 @@ jobs:
       - name: Unit + integration tests
         run: npm test -- --no-coverage --forceExit
 
-  typecheck-sdk:
-    name: SDK — typecheck
+  test-sdk:
+    name: SDK — build + test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,9 +53,11 @@ jobs:
         run: npm ci
       - name: Build (TypeScript compile)
         run: npm run build
+      - name: Unit tests
+        run: npm test
 
-  typecheck-cli:
-    name: CLI — typecheck
+  test-cli:
+    name: CLI — build + test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,3 +73,5 @@ jobs:
         run: npm ci
       - name: Build (TypeScript compile)
         run: npm run build
+      - name: Unit tests
+        run: npm test
