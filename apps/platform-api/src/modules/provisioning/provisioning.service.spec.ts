@@ -1073,6 +1073,121 @@ describe('ProvisioningService.listProjectResources', () => {
   });
 });
 
+// ── ProvisioningService.createRetryOperation ─────────────────
+
+describe('createRetryOperation', () => {
+  const OP_ID = 'op-original';
+  const RETRY_ID = 'op-retry';
+
+  function stubOriginalOp(status: string) {
+    return {
+      id: OP_ID,
+      status,
+      type: 'CREATE',
+      dryRun: false,
+      input: { resources: [] },
+      resourceId: null,
+      provisioningProjectId: PP_ID,
+      provisioningProject: {
+        projectId: PROJECT_ID,
+        project: { teamId: TEAM_ID },
+      },
+    };
+  }
+
+  it('returns 404 when operation not found', async () => {
+    const prisma = makePrisma({
+      provisioningOperation: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+    });
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await expect(svc.createRetryOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns 404 when caller is not a team member', async () => {
+    const prisma = makePrisma({
+      provisioningOperation: {
+        findUnique: jest.fn().mockResolvedValue(stubOriginalOp('FAILED')),
+        create: jest.fn(),
+      },
+      teamMember: { findUnique: jest.fn().mockResolvedValue(null) },
+    });
+    const svc = new ProvisioningService(prisma, makeRegistry());
+    await expect(svc.createRetryOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it.each(['PENDING', 'RUNNING', 'COMPLETED', 'DRY_RUN', 'ROLLED_BACK', 'CANCELLED'])(
+    'returns 400 for status %s',
+    async (status) => {
+      const prisma = makePrisma({
+        provisioningOperation: {
+          findUnique: jest.fn().mockResolvedValue(stubOriginalOp(status)),
+          create: jest.fn(),
+        },
+        teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+      });
+      const svc = new ProvisioningService(prisma, makeRegistry());
+      await expect(svc.createRetryOperation(USER_ID, OP_ID)).rejects.toBeInstanceOf(BadRequestException);
+    },
+  );
+
+  it.each(['FAILED', 'PARTIAL_FAILED'])(
+    'creates retry op and emits RETRY_REQUESTED for status %s',
+    async (status) => {
+      const createdOp = {
+        id: RETRY_ID,
+        status: 'PENDING',
+        type: 'CREATE',
+        dryRun: false,
+        idempotencyKey: `retry:${OP_ID}:123`,
+        retryOfOperationId: OP_ID,
+        provisioningProjectId: PP_ID,
+        input: { resources: [] },
+        result: null,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        createdAt: new Date(),
+        provisioningProject: {
+          projectId: PROJECT_ID,
+          project: { teamId: TEAM_ID },
+        },
+      };
+      const auditCreate = jest.fn().mockResolvedValue({});
+      const opCreate = jest.fn().mockResolvedValue(createdOp);
+      const prisma = makePrisma({
+        provisioningOperation: {
+          findUnique: jest.fn().mockResolvedValue(stubOriginalOp(status)),
+          create: opCreate,
+        },
+        teamMember: { findUnique: jest.fn().mockResolvedValue(memberOf()) },
+        provisioningAuditEvent: { create: auditCreate, findMany: jest.fn() },
+      });
+      const svc = new ProvisioningService(prisma, makeRegistry());
+      const result = await svc.createRetryOperation(USER_ID, OP_ID);
+
+      expect(result.originalOperationId).toBe(OP_ID);
+      expect(result.operation.id).toBe(RETRY_ID);
+      expect(result.operation.retryOfOperationId).toBe(OP_ID);
+      expect(opCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            retryOfOperationId: OP_ID,
+            status: 'PENDING',
+          }),
+        }),
+      );
+      expect(auditCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ kind: 'RETRY_REQUESTED' }),
+        }),
+      );
+    },
+  );
+});
+
 // ── ProvisioningService.getResource ──────────────────────────
 
 describe('ProvisioningService.getResource', () => {

@@ -990,3 +990,78 @@ describe('ProvisioningExecutorService — Phase 10d: PARTIAL_FAILED semantics', 
     expect(err.message).toContain('Partial apply');
   });
 });
+
+// ── retry operations ──────────────────────────────────────────
+
+describe('retry operations', () => {
+  it('emits RETRY_STARTED instead of STATUS_CHANGED when retryOfOperationId is set', async () => {
+    const prisma = makePrisma();
+    const provider = makeProvider();
+    const svc = makeSvc(prisma, makeRegistry(provider));
+
+    const retryOp = {
+      ...stubOp('PENDING', 'op-retry'),
+      retryOfOperationId: OP_ID,
+    };
+
+    prisma.provisioningOperation.findUnique.mockResolvedValue(retryOp);
+    prisma.teamMember.findUnique.mockResolvedValue({ teamId: TEAM_ID, userId: USER_ID });
+    prisma.provisioningOperation.update.mockResolvedValue({ ...retryOp, status: 'COMPLETED' });
+
+    await svc.executeOperation(USER_ID, 'op-retry');
+
+    const auditCalls = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditCalls).toContain('RETRY_STARTED');
+    expect(auditCalls).not.toContain('STATUS_CHANGED');
+  });
+
+  it('emits RETRY_COMPLETED on success', async () => {
+    const prisma = makePrisma();
+    const provider = makeProvider();
+    const svc = makeSvc(prisma, makeRegistry(provider));
+
+    const retryOp = {
+      ...stubOp('PENDING', 'op-retry'),
+      retryOfOperationId: OP_ID,
+    };
+
+    prisma.provisioningOperation.findUnique.mockResolvedValue(retryOp);
+    prisma.teamMember.findUnique.mockResolvedValue({ teamId: TEAM_ID, userId: USER_ID });
+    prisma.provisioningOperation.update.mockResolvedValue({ ...retryOp, status: 'COMPLETED' });
+
+    await svc.executeOperation(USER_ID, 'op-retry');
+
+    const auditCalls = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditCalls).toContain('RETRY_COMPLETED');
+    expect(auditCalls).not.toContain('OPERATION_COMPLETED');
+  });
+
+  it('emits RETRY_FAILED on provider error', async () => {
+    const prisma = makePrisma();
+    const provider = makeProvider({
+      apply: jest.fn().mockRejectedValue(new Error('provider down')),
+    });
+    const svc = makeSvc(prisma, makeRegistry(provider));
+
+    const retryOp = {
+      ...stubOp('PENDING', 'op-retry'),
+      retryOfOperationId: OP_ID,
+    };
+
+    prisma.provisioningOperation.findUnique.mockResolvedValue(retryOp);
+    prisma.teamMember.findUnique.mockResolvedValue({ teamId: TEAM_ID, userId: USER_ID });
+    prisma.provisioningOperation.update.mockResolvedValue({ ...retryOp, status: 'FAILED' });
+
+    await svc.executeOperation(USER_ID, 'op-retry');
+
+    const auditCalls = prisma.provisioningAuditEvent.create.mock.calls.map(
+      (c: any) => c[0].data.kind,
+    );
+    expect(auditCalls).toContain('RETRY_FAILED');
+    expect(auditCalls).not.toContain('OPERATION_FAILED');
+  });
+});

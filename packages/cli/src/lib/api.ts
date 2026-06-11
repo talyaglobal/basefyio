@@ -316,6 +316,11 @@ export class ApiClient {
     return data as any;
   }
 
+  async retryProvisioningOperation(operationId: string) {
+    const { data } = await this.client.post(`/api/v1/provisioning/operations/${operationId}/retry`);
+    return data as any;
+  }
+
   async getProvisioningOperationEvents(operationId: string, opts: { limit?: number; cursor?: string } = {}) {
     const params: Record<string, any> = {};
     if (opts.limit != null) params.limit = opts.limit;

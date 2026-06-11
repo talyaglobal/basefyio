@@ -7,6 +7,7 @@ const { mockApiClient } = vi.hoisted(() => {
     listProvisioningOperations: vi.fn(),
     getProvisioningOperation: vi.fn(),
     cancelProvisioningOperation: vi.fn(),
+    retryProvisioningOperation: vi.fn(),
     getProvisioningOperationEvents: vi.fn(),
     createProvisioningCredentialRef: vi.fn(),
     listProvisioningCredentialRefs: vi.fn(),
@@ -45,6 +46,7 @@ import {
   listOperations,
   getOperation,
   cancelOperation,
+  retryOperation,
   createCredentialRef,
   listCredentialRefs,
   revokeCredentialRef,
@@ -196,6 +198,35 @@ describe('cancelOperation', () => {
     mockApiClient.cancelProvisioningOperation.mockRejectedValue(err);
 
     await expect(cancelOperation(OP_ID)).rejects.toThrow('Forbidden');
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── retryOperation ────────────────────────────────────────────────────────────
+
+describe('retryOperation', () => {
+  it('calls retryProvisioningOperation and shows success', async () => {
+    mockApiClient.retryProvisioningOperation.mockResolvedValue(makeOp({ status: 'PENDING' }));
+
+    await retryOperation(OP_ID);
+
+    expect(mockApiClient.retryProvisioningOperation).toHaveBeenCalledWith(OP_ID);
+    expect(success).toHaveBeenCalledWith(expect.stringContaining(OP_ID));
+  });
+
+  it('calls handleApiError when operation cannot be retried (400)', async () => {
+    const err = Object.assign(new Error('Only FAILED operations can be retried'), { status: 400 });
+    mockApiClient.retryProvisioningOperation.mockRejectedValue(err);
+
+    await expect(retryOperation(OP_ID)).rejects.toThrow();
+    expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+
+  it('calls handleApiError on 404', async () => {
+    const err = Object.assign(new Error('Not Found'), { status: 404 });
+    mockApiClient.retryProvisioningOperation.mockRejectedValue(err);
+
+    await expect(retryOperation(OP_ID)).rejects.toThrow('Not Found');
     expect(handleApiError).toHaveBeenCalledWith(err);
   });
 });

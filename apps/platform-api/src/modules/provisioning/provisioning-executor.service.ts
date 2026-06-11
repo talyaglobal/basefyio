@@ -22,7 +22,10 @@ type AuditEventKind =
   | 'OPERATION_FAILED'
   | 'DRY_RUN_COMPLETED'
   | 'ROLLBACK_INITIATED'
-  | 'ROLLBACK_COMPLETED';
+  | 'ROLLBACK_COMPLETED'
+  | 'RETRY_STARTED'
+  | 'RETRY_COMPLETED'
+  | 'RETRY_FAILED';
 
 @Injectable()
 export class ProvisioningExecutorService {
@@ -60,6 +63,8 @@ export class ProvisioningExecutorService {
         `Operation is in status ${op.status} and cannot be executed. Only PENDING operations are executable.`,
       );
     }
+
+    const isRetry = op.retryOfOperationId != null;
 
     // Resolve provider before mutating state — unknown type fails here with 400, not after RUNNING
     const provider = this.registry.resolve(op.provisioningProject.provider);
@@ -106,11 +111,13 @@ export class ProvisioningExecutorService {
     await this.writeAuditEvent({
       provisioningProjectId: op.provisioningProjectId,
       operationId: op.id,
-      kind: 'STATUS_CHANGED',
+      kind: isRetry ? 'RETRY_STARTED' : 'STATUS_CHANGED',
       actorUserId: userId,
       fromStatus: 'PENDING',
       toStatus: 'RUNNING',
-      detail: { providerType: input.providerType, region: input.region },
+      detail: isRetry
+        ? { retryOfOperationId: op.retryOfOperationId, providerType: input.providerType, region: input.region }
+        : { providerType: input.providerType, region: input.region },
     });
 
     // ── Provider call (separate catch — failure → FAILED, not propagated) ────
@@ -140,7 +147,7 @@ export class ProvisioningExecutorService {
         await this.writeAuditEvent({
           provisioningProjectId: op.provisioningProjectId,
           operationId: op.id,
-          kind: 'OPERATION_FAILED',
+          kind: isRetry ? 'RETRY_FAILED' : 'OPERATION_FAILED',
           actorUserId: userId,
           fromStatus: 'RUNNING',
           toStatus: 'PARTIAL_FAILED',
@@ -165,7 +172,7 @@ export class ProvisioningExecutorService {
       await this.writeAuditEvent({
         provisioningProjectId: op.provisioningProjectId,
         operationId: op.id,
-        kind: 'OPERATION_FAILED',
+        kind: isRetry ? 'RETRY_FAILED' : 'OPERATION_FAILED',
         actorUserId: userId,
         fromStatus: 'RUNNING',
         toStatus: 'FAILED',
@@ -199,7 +206,7 @@ export class ProvisioningExecutorService {
 
     // ── RUNNING → COMPLETED / DRY_RUN (only after projection succeeds) ──────
     const finalStatus = isDryRun ? 'DRY_RUN' : 'COMPLETED';
-    const finalAuditKind: AuditEventKind = isDryRun ? 'DRY_RUN_COMPLETED' : 'OPERATION_COMPLETED';
+    const finalAuditKind: AuditEventKind = isDryRun ? 'DRY_RUN_COMPLETED' : (isRetry ? 'RETRY_COMPLETED' : 'OPERATION_COMPLETED');
     const completed = await this.prisma.provisioningOperation.update({
       where: { id: op.id },
       data: {

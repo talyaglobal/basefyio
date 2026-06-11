@@ -114,6 +114,21 @@ export async function cancelOperation(operationId: string) {
   }
 }
 
+export async function retryOperation(operationId: string) {
+  requireLogin();
+
+  const spinner = createSpinner('Retrying operation...');
+  try {
+    const op = await apiClient.retryProvisioningOperation(operationId);
+    spinner.stop();
+    success(`Operation ${chalk.cyan(operationId)} queued for retry`);
+    console.log(chalk.gray('Status:'), statusColor(op.status));
+  } catch (err: any) {
+    spinner.stop();
+    await handleApiError(err);
+  }
+}
+
 export async function watchOperation(operationId: string, opts: { intervalSecs?: string } = {}) {
   requireLogin();
 

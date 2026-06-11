@@ -195,6 +195,46 @@ describe('ProvisioningClient.executeOperation', () => {
   });
 });
 
+// ── retryOperation ────────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.retryOperation', () => {
+  it('POSTs to /operations/:id/retry and returns operation', async () => {
+    const mockOp = { id: OP_ID, status: 'PENDING' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.retryOperation(OP_ID);
+
+    expect(res.data?.status).toBe('PENDING');
+    expect(res.error).toBeNull();
+    expect(http.json).toHaveBeenCalledWith(
+      `/v1/provisioning/operations/${OP_ID}/retry`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('returns the operation response on success', async () => {
+    const mockOp = { id: OP_ID, status: 'COMPLETED' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockOp) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.retryOperation(OP_ID);
+
+    expect(res.data).toEqual(mockOp);
+    expect(res.error).toBeNull();
+  });
+
+  it('returns error when op cannot be retried (400)', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Only FAILED operations can be retried', status: 400 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.retryOperation(OP_ID);
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(400);
+  });
+});
+
 // ── listResources ─────────────────────────────────────────────────────────────
 
 const mockResource: ResourceDetail = {
@@ -388,6 +428,7 @@ describe('ProvisioningClient — error status mapping', () => {
     ['getOperation', (c: ProvisioningClient) => c.getOperation('op-id')],
     ['cancelOperation', (c: ProvisioningClient) => c.cancelOperation('op-id')],
     ['executeOperation', (c: ProvisioningClient) => c.executeOperation('op-id')],
+    ['retryOperation', (c: ProvisioningClient) => c.retryOperation('op-id')],
     ['listResources', (c: ProvisioningClient) => c.listResources('p')],
     ['listCredentialRefs', (c: ProvisioningClient) => c.listCredentialRefs('t')],
     ['getOperationEvents', (c: ProvisioningClient) => c.getOperationEvents('op-id')],

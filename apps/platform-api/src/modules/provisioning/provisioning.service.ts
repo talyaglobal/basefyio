@@ -132,6 +132,7 @@ export interface GetOperationResponse {
   updatedAt: string;             // derived: completedAt ?? startedAt ?? createdAt
   startedAt: string | null;
   completedAt: string | null;
+  retryOfOperationId: string | null;
 }
 
 type OperationWithProject = ProvisioningOperation & {
@@ -157,6 +158,7 @@ function toGetOperationResponse(op: OperationWithProject): GetOperationResponse 
     updatedAt: updatedAt.toISOString(),
     startedAt: op.startedAt?.toISOString() ?? null,
     completedAt: op.completedAt?.toISOString() ?? null,
+    retryOfOperationId: op.retryOfOperationId ?? null,
   };
 }
 
@@ -203,7 +205,8 @@ type EventKind =
   | 'CREDENTIAL_ROTATED'
   | 'RESOURCE_CREATED'
   | 'RESOURCE_UPDATED'
-  | 'RESOURCE_DESTROYED';
+  | 'RESOURCE_DESTROYED'
+  | 'RETRY_REQUESTED';
 
 type PrismaTx = Parameters<Parameters<PrismaService['$transaction']>[0]>[0];
 
@@ -543,6 +546,84 @@ export class ProvisioningService {
 
     // 5. Return mapped response (same shape as getOperation)
     return toGetOperationResponse(cancelled as OperationWithProject);
+  }
+
+  async createRetryOperation(
+    userId: string,
+    originalOperationId: string,
+  ): Promise<{ operation: GetOperationResponse; originalOperationId: string }> {
+    // 1. Load original op + ownership check (same pattern as cancelOperation)
+    const op = await this.prisma.provisioningOperation.findUnique({
+      where: { id: originalOperationId },
+      include: {
+        provisioningProject: {
+          select: {
+            projectId: true,
+            project: { select: { teamId: true } },
+          },
+        },
+      },
+    });
+
+    if (!op) throw new NotFoundException('Operation not found');
+
+    const teamId = op.provisioningProject.project.teamId;
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!member) throw new NotFoundException('Operation not found');
+
+    // 2. Only FAILED or PARTIAL_FAILED may be retried
+    if (op.status !== 'FAILED' && op.status !== 'PARTIAL_FAILED') {
+      throw new BadRequestException(
+        `Only FAILED or PARTIAL_FAILED operations can be retried. Current status: ${op.status}`,
+      );
+    }
+
+    // 3. Build a stable idempotency key for the retry
+    const retryIdempotencyKey = `retry:${originalOperationId}:${Date.now()}`;
+
+    // 4. Create retry op + emit RETRY_REQUESTED on original op (single transaction)
+    const newOp = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.provisioningOperation.create({
+        data: {
+          provisioningProjectId: op.provisioningProjectId,
+          resourceId: op.resourceId ?? undefined,
+          retryOfOperationId: op.id,
+          type: op.type,
+          status: 'PENDING',
+          dryRun: op.dryRun,
+          idempotencyKey: retryIdempotencyKey,
+          requestedBy: userId,
+          input: op.input as any,
+        },
+        include: {
+          provisioningProject: {
+            select: {
+              projectId: true,
+              project: { select: { teamId: true } },
+            },
+          },
+        },
+      });
+
+      await this.writeAuditEvent(tx, {
+        provisioningProjectId: op.provisioningProjectId,
+        operationId: op.id,
+        kind: 'RETRY_REQUESTED',
+        actorUserId: userId,
+        fromStatus: op.status,
+        toStatus: op.status,
+        detail: { retryOperationId: created.id },
+      });
+
+      return created;
+    });
+
+    return {
+      operation: toGetOperationResponse(newOp as OperationWithProject),
+      originalOperationId,
+    };
   }
 
   async listResources(

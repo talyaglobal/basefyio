@@ -122,6 +122,18 @@ export class ProvisioningClient {
     }
   }
 
+  async retryOperation(operationId: string): Promise<BasefyioResponse<ProvisioningOperation>> {
+    try {
+      const data = await this.http.json<ProvisioningOperation>(
+        `${BASE}/operations/${encodeURIComponent(operationId)}/retry`,
+        { method: 'POST' },
+      );
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
   async waitForCompletion(
     operationId: string,
     opts: ProvisioningWaitOptions = {},

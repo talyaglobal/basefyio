@@ -1327,6 +1327,10 @@ enum ProvisioningEventKind {
   RESOURCE_CREATED
   RESOURCE_UPDATED
   RESOURCE_DESTROYED
+  RETRY_REQUESTED
+  RETRY_STARTED
+  RETRY_COMPLETED
+  RETRY_FAILED
 }
 
 // Desired + actual state of the infrastructure for one project.
@@ -1387,10 +1391,12 @@ model ProvisioningResource {
 // One row per provisioning operation. idempotencyKey prevents duplicate execution on retry.
 // dryRun=true: status moves to DRY_RUN (terminal) — no real infra is touched.
 // resourceId is null for project-level operations (e.g. full-stack provision/destroy).
+// retryOfOperationId links a retry to its original failed operation.
 model ProvisioningOperation {
   id                    String                      @id @default(uuid())
   provisioningProjectId String                      @map("provisioning_project_id")
   resourceId            String?                     @map("resource_id")
+  retryOfOperationId    String?                     @map("retry_of_operation_id")
   type                  ProvisioningOperationType
   status                ProvisioningOperationStatus @default(PENDING)
   dryRun                Boolean                     @default(false) @map("dry_run")
@@ -1405,11 +1411,14 @@ model ProvisioningOperation {
 
   provisioningProject ProvisioningProject      @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
   resource            ProvisioningResource?    @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  retryOf             ProvisioningOperation?   @relation("OperationRetries", fields: [retryOfOperationId], references: [id], onDelete: SetNull)
+  retries             ProvisioningOperation[]  @relation("OperationRetries")
   auditEvents         ProvisioningAuditEvent[]
 
   @@unique([provisioningProjectId, idempotencyKey])
   @@index([provisioningProjectId, status])
   @@index([resourceId, createdAt(sort: Desc)])
+  @@index([retryOfOperationId])
   @@map("provisioning_operations")
 }
 

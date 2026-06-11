@@ -172,6 +172,24 @@ export class ProvisioningController {
     return this.service.cancelOperation(user.sub, id);
   }
 
+  /**
+   * Retry a FAILED or PARTIAL_FAILED operation.
+   *
+   * Creates a new PENDING operation linked to the original via retryOfOperationId.
+   * Emits RETRY_REQUESTED on the original, then executes the new operation.
+   * Returns 400 if the original is not in FAILED or PARTIAL_FAILED status.
+   */
+  @Post('operations/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  async retryOperation(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const { operation } = await this.service.createRetryOperation(user.sub, id);
+    await this.executor.executeOperation(user.sub, operation.id);
+    return operation;
+  }
+
   @Get('operations/:id/events')
   @HttpCode(HttpStatus.OK)
   getOperationEvents(

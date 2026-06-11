@@ -327,6 +327,14 @@ operations
   });
 
 operations
+  .command('retry <operationId>')
+  .description('Retry a FAILED or PARTIAL_FAILED provisioning operation')
+  .action(async (operationId: string) => {
+    const { retryOperation } = await import('./commands/provisioning.js');
+    await retryOperation(operationId);
+  });
+
+operations
   .command('watch <operationId>')
   .description('Poll a provisioning operation until it reaches a terminal status')
   .option('--interval-secs <n>', 'Polling interval in seconds (default: 3)')
