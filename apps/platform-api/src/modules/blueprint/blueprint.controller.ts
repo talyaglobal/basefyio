@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { BlueprintService } from './blueprint.service';
 import { AnalyzeBlueprintDto } from './dto/analyze-blueprint.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
@@ -19,5 +19,15 @@ export class BlueprintController {
   @HttpCode(HttpStatus.OK)
   getBlueprint(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.getBlueprint(user.sub, id);
+  }
+
+  @Patch(':id/approve')
+  @HttpCode(HttpStatus.OK)
+  approve(
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.approve(user.sub, id, body);
   }
 }

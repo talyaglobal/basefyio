@@ -6,3 +6,5 @@ export * from './schemas/build-package.schema.js';
 export * from './functions/derive-application-model.js';
 export * from './functions/build-package.js';
 export * from './functions/derive-ui-model.js';
+export * from './functions/infer-data-model.js';
+export * from './templates/domain-templates.js';
