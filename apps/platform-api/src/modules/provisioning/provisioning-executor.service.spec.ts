@@ -28,6 +28,7 @@ function makeProvider(overrides: Partial<IProvisioningProvider> = {}): IProvisio
   return {
     plan: jest.fn().mockReturnValue({ actions: [], validationErrors: [] }),
     apply: jest.fn().mockResolvedValue({ success: true, resources: [], metadata: { noop: true } }),
+    healthCheck: jest.fn().mockResolvedValue({ healthy: true, latencyMs: 0 }),
     ...overrides,
   };
 }

@@ -20,4 +20,8 @@ export class NoopProvisioningProvider implements IProvisioningProvider {
       metadata: { noop: true, operationId: input.operationId },
     };
   }
+
+  async healthCheck(): Promise<{ healthy: boolean; latencyMs: number }> {
+    return { healthy: true, latencyMs: 0 };
+  }
 }

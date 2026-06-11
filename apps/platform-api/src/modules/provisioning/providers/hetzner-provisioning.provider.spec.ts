@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { HetznerProvisioningProvider } from './hetzner-provisioning.provider';
 import { ProvisioningPlannerService } from '../provisioning-planner.service';
 import { ProvisioningExecuteInput, ProviderCurrentResource } from '../interfaces/provisioning-provider.interface';
@@ -1026,5 +1027,67 @@ describe('HetznerProvisioningProvider — Phase 10d: partial failure loop', () =
     expect(err).toBeInstanceOf(PartialApplyError);
     expect(createSpy).toHaveBeenCalledTimes(2);
     expect(err.appliedResources).toHaveLength(1);
+  });
+});
+
+// ── Sprint 4b — spec validation ───────────────────────────────
+
+describe('HetznerProvisioningProvider — Sprint 4b: spec validation', () => {
+  function makeValidationProvider() {
+    return new HetznerProvisioningProvider(new ProvisioningPlannerService());
+  }
+
+  it('valid spec passes without throwing', async () => {
+    const provider = makeValidationProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: true,
+      desiredSpec: { region: 'eu-central', serverType: 'cx11', image: 'ubuntu-22.04' },
+      currentResources: [],
+    };
+    await expect(provider.apply(input)).resolves.not.toThrow();
+  });
+
+  it('invalid region field throws BadRequestException', async () => {
+    const provider = makeValidationProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: true,
+      desiredSpec: { region: 'invalid-region' },
+      currentResources: [],
+    };
+    await expect(provider.apply(input)).rejects.toThrow(BadRequestException);
+  });
+
+  it('invalid serverType field throws BadRequestException', async () => {
+    const provider = makeValidationProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: true,
+      desiredSpec: { serverType: 'cx99' },
+      currentResources: [],
+    };
+    await expect(provider.apply(input)).rejects.toThrow(BadRequestException);
+  });
+
+  it('empty spec {} passes (all fields are optional)', async () => {
+    const provider = makeValidationProvider();
+    const input: ProvisioningExecuteInput = {
+      ...BASE_INPUT,
+      dryRun: true,
+      desiredSpec: {},
+      currentResources: [],
+    };
+    await expect(provider.apply(input)).resolves.not.toThrow();
+  });
+});
+
+// ── Sprint 4b — health check ──────────────────────────────────
+
+describe('HetznerProvisioningProvider — Sprint 4b: health check', () => {
+  it('healthCheck returns { healthy: true, latencyMs: expect.any(Number) }', async () => {
+    const provider = new HetznerProvisioningProvider(new ProvisioningPlannerService());
+    const result = await provider.healthCheck();
+    expect(result).toEqual({ healthy: true, latencyMs: expect.any(Number) });
   });
 });

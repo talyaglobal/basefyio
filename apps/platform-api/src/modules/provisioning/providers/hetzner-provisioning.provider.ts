@@ -1,4 +1,6 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
+import { plainToClass } from 'class-transformer';
+import { validate } from 'class-validator';
 import {
   IProvisioningProvider,
   ProviderCurrentResource,
@@ -24,6 +26,7 @@ import {
 } from '../provisioning-planner.service';
 import { topoSort } from '../provisioning-topo-sort';
 import { PartialApplyError, FailedActionRecord } from '../interfaces/partial-apply.error';
+import { HetznerDesiredSpec } from '../dto/hetzner-desired-spec.dto';
 
 /**
  * Hetzner Cloud provider.
@@ -91,9 +94,34 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
     return { actions, validationErrors };
   }
 
+  // ── validateSpec() ────────────────────────────────────────────
+
+  private async validateSpec(spec: unknown): Promise<void> {
+    const obj = plainToClass(HetznerDesiredSpec, spec ?? {});
+    const errors = await validate(obj, { whitelist: true, forbidNonWhitelisted: false });
+    if (errors.length > 0) {
+      const messages = errors.flatMap(e => Object.values(e.constraints ?? {}));
+      throw new BadRequestException(`Invalid desiredSpec: ${messages.join('; ')}`);
+    }
+  }
+
+  // ── healthCheck() ─────────────────────────────────────────────
+
+  async healthCheck(): Promise<{ healthy: boolean; latencyMs: number }> {
+    const start = Date.now();
+    try {
+      // In a real implementation, this would call the Hetzner API status endpoint.
+      // For now, return healthy if provider is instantiated.
+      return { healthy: true, latencyMs: Date.now() - start };
+    } catch {
+      return { healthy: false, latencyMs: Date.now() - start };
+    }
+  }
+
   // ── apply() ──────────────────────────────────────────────────
 
   async apply(input: ProvisioningExecuteInput): Promise<ProvisioningExecuteResult> {
+    await this.validateSpec(input.desiredSpec);
     const isDryRun = input.dryRun ?? false;
     const providerPlan = this.plan(input);
 

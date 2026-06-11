@@ -102,4 +102,9 @@ export interface IProvisioningProvider {
    * Phase 9+: real calls; returns created/updated resource rows.
    */
   apply(input: ProvisioningExecuteInput): Promise<ProvisioningExecuteResult>;
+
+  /**
+   * Probe provider connectivity and return health status with latency.
+   */
+  healthCheck(): Promise<{ healthy: boolean; latencyMs: number }>;
 }
