@@ -18,7 +18,9 @@
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "repository": {
     "type": "git",
@@ -53,10 +55,12 @@
     "table": "^6.8.0"
   },
   "devDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.1.1",
     "@types/inquirer": "^9.0.7",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.8"
   }
 }
