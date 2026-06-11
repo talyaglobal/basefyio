@@ -232,8 +232,8 @@ services:
 
   website:
     build:
-      context: ./apps/website
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/website/Dockerfile
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
         # Leave unset in .env to use default; an empty value here removes the tag from the build.
