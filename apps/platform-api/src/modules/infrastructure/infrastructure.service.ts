@@ -88,9 +88,9 @@ export class InfrastructureService implements OnModuleInit {
       await this.docker.createVolume({
         Name: volumeName,
         Labels: {
-          'com.kolaybase.managed': 'true',
-          'com.kolaybase.type': 'postgres-data',
-          'com.kolaybase.owner': opts.projectId,
+          'com.basefyio.managed': 'true',
+          'com.basefyio.type': 'postgres-data',
+          'com.basefyio.owner': opts.projectId,
         },
       });
     } catch (err: any) {
@@ -106,9 +106,9 @@ export class InfrastructureService implements OnModuleInit {
         `POSTGRES_DB=postgres`,
       ],
       Labels: {
-        'com.kolaybase.managed': 'true',
-        'com.kolaybase.type': 'postgres',
-        'com.kolaybase.owner': opts.projectId,
+        'com.basefyio.managed': 'true',
+        'com.basefyio.type': 'postgres',
+        'com.basefyio.owner': opts.projectId,
       },
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },
@@ -198,9 +198,9 @@ export class InfrastructureService implements OnModuleInit {
       await this.docker.createVolume({
         Name: volumeName,
         Labels: {
-          'com.kolaybase.managed': 'true',
-          'com.kolaybase.type': 'minio-data',
-          'com.kolaybase.owner': opts.teamId,
+          'com.basefyio.managed': 'true',
+          'com.basefyio.type': 'minio-data',
+          'com.basefyio.owner': opts.teamId,
         },
       });
     } catch (err: any) {
@@ -216,9 +216,9 @@ export class InfrastructureService implements OnModuleInit {
         `MINIO_ROOT_PASSWORD=${secretKey}`,
       ],
       Labels: {
-        'com.kolaybase.managed': 'true',
-        'com.kolaybase.type': 'minio',
-        'com.kolaybase.owner': opts.teamId,
+        'com.basefyio.managed': 'true',
+        'com.basefyio.type': 'minio',
+        'com.basefyio.owner': opts.teamId,
       },
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },

@@ -87,4 +87,25 @@ export class MockHetznerClient implements IHetznerClient {
       record.serverType = serverType;
     }
   }
+
+  async waitForRunning(
+    serverId: number,
+    _apiToken: string,
+    _opts?: { maxAttempts?: number; delayMs?: number },
+  ): Promise<HetznerCreatedServer> {
+    const record = this.servers.get(serverId);
+    if (record) {
+      return { ...record, status: 'running' };
+    }
+    // Deterministic fallback for servers not created in this instance.
+    return {
+      id: serverId,
+      name: `server-${serverId}`,
+      status: 'running',
+      serverType: 'cx11',
+      publicIpv4: `10.0.0.${serverId % 256}`,
+      locationName: 'nbg1',
+      datacenterName: 'nbg1-dc1',
+    };
+  }
 }

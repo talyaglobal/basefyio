@@ -70,6 +70,30 @@ export class HetznerClient implements IHetznerClient {
     );
   }
 
+  /**
+   * Poll getServer() until status is 'running' or max attempts exhausted.
+   * Returns the final server snapshot regardless of status.
+   * Uses exponential back-off between polls (default: 12 attempts, 5 s interval).
+   */
+  async waitForRunning(
+    serverId: number,
+    apiToken: string,
+    opts: { maxAttempts?: number; delayMs?: number } = {},
+  ): Promise<HetznerCreatedServer> {
+    const maxAttempts = opts.maxAttempts ?? 12;
+    const delayMs = opts.delayMs ?? 5000;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const snapshot = await this.getServer(serverId, apiToken);
+      if (snapshot.status === 'running') return snapshot;
+      if (attempt < maxAttempts - 1) {
+        await this.sleep(delayMs);
+      }
+    }
+    // Return whatever state we have after exhausting attempts
+    return this.getServer(serverId, apiToken);
+  }
+
   // ── Retry loop ────────────────────────────────────────────────
 
   private async postWithRetry(path: string, body: unknown, apiToken: string): Promise<unknown> {

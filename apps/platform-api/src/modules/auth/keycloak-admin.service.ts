@@ -201,7 +201,7 @@ export class KeycloakAdminService implements OnModuleInit {
 
   private async ensurePlatformOAuthClient() {
     try {
-      const clientId = 'kolaybase-platform';
+      const clientId = 'basefyio-platform';
       const publicApiUrl = this.config.get<string>('publicApiUrl') || 'http://localhost:4000';
       const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
       const callbackUrl = `${publicApiUrl}/api/auth/oauth/callback`;
@@ -344,7 +344,7 @@ export class KeycloakAdminService implements OnModuleInit {
   }
 
   getPlatformOAuthClientId(): string {
-    return 'kolaybase-platform';
+    return 'basefyio-platform';
   }
 
   getEnabledPlatformProviders(): string[] {

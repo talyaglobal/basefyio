@@ -25,4 +25,14 @@ export interface IHetznerClient {
   rebuildServer(serverId: number, imageSlug: string, apiToken: string): Promise<void>;
   /** Change server type (resize). Server must be off; Hetzner handles the migration. */
   resizeServer(serverId: number, serverType: string, apiToken: string): Promise<void>;
+  /**
+   * Poll getServer() until status is 'running' or max attempts exhausted.
+   * Returns the final server snapshot regardless of status.
+   * Used for read-after-write after CREATE to capture the actual IP and stable status.
+   */
+  waitForRunning(
+    serverId: number,
+    apiToken: string,
+    opts?: { maxAttempts?: number; delayMs?: number },
+  ): Promise<HetznerCreatedServer>;
 }

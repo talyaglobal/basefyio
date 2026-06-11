@@ -244,18 +244,20 @@ export class HetznerProvisioningProvider implements IProvisioningProvider {
         },
         apiToken,
       );
+      // Phase 10: poll until running to capture actual IP and stable status
+      const snapshot = await this.client!.waitForRunning(Number(created.id), apiToken);
       return {
         externalId: String(created.id),
         type: 'server',
         name: created.name,
         desiredSpec: spec,
         actualSpec: {
-          id: created.id,
-          server_type: created.serverType,
-          public_ipv4: created.publicIpv4,
-          location: created.locationName,
-          datacenter: created.datacenterName,
-          status: created.status,
+          id: snapshot.id,
+          server_type: snapshot.serverType,
+          public_ipv4: snapshot.publicIpv4,
+          location: snapshot.locationName,
+          datacenter: snapshot.datacenterName,
+          status: snapshot.status,
         },
         status: 'ACTIVE',
       };
