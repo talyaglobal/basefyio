@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -20,6 +21,7 @@ import { GetProjectQuery } from './dto/get-project.query';
 import { ProviderCapability } from './dto/provider-capability.dto';
 import { OperationEventsPage } from './dto/operation-events-page.dto';
 import { ListOperationEventsQuery } from './dto/list-operation-events.query';
+import { SetProjectProviderDto } from './dto/set-project-provider.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
@@ -158,5 +160,15 @@ export class ProvisioningController {
     @CurrentUser() user: JwtPayload,
   ): Promise<OperationEventsPage> {
     return this.service.listOperationEvents(user.sub, id, query);
+  }
+
+  @Patch('projects/:projectId/provider')
+  @HttpCode(HttpStatus.OK)
+  setProjectProvider(
+    @Param('projectId') projectId: string,
+    @Body() dto: SetProjectProviderDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.setProjectProvider(user.sub, projectId, dto);
   }
 }

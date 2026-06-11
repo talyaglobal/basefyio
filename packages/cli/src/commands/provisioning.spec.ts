@@ -346,16 +346,16 @@ describe('logsOperation', () => {
       metadata: null,
       createdAt: new Date().toISOString(),
     };
-    mockApiClient.getProvisioningOperationEvents.mockResolvedValue([event]);
+    mockApiClient.getProvisioningOperationEvents.mockResolvedValue({ events: [event], nextCursor: null });
 
     await logsOperation(OP_ID);
 
-    expect(mockApiClient.getProvisioningOperationEvents).toHaveBeenCalledWith(OP_ID);
+    expect(mockApiClient.getProvisioningOperationEvents).toHaveBeenCalledWith(OP_ID, expect.objectContaining({}));
     expect(printTable).toHaveBeenCalled();
   });
 
   it('shows info when no events', async () => {
-    mockApiClient.getProvisioningOperationEvents.mockResolvedValue([]);
+    mockApiClient.getProvisioningOperationEvents.mockResolvedValue({ events: [], nextCursor: null });
 
     await logsOperation(OP_ID);
 
@@ -368,5 +368,15 @@ describe('logsOperation', () => {
 
     await expect(logsOperation(OP_ID)).rejects.toThrow('Not Found');
     expect(handleApiError).toHaveBeenCalledWith(err);
+  });
+
+  it('shows nextCursor hint when more pages exist', async () => {
+    const event = { id: 'evt-1', kind: 'STATUS_CHANGED', fromStatus: 'PENDING', toStatus: 'RUNNING', actorUserId: null, metadata: null, createdAt: new Date().toISOString() };
+    mockApiClient.getProvisioningOperationEvents.mockResolvedValue({ events: [event], nextCursor: 'cursor-xyz' });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await logsOperation(OP_ID);
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('cursor-xyz');
+    consoleSpy.mockRestore();
   });
 });

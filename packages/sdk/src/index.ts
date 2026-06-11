@@ -61,4 +61,6 @@ export type {
   ProvisioningCredentialRefCreateInput,
   ProvisioningWaitOptions,
   ProvisioningAuditEvent,
+  ProvisioningEventPage,
+  ListOperationEventsOptions,
 } from './lib/types.js';

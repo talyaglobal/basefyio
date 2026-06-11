@@ -404,24 +404,24 @@ describe('ProvisioningClient.getOperationEvents', () => {
       id: 'evt-1', kind: 'STATUS_CHANGED', fromStatus: 'PENDING', toStatus: 'COMPLETED',
       actorUserId: null, metadata: null, createdAt: '2026-06-11T00:00:00.000Z',
     }];
-    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockEvents) });
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ events: [...mockEvents], nextCursor: null }) });
     const client = new ProvisioningClient(http);
 
     const res = await client.getOperationEvents(OP_ID);
 
-    expect(res.data).toEqual(mockEvents);
+    expect(res.data).toEqual({ events: mockEvents, nextCursor: null });
     expect(res.error).toBeNull();
     const url: string = (http.json as any).mock.calls[0][0];
     expect(url).toContain(`/operations/${OP_ID}/events`);
   });
 
   it('returns empty array when no events', async () => {
-    const http = makeHttp({ json: vi.fn().mockResolvedValue([]) });
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ events: [], nextCursor: null }) });
     const client = new ProvisioningClient(http);
 
     const res = await client.getOperationEvents(OP_ID);
 
-    expect(res.data).toEqual([]);
+    expect(res.data).toEqual({ events: [], nextCursor: null });
     expect(res.error).toBeNull();
   });
 
@@ -433,5 +433,50 @@ describe('ProvisioningClient.getOperationEvents', () => {
 
     expect(res.data).toBeNull();
     expect(res.error?.status).toBe(404);
+  });
+
+  it('passes limit and cursor as query params', async () => {
+    const http = makeHttp({ json: vi.fn().mockResolvedValue({ events: [], nextCursor: null }) });
+    const client = new ProvisioningClient(http);
+    await client.getOperationEvents(OP_ID, { limit: 10, cursor: 'abc123' });
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toContain('limit=10');
+    expect(url).toContain('cursor=abc123');
+  });
+
+  it('preserves nextCursor from response', async () => {
+    const page = { events: [], nextCursor: 'next-page-cursor' };
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(page) });
+    const client = new ProvisioningClient(http);
+    const res = await client.getOperationEvents(OP_ID);
+    expect(res.data?.nextCursor).toBe('next-page-cursor');
+  });
+});
+
+// ── listProviders ─────────────────────────────────────────────────────────────
+
+describe('ProvisioningClient.listProviders', () => {
+  it('returns array of providers on success', async () => {
+    const mockProviders = [{ id: 'hetzner', name: 'Hetzner' }, { id: 'aws', name: 'AWS' }];
+    const http = makeHttp({ json: vi.fn().mockResolvedValue(mockProviders) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.listProviders();
+
+    expect(res.data).toEqual(mockProviders);
+    expect(res.error).toBeNull();
+    const url: string = (http.json as any).mock.calls[0][0];
+    expect(url).toContain('/v1/provisioning/providers');
+  });
+
+  it('returns error shape on failure', async () => {
+    const http = makeHttp({ json: vi.fn().mockRejectedValue({ message: 'Service unavailable', status: 503 }) });
+    const client = new ProvisioningClient(http);
+
+    const res = await client.listProviders();
+
+    expect(res.data).toBeNull();
+    expect(res.error?.status).toBe(503);
+    expect(res.error?.message).toBe('Service unavailable');
   });
 });

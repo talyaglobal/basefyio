@@ -14,6 +14,8 @@ import { GetProjectQuery } from './dto/get-project.query';
 import { OperationEventResponse } from './dto/operation-event-response';
 import { OperationEventsPage } from './dto/operation-events-page.dto';
 import { ListOperationEventsQuery } from './dto/list-operation-events.query';
+import { ProviderRegistry } from './providers/provider-registry.service';
+import { SetProjectProviderDto } from './dto/set-project-provider.dto';
 
 // ── Response types ────────────────────────────────────────
 
@@ -183,7 +185,10 @@ type PrismaTx = Parameters<Parameters<PrismaService['$transaction']>[0]>[0];
 
 @Injectable()
 export class ProvisioningService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly providerRegistry: ProviderRegistry,
+  ) {}
 
   // ── Ownership guards ──────────────────────────────────────
 
@@ -687,6 +692,39 @@ export class ProvisioningService {
       })),
       nextCursor,
     };
+  }
+
+  // ── Provider selection ────────────────────────────────────
+
+  async setProjectProvider(
+    userId: string,
+    projectId: string,
+    dto: SetProjectProviderDto,
+  ): Promise<{ provider: string; projectId: string }> {
+    const pp = await this.prisma.provisioningProject.findUnique({
+      where: { projectId },
+      include: { project: { select: { teamId: true } } },
+    });
+    if (!pp) {
+      throw new NotFoundException('Provisioning project not found');
+    }
+    const member = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: pp.project.teamId, userId } },
+    });
+    if (!member) {
+      throw new NotFoundException('Provisioning project not found');
+    }
+    const available = this.providerRegistry.list().map((cap) => cap.name);
+    if (!available.includes(dto.provider)) {
+      throw new BadRequestException(
+        `Unknown provider "${dto.provider}". Available: ${available.join(', ')}`,
+      );
+    }
+    const updated = await this.prisma.provisioningProject.update({
+      where: { id: pp.id },
+      data: { provider: dto.provider },
+    });
+    return { projectId: updated.projectId, provider: updated.provider };
   }
 }
 

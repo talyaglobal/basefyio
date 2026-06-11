@@ -338,9 +338,11 @@ operations
 operations
   .command('logs <operationId>')
   .description('Show audit event timeline for a provisioning operation')
-  .action(async (operationId) => {
+  .option('--limit <n>', 'Maximum events to return (1–100, default 50)')
+  .option('--cursor <cursor>', 'Pagination cursor from a previous response')
+  .action(async (operationId, options) => {
     const { logsOperation } = await import('./commands/provisioning.js');
-    await logsOperation(operationId);
+    await logsOperation(operationId, options);
   });
 
 // ── Provisioning — credentials ──────────────────────────────

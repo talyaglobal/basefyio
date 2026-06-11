@@ -303,3 +303,13 @@ export interface ProvisioningAuditEvent {
   metadata: Record<string, unknown> | null;
   createdAt: string;
 }
+
+export interface ProvisioningEventPage {
+  events: ProvisioningAuditEvent[];
+  nextCursor: string | null;
+}
+
+export interface ListOperationEventsOptions {
+  limit?: number;
+  cursor?: string;
+}

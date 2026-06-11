@@ -12,6 +12,8 @@ import type {
   ProvisioningCredentialRefCreateInput,
   ProvisioningWaitOptions,
   ProvisioningAuditEvent,
+  ProvisioningEventPage,
+  ListOperationEventsOptions,
 } from '../lib/types.js';
 
 const BASE = '/v1/provisioning';
@@ -140,11 +142,24 @@ export class ProvisioningClient {
 
   async getOperationEvents(
     operationId: string,
-  ): Promise<BasefyioResponse<ProvisioningAuditEvent[]>> {
+    opts?: ListOperationEventsOptions,
+  ): Promise<BasefyioResponse<ProvisioningEventPage>> {
     try {
-      const data = await this.http.json<ProvisioningAuditEvent[]>(
-        `${BASE}/operations/${encodeURIComponent(operationId)}/events`,
-      );
+      const params = new URLSearchParams();
+      if (opts?.limit != null) params.set('limit', String(opts.limit));
+      if (opts?.cursor != null) params.set('cursor', opts.cursor);
+      const query = params.toString();
+      const url = `${BASE}/operations/${encodeURIComponent(operationId)}/events${query ? `?${query}` : ''}`;
+      const data = await this.http.json<ProvisioningEventPage>(url);
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: { message: err.message, status: err.status } };
+    }
+  }
+
+  async listProviders(): Promise<BasefyioResponse<any[]>> {
+    try {
+      const data = await this.http.json<any[]>(`${BASE}/providers`);
       return { data, error: null };
     } catch (err: any) {
       return { data: null, error: { message: err.message, status: err.status } };

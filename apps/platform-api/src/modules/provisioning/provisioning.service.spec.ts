@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -18,6 +19,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
     provisioningProject: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     provisioningCredentialRef: { findUnique: jest.fn() },
     provisioningOperation: {
@@ -33,6 +35,16 @@ function makePrisma(overrides: Record<string, any> = {}) {
   const merged = { ...defaults, ...overrides };
   merged.$transaction = jest.fn().mockImplementation((cb: any) => cb(merged));
   return merged as any;
+}
+
+function makeRegistry() {
+  return {
+    list: jest.fn().mockReturnValue([
+      { name: 'hetzner', displayName: 'Hetzner Cloud', regions: [], resourceTypes: [], supportedResources: [], supportsCreate: true, supportsUpdate: true, supportsRollback: true, supportsDryRun: true },
+      { name: 'docker',  displayName: 'Docker',        regions: [], resourceTypes: [], supportedResources: [], supportsCreate: true, supportsUpdate: true, supportsRollback: false, supportsDryRun: true },
+    ]),
+    resolve: jest.fn(),
+  } as any;
 }
 
 const TEAM_ID = 'team-1';
@@ -99,7 +111,7 @@ describe('ProvisioningService.createOperation — ownership', () => {
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createOperation(USER_ID, { ...BASE_CREATE_OPERATION_DTO, projectId: 'missing' }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -110,7 +122,7 @@ describe('ProvisioningService.createOperation — ownership', () => {
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -120,7 +132,7 @@ describe('ProvisioningService.createOperation — ownership', () => {
     const prisma = makePrisma();
     setupOperationOwnership(prisma, { ppExists: false });
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -144,7 +156,7 @@ describe('ProvisioningService.createOperation — idempotency', () => {
     setupOperationOwnership(prisma);
     prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO);
 
     expect(result.idempotent).toBe(true);
@@ -167,7 +179,7 @@ describe('ProvisioningService.createOperation — idempotency', () => {
     setupOperationOwnership(prisma);
     prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -187,7 +199,7 @@ describe('ProvisioningService.createOperation — idempotency', () => {
     setupOperationOwnership(prisma);
     prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -208,7 +220,7 @@ describe('ProvisioningService.createOperation — idempotency', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
     prisma.provisioningOperation.create.mockResolvedValue(newOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createOperation(USER_ID, {
       ...BASE_CREATE_OPERATION_DTO,
       idempotencyKey: 'different-key',
@@ -237,7 +249,7 @@ describe('ProvisioningService.createOperation — dryRun', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
     prisma.provisioningOperation.create.mockResolvedValue(dryOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createOperation(USER_ID, {
       ...BASE_CREATE_OPERATION_DTO,
       dryRun: true,
@@ -270,7 +282,7 @@ describe('ProvisioningService.createOperation — dryRun', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
     prisma.provisioningOperation.create.mockResolvedValue(pendingOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.createOperation(USER_ID, BASE_CREATE_OPERATION_DTO);
 
     const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
@@ -296,7 +308,7 @@ describe('ProvisioningService.createOperation — dryRun', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
     prisma.provisioningOperation.create.mockResolvedValue(rollbackOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.createOperation(USER_ID, {
       ...BASE_CREATE_OPERATION_DTO,
       type: OperationTypeDto.ROLLBACK,
@@ -327,7 +339,7 @@ describe('ProvisioningService.createOperation — dryRun', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
     prisma.provisioningOperation.create.mockResolvedValue(newOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.createOperation(USER_ID, { ...BASE_CREATE_OPERATION_DTO, desiredSpec: spec });
 
     const createCall = prisma.provisioningOperation.create.mock.calls[0][0];
@@ -360,7 +372,7 @@ describe('ProvisioningService.listResources', () => {
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.listResources(USER_ID, 'missing-project'),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -371,7 +383,7 @@ describe('ProvisioningService.listResources', () => {
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.listResources('other-user', PROJECT_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -383,7 +395,7 @@ describe('ProvisioningService.listResources', () => {
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
     prisma.provisioningProject.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.listResources(USER_ID, PROJECT_ID);
 
     expect(result).toEqual([]);
@@ -397,7 +409,7 @@ describe('ProvisioningService.listResources', () => {
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
     prisma.provisioningResource.findMany = jest.fn().mockResolvedValue([]);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.listResources(USER_ID, PROJECT_ID);
 
     const where = prisma.provisioningResource.findMany.mock.calls[0][0].where;
@@ -411,7 +423,7 @@ describe('ProvisioningService.listResources', () => {
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
     prisma.provisioningResource.findMany = jest.fn().mockResolvedValue([]);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.listResources(USER_ID, PROJECT_ID, true);
 
     const where = prisma.provisioningResource.findMany.mock.calls[0][0].where;
@@ -427,7 +439,7 @@ describe('ProvisioningService.listResources', () => {
       stubResource(),
     ]);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.listResources(USER_ID, PROJECT_ID);
 
     expect(result).toHaveLength(1);
@@ -455,7 +467,7 @@ describe('ProvisioningService.listResources', () => {
       .fn()
       .mockResolvedValue([stubResource({ actualSpec: null })]);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const [item] = await svc.listResources(USER_ID, PROJECT_ID);
 
     expect(item.actualSpec).toBeNull();
@@ -468,7 +480,7 @@ describe('ProvisioningService.listResources', () => {
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
     prisma.provisioningResource.findMany = jest.fn().mockResolvedValue([]);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.listResources(USER_ID, PROJECT_ID);
 
     expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
@@ -508,7 +520,7 @@ describe('ProvisioningService.getOperation', () => {
     const prisma = makePrisma();
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.getOperation(USER_ID, 'missing-op'),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -519,7 +531,7 @@ describe('ProvisioningService.getOperation', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
     prisma.teamMember.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.getOperation('other-user', 'op-1'),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -530,7 +542,7 @@ describe('ProvisioningService.getOperation', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.getOperation(USER_ID, 'op-1');
 
     expect(result.id).toBe('op-1');
@@ -555,7 +567,7 @@ describe('ProvisioningService.getOperation', () => {
     );
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.getOperation(USER_ID, 'op-1');
 
     expect(result.updatedAt).toBe(started.toISOString());
@@ -571,7 +583,7 @@ describe('ProvisioningService.getOperation', () => {
     );
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.getOperation(USER_ID, 'op-1');
 
     expect(result.updatedAt).toBe(completed.toISOString());
@@ -585,7 +597,7 @@ describe('ProvisioningService.getOperation', () => {
     );
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.getOperation(USER_ID, 'op-1');
 
     expect(result.error).toEqual({ message: 'provider timeout' });
@@ -600,7 +612,7 @@ describe('ProvisioningService.getOperation', () => {
     );
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.getOperation(USER_ID, 'op-1');
 
     expect(result.result).toEqual(resultPayload);
@@ -612,7 +624,7 @@ describe('ProvisioningService.getOperation', () => {
     prisma.provisioningOperation.findUnique.mockResolvedValue(stubFullOp());
     prisma.teamMember.findUnique.mockResolvedValue(memberOf());
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await svc.getOperation(USER_ID, 'op-1');
 
     expect(prisma.provisioningAuditEvent.create).not.toHaveBeenCalled();
@@ -627,7 +639,7 @@ describe('ProvisioningService.createProject', () => {
     const prisma = makePrisma();
     prisma.project.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createProject(USER_ID, { ...BASE_CREATE_PROJECT_DTO, projectId: 'missing' }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -638,7 +650,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.project.findUnique.mockResolvedValue(stubProject());
     prisma.teamMember.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -650,7 +662,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.teamMember.findUnique.mockResolvedValue(memberOf('team-A'));
     prisma.provisioningCredentialRef.findUnique.mockResolvedValue(stubCredRef('team-B'));
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -665,7 +677,7 @@ describe('ProvisioningService.createProject', () => {
       revokedAt: new Date(),
     });
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -679,7 +691,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.provisioningProject.findUnique.mockResolvedValue({ id: PP_ID });
     prisma.provisioningOperation.findUnique.mockResolvedValue(null);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     await expect(
       svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -695,7 +707,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.provisioningProject.findUnique.mockResolvedValue(existingPP);
     prisma.provisioningOperation.findUnique.mockResolvedValue(existingOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO);
 
     expect(result.operation.idempotent).toBe(true);
@@ -715,7 +727,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.provisioningProject.create.mockResolvedValue(createdPP);
     prisma.provisioningOperation.create.mockResolvedValue(createdOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createProject(USER_ID, BASE_CREATE_PROJECT_DTO);
 
     expect(result.provisioningProjectId).toBe(PP_ID);
@@ -745,7 +757,7 @@ describe('ProvisioningService.createProject', () => {
     prisma.provisioningProject.create.mockResolvedValue(createdPP);
     prisma.provisioningOperation.create.mockResolvedValue(createdOp);
 
-    const svc = new ProvisioningService(prisma);
+    const svc = new ProvisioningService(prisma, makeRegistry());
     const result = await svc.createProject(USER_ID, {
       ...BASE_CREATE_PROJECT_DTO,
       dryRun: true,
@@ -788,7 +800,7 @@ function makeEventRow(seq: number, createdAt?: Date): any {
 }
 
 function makeEventSvc(prisma: any) {
-  return new ProvisioningService(prisma);
+  return new ProvisioningService(prisma, makeRegistry());
 }
 
 describe('ProvisioningService.listOperationEvents', () => {
@@ -900,5 +912,59 @@ describe('ProvisioningService.listOperationEvents', () => {
     prisma.teamMember.findUnique.mockResolvedValue(null);
     const svc = makeEventSvc(prisma);
     await expect(svc.listOperationEvents(USER_ID, OP_ID)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+// ── ProvisioningService.setProjectProvider ───────────────────
+
+describe('ProvisioningService.setProjectProvider', () => {
+  const PP_DB_ID = 'pp-db-id';
+  const PROJECT_ID_LOCAL = 'proj-001';
+
+  function makePPRow(provider = 'hetzner') {
+    return {
+      id: PP_DB_ID,
+      projectId: PROJECT_ID_LOCAL,
+      provider,
+      project: { teamId: TEAM_ID },
+    };
+  }
+
+  it('updates provider when valid provider is given', async () => {
+    const prisma = makePrisma();
+    (prisma.provisioningProject.findUnique as jest.Mock).mockResolvedValue(makePPRow());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    (prisma.provisioningProject.update as jest.Mock).mockResolvedValue({
+      id: PP_DB_ID,
+      projectId: PROJECT_ID_LOCAL,
+      provider: 'docker',
+    });
+    const svc = new ProvisioningService(prisma as any, makeRegistry());
+    const result = await svc.setProjectProvider(USER_ID, PROJECT_ID_LOCAL, { provider: 'docker' });
+    expect(result.provider).toBe('docker');
+    expect(result.projectId).toBe(PROJECT_ID_LOCAL);
+  });
+
+  it('throws 400 when provider is not registered', async () => {
+    const prisma = makePrisma();
+    (prisma.provisioningProject.findUnique as jest.Mock).mockResolvedValue(makePPRow());
+    prisma.teamMember.findUnique.mockResolvedValue(memberOf());
+    const svc = new ProvisioningService(prisma as any, makeRegistry());
+    await expect(svc.setProjectProvider(USER_ID, PROJECT_ID_LOCAL, { provider: 'aws' })).rejects.toThrow(BadRequestException);
+  });
+
+  it('throws 404 when project not found', async () => {
+    const prisma = makePrisma();
+    (prisma.provisioningProject.findUnique as jest.Mock).mockResolvedValue(null);
+    const svc = new ProvisioningService(prisma as any, makeRegistry());
+    await expect(svc.setProjectProvider(USER_ID, 'no-such-proj', { provider: 'hetzner' })).rejects.toThrow(NotFoundException);
+  });
+
+  it('throws 404 when userId does not match project owner', async () => {
+    const prisma = makePrisma();
+    (prisma.provisioningProject.findUnique as jest.Mock).mockResolvedValue(makePPRow());
+    prisma.teamMember.findUnique.mockResolvedValue(null); // not a member
+    const svc = new ProvisioningService(prisma as any, makeRegistry());
+    await expect(svc.setProjectProvider(USER_ID, PROJECT_ID_LOCAL, { provider: 'hetzner' })).rejects.toThrow(NotFoundException);
   });
 });

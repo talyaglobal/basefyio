@@ -316,6 +316,17 @@ export class ApiClient {
     return data as any;
   }
 
+  async getProvisioningOperationEvents(operationId: string, opts: { limit?: number; cursor?: string } = {}) {
+    const params: Record<string, any> = {};
+    if (opts.limit != null) params.limit = opts.limit;
+    if (opts.cursor) params.cursor = opts.cursor;
+    const { data } = await this.client.get(
+      `/api/v1/provisioning/operations/${encodeURIComponent(operationId)}/events`,
+      { params },
+    );
+    return data as { events: any[]; nextCursor: string | null };
+  }
+
   // Provisioning — credential refs
   async createProvisioningCredentialRef(body: { teamId: string; label: string; openbaoPath: string; provider?: string }) {
     const { data } = await this.client.post('/api/v1/provisioning/credentials', body);

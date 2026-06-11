@@ -224,12 +224,13 @@ export async function listCredentialRefs(opts: { teamId: string }) {
   }
 }
 
-export async function logsOperation(operationId: string) {
+export async function logsOperation(operationId: string, opts: { limit?: string; cursor?: string } = {}) {
   requireLogin();
 
+  const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
   const spinner = createSpinner('Loading operation events...');
   try {
-    const events = await apiClient.getProvisioningOperationEvents(operationId);
+    const { events, nextCursor } = await apiClient.getProvisioningOperationEvents(operationId, { limit, cursor: opts.cursor });
     spinner.stop();
 
     if (!events || events.length === 0) {
@@ -250,6 +251,11 @@ export async function logsOperation(operationId: string) {
     printTable(['Time', 'Event', 'Status Change', 'Actor'], rows);
     console.log();
     console.log(chalk.gray(`Total: ${events.length} event(s)`));
+
+    if (nextCursor) {
+      console.log();
+      console.log(chalk.gray(`More events available — use --cursor ${nextCursor} to fetch the next page.`));
+    }
   } catch (err: any) {
     spinner.stop();
     await handleApiError(err);

@@ -1234,6 +1234,63 @@ describe('Provisioning controller — integration', () => {
     });
   });
 
+  // ── 11. PATCH /projects/:projectId/provider — provider selection ──────────
+
+  describe('PATCH /v1/provisioning/projects/:projectId/provider', () => {
+    function buildProviderPrisma() {
+      const prisma = makePrisma();
+      // setProjectProvider uses findUnique({ where: { projectId }, include: { project: { select: { teamId } } } })
+      // then asserts team membership via teamMember.findUnique
+      prisma.provisioningProject.findUnique.mockResolvedValue({
+        id: PP_ID,
+        projectId: PROJECT_ID,
+        provider: 'hetzner',
+        project: { teamId: TEAM_ID },
+      });
+      // makePrisma() already returns a valid teamMember by default
+      prisma.provisioningProject.update.mockResolvedValue({
+        id: PP_ID,
+        projectId: PROJECT_ID,
+        provider: 'noop',
+      });
+      return prisma;
+    }
+
+    it('returns 200 with { provider, projectId } on valid provider', async () => {
+      const prisma = buildProviderPrisma();
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/provisioning/projects/${PROJECT_ID}/provider`)
+        .send({ provider: 'noop' })
+        .expect(200);
+
+      expect(res.body.provider).toBe('noop');
+      expect(res.body.projectId).toBe(PROJECT_ID);
+    });
+
+    it('returns 400 on unknown provider', async () => {
+      const prisma = buildProviderPrisma();
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .patch(`/v1/provisioning/projects/${PROJECT_ID}/provider`)
+        .send({ provider: 'aws' })
+        .expect(400);
+    });
+
+    it('returns 404 when project not found', async () => {
+      const prisma = buildProviderPrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue(null);
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .patch(`/v1/provisioning/projects/${PROJECT_ID}/provider`)
+        .send({ provider: 'hetzner' })
+        .expect(404);
+    });
+  });
+
   // ── GET /providers — discovery endpoint ─────────────────────────────────
 
   describe('GET /v1/provisioning/providers', () => {
