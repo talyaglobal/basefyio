@@ -971,4 +971,229 @@ describe('Provisioning controller — integration', () => {
         .expect(400);
     });
   });
+
+  // ── 10. Sprint 4e — Full lifecycle flows ───────────────────────────────────
+
+  describe('Sprint 4e — Full lifecycle flows', () => {
+    // ── 10-1. Create → cancel → verify CANCELLED ─────────────────────────────
+
+    it('cancel flow: POST /operations → POST /operations/:id/cancel → status is CANCELLED', async () => {
+      const prisma = makePrisma();
+
+      // Step 1: create a PENDING operation
+      const createdOp = {
+        id: OP_ID,
+        provisioningProjectId: PP_ID,
+        type: 'CREATE',
+        status: 'PENDING',
+        dryRun: false,
+        idempotencyKey: 'lifecycle-1',
+        createdAt: new Date('2026-06-11T00:00:00Z'),
+      };
+      prisma.provisioningOperation.findUnique
+        .mockResolvedValueOnce(null)       // idempotency check — no duplicate
+        .mockResolvedValueOnce({           // cancelOperation lookup
+          ...createdOp,
+          input: {},
+          errorMessage: null,
+          result: null,
+          startedAt: null,
+          completedAt: null,
+          provisioningProject: {
+            projectId: PROJECT_ID,
+            project: { teamId: TEAM_ID },
+          },
+        });
+      prisma.provisioningOperation.create.mockResolvedValue(createdOp);
+
+      const cancelledOp = {
+        ...createdOp,
+        status: 'CANCELLED',
+        input: {},
+        errorMessage: null,
+        result: null,
+        startedAt: null,
+        completedAt: new Date('2026-06-11T00:02:00Z'),
+        provisioningProject: {
+          projectId: PROJECT_ID,
+          project: { teamId: TEAM_ID },
+        },
+      };
+      prisma.provisioningOperation.update.mockResolvedValue(cancelledOp);
+      prisma.provisioningAuditEvent.create.mockResolvedValue({});
+
+      app = await buildApp(prisma, makeRegistry());
+
+      // POST /operations → 201 PENDING
+      const createRes = await request(app.getHttpServer())
+        .post('/v1/provisioning/operations')
+        .send({
+          projectId: PROJECT_ID,
+          type: 'CREATE',
+          idempotencyKey: 'lifecycle-1',
+          desiredSpec: {},
+          dryRun: false,
+        })
+        .expect(201);
+
+      expect(createRes.body.status).toBe('PENDING');
+      expect(createRes.body.provisioningOperationId).toBe(OP_ID);
+
+      // POST /operations/:id/cancel → 200 CANCELLED
+      const cancelRes = await request(app.getHttpServer())
+        .post(`/v1/provisioning/operations/${OP_ID}/cancel`)
+        .expect(200);
+
+      expect(cancelRes.body.status).toBe('CANCELLED');
+
+      // Assert that update was called with status: 'CANCELLED'
+      const updateCall = prisma.provisioningOperation.update.mock.calls[0][0];
+      expect(updateCall.data.status).toBe('CANCELLED');
+    });
+
+    // ── 10-2. dryRun=true → DRY_RUN status, no execute side-effects ──────────
+
+    it('dry-run: POST /operations with dryRun=true returns DRY_RUN status', async () => {
+      const prisma = makePrisma();
+      const dryRunOp = {
+        id: OP_ID,
+        provisioningProjectId: PP_ID,
+        type: 'CREATE',
+        status: 'DRY_RUN',
+        dryRun: true,
+        idempotencyKey: 'lifecycle-dry-1',
+        createdAt: new Date('2026-06-11T00:00:00Z'),
+      };
+      prisma.provisioningOperation.findUnique.mockResolvedValue(null);
+      prisma.provisioningOperation.create.mockResolvedValue(dryRunOp);
+
+      const registry = makeRegistry();
+      app = await buildApp(prisma, registry);
+
+      const res = await request(app.getHttpServer())
+        .post('/v1/provisioning/operations')
+        .send({
+          projectId: PROJECT_ID,
+          type: 'CREATE',
+          idempotencyKey: 'lifecycle-dry-1',
+          desiredSpec: {},
+          dryRun: true,
+        })
+        .expect(201);
+
+      expect(res.body.status).toBe('DRY_RUN');
+      expect(res.body.dryRun).toBe(true);
+      // provider.apply must NOT have been called — dry-run short-circuits at creation
+      expect(registry.resolve).not.toHaveBeenCalled();
+    });
+
+    // ── 10-3. GET /operations returns array filtered by projectId ─────────────
+
+    it('GET /operations?projectId=PROJECT_ID returns operations array', async () => {
+      const prisma = makePrisma();
+      const opRow = {
+        id: OP_ID,
+        type: 'CREATE',
+        status: 'COMPLETED',
+        dryRun: false,
+        idempotencyKey: IDEM_KEY,
+        errorMessage: null,
+        result: null,
+        input: {},
+        createdAt: new Date('2026-06-11T00:00:00Z'),
+        startedAt: new Date('2026-06-11T00:00:01Z'),
+        completedAt: new Date('2026-06-11T00:00:02Z'),
+        provisioningProject: {
+          projectId: PROJECT_ID,
+          project: { teamId: TEAM_ID },
+        },
+      };
+      prisma.provisioningOperation.findMany = jest.fn().mockResolvedValue([opRow]);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/operations')
+        .query({ projectId: PROJECT_ID })
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThan(0);
+      expect(res.body[0].id).toBe(OP_ID);
+    });
+
+    // ── 10-4. GET /projects returns provisioning project status ───────────────
+
+    it('GET /projects?projectId=PROJECT_ID returns provisioning project status', async () => {
+      const prisma = makePrisma();
+      prisma.provisioningProject.findUnique.mockResolvedValue({
+        id: PP_ID,
+        provider: 'hetzner',
+        region: 'eu-central',
+        datacenter: null,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-06-11T00:00:00Z'),
+      });
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/projects')
+        .query({ projectId: PROJECT_ID })
+        .expect(200);
+
+      expect(res.body.provisioningProjectId).toBe(PP_ID);
+      expect(res.body.status).toBe('ACTIVE');
+    });
+
+    // ── 10-5. rollbackSpec is NOT leaked in GET /operations response ──────────
+
+    it('GET /operations does not expose rollbackSpec in response', async () => {
+      const prisma = makePrisma();
+      const opRowWithSecret = {
+        id: OP_ID,
+        type: 'CREATE',
+        status: 'COMPLETED',
+        dryRun: false,
+        idempotencyKey: IDEM_KEY,
+        errorMessage: null,
+        result: null,
+        input: {},
+        rollbackSpec: { secret: 'must-not-leak' },  // sensitive field in DB row
+        createdAt: new Date('2026-06-11T00:00:00Z'),
+        startedAt: new Date('2026-06-11T00:00:01Z'),
+        completedAt: new Date('2026-06-11T00:00:02Z'),
+        provisioningProject: {
+          projectId: PROJECT_ID,
+          project: { teamId: TEAM_ID },
+        },
+      };
+      prisma.provisioningOperation.findMany = jest.fn().mockResolvedValue([opRowWithSecret]);
+      app = await buildApp(prisma, makeRegistry());
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/provisioning/operations')
+        .query({ projectId: PROJECT_ID })
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      for (const item of res.body) {
+        expect(item).not.toHaveProperty('rollbackSpec');
+      }
+    });
+
+    // ── 10-6. Module disabled → guard passes cancel through (no projectId in URL) ──
+
+    it('cancel: ModuleEnabledGuard passes through (no projectId in path) — operation not found → 404', async () => {
+      // POST /operations/:id/cancel has no projectId param; ModuleEnabledGuard cannot
+      // resolve the projectId and deliberately passes through, matching the same
+      // pattern as POST /operations/:id/execute. The test confirms the guard does NOT
+      // return 403 even when provisioning is disabled — 404 is returned by the service.
+      const prisma = makePrisma({ provisioning: false });
+      prisma.provisioningOperation.findUnique.mockResolvedValue(null); // op not found → 404
+      app = await buildApp(prisma, makeRegistry());
+
+      await request(app.getHttpServer())
+        .post(`/v1/provisioning/operations/${OP_ID}/cancel`)
+        .expect(404); // guard passed through; service throws NotFoundException
+    });
+  });
 });
