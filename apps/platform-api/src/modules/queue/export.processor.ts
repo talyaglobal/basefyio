@@ -265,10 +265,11 @@ export class ExportProcessor extends WorkerHost {
     realmName: string,
     authDir: string,
   ) {
-    const [users, realmInfo] = await Promise.all([
-      this.keycloak.listUsers(realmName),
-      this.keycloak.getRealmInfo(realmName),
-    ]);
+    // getRealmInfo throws a descriptive error when the realm is missing — run
+    // it first so a broken realm reference doesn't surface as the admin
+    // client's opaque "Network response was not OK".
+    const realmInfo = await this.keycloak.getRealmInfo(realmName);
+    const users = await this.keycloak.listUsers(realmName);
     const authConfig = await this.prisma.projectAuthConfig.findUnique({
       where: { projectId },
     });
