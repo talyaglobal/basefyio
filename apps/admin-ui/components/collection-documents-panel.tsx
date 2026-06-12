@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { subscribebasefyioRealtime } from '@/lib/basefyio-realtime';
 import type { DocumentRecord, DocumentListResult } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -237,6 +238,27 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
   // ── Load documents ────────────────────────────────────
   useEffect(() => {
     loadDocuments();
+  }, [projectId, collectionName, page, appliedFilter]);
+
+  // ── Live updates ──────────────────────────────────────
+  // Collection document writes append project activity, which broadcasts on
+  // the project channel — refetch so every open tab reflects changes
+  // without a manual refresh. Lightly debounced to coalesce bursts.
+  useEffect(() => {
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribebasefyioRealtime(`project:${projectId}`, (event) => {
+      const kind = (event.payload as { kind?: string } | undefined)?.kind ?? '';
+      if (!kind.startsWith('collection.')) return;
+      if (refetchTimer) clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(() => {
+        void loadDocuments();
+      }, 250);
+    });
+    return () => {
+      if (refetchTimer) clearTimeout(refetchTimer);
+      unsubscribe?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, collectionName, page, appliedFilter]);
 
   async function loadDocuments() {
