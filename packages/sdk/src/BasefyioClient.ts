@@ -56,6 +56,14 @@ export class BasefyioClient {
    * @example
    * const { data } = await bf.from('users').select('*').eq('active', true)
    */
+  /**
+   * Call a Postgres function as an API (Supabase-style RPC).
+   * @example const rows = await bf.rpc('hello', { name: 'world' })
+   */
+  async rpc<T = Record<string, unknown>>(fn: string, args: Record<string, unknown> = {}): Promise<T[]> {
+    return this.http.json<T[]>(`/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+  }
+
   from<T = Record<string, unknown>>(table: string): QueryBuilder<T> {
     return this.db.from<T>(table);
   }

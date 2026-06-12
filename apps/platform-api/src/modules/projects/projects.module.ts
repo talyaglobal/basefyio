@@ -3,6 +3,8 @@ import { HttpModule } from '@nestjs/axios';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { ProjectDataController } from './project-data.controller';
+import { ProjectDatabaseController } from './project-database.controller';
+import { ProjectDatabaseService } from './project-database.service';
 import { ProjectDataService } from './project-data.service';
 import { ProjectAuthController } from './project-auth.controller';
 import { ProjectAuthConfigService } from './project-auth-config.service';
@@ -40,6 +42,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
   controllers: [
     ProjectsController,
     ProjectDataController,
+    ProjectDatabaseController,
     ProjectAuthController,
     ProjectSdkAuthController,
     PublicApiController,
@@ -49,6 +52,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
     TagsController,
   ],
   providers: [
+    ProjectDatabaseService,
     ProjectsService,
     ProjectDataService,
     ProjectAuthConfigService,

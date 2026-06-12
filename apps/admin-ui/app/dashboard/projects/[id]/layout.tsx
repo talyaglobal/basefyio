@@ -17,6 +17,7 @@ import { parseJwt, getAccessToken } from '@/lib/auth';
 import {
   Book,
   BrainCircuit,
+  Wrench,
   Copy,
   Database,
   Download,
@@ -111,6 +112,7 @@ const navItems = [
   // Tables, collections, and Data Engine entities live in one unified editor.
   { label: 'Data', href: '/tables', icon: Table2 },
   { label: 'SQL Editor', href: '/sql', icon: Terminal },
+  { label: 'Database', href: '/database', icon: Wrench },
   { label: 'Storage', href: '/storage', icon: FolderOpen },
   { label: 'Auth', href: '/auth', icon: Shield },
   { label: 'REST API', href: '/api-explorer', icon: Globe },
