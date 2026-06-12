@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import type { StorageBucket, StorageObject } from '@/lib/types';
@@ -119,7 +120,7 @@ function BucketList({
 
   async function handleDelete(e: React.MouseEvent, name: string) {
     e.stopPropagation();
-    if (!confirm(`Delete bucket "${name}" and all its contents?`)) return;
+    if (!(await confirmDialog({ title: 'Delete bucket', description: `Delete bucket "${name}" and all its contents?`, destructive: true }))) return;
     try {
       await api.storage.deleteBucket(projectId, name);
       toast.success(`Bucket "${name}" deleted`);
@@ -474,7 +475,7 @@ function BucketSettings({
             variant="destructive"
             size="sm"
             onClick={async () => {
-              if (!confirm(`Delete bucket "${bucketName}" and all its contents? This cannot be undone.`)) return;
+              if (!(await confirmDialog({ title: 'Delete bucket', description: `Delete bucket "${bucketName}" and all its contents? This cannot be undone.`, destructive: true }))) return;
               try {
                 await api.storage.deleteBucket(projectId, bucketName);
                 toast.success(`Bucket "${bucketName}" deleted`);
@@ -579,7 +580,7 @@ function ObjectBrowser({
 
   async function handleDeleteSelected() {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} item(s)?`)) return;
+    if (!(await confirmDialog({ title: 'Delete items', description: `Delete ${selected.size} item(s)?`, destructive: true }))) return;
     try {
       await api.storage.deleteObjects(projectId, bucketName, Array.from(selected));
       toast.success(`Deleted ${selected.size} item(s)`);
@@ -739,7 +740,7 @@ function ObjectBrowser({
                       className="h-7 w-7 text-destructive hover:text-destructive"
                       title="Delete"
                       onClick={async () => {
-                        if (!confirm(`Delete ${fileName}?`)) return;
+                        if (!(await confirmDialog({ title: 'Delete file', description: `Delete ${fileName}?`, destructive: true }))) return;
                         try {
                           await api.storage.deleteObjects(projectId, bucketName, [file.name]);
                           toast.success(`Deleted ${fileName}`);

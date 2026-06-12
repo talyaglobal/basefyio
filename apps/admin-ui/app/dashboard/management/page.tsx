@@ -27,6 +27,7 @@ import {
   YAxis,
 } from 'recharts';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
@@ -2134,9 +2135,12 @@ export default function ManagementPage() {
                       disabled={p.name === 'free'}
                       onClick={async () => {
                         if (p.name === 'free') return;
-                        const ok = window.confirm(
-                          `Delete "${p.displayName}" plan? Existing subscriptions will be moved to Free.`,
-                        );
+                        const ok = await confirmDialog({
+                          title: 'Delete plan',
+                          description: `Delete "${p.displayName}" plan? Existing subscriptions will be moved to Free.`,
+                          confirmText: 'Delete plan',
+                          destructive: true,
+                        });
                         if (!ok) return;
                         try {
                           const res = await api.billing.deleteManagementPlan(p.name, 'free');
@@ -2204,9 +2208,12 @@ export default function ManagementPage() {
                           : undefined
                       }
                       onClick={async () => {
-                        const ok = window.confirm(
-                          `Delete "${t.name}" team? This action cannot be undone.`,
-                        );
+                        const ok = await confirmDialog({
+                          title: 'Delete team',
+                          description: `Delete "${t.name}" team? This action cannot be undone.`,
+                          confirmText: 'Delete team',
+                          destructive: true,
+                        });
                         if (!ok) return;
                         setDeletingTeamId(t.id);
                         try {

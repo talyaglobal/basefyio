@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { RealmInfo, RealmUser, ProjectAuthConfig } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -196,7 +197,7 @@ function UsersTab({
   const [resetingUser, setResetingUser] = useState<RealmUser | null>(null);
 
   async function handleDelete(userId: string, email: string) {
-    if (!confirm(`Delete user "${email}"?`)) return;
+    if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${email}"?`, destructive: true }))) return;
     try {
       await api.projects.deleteRealmUser(projectId, userId);
       toast.success('User deleted');

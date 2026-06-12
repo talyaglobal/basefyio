@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { ColumnInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -108,10 +109,14 @@ export function DuplicateCleanerDialog({
       return;
     }
     if (
-      !confirm(
-        'This permanently deletes extra duplicate rows from the database. ' +
+      !(await confirmDialog({
+        title: 'Remove duplicates',
+        description:
+          'This permanently deletes extra duplicate rows from the database. ' +
           'One row is kept per duplicate group (largest internal row id). Continue?',
-      )
+        confirmText: 'Remove duplicates',
+        destructive: true,
+      }))
     ) {
       return;
     }

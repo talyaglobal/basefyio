@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useDashboard } from '@/app/dashboard/layout';
 import { Button } from '@/components/ui/button';
@@ -819,7 +820,7 @@ export default function FeedbacksPage() {
                             size="sm"
                             variant="destructive"
                             onClick={async () => {
-                              if (!window.confirm('Are you sure you want to delete this feedback?')) {
+                              if (!(await confirmDialog({ title: 'Delete feedback', description: 'Are you sure you want to delete this feedback?', destructive: true }))) {
                                 return;
                               }
                               try {
