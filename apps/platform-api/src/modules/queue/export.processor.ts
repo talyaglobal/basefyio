@@ -28,6 +28,9 @@ export interface ExportJobData {
   includeAuth: boolean;
   includeStorage: boolean;
   includeConfig: boolean;
+  /** Scheduled daily backup: artifact goes to the auto-backup bucket (7-day retention)
+   *  instead of the manual-export bucket (24h TTL). */
+  autoBackup?: boolean;
 }
 
 export interface ExportJobProgress {
@@ -61,6 +64,7 @@ export interface ExportJobResult {
 export class ExportProcessor extends WorkerHost {
   private readonly logger = new Logger(ExportProcessor.name);
   private readonly exportBucket = 'bf-platform-exports';
+  private readonly autoBackupBucket = 'bf-platform-auto-backups';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -170,13 +174,18 @@ export class ExportProcessor extends WorkerHost {
         percent: 92,
       } satisfies ExportJobProgress);
 
+      const isAuto = job.data.autoBackup === true;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `project-export-${project.slug}-${timestamp}.zip`;
+      const filename = isAuto
+        ? `auto-backup-${project.slug}-${timestamp}.zip`
+        : `project-export-${project.slug}-${timestamp}.zip`;
+      const targetBucket = isAuto ? this.autoBackupBucket : this.exportBucket;
       const objectKey = `${project.id}/${job.id}-${filename}`;
 
       await this.createZipArchive(tempRoot, zipPath);
+      await this.storage.ensurePlatformBucket(targetBucket);
       const uploaded = await this.storage.uploadPlatformFileFromPath(
-        this.exportBucket,
+        targetBucket,
         objectKey,
         zipPath,
         'application/zip',
@@ -191,12 +200,12 @@ export class ExportProcessor extends WorkerHost {
       await this.activity.append(project.id, {
         userId: job.data.userId,
         kind: ProjectActivityKind.PROJECT_UPDATED,
-        title: 'Project export completed',
+        title: isAuto ? 'Daily auto-backup completed' : 'Project export completed',
         detail: filename,
       });
 
       return {
-        bucket: this.exportBucket,
+        bucket: targetBucket,
         objectKey,
         filename,
         size: uploaded.size,
@@ -205,7 +214,7 @@ export class ExportProcessor extends WorkerHost {
       await this.activity.append(project.id, {
         userId: job.data.userId,
         kind: ProjectActivityKind.PROJECT_UPDATED,
-        title: 'Project export failed',
+        title: job.data.autoBackup ? 'Daily auto-backup failed' : 'Project export failed',
         detail: err?.message ?? 'Unknown error',
       });
       throw err;

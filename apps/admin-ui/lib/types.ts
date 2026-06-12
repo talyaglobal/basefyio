@@ -735,6 +735,8 @@ export interface CloudBackupItem {
   filename: string;
   size: number;
   lastModified: string;
+  /** auto = scheduled daily backup (7-day retention); manual = user export (24h). */
+  kind?: 'manual' | 'auto';
 }
 
 export interface ImportProgressData {

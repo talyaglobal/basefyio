@@ -486,6 +486,7 @@ export class ProjectsController {
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      kind?: 'manual' | 'auto';
     },
   ) {
     return this.projectExport.restoreCloudBackup(id, user.sub, body);

@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -23,8 +24,14 @@ import {
 const EXPORT_BUCKET = 'bf-platform-exports';
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** Daily auto-backups live in their own bucket with a longer retention. */
+const AUTO_BACKUP_BUCKET = 'bf-platform-auto-backups';
+const AUTO_BACKUP_RETENTION_DAYS = 7;
+
 @Injectable()
 export class ProjectExportService {
+  private readonly logger = new Logger(ProjectExportService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -166,15 +173,25 @@ export class ProjectExportService {
   async listCloudBackups(projectId: string, userId: string) {
     await this.projectsService.findOne(projectId, userId);
     await this.storage.ensurePlatformBucket(EXPORT_BUCKET);
-    const objects = await this.storage.listPlatformObjects(EXPORT_BUCKET, `${projectId}/`);
-    return objects
-      .map((o) => ({
-        objectKey: o.name,
-        filename: o.name.split('/').pop() || o.name,
-        size: o.size,
-        lastModified: o.lastModified.toISOString(),
-      }))
-      .sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1));
+    await this.storage.ensurePlatformBucket(AUTO_BACKUP_BUCKET);
+
+    const [manual, auto] = await Promise.all([
+      this.storage.listPlatformObjects(EXPORT_BUCKET, `${projectId}/`),
+      this.storage.listPlatformObjects(AUTO_BACKUP_BUCKET, `${projectId}/`),
+    ]);
+
+    const toEntry = (o: { name: string; size: number; lastModified: Date }, kind: 'manual' | 'auto') => ({
+      objectKey: o.name,
+      filename: o.name.split('/').pop() || o.name,
+      size: o.size,
+      lastModified: o.lastModified.toISOString(),
+      kind,
+    });
+
+    return [
+      ...manual.map((o) => toEntry(o, 'manual' as const)),
+      ...auto.map((o) => toEntry(o, 'auto' as const)),
+    ].sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1));
   }
 
   async restoreCloudBackup(
@@ -186,6 +203,8 @@ export class ProjectExportService {
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      /** Which backup store the objectKey lives in. Default: manual exports. */
+      kind?: 'manual' | 'auto';
     },
   ) {
     await this.projectsService.findOne(projectId, userId);
@@ -193,7 +212,8 @@ export class ProjectExportService {
     if (!objectKey?.startsWith(`${projectId}/`)) {
       throw new ForbiddenException('Backup does not belong to this project');
     }
-    const { stream } = await this.storage.getPlatformObject(EXPORT_BUCKET, objectKey);
+    const bucket = body.kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
+    const { stream } = await this.storage.getPlatformObject(bucket, objectKey);
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -221,6 +241,78 @@ export class ProjectExportService {
       if (now - object.lastModified.getTime() > EXPORT_TTL_MS) {
         await this.storage.removePlatformObject(EXPORT_BUCKET, object.name);
       }
+    }
+  }
+
+  // ── Daily auto-backups ───────────────────────────────────
+
+  /**
+   * Enqueue one backup job per ACTIVE project every night at 03:00 UTC.
+   * Storage objects are intentionally excluded: they already live in MinIO,
+   * and re-zipping them daily would multiply disk usage — the loss vector
+   * a backup protects against is the database (plus auth/config).
+   */
+  @Cron('0 3 * * *')
+  async runDailyAutoBackups() {
+    const projects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, slug: true },
+    });
+    if (projects.length === 0) return;
+
+    try {
+      const paused = await this.exportQueue.isPaused();
+      if (paused) await this.exportQueue.resume();
+    } catch {
+      // add() below surfaces real queue errors.
+    }
+
+    let enqueued = 0;
+    for (const project of projects) {
+      try {
+        const data: ExportJobData = {
+          projectId: project.id,
+          includeDatabase: true,
+          includeAuth: true,
+          includeStorage: false,
+          includeConfig: true,
+          autoBackup: true,
+        };
+        await this.exportQueue.add('project-export', data, {
+          removeOnComplete: { age: 24 * 60 * 60, count: 500 },
+          removeOnFail: { age: 48 * 60 * 60, count: 500 },
+          attempts: 1,
+        });
+        enqueued++;
+      } catch (err: any) {
+        this.logger.warn(
+          `Auto-backup enqueue failed for project ${project.slug}: ${err?.message}`,
+        );
+      }
+    }
+    this.logger.log(`Daily auto-backup: enqueued ${enqueued}/${projects.length} project(s)`);
+  }
+
+  /** Drop auto-backups older than the retention window (runs after the nightly sweep). */
+  @Cron('30 4 * * *')
+  async cleanupOldAutoBackups() {
+    await this.storage.ensurePlatformBucket(AUTO_BACKUP_BUCKET);
+    const objects = await this.storage.listPlatformObjects(AUTO_BACKUP_BUCKET);
+    const cutoff = Date.now() - AUTO_BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+    let removed = 0;
+    for (const object of objects) {
+      if (object.lastModified.getTime() < cutoff) {
+        try {
+          await this.storage.removePlatformObject(AUTO_BACKUP_BUCKET, object.name);
+          removed++;
+        } catch (err: any) {
+          this.logger.warn(`Auto-backup cleanup failed for ${object.name}: ${err?.message}`);
+        }
+      }
+    }
+    if (removed > 0) {
+      this.logger.log(`Auto-backup retention: removed ${removed} object(s) older than ${AUTO_BACKUP_RETENTION_DAYS} days`);
     }
   }
 }

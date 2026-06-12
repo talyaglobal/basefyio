@@ -130,6 +130,7 @@ export default function ProjectExportPage() {
     objectKey: string,
     mode: 'existing' | 'new',
     newProjectName?: string,
+    kind?: 'manual' | 'auto',
   ) {
     setRestoringKey(objectKey);
     try {
@@ -140,6 +141,7 @@ export default function ProjectExportPage() {
         nameMode: mode,
         newProjectName,
         existingProjectId: mode === 'existing' ? id : undefined,
+        kind,
       });
       toast.success(`Backup restored: ${result.project.name}`);
       router.push(`/dashboard/projects/${result.project.id}`);
@@ -178,6 +180,7 @@ export default function ProjectExportPage() {
       restoreTarget.objectKey,
       restoreMode,
       restoreMode === 'new' ? newRestoreName.trim() : undefined,
+      restoreTarget.kind,
     );
   }
 
@@ -311,9 +314,17 @@ export default function ProjectExportPage() {
           {cloudBackups.map((b) => (
             <div key={b.objectKey} className="flex items-center justify-between rounded-lg border p-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{b.filename}</p>
+                <p className="flex items-center gap-2 truncate text-sm font-medium">
+                  <span className="truncate">{b.filename}</span>
+                  {b.kind === 'auto' && (
+                    <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                      Auto
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {(b.size / 1024 / 1024).toFixed(2)} MB • {new Date(b.lastModified).toLocaleString()}
+                  {b.kind === 'auto' && ' • daily backup, kept 7 days'}
                 </p>
               </div>
               <Button

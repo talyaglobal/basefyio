@@ -753,6 +753,7 @@ export const api = {
         nameMode: 'existing' | 'new';
         newProjectName?: string;
         existingProjectId?: string;
+        kind?: 'manual' | 'auto';
       },
     ) {
       return request<ProjectArchiveImportResponse>(`/projects/${projectId}/backups/restore`, {
