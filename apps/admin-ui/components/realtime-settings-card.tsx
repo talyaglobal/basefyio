@@ -104,6 +104,55 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
           No tables or collections yet — create one first, then enable realtime here.
         </p>
       ) : (
+        <div className="flex items-center justify-end gap-2 pb-1">
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+            disabled={togglingKey === '__all__' || rows.every((r) => r.enabled)}
+            onClick={async () => {
+              setTogglingKey('__all__');
+              try {
+                for (const row of rows.filter((r) => !r.enabled)) {
+                  await api.projects.setRealtimeBinding(projectId, { kind: row.kind, entity: row.entity, enabled: true });
+                }
+                setRows((prev) => prev.map((r) => ({ ...r, enabled: true })));
+                toast.success('Realtime enabled for all entities');
+              } catch (err: any) {
+                toast.error(err.message || 'Failed to enable all');
+                void load();
+              } finally {
+                setTogglingKey(null);
+              }
+            }}
+          >
+            Select all
+          </button>
+          <span className="text-xs text-muted-foreground">·</span>
+          <button
+            type="button"
+            className="text-xs font-medium text-muted-foreground hover:underline disabled:opacity-50"
+            disabled={togglingKey === '__all__' || rows.every((r) => !r.enabled)}
+            onClick={async () => {
+              setTogglingKey('__all__');
+              try {
+                for (const row of rows.filter((r) => r.enabled)) {
+                  await api.projects.setRealtimeBinding(projectId, { kind: row.kind, entity: row.entity, enabled: false });
+                }
+                setRows((prev) => prev.map((r) => ({ ...r, enabled: false })));
+                toast.success('Realtime disabled for all entities');
+              } catch (err: any) {
+                toast.error(err.message || 'Failed to disable all');
+                void load();
+              } finally {
+                setTogglingKey(null);
+              }
+            }}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+      {!loading && rows.length > 0 && (
         <div className="divide-y rounded-md border">
           {rows.map((row) => {
             const key = `${row.kind}:${row.entity}`;
@@ -127,8 +176,8 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
                   title={row.enabled ? 'Disable realtime' : 'Enable realtime'}
                 >
                   <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                      row.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      row.enabled ? 'translate-x-4' : 'translate-x-0'
                     }`}
                   />
                 </button>

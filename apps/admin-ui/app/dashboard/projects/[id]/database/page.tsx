@@ -179,7 +179,7 @@ export default function DatabasePage() {
                         <button type="button" role="switch" aria-checked={r.enabled}
                           onClick={() => void run(() => api.projects.dbToggleTrigger(id, { name: r.name, table: r.table, enabled: !r.enabled }), `Trigger ${r.enabled ? 'disabled' : 'enabled'}`)}
                           className={`relative h-5 w-9 rounded-full transition-colors ${r.enabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
-                          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${r.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${r.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
                         </button>
                       </td>
                       <td className="max-w-[420px] truncate px-3 py-2 font-mono text-[11px] text-muted-foreground" title={r.definition}>{r.definition}</td>
@@ -223,7 +223,7 @@ export default function DatabasePage() {
                             void run(() => api.projects.dbSetExtension(id, { name: r.name, enabled: !r.enabled }), `Extension ${r.enabled ? 'disabled' : 'enabled'}`);
                           }}
                           className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${r.enabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
-                          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${r.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${r.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
                         </button>
                       </td>
                     </>
