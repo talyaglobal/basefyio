@@ -1702,22 +1702,39 @@ export class ProjectsService {
       .replace(/^_|_$/g, '');
   }
 
+  /**
+   * Slugs are globally unique (they seed realm and resource names), so two
+   * customers can collide on the same project name. The first taker keeps
+   * the clean slug; collisions get a short random suffix instead of a
+   * sequential counter — counters leak how many projects share a name
+   * across tenants and race under concurrent creates, random suffixes do
+   * neither. Existing project slugs are never touched.
+   */
   private async uniqueSlug(base: string): Promise<string> {
+    // Keep room for the suffix so realm/db names stay comfortably bounded.
+    const trimmedBase = base.slice(0, 48);
+
     const existing = await this.prisma.project.findFirst({
-      where: { slug: base },
+      where: { slug: trimmedBase },
       select: { id: true },
     });
-    if (!existing) return base;
+    if (!existing) return trimmedBase;
 
-    for (let i = 2; i <= 100; i++) {
-      const candidate = `${base}_${i}`;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const suffix = randomBytes(4).toString('base64url')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase()
+        .slice(0, 6)
+        .padEnd(6, '0');
+      const candidate = `${trimmedBase}_${suffix}`;
       const found = await this.prisma.project.findFirst({
         where: { slug: candidate },
         select: { id: true },
       });
       if (!found) return candidate;
     }
-    return `${base}_${Date.now()}`;
+    // Astronomically unlikely fallback — still random, never sequential.
+    return `${trimmedBase}_${randomBytes(8).toString('hex').slice(0, 10)}`;
   }
 
   private stripDeletedSuffix(value: string): string {
