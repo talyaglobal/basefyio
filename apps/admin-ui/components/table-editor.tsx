@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type {
   TableInfo,
   ColumnInfo,
@@ -819,6 +820,11 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       // Persistence is best-effort; refreshes just won't remember.
     }
   }, [selectedKey, openTabs, stateStorageKey]);
+
+  useLiveProjectRefresh(projectId, ['table.'], () => {
+    void loadTables();
+    void reloadRows();
+  });
 
   async function loadTables() {
     setLoading(true);

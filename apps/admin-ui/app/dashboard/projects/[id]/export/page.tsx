@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -151,6 +152,8 @@ export default function ProjectExportPage() {
       setRestoringKey(null);
     }
   }
+
+  useLiveProjectRefresh(id, ['project_export.', 'project.'], loadCloudBackups);
 
   useEffect(() => {
     loadCloudBackups();

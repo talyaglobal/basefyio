@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import { getAccessToken } from '@/lib/auth';
 import type { StorageBucket, StorageObject } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -103,6 +104,7 @@ function BucketList({
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveProjectRefresh(projectId, ['storage.'], load);
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -526,6 +528,7 @@ function ObjectBrowser({
   }, [projectId, bucketName, prefix]);
 
   useEffect(() => { load(); }, [load]);
+  useLiveProjectRefresh(projectId, ['storage.'], load);
 
   const breadcrumbs = prefix ? prefix.split('/').filter(Boolean) : [];
   const folders = objects.filter((o) => o.prefix);

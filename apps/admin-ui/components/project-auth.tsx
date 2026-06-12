@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type { RealmInfo, RealmUser, ProjectAuthConfig } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,8 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
       setLoading(false);
     }
   }, [projectId]);
+
+  useLiveProjectRefresh(projectId, ['auth.'], loadAll);
 
   useEffect(() => {
     loadAll();
