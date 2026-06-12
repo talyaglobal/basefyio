@@ -35,6 +35,9 @@ import type {
   DataImportProgress,
   DataImportResult,
   DataImportJobStatus,
+  DataQueryCapabilities,
+  DataQueryResult,
+  SavedDataQueryItem,
   Team,
   TeamGitHubStatus,
   TeamInvite,
@@ -1370,6 +1373,49 @@ export const api = {
           limit: opts?.limit,
           countTotal: opts?.countTotal,
         }),
+      });
+    },
+  },
+
+  dataQuery: {
+    executeJs(
+      projectId: string,
+      source: string,
+      opts?: { page?: number; limit?: number },
+    ) {
+      return request<DataQueryResult>(`/v1/projects/${projectId}/data-query/js`, {
+        method: 'POST',
+        body: JSON.stringify({
+          source,
+          page: opts?.page,
+          limit: opts?.limit,
+        }),
+      });
+    },
+    executeAggregation(projectId: string, entity: string, pipeline: unknown[]) {
+      return request<DataQueryResult>(`/v1/projects/${projectId}/data-query/aggregation`, {
+        method: 'POST',
+        body: JSON.stringify({ entity, pipeline }),
+      });
+    },
+    capabilities(projectId: string) {
+      return request<DataQueryCapabilities>(`/v1/projects/${projectId}/data-query/capabilities`);
+    },
+    listSaved(projectId: string) {
+      return request<SavedDataQueryItem[]>(`/v1/projects/${projectId}/data-query/saved`);
+    },
+    saveQuery(
+      projectId: string,
+      data: { name: string; source: string; entity?: string; mode?: 'js' | 'aggregation' },
+    ) {
+      return request<SavedDataQueryItem>(`/v1/projects/${projectId}/data-query/saved`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    deleteSaved(projectId: string, id: string) {
+      return request<{ message: string }>(`/v1/projects/${projectId}/data-query/saved/${id}`, {
+        method: 'DELETE',
       });
     },
   },

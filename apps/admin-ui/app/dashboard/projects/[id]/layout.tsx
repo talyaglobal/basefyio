@@ -307,6 +307,9 @@ export default function ProjectLayout({
   }
 
   const basePath = `/dashboard/projects/${id}`;
+  // NOSQL projects surface the JS Query editor on /sql, so the nav label adapts.
+  const navLabel = (item: (typeof navItems)[number]) =>
+    item.href === '/sql' && project?.databaseType === 'NOSQL' ? 'Query' : item.label;
   const isLogsRoute = pathname.startsWith(`${basePath}/logs`);
   const isFullHeightRoute = pathname.startsWith(`${basePath}/tables`) || pathname.startsWith(`${basePath}/sql`);
 
@@ -362,7 +365,7 @@ export default function ProjectLayout({
                     )}
                   >
                     <item.icon className="h-4 w-4 shrink-0" />
-                    {item.label}
+                    {navLabel(item)}
                   </Link>
                 );
               })}
@@ -464,7 +467,7 @@ export default function ProjectLayout({
                   <Link
                     key={item.label}
                     href={href}
-                    title={item.label}
+                    title={navLabel(item)}
                     className={cn(
                       'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
                       active
