@@ -88,15 +88,16 @@ export default function FeedbacksPage() {
 
   const isRoot = profile?.role === 'ROOT';
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const data = await api.feedback.list();
       setFeedbacks(data);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load feedbacks');
+      if (!silent) toast.error(err.message || 'Failed to load feedbacks');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -108,10 +109,12 @@ export default function FeedbacksPage() {
   useEffect(() => {
     if (!profile?.id) return;
     if (!isRealtimePhase1Enabled()) return;
+    // No own-actor skip here: the same user's OTHER tabs receive their own
+    // events too, and those tabs still need the refetch. Self-toast
+    // suppression lives in notifications-context, not in data refresh.
     const unsubscribe = subscribebasefyioRealtime(`user:${profile.id}`, (event: RealtimeEventEnvelope) => {
-      if (event.actorUserId === profile.id) return;
       if (event.entityType === 'feedback' || event.entityType === 'feedback_comment') {
-        void load();
+        void load({ silent: true });
       }
     });
     return () => unsubscribe?.();
@@ -283,7 +286,7 @@ export default function FeedbacksPage() {
               : `Track all your feedbacks and developer actions (${feedbacks.length})`}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
           <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>

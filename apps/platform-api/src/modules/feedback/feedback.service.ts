@@ -153,12 +153,15 @@ export class FeedbackService {
       where: { role: UserRole.ROOT, id: { not: dto.userId } },
       select: { id: true },
     });
+    // Creator is included so their other open tabs refresh the list; the
+    // notification bell skips own-actor events client-side, so this does not
+    // produce a self-toast.
     await this.realtime.publish({
       entityType: 'feedback',
       action: 'created',
       entityId: feedback.id,
       actorUserId: dto.userId,
-      userIds: roots.map((r) => r.id),
+      userIds: [dto.userId, ...roots.map((r) => r.id)],
       payload: {
         title: feedback.title,
         type: feedback.type,
