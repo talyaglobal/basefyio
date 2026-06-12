@@ -245,6 +245,146 @@ migration
     await migrationStatus();
   });
 
+// ── Blueprint migrations (plan / apply / list) ───────────────
+
+const migrations = program
+  .command('migrations')
+  .description('Blueprint-driven schema migrations (plan → apply)');
+
+migrations
+  .command('plan')
+  .description('Compute a migration plan between two blueprint versions')
+  .option('--from <version>', 'Source blueprint version (default: second-latest)')
+  .option('--to <version>', 'Target blueprint version (default: latest)')
+  .action(async (options) => {
+    const { migrationsPlan } = await import('./commands/migrations.js');
+    await migrationsPlan({
+      fromVersion: options.from ? parseInt(options.from, 10) : undefined,
+      toVersion: options.to ? parseInt(options.to, 10) : undefined,
+    });
+  });
+
+migrations
+  .command('apply <runId>')
+  .description('Apply a planned migration to the tenant database')
+  .option('--force', 'Apply even if the plan contains destructive changes')
+  .action(async (runId, options) => {
+    const { migrationsApply } = await import('./commands/migrations.js');
+    await migrationsApply(runId, { force: options.force });
+  });
+
+migrations
+  .command('list')
+  .description('List all migration runs for the linked project')
+  .action(async () => {
+    const { migrationsList } = await import('./commands/migrations.js');
+    await migrationsList();
+  });
+
+// ── Structures (data model layer) ────────────────────────────
+
+const structures = program
+  .command('structures')
+  .description('Manage data structures (tables and collections)');
+
+structures
+  .command('list')
+  .description('List all data structures for the linked project')
+  .action(async () => {
+    const { listStructures } = await import('./commands/structures.js');
+    await listStructures();
+  });
+
+structures
+  .command('create <name>')
+  .description('Create a new data structure')
+  .option('-k, --kind <kind>', 'Storage kind: relational or json', 'relational')
+  .action(async (name: string, options: { kind: string }) => {
+    const kind = options.kind === 'json' ? 'json' : 'relational';
+    const { createStructure } = await import('./commands/structures.js');
+    await createStructure(name, kind);
+  });
+
+// ── Archives (migration archive layer) ──────────────────────
+
+const archives = program
+  .command('archives')
+  .description('Manage migration archives');
+
+archives
+  .command('create')
+  .description('Create a new migration archive')
+  .requiredOption('--source <source>', 'Source database identifier')
+  .requiredOption('--region <region>', 'Target region for the archive')
+  .action(async (options) => {
+    const { createArchive } = await import('./commands/archives.js');
+    await createArchive(options.source, options.region);
+  });
+
+archives
+  .command('files <archiveId>')
+  .description('List files in a migration archive')
+  .action(async (archiveId) => {
+    const { listArchiveFiles } = await import('./commands/archives.js');
+    await listArchiveFiles(archiveId);
+  });
+
+archives
+  .command('consent <archiveId>')
+  .description('Record consent for a migration archive')
+  .action(async (archiveId) => {
+    const { archiveConsent } = await import('./commands/archives.js');
+    await archiveConsent(archiveId);
+  });
+
+archives
+  .command('delete <archiveId>')
+  .description('Permanently delete a migration archive')
+  .action(async (archiveId) => {
+    const { deleteArchive } = await import('./commands/archives.js');
+    await deleteArchive(archiveId);
+  });
+
+// ── Assessments (Phase 3 migration assessment layer) ─────────
+
+const assessments = program
+  .command('assessments')
+  .description('Manage Phase 3 migration assessments');
+
+assessments
+  .command('assess <archiveId>')
+  .alias('archives assess')
+  .description('Trigger a new assessment for a migration archive')
+  .action(async (archiveId) => {
+    const { assessArchive } = await import('./commands/assessments.js');
+    await assessArchive(archiveId);
+  });
+
+assessments
+  .command('list')
+  .description('List all assessment reports for the linked project')
+  .action(async () => {
+    const { listAssessments } = await import('./commands/assessments.js');
+    await listAssessments();
+  });
+
+assessments
+  .command('get <reportId>')
+  .description('Show the latest version details and findings for an assessment report')
+  .action(async (reportId) => {
+    const { getAssessment } = await import('./commands/assessments.js');
+    await getAssessment(reportId);
+  });
+
+assessments
+  .command('export-pdf <reportId>')
+  .description('Queue a PDF export for an assessment report')
+  .option('--version-id <id>', 'Specific version ID to export (default: latest)')
+  .action(async (reportId, options) => {
+    const { exportAssessmentPdf } = await import('./commands/assessments.js');
+    await exportAssessmentPdf(reportId, options.versionId);
+  });
+
 // ── Top-level shortcuts ──────────────────────────────────────
 
 program

@@ -9,9 +9,9 @@ interface DomainTemplateDefaults {
   promptKeywords: string[];  // used by detectDomain() heuristic
 }
 
-const ALL_TABLES_READ: string[] = ['read'];
-const ALL_TABLES_WRITE: string[] = ['read', 'write'];
-const ALL_TABLES_ADMIN: string[] = ['read', 'write', 'delete'];
+const ALL_TABLES_READ: ('read' | 'write' | 'delete')[] = ['read'];
+const ALL_TABLES_WRITE: ('read' | 'write' | 'delete')[] = ['read', 'write'];
+const ALL_TABLES_ADMIN: ('read' | 'write' | 'delete')[] = ['read', 'write', 'delete'];
 
 export const CRM_TEMPLATE: DomainTemplateDefaults = {
   slug: 'crm',

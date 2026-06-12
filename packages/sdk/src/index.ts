@@ -71,3 +71,30 @@ export type {
 export { ItemsClient, createItemsModule } from './modules/items.js';
 export type { ItemsModule } from './modules/items.js';
 export type { Item, ItemsPage, ListItemsOptions } from './lib/types.js';
+
+export { MigrationsClient } from './modules/migrations.js';
+export type {
+  MigrationPlanResult,
+  MigrationApplyResult,
+  MigrationRun,
+} from './modules/migrations.js';
+
+export { StructuresClient } from './modules/structures.js';
+export type { DataStructure, CreateStructureInput } from './modules/structures.js';
+
+export { ArchivesClient } from './modules/archives.js';
+export type {
+  MigrationArchive,
+  MigrationArchiveFile,
+  CreateArchiveInput,
+  InitiateFileUploadInput,
+  RecordConsentInput,
+} from './modules/archives.js';
+
+export { AssessmentsClient } from './modules/assessments.js';
+export type {
+  AssessmentReport,
+  AssessmentVersion,
+  AssessmentFinding,
+  ExportPdfResult,
+} from './modules/assessments.js';

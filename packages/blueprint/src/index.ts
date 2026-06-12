@@ -8,3 +8,5 @@ export * from './functions/build-package.js';
 export * from './functions/derive-ui-model.js';
 export * from './functions/infer-data-model.js';
 export * from './templates/domain-templates.js';
+export * from './migration/types.js';
+export * from './migration/diff.js';

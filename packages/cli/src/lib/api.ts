@@ -456,6 +456,207 @@ export class ApiClient {
     );
     return data as { deleted: boolean; id: string };
   }
+
+  async planMigration(projectId: string, opts: { fromVersion?: number; toVersion?: number } = {}) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migrations/plan`,
+      opts,
+    );
+    return data as {
+      migrationRunId: string;
+      fromVersion: number;
+      toVersion: number;
+      plan: {
+        operations: Array<{ type: string; safety: string; collection: string; field?: string; detail: string }>;
+        warnings: string[];
+        breakingChanges: string[];
+        hasDestructive: boolean;
+      };
+      sqlStatements: string[];
+    };
+  }
+
+  async applyMigration(projectId: string, migrationRunId: string, force = false) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migrations/apply`,
+      { migrationRunId, force },
+    );
+    return data as { migrationRunId: string; status: string; appliedStatements: number; errorMessage?: string };
+  }
+
+  async listMigrations(projectId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migrations`,
+    );
+    return data as Array<{
+      id: string;
+      fromBlueprintVersion: number;
+      toBlueprintVersion: number;
+      status: string;
+      appliedStatements: number;
+      createdAt: string;
+    }>;
+  }
+
+  // Structures (data model layer)
+
+  async listStructures(projectId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/structures`,
+    );
+    return data as Array<{
+      id: string;
+      projectId: string;
+      name: string;
+      kind: 'relational' | 'json';
+      badge: 'SQL' | 'JSON';
+      editorMode: 'sql' | 'js-query';
+      dataEditorMode: 'row' | 'document';
+      aiRecommended: boolean;
+      aiReasons: unknown | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }
+
+  async createStructure(projectId: string, name: string, kind: 'relational' | 'json') {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/structures`,
+      { name, kind },
+    );
+    return data as {
+      id: string;
+      projectId: string;
+      name: string;
+      kind: 'relational' | 'json';
+      badge: 'SQL' | 'JSON';
+      editorMode: 'sql' | 'js-query';
+      dataEditorMode: 'row' | 'document';
+      aiRecommended: boolean;
+      aiReasons: unknown | null;
+      createdAt: string;
+      updatedAt: string;
+    };
+  }
+
+  // Migration Archives
+
+  async createMigrationArchive(
+    projectId: string,
+    input: { source: string; region: string; retention?: string },
+  ) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives`,
+      input,
+    );
+    return data;
+  }
+
+  async getMigrationArchive(projectId: string, archiveId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}`,
+    );
+    return data;
+  }
+
+  async listArchiveFiles(projectId: string, archiveId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/files`,
+    );
+    return data;
+  }
+
+  async initiateFileUpload(
+    projectId: string,
+    archiveId: string,
+    input: { filename: string; sizeBytes: number; contentType?: string; chunkSize?: number },
+  ) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/files`,
+      input,
+    );
+    return data;
+  }
+
+  async updateFileProgress(
+    projectId: string,
+    archiveId: string,
+    fileId: string,
+    uploadedBytes: number,
+  ) {
+    const { data } = await this.client.patch(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/files/${encodeURIComponent(fileId)}/progress`,
+      { uploadedBytes },
+    );
+    return data;
+  }
+
+  async completeFileUpload(
+    projectId: string,
+    archiveId: string,
+    fileId: string,
+    checksum?: string,
+  ) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/files/${encodeURIComponent(fileId)}/complete`,
+      checksum !== undefined ? { checksum } : {},
+    );
+    return data;
+  }
+
+  async recordConsent(projectId: string, archiveId: string, input: object) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/consent`,
+      input,
+    );
+    return data;
+  }
+
+  async deleteMigrationArchive(projectId: string, archiveId: string) {
+    const { data } = await this.client.delete(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}`,
+    );
+    return data;
+  }
+
+  // Assessments
+
+  async createAssessment(projectId: string, archiveId: string) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/archives/${encodeURIComponent(archiveId)}/assessments`,
+      {},
+    );
+    return data as any;
+  }
+
+  async listAssessments(projectId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/assessments`,
+    );
+    return data as any;
+  }
+
+  async getAssessment(projectId: string, reportId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/assessments/${encodeURIComponent(reportId)}`,
+    );
+    return data as any;
+  }
+
+  async getAssessmentVersions(projectId: string, reportId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/assessments/${encodeURIComponent(reportId)}/versions`,
+    );
+    return data as any;
+  }
+
+  async exportAssessmentPdf(projectId: string, reportId: string, versionId?: string) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/migration/assessments/${encodeURIComponent(reportId)}/export-pdf`,
+      versionId !== undefined ? { versionId } : {},
+    );
+    return data as any;
+  }
 }
 
 export const apiClient = new ApiClient();

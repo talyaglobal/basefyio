@@ -13,6 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
@@ -32,6 +33,7 @@
   },
   "dependencies": {
     "@basefyio/data-engine": "file:../../packages/data-engine",
+    "@basefyio/blueprint": "file:../../packages/blueprint",
     "@keycloak/keycloak-admin-client": "^24.0.0",
     "@nestjs/axios": "^3.0.0",
     "@nestjs/bullmq": "^11.0.4",

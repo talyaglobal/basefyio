@@ -276,6 +276,7 @@ model Project {
   engineEndpoints     ProjectEngineEndpoint[]
   provisioningProject ProvisioningProject?
   blueprints          Blueprint[]
+  migrationRuns       MigrationRun[]
 
   @@map("projects")
 }
@@ -964,6 +965,13 @@ enum MigrationJobStatus {
   FAILED
 }
 
+enum AssessmentStatus {
+  DRAFT
+  ANALYZING
+  READY
+  FAILED
+}
+
 enum InvoiceLineItemType {
   PLAN
   AI_TOKENS
@@ -991,6 +999,7 @@ model MigrationArchive {
   project     Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   files       MigrationArchiveFile[]
   assessments MigrationAssessment[]
+  reports     MigrationAssessmentReport[]
   restoreJobs MigrationRestoreJob[]
   consents    MigrationConsent[]
   importCred  MigrationImportCredential?
@@ -1528,6 +1537,29 @@ model AppEntity {
   @@map("app_entities")
 }
 
+// Tracks every migration plan that was applied (or attempted) against a project's tenant DB.
+// status: PENDING | APPLYING | APPLIED | FAILED | ROLLED_BACK
+model MigrationRun {
+  id                   String    @id @default(uuid())
+  projectId            String    @map("project_id")
+  fromBlueprintVersion Int       @map("from_blueprint_version")
+  toBlueprintVersion   Int       @map("to_blueprint_version")
+  status               String    @default("PENDING") @db.VarChar(20)
+  planJson             Json      @map("plan_json")
+  sqlStatements        Json      @default("[]") @map("sql_statements")
+  appliedStatements    Int       @default(0) @map("applied_statements")
+  errorMessage         String?   @map("error_message") @db.VarChar(2000)
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@map("migration_runs")
+}
+
 // Domain template row. Seeded; later editable via admin without deploys.
 // workflowTemplates and agentTemplates are empty in V1 — schema reserved.
 model DomainTemplate {
@@ -1543,4 +1575,77 @@ model DomainTemplate {
   createdAt           DateTime @default(now()) @map("created_at")
 
   @@map("domain_templates")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 3 — MIGRATION ASSESSMENT REPORT DOMAIN
+// ══════════════════════════════════════════════════════════════
+
+// Top-level report container — one per archive. Holds many versioned analysis runs.
+model MigrationAssessmentReport {
+  id            String           @id @default(uuid())
+  archiveId     String           @unique @map("archive_id")
+  projectId     String           @map("project_id")
+  status        AssessmentStatus @default(DRAFT)
+  latestVersion Int              @default(0) @map("latest_version")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  archive  MigrationArchive             @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  versions MigrationAssessmentVersion[]
+
+  @@index([projectId, status])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("migration_assessment_reports")
+}
+
+// Immutable snapshot of one analysis run. Re-running analysis creates a new version.
+// payload stores the full report JSON; key metrics are also columns for querying.
+model MigrationAssessmentVersion {
+  id                    String                    @id @default(uuid())
+  reportId              String                    @map("report_id")
+  version               Int
+  status                AssessmentStatus          @default(ANALYZING)
+  payload               Json?
+  tablesFound           Int?                      @map("tables_found")
+  recordsFound          BigInt?                   @map("records_found")
+  sizeBytes             BigInt?                   @map("size_bytes")
+  confidencePct         Float?                    @map("confidence_pct")
+  complexity            String?                   @db.VarChar(20)
+  riskLevel             String?                   @map("risk_level") @db.VarChar(20)
+  estimatedCostCents    Int?                      @map("estimated_cost_cents")
+  estimatedDurationDays Float?                    @map("estimated_duration_days")
+  humanInvolvementPct   Float?                    @map("human_involvement_pct")
+  dataLossRiskPct       Float?                    @map("data_loss_risk_pct")
+  errorMessage          String?                   @map("error_message")
+  startedAt             DateTime?                 @map("started_at")
+  completedAt           DateTime?                 @map("completed_at")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+
+  report   MigrationAssessmentReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  findings MigrationAssessmentFinding[]
+
+  @@unique([reportId, version])
+  @@index([reportId, status])
+  @@map("migration_assessment_versions")
+}
+
+// Individual finding within one analysis version.
+// category: 'table' | 'field' | 'relationship' | 'risk' | 'recommendation'
+// riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'BLOCKER'
+model MigrationAssessmentFinding {
+  id        String                     @id @default(uuid())
+  versionId String                     @map("version_id")
+  category  String                     @db.VarChar(50)
+  title     String                     @db.VarChar(255)
+  detail    String
+  riskLevel String?                    @map("risk_level") @db.VarChar(20)
+  metadata  Json?
+  createdAt DateTime                   @default(now()) @map("created_at")
+
+  version MigrationAssessmentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, category])
+  @@index([versionId, riskLevel])
+  @@map("migration_assessment_findings")
 }

@@ -62,6 +62,14 @@ export const ProjectActivityKind = {
   AGENT_TOOL_DENIED: 'agent.tool_denied',
   AGENT_CREATED: 'agent.created',
   AGENT_RUN_EXECUTED: 'agent.run_executed',
+  MIGRATION_ARCHIVE_CREATED: 'migration.archive_created',
+  MIGRATION_UPLOAD_COMPLETED: 'migration.upload_completed',
+  MIGRATION_CONSENT_RECORDED: 'migration.consent_recorded',
+  MIGRATION_IMPORT_AUTHORIZED: 'migration.import_authorized',
+  MIGRATION_ASSESSMENT_READY: 'migration.assessment_ready',
+  MIGRATION_RESTORE_REQUESTED: 'migration.restore_requested',
+  MIGRATION_ARCHIVE_DELETED: 'migration.archive_deleted',
+  MIGRATION_ARCHIVE_INVOICE_ISSUED: 'migration.archive_invoice_issued',
 } as const;
 
 export type ProjectActivityKindValue =

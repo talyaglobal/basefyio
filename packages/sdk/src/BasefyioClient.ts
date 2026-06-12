@@ -9,6 +9,10 @@ import { CollectionManager, CollectionClient } from './modules/collection.js';
 import { DataEngineClient, EntityClient } from './modules/data-engine.js';
 import { ProvisioningClient } from './modules/provisioning.js';
 import { ItemsClient } from './modules/items.js';
+import { MigrationsClient } from './modules/migrations.js';
+import { StructuresClient } from './modules/structures.js';
+import { ArchivesClient } from './modules/archives.js';
+import { AssessmentsClient } from './modules/assessments.js';
 
 export class BasefyioClient {
   readonly auth: AuthClient;
@@ -17,6 +21,10 @@ export class BasefyioClient {
   readonly data: DataEngineClient;
   readonly provisioning: ProvisioningClient;
   readonly items: ItemsClient;
+  readonly migrations: MigrationsClient;
+  readonly structures: StructuresClient;
+  readonly archives: ArchivesClient;
+  readonly assessments: AssessmentsClient;
 
   private db: DatabaseClient;
   private http: BasefyioFetchClient;
@@ -51,6 +59,10 @@ export class BasefyioClient {
     this.data = new DataEngineClient(this.http, this.projectId);
     this.provisioning = new ProvisioningClient(this.http);
     this.items = new ItemsClient(this.http);
+    this.migrations = new MigrationsClient(this.http);
+    this.structures = new StructuresClient(this.http);
+    this.archives = new ArchivesClient(this.http);
+    this.assessments = new AssessmentsClient(this.http);
   }
 
   /**

@@ -31,6 +31,7 @@ import { SearchModule } from './modules/search/search.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embedding.module';
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
+import { EntitlementModule } from './modules/entitlement/entitlement.module';
 import { DataStructuresModule } from './modules/data-structures/data-structures.module';
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
 import { BlueprintModule } from './modules/blueprint/blueprint.module';
@@ -41,6 +42,9 @@ import { AgentModule } from './modules/agent/agent.module';
 import { ItemsModule } from './modules/items/items.module';
 import { FlowsModule } from './modules/flows/flows.module';
 import { SupabaseCompatModule } from './modules/supabase-compat/supabase-compat.module';
+import { MigrationsModule } from './modules/migrations/migrations.module';
+import { MigrationArchivesModule } from './modules/migration-archives/migration-archives.module';
+import { MigrationAssessmentsModule } from './modules/migration-assessments/migration-assessments.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -78,6 +82,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RecommendationModule,
     TenantEmbeddingModule,
     DataEngineModule,
+    EntitlementModule,
     DataStructuresModule,
     ProvisioningModule,
     BlueprintModule,
@@ -88,6 +93,9 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     ItemsModule,
     FlowsModule,
     SupabaseCompatModule,
+    MigrationsModule,
+    MigrationArchivesModule,
+    MigrationAssessmentsModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
