@@ -34,12 +34,16 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /packages/data-engine /packages/data-engine
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
-# Ensure peer dependencies (pg) are resolvable from the data-engine package
+# Ensure peer dependencies (pg, mongodb) are resolvable from the data-engine
+# package — it lives outside /app, so Node's upward walk never reaches
+# /app/node_modules without these links.
 RUN mkdir -p /packages/data-engine/node_modules && \
     ln -sf /app/node_modules/pg /packages/data-engine/node_modules/pg && \
     ln -sf /app/node_modules/pg-protocol /packages/data-engine/node_modules/pg-protocol && \
     ln -sf /app/node_modules/pg-pool /packages/data-engine/node_modules/pg-pool && \
-    ln -sf /app/node_modules/pg-types /packages/data-engine/node_modules/pg-types
+    ln -sf /app/node_modules/pg-types /packages/data-engine/node_modules/pg-types && \
+    ln -sf /app/node_modules/mongodb /packages/data-engine/node_modules/mongodb && \
+    ln -sf /app/node_modules/bson /packages/data-engine/node_modules/bson
 
 EXPOSE 4000
 CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/main"]
