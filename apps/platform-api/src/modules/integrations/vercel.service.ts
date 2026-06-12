@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  BadGatewayException,
+} from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
@@ -160,9 +165,28 @@ export class VercelService {
     }
   }
 
+  /** Extract a readable reason from an Axios/Vercel error. */
+  private vercelErrorReason(err: any): string {
+    return (
+      err?.response?.data?.error?.message ||
+      err?.response?.data?.error?.code ||
+      err?.message ||
+      'unknown error'
+    );
+  }
+
   /**
    * Create or update environment variables on a Vercel project.
-   * Existing keys are patched; new keys are created.
+   *
+   * A key may already exist on Vercel as several entries split across targets
+   * (the dashboard and Git integrations create them that way). We update the
+   * value of every existing entry *in place* — without touching its target —
+   * to avoid the `ENV_CONFLICT`/`ENV_ALREADY_EXISTS` 400 that Vercel returns
+   * when a PATCH tries to widen one entry onto a target another entry owns.
+   * Keys with no existing entry are created once for all three targets.
+   *
+   * Per-variable Vercel failures are collected and surfaced as a clear
+   * BadGateway error instead of bubbling up as an opaque 500.
    */
   async upsertEnvVars(
     token: string,
@@ -173,50 +197,82 @@ export class VercelService {
     const tp = this.teamParam(teamId);
     const hdrs = this.headers(token);
 
-    const { data: existing } = await firstValueFrom(
-      this.http.get(`${this.baseUrl}/v9/projects/${projectId}/env`, {
-        headers: hdrs,
-        params: tp,
-        timeout: 15000,
-      }),
-    );
+    let existing: any;
+    try {
+      const res = await firstValueFrom(
+        this.http.get(`${this.baseUrl}/v9/projects/${projectId}/env`, {
+          headers: hdrs,
+          params: tp,
+          timeout: 15000,
+        }),
+      );
+      existing = res.data;
+    } catch (err: any) {
+      const reason = this.vercelErrorReason(err);
+      this.logger.warn(`Vercel env list failed for ${projectId}: ${reason}`);
+      throw new BadGatewayException(`Vercel rejected the request: ${reason}`);
+    }
 
-    const existingByKey = new Map<string, string>();
+    // Collect *all* entry ids per key (a key can span multiple targets).
+    const idsByKey = new Map<string, string[]>();
     for (const e of existing?.envs || []) {
-      existingByKey.set(e.key, e.id);
+      const list = idsByKey.get(e.key) ?? [];
+      list.push(e.id);
+      idsByKey.set(e.key, list);
     }
 
     let created = 0;
     let updated = 0;
     const targets = ['production', 'preview', 'development'];
+    const failures: string[] = [];
 
     for (const [key, value] of Object.entries(vars)) {
-      const envId = existingByKey.get(key);
+      // Never push an empty/missing value — Vercel rejects it with a 400.
+      if (value === undefined || value === null || value === '') {
+        failures.push(`${key} (no value available on this project)`);
+        continue;
+      }
 
-      if (envId) {
-        await firstValueFrom(
-          this.http.patch(
-            `${this.baseUrl}/v9/projects/${projectId}/env/${envId}`,
-            { value, target: targets, type: 'encrypted' },
-            { headers: hdrs, params: tp, timeout: 10000 },
-          ),
-        );
-        updated++;
-      } else {
-        await firstValueFrom(
-          this.http.post(
-            `${this.baseUrl}/v10/projects/${projectId}/env`,
-            { key, value, target: targets, type: 'encrypted' },
-            { headers: hdrs, params: tp, timeout: 10000 },
-          ),
-        );
-        created++;
+      const ids = idsByKey.get(key) ?? [];
+
+      try {
+        if (ids.length > 0) {
+          // Update value only; leave each entry on whatever target it owns.
+          for (const envId of ids) {
+            await firstValueFrom(
+              this.http.patch(
+                `${this.baseUrl}/v9/projects/${projectId}/env/${envId}`,
+                { value },
+                { headers: hdrs, params: tp, timeout: 10000 },
+              ),
+            );
+          }
+          updated++;
+        } else {
+          await firstValueFrom(
+            this.http.post(
+              `${this.baseUrl}/v10/projects/${projectId}/env`,
+              { key, value, target: targets, type: 'encrypted' },
+              { headers: hdrs, params: tp, timeout: 10000 },
+            ),
+          );
+          created++;
+        }
+      } catch (err: any) {
+        failures.push(`${key} (${this.vercelErrorReason(err)})`);
       }
     }
 
     this.logger.log(
-      `Upserted env vars on Vercel project ${projectId}: ${created} created, ${updated} updated`,
+      `Upserted env vars on Vercel project ${projectId}: ${created} created, ${updated} updated, ${failures.length} failed`,
     );
+
+    if (failures.length > 0) {
+      throw new BadGatewayException(
+        `Vercel could not save: ${failures.join('; ')}`,
+      );
+    }
+
     return { created, updated };
   }
 }
