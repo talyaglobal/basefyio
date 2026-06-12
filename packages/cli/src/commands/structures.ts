@@ -3,32 +3,53 @@ import { apiClient, handleApiError } from '../lib/api.js';
 import { getProjectConfig } from '../lib/config.js';
 import { error, success, info, printTable } from '../lib/ui.js';
 
-// ── commands ─────────────────────────────────────────────────────────────────
-
-export async function listStructures(): Promise<void> {
+async function requireProjectId(): Promise<string> {
   const config = await getProjectConfig();
   if (!config?.projectId) {
     error('No linked project. Run: basefyio link');
     process.exit(1);
   }
+  return config.projectId;
+}
 
+function colorBadge(badge: 'SQL' | 'JSON'): string {
+  return badge === 'SQL' ? chalk.green(badge) : chalk.yellow(badge);
+}
+
+export async function listStructures(): Promise<void> {
+  const projectId = await requireProjectId();
   try {
-    const structures = await apiClient.listStructures(config.projectId);
-
+    const structures = await apiClient.listStructures(projectId);
     if (structures.length === 0) {
       info('No data structures yet — run: basefyio structures create');
       return;
     }
+    printTable(
+      ['name', 'badge', 'editorMode', 'id'],
+      structures.map((s) => [s.name, colorBadge(s.badge), s.editorMode, s.id]),
+    );
+  } catch (err) {
+    await handleApiError(err);
+  }
+}
 
-    const rows = structures.map((s) => {
-      const badge =
-        s.badge === 'SQL'
-          ? chalk.green(s.badge)
-          : chalk.yellow(s.badge);
-      return [s.name, badge, s.editorMode, s.id];
-    });
-
-    printTable(['name', 'badge', 'editorMode', 'id'], rows);
+export async function getStructure(structureId: string): Promise<void> {
+  const projectId = await requireProjectId();
+  try {
+    const s = await apiClient.getStructure(projectId, structureId);
+    printTable(
+      ['field', 'value'],
+      [
+        ['id', s.id],
+        ['name', s.name],
+        ['kind', s.kind],
+        ['badge', colorBadge(s.badge)],
+        ['editorMode', s.editorMode],
+        ['dataEditorMode', s.dataEditorMode],
+        ['aiRecommended', String(s.aiRecommended)],
+        ['createdAt', s.createdAt],
+      ],
+    );
   } catch (err) {
     await handleApiError(err);
   }
@@ -38,19 +59,20 @@ export async function createStructure(
   name: string,
   kind: 'relational' | 'json',
 ): Promise<void> {
-  const config = await getProjectConfig();
-  if (!config?.projectId) {
-    error('No linked project. Run: basefyio link');
-    process.exit(1);
-  }
-
+  const projectId = await requireProjectId();
   try {
-    const structure = await apiClient.createStructure(config.projectId, name, kind);
-    const badge =
-      structure.badge === 'SQL'
-        ? chalk.green(structure.badge)
-        : chalk.yellow(structure.badge);
-    success(`Structure "${name}" created ${badge} — editor: ${structure.editorMode}`);
+    const structure = await apiClient.createStructure(projectId, name, kind);
+    success(`Structure "${name}" created ${colorBadge(structure.badge)} — editor: ${structure.editorMode}`);
+  } catch (err) {
+    await handleApiError(err);
+  }
+}
+
+export async function deleteStructure(structureId: string): Promise<void> {
+  const projectId = await requireProjectId();
+  try {
+    await apiClient.deleteStructure(projectId, structureId);
+    success(`Structure ${structureId} deleted.`);
   } catch (err) {
     await handleApiError(err);
   }

@@ -519,6 +519,25 @@ export class ApiClient {
     }>;
   }
 
+  async getStructure(projectId: string, structureId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/structures/${encodeURIComponent(structureId)}`,
+    );
+    return data as {
+      id: string;
+      projectId: string;
+      name: string;
+      kind: 'relational' | 'json';
+      badge: 'SQL' | 'JSON';
+      editorMode: 'sql' | 'js-query';
+      dataEditorMode: 'row' | 'document';
+      aiRecommended: boolean;
+      aiReasons: unknown | null;
+      createdAt: string;
+      updatedAt: string;
+    };
+  }
+
   async createStructure(projectId: string, name: string, kind: 'relational' | 'json') {
     const { data } = await this.client.post(
       `/api/v1/projects/${encodeURIComponent(projectId)}/structures`,
@@ -537,6 +556,12 @@ export class ApiClient {
       createdAt: string;
       updatedAt: string;
     };
+  }
+
+  async deleteStructure(projectId: string, structureId: string): Promise<void> {
+    await this.client.delete(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/structures/${encodeURIComponent(structureId)}`,
+    );
   }
 
   // Migration Archives
@@ -656,6 +681,25 @@ export class ApiClient {
       versionId !== undefined ? { versionId } : {},
     );
     return data as any;
+  }
+
+  // Developer access
+  async getProjectAccess(projectId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
+    );
+    return data as {
+      projectId: string;
+      slug: string;
+      endpoints: Array<{
+        engineType: string; host: string; port: number; username: string;
+        database: string; requiresClientCert: boolean; accessLevel: string;
+        active: boolean; connectionString: string; sslMode: string;
+        snippets: { psql?: string; dbeaver?: string; compass?: string; sdkExample?: string };
+      }>;
+      entitlements: Record<string, boolean>;
+      warning?: string;
+    };
   }
 }
 

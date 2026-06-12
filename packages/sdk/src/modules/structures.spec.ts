@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { StructuresClient } from './structures.js';
 import type { BasefyioFetchClient } from '../lib/fetch.js';
+import type { UpdateStructureInput } from './structures.js';
 
 function makeHttp(response: any): BasefyioFetchClient {
   return { json: vi.fn().mockResolvedValue(response) } as any;
@@ -59,6 +60,51 @@ describe('StructuresClient', () => {
       const result = await client.create(PROJECT, { name: 'Orders', kind: 'relational' });
       expect(result.badge).toBe('SQL');
       expect(result.id).toBe('s5');
+    });
+  });
+
+  describe('get()', () => {
+    it('GET to the correct URL with structureId', async () => {
+      const structure = { id: 'ds-1', name: 'orders', kind: 'relational', badge: 'SQL' };
+      const http = makeHttp(structure);
+      const client = new StructuresClient(http);
+      const result = await client.get(PROJECT, 'ds-1');
+      expect((http.json as any).mock.calls[0][0]).toBe(`/v1/projects/${PROJECT}/structures/ds-1`);
+      expect(result.id).toBe('ds-1');
+    });
+
+    it('URL-encodes both projectId and structureId', async () => {
+      const http = makeHttp({});
+      const client = new StructuresClient(http);
+      await client.get('proj abc', 'ds 1');
+      expect((http.json as any).mock.calls[0][0]).toContain('proj%20abc');
+      expect((http.json as any).mock.calls[0][0]).toContain('ds%201');
+    });
+  });
+
+  describe('update()', () => {
+    it('PATCH to correct URL with name in body', async () => {
+      const updated = { id: 'ds-1', name: 'customers', kind: 'relational' };
+      const http = makeHttp(updated);
+      const client = new StructuresClient(http);
+      const input: UpdateStructureInput = { name: 'customers' };
+      const result = await client.update(PROJECT, 'ds-1', input);
+      const [url, opts] = (http.json as any).mock.calls[0];
+      expect(url).toBe(`/v1/projects/${PROJECT}/structures/ds-1`);
+      expect(opts.method).toBe('PATCH');
+      expect(JSON.parse(opts.body)).toEqual({ name: 'customers' });
+      expect(result.name).toBe('customers');
+    });
+  });
+
+  describe('delete()', () => {
+    it('DELETE to correct URL', async () => {
+      const http = makeHttp(undefined);
+      const client = new StructuresClient(http);
+      await client.delete(PROJECT, 'ds-1');
+      const [url, opts] = (http.json as any).mock.calls[0];
+      expect(url).toBe(`/v1/projects/${PROJECT}/structures/ds-1`);
+      expect(opts.method).toBe('DELETE');
     });
   });
 });

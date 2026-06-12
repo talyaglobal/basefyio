@@ -296,6 +296,14 @@ structures
   });
 
 structures
+  .command('get <structureId>')
+  .description('Show details for a single data structure')
+  .action(async (structureId: string) => {
+    const { getStructure } = await import('./commands/structures.js');
+    await getStructure(structureId);
+  });
+
+structures
   .command('create <name>')
   .description('Create a new data structure')
   .option('-k, --kind <kind>', 'Storage kind: relational or json', 'relational')
@@ -303,6 +311,14 @@ structures
     const kind = options.kind === 'json' ? 'json' : 'relational';
     const { createStructure } = await import('./commands/structures.js');
     await createStructure(name, kind);
+  });
+
+structures
+  .command('delete <structureId>')
+  .description('Delete a data structure and its storage records')
+  .action(async (structureId: string) => {
+    const { deleteStructure } = await import('./commands/structures.js');
+    await deleteStructure(structureId);
   });
 
 // ── Archives (migration archive layer) ──────────────────────
@@ -383,6 +399,16 @@ assessments
   .action(async (reportId, options) => {
     const { exportAssessmentPdf } = await import('./commands/assessments.js');
     await exportAssessmentPdf(reportId, options.versionId);
+  });
+
+// ── Developer Access ──────────────────────────────────────────
+
+program
+  .command('access <projectId>')
+  .description('Show developer connection info for a project')
+  .action(async (projectId: string) => {
+    const { projectAccess } = await import('./commands/access.js');
+    await projectAccess(projectId);
   });
 
 // ── Top-level shortcuts ──────────────────────────────────────

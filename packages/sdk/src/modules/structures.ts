@@ -10,7 +10,9 @@ export interface DataStructure {
   dataEditorMode: 'row' | 'document';
   aiRecommended: boolean;
   aiReasons: unknown | null;
+  /** ISO 8601 string (server serialises Date to JSON). */
   createdAt: string;
+  /** ISO 8601 string (server serialises Date to JSON). */
   updatedAt: string;
 }
 
@@ -19,17 +21,25 @@ export interface CreateStructureInput {
   kind: 'relational' | 'json';
 }
 
+export interface UpdateStructureInput {
+  name?: string;
+}
+
 export class StructuresClient {
   constructor(private readonly http: BasefyioFetchClient) {}
 
-  /** List all data structures for a project. */
   async list(projectId: string): Promise<DataStructure[]> {
     return this.http.json<DataStructure[]>(
       `/v1/projects/${encodeURIComponent(projectId)}/structures`,
     );
   }
 
-  /** Create a new data structure within a project. */
+  async get(projectId: string, structureId: string): Promise<DataStructure> {
+    return this.http.json<DataStructure>(
+      `/v1/projects/${encodeURIComponent(projectId)}/structures/${encodeURIComponent(structureId)}`,
+    );
+  }
+
   async create(projectId: string, input: CreateStructureInput): Promise<DataStructure> {
     return this.http.json<DataStructure>(
       `/v1/projects/${encodeURIComponent(projectId)}/structures`,
@@ -38,6 +48,28 @@ export class StructuresClient {
         body: JSON.stringify(input),
         headers: { 'Content-Type': 'application/json' },
       },
+    );
+  }
+
+  async update(
+    projectId: string,
+    structureId: string,
+    input: UpdateStructureInput,
+  ): Promise<DataStructure> {
+    return this.http.json<DataStructure>(
+      `/v1/projects/${encodeURIComponent(projectId)}/structures/${encodeURIComponent(structureId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
+
+  async delete(projectId: string, structureId: string): Promise<void> {
+    await this.http.json<void>(
+      `/v1/projects/${encodeURIComponent(projectId)}/structures/${encodeURIComponent(structureId)}`,
+      { method: 'DELETE' },
     );
   }
 }
