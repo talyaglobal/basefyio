@@ -34,6 +34,17 @@ export class PublicApiController {
     );
   }
 
+  /** PostgREST-style RPC: POST body's JSON keys map to named function args. */
+  @Post('rpc/:fn')
+  async rpc(
+    @Param('fn') fn: string,
+    @Body() args: Record<string, unknown>,
+    @Req() req: Request,
+  ) {
+    const payload = this.getPayload(req);
+    return this.publicApi.rpc(payload.projectId, fn, args ?? {}, this.buildCtx(payload));
+  }
+
   @Post(':table')
   async insert(
     @Param('table') table: string,

@@ -581,6 +581,43 @@ export const api = {
         body: JSON.stringify({ teamId: targetTeamId }),
       });
     },
+    dbIndexes(projectId: string) {
+      return request<any[]>(`/projects/${projectId}/database/indexes`);
+    },
+    dbCreateIndex(projectId: string, data: { table: string; columns: string[]; unique?: boolean; method?: string }) {
+      return request<{ message: string }>(`/projects/${projectId}/database/indexes`, { method: 'POST', body: JSON.stringify(data) });
+    },
+    dbDropIndex(projectId: string, name: string) {
+      return request<{ message: string }>(`/projects/${projectId}/database/indexes/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    },
+    dbTriggers(projectId: string) {
+      return request<any[]>(`/projects/${projectId}/database/triggers`);
+    },
+    dbCreateTrigger(projectId: string, data: { name: string; table: string; timing: string; events: string[]; functionName: string }) {
+      return request<{ message: string }>(`/projects/${projectId}/database/triggers`, { method: 'POST', body: JSON.stringify(data) });
+    },
+    dbToggleTrigger(projectId: string, data: { name: string; table: string; enabled: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/database/triggers/toggle`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    dbDropTrigger(projectId: string, table: string, name: string) {
+      return request<{ message: string }>(`/projects/${projectId}/database/triggers/${encodeURIComponent(table)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    },
+    dbFunctions(projectId: string) {
+      return request<any[]>(`/projects/${projectId}/database/functions`);
+    },
+    dbCreateFunction(projectId: string, sql: string) {
+      return request<{ message: string }>(`/projects/${projectId}/database/functions`, { method: 'POST', body: JSON.stringify({ sql }) });
+    },
+    dbDropFunction(projectId: string, name: string, args?: string) {
+      const qs = args ? `?args=${encodeURIComponent(args)}` : '';
+      return request<{ message: string }>(`/projects/${projectId}/database/functions/${encodeURIComponent(name)}${qs}`, { method: 'DELETE' });
+    },
+    dbExtensions(projectId: string) {
+      return request<any[]>(`/projects/${projectId}/database/extensions`);
+    },
+    dbSetExtension(projectId: string, data: { name: string; enabled: boolean }) {
+      return request<{ message: string }>(`/projects/${projectId}/database/extensions`, { method: 'PUT', body: JSON.stringify(data) });
+    },
     listRealtimeBindings(projectId: string) {
       return request<{ kind: 'table' | 'collection'; entity: string; createdAt: string }[]>(
         `/projects/${projectId}/realtime-bindings`,

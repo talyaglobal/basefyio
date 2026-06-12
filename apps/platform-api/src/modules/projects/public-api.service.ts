@@ -131,6 +131,49 @@ export class PublicApiService {
     });
   }
 
+  /**
+   * Call a public-schema SQL function as an API endpoint (Supabase rpc()).
+   * Args bind by name; runs under the caller's RLS role like every other
+   * data-plane request.
+   */
+  async rpc(
+    projectId: string,
+    fnName: string,
+    args: Record<string, unknown>,
+    ctx: RlsContext,
+  ) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(fnName)) {
+      throw new BadRequestException('Invalid function name');
+    }
+    return this.withRls(projectId, ctx, async (client) => {
+      const meta = await client.query(
+        `SELECT p.oid::regprocedure AS signature,
+                COALESCE(array_to_json(p.proargnames), '[]'::json) AS argnames
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'
+          LIMIT 1`,
+        [fnName],
+      );
+      if (meta.rowCount === 0) {
+        throw new BadRequestException(`Function "${fnName}" not found`);
+      }
+      const argNames: string[] = meta.rows[0].argnames ?? [];
+      const provided = Object.keys(args).filter((k) => argNames.includes(k));
+      const params: unknown[] = [];
+      const named = provided
+        .map((k) => {
+          params.push(args[k]);
+          return `"${k}" := ${params.length}`;
+        })
+        .join(', ');
+      const result = await client.query(
+        `SELECT * FROM "${fnName}"(${named})`,
+        params,
+      );
+      return result.rows;
+    });
+  }
+
   async insert(
     projectId: string,
     table: string,
