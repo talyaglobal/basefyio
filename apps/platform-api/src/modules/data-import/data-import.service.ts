@@ -55,8 +55,8 @@ export class DataImportService {
     @InjectQueue(DATA_IMPORT_QUEUE) private readonly queue: Queue,
     private readonly activity: ProjectActivityService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
+    const accessKey = this.config.get<string>('minio.accessKey') || 'basefyio';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'basefyio_secret';
     this.minio = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,

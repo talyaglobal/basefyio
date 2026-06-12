@@ -38,7 +38,7 @@ export class InfrastructureService implements OnModuleInit {
   async onModuleInit() {
     const socketPath = this.config.get<string>('docker.socketPath');
     this.networkName =
-      this.config.get<string>('docker.network') || 'v0-kolaybase_default';
+      this.config.get<string>('docker.network') || 'v0-basefyio_default';
     this.pgImage =
       this.config.get<string>('docker.pgImage') || 'postgres:16-alpine';
     this.minioImage =

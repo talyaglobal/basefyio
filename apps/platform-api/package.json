@@ -21,7 +21,7 @@
     "drizzle:check": "drizzle-kit check",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint:rebrand": "bash ../../scripts/check-kolaybase-env.sh",
+    "lint:rebrand": "bash ../../scripts/check-rebrand.sh",
     "rls:backfill": "ts-node --transpile-only scripts/backfill-rls.ts",
     "rls:backfill:dry": "ts-node --transpile-only scripts/backfill-rls.ts --dry",
     "embeddings:backfill": "ts-node --transpile-only scripts/backfill-embeddings.ts",

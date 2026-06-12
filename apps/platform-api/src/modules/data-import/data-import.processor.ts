@@ -62,8 +62,8 @@ export class DataImportProcessor extends WorkerHost {
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
       port: this.config.get<number>('minio.port') || 9000,
       useSSL: this.config.get<boolean>('minio.useSsl') || false,
-      accessKey: this.config.get<string>('minio.accessKey') || 'kolaybase',
-      secretKey: this.config.get<string>('minio.secretKey') || 'kolaybase_secret',
+      accessKey: this.config.get<string>('minio.accessKey') || 'basefyio',
+      secretKey: this.config.get<string>('minio.secretKey') || 'basefyio_secret',
     });
   }
 

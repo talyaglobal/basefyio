@@ -38,7 +38,7 @@ export class DataEngineService implements OnModuleInit {
         connectionString = dbUrl;
       } else {
         const db = this.config.get<Record<string, string>>('database') || {};
-        connectionString = `postgresql://${db.user || 'kolaybase'}:${db.password || ''}@${db.host || 'localhost'}:${db.port || '5432'}/${db.name || 'kolaybase'}`;
+        connectionString = `postgresql://${db.user || 'basefyio'}:${db.password || ''}@${db.host || 'localhost'}:${db.port || '5432'}/${db.name || 'basefyio'}`;
       }
     } else {
       connectionString = this.config.get<string>('dataEngine.connectionString') || '';

@@ -50,8 +50,8 @@ export class StorageService {
     private readonly config: ConfigService,
     private readonly quota: QuotaService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
+    const accessKey = this.config.get<string>('minio.accessKey') || 'basefyio';
+    const secretKey = this.config.get<string>('minio.secretKey') || 'basefyio_secret';
 
     this.client = new Minio.Client({
       endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
