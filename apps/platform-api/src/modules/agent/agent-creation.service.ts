@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -33,7 +34,7 @@ export class AgentCreationService {
     userId: string | undefined,
     body: CreateAgentDto,
   ) {
-    const project = await this.assertProjectAccess(projectId, userId);
+    const project = await this.assertProjectAccess(projectId, userId, 'ADMIN');
 
     const existing = await this.repo.getAgentBySlug(projectId, body.slug);
     if (existing) {
@@ -92,9 +93,20 @@ export class AgentCreationService {
     agentId: string,
     body: UpdateAgentDto,
   ) {
-    await this.assertProjectAccess(projectId, userId);
+    await this.assertProjectAccess(projectId, userId, 'ADMIN');
     const agent = await this.repo.getAgent(projectId, agentId);
     if (!agent) throw new NotFoundException('Agent not found');
+
+    if (body.status && body.status !== agent.status) {
+      if (agent.status === 'archived') {
+        throw new BadRequestException('Archived agents cannot change status');
+      }
+      if (body.status === 'active' && !agent.currentVersionId) {
+        throw new BadRequestException(
+          'Agent must have at least one published version before activation',
+        );
+      }
+    }
 
     await this.repo.patchAgent(projectId, agentId, {
       name: body.name,
@@ -113,7 +125,7 @@ export class AgentCreationService {
     agentId: string,
     body: CreateAgentVersionDto,
   ) {
-    await this.assertProjectAccess(projectId, userId);
+    await this.assertProjectAccess(projectId, userId, 'ADMIN');
     const agent = await this.repo.getAgent(projectId, agentId);
     if (!agent) throw new NotFoundException('Agent not found');
 
@@ -166,7 +178,7 @@ export class AgentCreationService {
     agentId: string,
     runId: string,
   ) {
-    await this.assertProjectAccess(projectId, userId);
+    await this.assertProjectAccess(projectId, userId, 'ADMIN');
     const run = await this.repo.getRun(projectId, runId);
     if (!run) throw new NotFoundException('Run not found');
     if (run.agentId !== agentId) throw new NotFoundException('Run not found');
@@ -188,6 +200,7 @@ export class AgentCreationService {
   private async assertProjectAccess(
     projectId: string,
     userId: string | undefined,
+    minimumRole: 'MEMBER' | 'ADMIN' | 'OWNER' = 'MEMBER',
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
@@ -199,6 +212,13 @@ export class AgentCreationService {
         where: { teamId_userId: { teamId: project.teamId, userId } },
       });
       if (!membership) throw new ForbiddenException('Not a member of this team');
+
+      const roleRank: Record<string, number> = { MEMBER: 0, ADMIN: 1, OWNER: 2 };
+      if ((roleRank[membership.role] ?? -1) < (roleRank[minimumRole] ?? 0)) {
+        throw new ForbiddenException(
+          `This action requires ${minimumRole} role or above`,
+        );
+      }
     }
     return project;
   }
