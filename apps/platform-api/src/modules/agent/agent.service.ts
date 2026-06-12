@@ -30,12 +30,13 @@ export class AgentService {
   async createThread(
     projectId: string,
     userId: string | undefined,
+    agentId: string,
     body: CreateThreadDto,
   ) {
     await this.assertProjectAccess(projectId, userId);
     const thread = await this.repo.createThread({
       projectId,
-      agentId: body.agentId ?? null,
+      agentId,
       title: body.title ?? null,
       createdBy: userId ?? null,
       metadata: body.metadata ?? null,
@@ -54,11 +55,12 @@ export class AgentService {
   async listThreads(
     projectId: string,
     userId: string | undefined,
+    agentId: string,
     query: ListThreadsQuery,
   ) {
     await this.assertProjectAccess(projectId, userId);
     return this.repo.listThreads(projectId, {
-      agentId: query.agentId,
+      agentId,
       limit: query.limit ?? 20,
       offset: query.offset ?? 0,
     });
@@ -67,10 +69,11 @@ export class AgentService {
   async getThread(
     projectId: string,
     userId: string | undefined,
+    agentId: string,
     threadId: string,
   ) {
     await this.assertProjectAccess(projectId, userId);
-    const thread = await this.repo.getThread(projectId, threadId);
+    const thread = await this.repo.getThread(projectId, threadId, agentId);
     if (!thread) throw new NotFoundException('Thread not found');
     return thread;
   }
@@ -80,12 +83,13 @@ export class AgentService {
   async addMessage(
     projectId: string,
     userId: string | undefined,
+    agentId: string,
     threadId: string,
     body: AddMessageDto,
   ) {
     await this.assertProjectAccess(projectId, userId);
-    // Thread existence + project-scope check in one query.
-    const thread = await this.repo.getThread(projectId, threadId);
+    // Thread existence + project + agent scope check in one query.
+    const thread = await this.repo.getThread(projectId, threadId, agentId);
     if (!thread) throw new NotFoundException('Thread not found');
 
     const message = await this.repo.addMessage({
@@ -111,11 +115,12 @@ export class AgentService {
   async listMessages(
     projectId: string,
     userId: string | undefined,
+    agentId: string,
     threadId: string,
     query: ListMessagesQuery,
   ) {
     await this.assertProjectAccess(projectId, userId);
-    const thread = await this.repo.getThread(projectId, threadId);
+    const thread = await this.repo.getThread(projectId, threadId, agentId);
     if (!thread) throw new NotFoundException('Thread not found');
 
     return this.repo.listMessages(projectId, threadId, {

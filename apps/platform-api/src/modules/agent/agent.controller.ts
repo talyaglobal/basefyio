@@ -18,7 +18,7 @@ import { AddMessageDto } from './dto/add-message.dto';
 import { ListThreadsQuery } from './dto/list-threads.query';
 import { ListMessagesQuery } from './dto/list-messages.query';
 
-@Controller('projects/:projectId/agent')
+@Controller('v1/projects/:projectId/agents/:agentId')
 @UseGuards(JwtOrApiKeyGuard)
 export class AgentController {
   constructor(private readonly agent: AgentService) {}
@@ -28,28 +28,31 @@ export class AgentController {
   @Post('threads')
   async createThread(
     @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
     @Body() body: CreateThreadDto,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.agent.createThread(projectId, user?.sub, body);
+    return this.agent.createThread(projectId, user?.sub, agentId, body);
   }
 
   @Get('threads')
   async listThreads(
     @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
     @Query() query: ListThreadsQuery,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.agent.listThreads(projectId, user?.sub, query);
+    return this.agent.listThreads(projectId, user?.sub, agentId, query);
   }
 
   @Get('threads/:threadId')
   async getThread(
     @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
     @Param('threadId') threadId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.agent.getThread(projectId, user?.sub, threadId);
+    return this.agent.getThread(projectId, user?.sub, agentId, threadId);
   }
 
   // ── Messages ──────────────────────────────────────────
@@ -57,21 +60,23 @@ export class AgentController {
   @Get('threads/:threadId/messages')
   async listMessages(
     @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
     @Param('threadId') threadId: string,
     @Query() query: ListMessagesQuery,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.agent.listMessages(projectId, user?.sub, threadId, query);
+    return this.agent.listMessages(projectId, user?.sub, agentId, threadId, query);
   }
 
   @Post('threads/:threadId/messages')
   async addMessage(
     @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
     @Param('threadId') threadId: string,
     @Body() body: AddMessageDto,
     @CurrentUser() user?: JwtPayload,
   ) {
-    return this.agent.addMessage(projectId, user?.sub, threadId, body);
+    return this.agent.addMessage(projectId, user?.sub, agentId, threadId, body);
   }
 
   // ── Memory ────────────────────────────────────────────
@@ -79,7 +84,7 @@ export class AgentController {
   @Get('memory')
   async listMemory(
     @Param('projectId') projectId: string,
-    @Query('agentId') agentId?: string,
+    @Param('agentId') agentId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     return this.agent.listMemory(projectId, user?.sub, agentId);

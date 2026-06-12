@@ -6,11 +6,6 @@ export class CreateThreadDto {
   @MaxLength(512)
   title?: string;
 
-  /** Owning agent — optional until Module 3 (Agent Creation) lands. */
-  @IsOptional()
-  @IsString()
-  agentId?: string;
-
   @IsOptional()
   metadata?: Record<string, unknown>;
 }

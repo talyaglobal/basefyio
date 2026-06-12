@@ -90,13 +90,17 @@ export class AgentRepository {
   async getThread(
     projectId: string,
     threadId: string,
+    agentId?: string,
   ): Promise<ChatThread | null> {
+    const conditions = [
+      eq(chatThreads.id, threadId),
+      eq(chatThreads.projectId, projectId),
+    ];
+    if (agentId) conditions.push(eq(chatThreads.agentId, agentId));
     const rows = await this.db
       .select()
       .from(chatThreads)
-      .where(
-        and(eq(chatThreads.id, threadId), eq(chatThreads.projectId, projectId)),
-      )
+      .where(and(...conditions))
       .limit(1);
     return rows[0] ?? null;
   }
