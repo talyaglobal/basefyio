@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus, ProjectListItem } from '@/lib/types';
@@ -98,7 +99,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
   }
 
   async function handleDisconnectGitHub() {
-    if (!confirm('Disconnect GitHub from this team? Project integrations using this connection may stop working.')) return;
+    if (!(await confirmDialog({ title: 'Disconnect GitHub', description: 'Disconnect GitHub from this team? Project integrations using this connection may stop working.', confirmText: 'Disconnect', destructive: true }))) return;
     setDisconnectingGitHub(true);
     try {
       await api.teamIntegrations.disconnectGitHub(teamId);
@@ -123,7 +124,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
   }
 
   async function handleDisconnectVercel() {
-    if (!confirm('Disconnect Vercel from this team? Project integrations using this connection may stop working.')) return;
+    if (!(await confirmDialog({ title: 'Disconnect Vercel', description: 'Disconnect Vercel from this team? Project integrations using this connection may stop working.', confirmText: 'Disconnect', destructive: true }))) return;
     setDisconnectingVercel(true);
     try {
       await api.teamIntegrations.disconnectVercel(teamId);
@@ -415,9 +416,12 @@ export default function TeamSettingsPage() {
   async function handleDeleteTeam() {
     if (!activeTeamId) return;
     if (
-      !confirm(
-        'Delete this team? Team must not have projects. This action cannot be undone.',
-      )
+      !(await confirmDialog({
+        title: 'Delete team',
+        description: 'Delete this team? Team must not have projects. This action cannot be undone.',
+        confirmText: 'Delete team',
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -442,7 +446,8 @@ export default function TeamSettingsPage() {
   }
 
   async function handleRemove(userId: string, displayName: string) {
-    if (!activeTeamId || !confirm(`Remove "${displayName}" from this team?`)) return;
+    if (!activeTeamId) return;
+    if (!(await confirmDialog({ title: 'Remove member', description: `Remove "${displayName}" from this team?`, confirmText: 'Remove', destructive: true }))) return;
     try {
       await api.teams.removeMember(activeTeamId, userId);
       toast.success(`${displayName} removed`);

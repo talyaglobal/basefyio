@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import * as XLSX from 'xlsx';
 import { api } from '@/lib/api';
 import type { DataQueryCapabilities, DataQueryResult, SavedDataQueryItem } from '@/lib/types';
@@ -442,7 +443,7 @@ export function QueryEditor({ projectId }: QueryEditorProps) {
   async function deleteSelectedSaved() {
     const item = savedQueries.find((q) => q.id === selectedSavedId);
     if (!item) return;
-    if (!confirm(`Delete saved query "${item.name}"?`)) return;
+    if (!(await confirmDialog({ title: 'Delete saved query', description: `Delete saved query "${item.name}"?`, destructive: true }))) return;
     try {
       await api.dataQuery.deleteSaved(projectId, item.id);
       toast.success('Saved query deleted');

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { Button } from '@/components/ui/button';
@@ -458,7 +459,7 @@ export function CreateProjectDialog({
     );
   }
 
-  function handleOpenChange(isOpen: boolean) {
+  async function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
       if (view === 'importing') {
         dismissedDuringImportRef.current = true;
@@ -470,7 +471,12 @@ export function CreateProjectDialog({
       }
       if (
         hasUnsavedChanges() &&
-        !confirm('You have unsaved changes. Discard them and close?')
+        !(await confirmDialog({
+          title: 'Unsaved changes',
+          description: 'You have unsaved changes. Discard them and close?',
+          confirmText: 'Discard',
+          destructive: true,
+        }))
       ) {
         return;
       }
@@ -1404,11 +1410,15 @@ export function CreateProjectDialog({
                 disabled={cancelling}
                 onClick={async () => {
                   if (
-                    !confirm(
-                      reimportJobRef.current
+                    !(await confirmDialog({
+                      title: reimportJobRef.current ? 'Cancel re-import' : 'Cancel import',
+                      description: reimportJobRef.current
                         ? 'Cancel re-import? Your basefyio project will remain; partially imported data may be incomplete.'
                         : 'Cancel import? The project and all imported data will be deleted.',
-                    )
+                      confirmText: 'Yes, cancel',
+                      cancelText: 'Keep importing',
+                      destructive: true,
+                    }))
                   )
                     return;
                   setCancelling(true);

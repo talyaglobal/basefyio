@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { promptDialog } from '@/components/ui/confirm-dialog';
 import {
   DndContext,
   DragCancelEvent,
@@ -506,7 +507,7 @@ export default function ProjectsPage() {
 
   async function quickCreateFolder(): Promise<ProjectFolder | null> {
     if (!activeTeamId) return null;
-    const name = window.prompt('New folder name');
+    const name = await promptDialog({ title: 'New folder', placeholder: 'Folder name', confirmText: 'Create' });
     if (!name || !name.trim()) return null;
     try {
       const created = await api.folders.create(activeTeamId, name.trim(), COLORS[0]);
@@ -521,7 +522,7 @@ export default function ProjectsPage() {
 
   async function quickCreateTag(): Promise<ProjectTag | null> {
     if (!activeTeamId) return null;
-    const name = window.prompt('New tag name');
+    const name = await promptDialog({ title: 'New tag', placeholder: 'Tag name', confirmText: 'Create' });
     if (!name || !name.trim()) return null;
     try {
       const created = await api.tags.create(activeTeamId, name.trim(), COLORS[1]);

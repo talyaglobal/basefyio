@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { DocumentRecord, DocumentListResult } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -280,7 +281,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
 
   async function handleBulkDelete() {
     if (selectedDocs.size === 0) return;
-    if (!confirm(`Delete ${selectedDocs.size} selected document(s)?`)) return;
+    if (!(await confirmDialog({ title: 'Delete documents', description: `Delete ${selectedDocs.size} selected document(s)?`, destructive: true }))) return;
     try {
       // bulk delete by iterating individual deletes (the bulk endpoint uses data filters, not id)
       for (const docId of selectedDocs) {

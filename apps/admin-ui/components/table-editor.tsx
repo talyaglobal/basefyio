@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type {
   TableInfo,
@@ -1068,7 +1069,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   }
 
   async function handleDropTable(name: string) {
-    if (!confirm(`Drop table "${name}"? This will delete all data permanently.`)) return;
+    if (!(await confirmDialog({ title: 'Drop table', description: `Drop table "${name}"? This will delete all data permanently.`, confirmText: 'Drop table', destructive: true }))) return;
     try {
       await api.projects.dropTable(projectId, name);
       toast.success(`Table "${name}" dropped`);
@@ -1084,7 +1085,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   }
 
   async function handleDropCollection(name: string) {
-    if (!confirm(`Drop collection "${name}"? This will delete all documents permanently.`)) return;
+    if (!(await confirmDialog({ title: 'Drop collection', description: `Drop collection "${name}"? This will delete all documents permanently.`, confirmText: 'Drop collection', destructive: true }))) return;
     try {
       await api.projects.dropCollection(projectId, name);
       toast.success(`Collection "${name}" dropped`);
@@ -1189,7 +1190,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       toast.error('Cannot delete: table has no primary key');
       return;
     }
-    if (!confirm('Delete this row?')) return;
+    if (!(await confirmDialog({ title: 'Delete row', description: 'Delete this row?', destructive: true }))) return;
 
     try {
       await api.projects.deleteRow(projectId, selected, pkWhere, schemaFor(selected));
@@ -1224,7 +1225,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       toast.error('Cannot delete: table has no primary key');
       return;
     }
-    if (!confirm(`Delete ${selectedRows.size} row(s)?`)) return;
+    if (!(await confirmDialog({ title: 'Delete rows', description: `Delete ${selectedRows.size} row(s)?`, destructive: true }))) return;
 
     let deleted = 0;
     for (const idx of Array.from(selectedRows)) {

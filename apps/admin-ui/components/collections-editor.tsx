@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { CollectionInfo, DocumentRecord, DocumentListResult } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -478,7 +479,7 @@ export function CollectionsEditor({ projectId, initialCollection = null }: Colle
   }
 
   async function handleDropCollection(name: string) {
-    if (!confirm(`Are you sure you want to drop collection "${name}"? All documents will be permanently deleted.`)) return;
+    if (!(await confirmDialog({ title: 'Drop collection', description: `Are you sure you want to drop collection "${name}"? All documents will be permanently deleted.`, confirmText: 'Drop collection', destructive: true }))) return;
     try {
       await api.projects.dropCollection(projectId, name);
       toast.success(`Collection "${name}" dropped`);
@@ -501,7 +502,7 @@ export function CollectionsEditor({ projectId, initialCollection = null }: Colle
 
   async function handleBulkDelete() {
     if (!selected || selectedDocs.size === 0) return;
-    if (!confirm(`Delete ${selectedDocs.size} selected document(s)?`)) return;
+    if (!(await confirmDialog({ title: 'Delete documents', description: `Delete ${selectedDocs.size} selected document(s)?`, destructive: true }))) return;
     try {
       const filter = { id: { $in: Array.from(selectedDocs) } };
       // bulk delete by iterating individual deletes (the bulk endpoint uses data filters, not id)
