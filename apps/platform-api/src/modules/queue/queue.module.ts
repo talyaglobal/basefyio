@@ -15,6 +15,8 @@ export const EMBEDDING_QUEUE = 'embedding';
 export const RAG_INDEX_QUEUE = 'rag-index';
 /** Blueprint → application generation pipeline. */
 export const BLUEPRINT_GENERATE_QUEUE = 'blueprint-generate';
+/** Blueprint app flow execution (trigger → action pipeline). */
+export const FLOW_QUEUE = 'flow-execute';
 
 @Global()
 @Module({
@@ -56,6 +58,7 @@ export const BLUEPRINT_GENERATE_QUEUE = 'blueprint-generate';
       { name: EMBEDDING_QUEUE },
       { name: RAG_INDEX_QUEUE },
       { name: BLUEPRINT_GENERATE_QUEUE },
+      { name: FLOW_QUEUE },
     ),
   ],
   exports: [BullModule],

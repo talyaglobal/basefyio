@@ -39,6 +39,8 @@ import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
 import { AgentModule } from './modules/agent/agent.module';
 import { ItemsModule } from './modules/items/items.module';
+import { FlowsModule } from './modules/flows/flows.module';
+import { SupabaseCompatModule } from './modules/supabase-compat/supabase-compat.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -84,6 +86,8 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RagModule,
     AgentModule,
     ItemsModule,
+    FlowsModule,
+    SupabaseCompatModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
