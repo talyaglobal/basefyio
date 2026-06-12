@@ -937,7 +937,10 @@ export class ProjectsService {
     // e.g. "kb_usgourmet_del1234567890" → "kb_usgourmet"
     const originalDbName = project.dbName.replace(/_del\d+$/, '');
     const originalDbUser = project.dbUser.replace(/_del\d+$/, '');
-    const originalRealm  = project.keycloakRealm.replace(/_del\d+$/, '');
+    // Legacy rows from before the realm-reference fix accumulated one "_del"
+    // suffix per trash/restore cycle (the realm itself never carried them) —
+    // strip them all.
+    const originalRealm  = project.keycloakRealm.replace(/(_del\d+)+$/, '');
 
     // Restore database and user names
     await this.renameDatabase(project.dbName, originalDbName);
@@ -1067,7 +1070,7 @@ export class ProjectsService {
    * otherwise the disabled realm leaks in Keycloak forever.
    */
   private async deleteProjectRealm(realmName: string): Promise<void> {
-    const candidates = [...new Set([realmName, realmName.replace(/_del\d+$/, '')])];
+    const candidates = [...new Set([realmName, realmName.replace(/(_del\d+)+$/, '')])];
     for (const name of candidates) {
       try {
         await this.keycloak.deleteRealm(name);
