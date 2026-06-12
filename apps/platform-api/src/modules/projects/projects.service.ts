@@ -409,7 +409,23 @@ export class ProjectsService {
 
     const updateData: any = {};
     if (data.folderId !== undefined) updateData.folderId = data.folderId;
-    if (data.name !== undefined && data.name.trim()) updateData.name = data.name.trim();
+    if (data.name !== undefined && data.name.trim()) {
+      updateData.name = data.name.trim();
+      // Slug follows the name so the UI never shows a stale identifier.
+      // Storage buckets stay reachable: the MinIO prefix freezes to the
+      // pre-rename slug (one-time) and never moves again. The Keycloak
+      // realm is a stored auth identifier and intentionally keeps its
+      // original value — renaming realms would invalidate end-user logins.
+      if (updateData.name !== project.name) {
+        const nextSlug = await this.uniqueSlug(this.toSlug(updateData.name));
+        if (nextSlug !== project.slug) {
+          updateData.slug = nextSlug;
+          if (!project.storagePrefix) {
+            updateData.storagePrefix = project.slug;
+          }
+        }
+      }
+    }
     if (data.description !== undefined) updateData.description = data.description || null;
 
     const [updatedProject] = await this.prisma.$transaction(async (tx) => {
