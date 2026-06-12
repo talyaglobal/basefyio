@@ -581,6 +581,20 @@ export const api = {
         body: JSON.stringify({ teamId: targetTeamId }),
       });
     },
+    listRealtimeBindings(projectId: string) {
+      return request<{ kind: 'table' | 'collection'; entity: string; createdAt: string }[]>(
+        `/projects/${projectId}/realtime-bindings`,
+      );
+    },
+    setRealtimeBinding(
+      projectId: string,
+      data: { kind: 'table' | 'collection'; entity: string; enabled: boolean },
+    ) {
+      return request<{ kind: string; entity: string; enabled: boolean }>(
+        `/projects/${projectId}/realtime-bindings`,
+        { method: 'PUT', body: JSON.stringify(data) },
+      );
+    },
     importFromSupabase(data: SupabaseImportRequest) {
       return request<SupabaseImportJobResponse>('/projects/import-supabase', {
         method: 'POST',

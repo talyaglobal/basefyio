@@ -7,6 +7,7 @@ import { ExportProgressToast } from '@/components/export-progress-toast';
 import { ThemeProvider } from '@/components/theme-provider';
 import { NotificationsProvider } from '@/lib/notifications-context';
 import { GlobalErrorCatcher } from '@/components/global-error-catcher';
+import { ConfirmDialogHost } from '@/components/ui/confirm-dialog';
 import './globals.css';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.basefyio.com';
@@ -65,6 +66,7 @@ export default function RootLayout({
                 {children}
                 <ImportProgressToast />
                 <ExportProgressToast />
+                <ConfirmDialogHost />
               </NotificationsProvider>
             </ExportProgressProvider>
           </ImportProgressProvider>

@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import {
   buildNoSqlFilter,
   buildNoSqlSort,
@@ -33,6 +34,7 @@ export class CollectionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly realtimeData: RealtimeDataService,
   ) {}
 
   /* ─────────────── Pool helper (same pattern as ProjectDataService) ─────────────── */
@@ -243,6 +245,11 @@ export class CollectionService {
         params,
       );
 
+      for (const row of result.rows) {
+        this.realtimeData.publishChange(projectId, {
+          type: 'INSERT', kind: 'collection', entity: collectionName, new: row,
+        });
+      }
       return result.rows;
     } catch (err: any) {
       if (err.code === '42P01') {
@@ -389,6 +396,10 @@ export class CollectionService {
         throw new NotFoundException(`Document "${docId}" not found`);
       }
 
+      this.realtimeData.publishChange(projectId, {
+        type: 'UPDATE', kind: 'collection', entity: collectionName,
+        new: result.rows[0], old: { id: docId },
+      });
       return result.rows[0];
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
@@ -436,6 +447,10 @@ export class CollectionService {
         throw new NotFoundException(`Document "${docId}" not found`);
       }
 
+      this.realtimeData.publishChange(projectId, {
+        type: 'UPDATE', kind: 'collection', entity: collectionName,
+        new: result.rows[0], old: { id: docId },
+      });
       return result.rows[0];
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
@@ -472,6 +487,9 @@ export class CollectionService {
         throw new NotFoundException(`Document "${docId}" not found`);
       }
 
+      this.realtimeData.publishChange(projectId, {
+        type: 'DELETE', kind: 'collection', entity: collectionName, old: { id: docId },
+      });
       return { message: 'Document deleted' };
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;

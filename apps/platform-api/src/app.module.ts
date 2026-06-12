@@ -24,6 +24,7 @@ import { BillingModule } from './modules/billing/billing.module';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { RealtimeDataModule } from './modules/realtime-data/realtime-data.module';
 import { MarketingInsightsModule } from './modules/marketing-insights/marketing-insights.module';
 import { DataImportModule } from './modules/data-import/data-import.module';
 import { EmbeddingModule } from './modules/embedding/embedding.module';
@@ -67,6 +68,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     InfrastructureModule,
     ObservabilityModule,
     RealtimeModule,
+    RealtimeDataModule,
     MarketingInsightsModule,
     DataImportModule,
     EmbeddingModule,

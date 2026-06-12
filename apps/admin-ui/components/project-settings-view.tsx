@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Check, Loader2 } from 'lucide-react';
+import { RealtimeSettingsCard } from '@/components/realtime-settings-card';
 
 const settingsFormSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200, 'Name is too long'),
@@ -252,6 +253,8 @@ export function ProjectSettingsView() {
           </Button>
         </div>
       </form>
+
+      <RealtimeSettingsCard projectId={project.id} />
 
       <Separator />
 

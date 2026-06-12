@@ -46,3 +46,11 @@ export type {
   DataEngineFilter,
   DataEngineSort,
 } from './modules/data-engine.js';
+
+export { RealtimeClient } from './modules/realtime.js';
+export type {
+  RealtimeChangePayload,
+  RealtimeChangeType,
+  RealtimeSubscribeOptions,
+  RealtimeSubscription,
+} from './modules/realtime.js';

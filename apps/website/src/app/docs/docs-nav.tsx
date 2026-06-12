@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2 } from "lucide-react";
+import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 
@@ -19,6 +19,7 @@ const items: NavItem[] = [
   { href: "/docs", label: "Overview", icon: Book },
   { href: "/docs/data-engine", label: "Data Engine", icon: Database },
   { href: "/docs/connect", label: "Connect", icon: Link2 },
+  { href: "/docs/realtime", label: "Realtime", icon: Radio },
   { href: "/docs/api", label: "API Reference", icon: Server },
   { href: "/docs/sdk", label: "SDK", icon: Code },
   { href: "/docs/cli", label: "CLI", icon: Terminal },
