@@ -15,6 +15,12 @@ export class BlueprintController {
     return this.service.analyze(user.sub, dto);
   }
 
+  @Get('by-project/:projectId/build-package')
+  @HttpCode(HttpStatus.OK)
+  getBuildPackage(@Param('projectId') projectId: string) {
+    return this.service.getBuildPackageForProject(projectId);
+  }
+
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   getBlueprint(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
@@ -29,5 +35,19 @@ export class BlueprintController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.approve(user.sub, id, body);
+  }
+
+  @Post(':id/generate')
+  @HttpCode(HttpStatus.ACCEPTED)
+  generate(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.generate(user.sub, id);
+  }
+
+  @Get(':id/status')
+  getStatus(@Param('id') id: string) {
+    return this.service.getGenerateStatus(id);
   }
 }

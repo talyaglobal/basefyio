@@ -1,8 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
+import { Queue } from 'bullmq';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnalyzeBlueprintDto } from './dto/analyze-blueprint.dto';
+import { BLUEPRINT_GENERATE_QUEUE } from '../queue/queue.module';
 
 // ---------------------------------------------------------------------------
 // Inline types (avoids monorepo linking complexity)
@@ -122,6 +125,8 @@ export class BlueprintService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config?: ConfigService,
+    @InjectQueue(BLUEPRINT_GENERATE_QUEUE)
+    private readonly generateQueue?: Queue,
   ) {
     const apiKey = config?.get<string>('openai.apiKey');
     this.openaiKey = apiKey;
@@ -368,5 +373,62 @@ Produce the BusinessModel JSON.`;
       version: nextVersion,
       uiModel,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 4: build-package endpoint
+  // ---------------------------------------------------------------------------
+
+  async getBuildPackageForProject(projectId: string) {
+    const blueprint = await (this.prisma as any).blueprint.findFirst({
+      where: { projectId, status: { in: ['generated', 'approved'] } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!blueprint) throw new NotFoundException(`No generated blueprint for project ${projectId}`);
+
+    const uiModelWithBp = blueprint.uiModel as Record<string, unknown>;
+    // The processor embeds buildPackage in uiModel; extract it or build minimal response
+    const buildPackage = uiModelWithBp?.buildPackage ?? {
+      version: 1,
+      projectId,
+      blueprintId: blueprint.id,
+      generatedAt: blueprint.updatedAt,
+      dataModel: blueprint.dataModel,
+      businessModel: blueprint.businessModel,
+      uiModel: blueprint.uiModel,
+      applicationModel: {},
+      ddl: [],
+    };
+    return buildPackage;
+  }
+
+  async generate(userId: string, blueprintId: string) {
+    const bp = await (this.prisma as any).blueprint.findUnique({ where: { id: blueprintId } });
+    if (!bp) throw new NotFoundException('Blueprint not found');
+    if (!['approved', 'draft'].includes(bp.status)) {
+      throw new BadRequestException(`Blueprint is in status '${bp.status}', expected approved or draft`);
+    }
+
+    const job = await this.generateQueue!.add(
+      'generate',
+      { blueprintId, userId },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+
+    await (this.prisma as any).blueprint.update({
+      where: { id: blueprintId },
+      data: { status: 'queued' },
+    });
+
+    return { blueprintId, jobId: job.id, status: 'queued' };
+  }
+
+  async getGenerateStatus(blueprintId: string) {
+    const bp = await (this.prisma as any).blueprint.findUnique({
+      where: { id: blueprintId },
+      select: { id: true, status: true, projectId: true, updatedAt: true },
+    });
+    if (!bp) throw new NotFoundException('Blueprint not found');
+    return bp;
   }
 }

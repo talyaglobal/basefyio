@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { BlueprintService } from './blueprint.service';
 
 function makePrisma(overrides: Record<string, any> = {}) {
@@ -154,5 +154,35 @@ describe('BlueprintService.detectDomain (via analyze)', () => {
     });
 
     expect(result.domain).toBe('crm');
+  });
+});
+
+describe('BlueprintService.generate', () => {
+  it('enqueues a job and returns queued status', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', status: 'approved' });
+    prisma.blueprint.update = jest.fn().mockResolvedValue({ id: 'bp-1', status: 'queued' });
+    const mockQueue = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+
+    const svc = new BlueprintService(prisma, null as any, mockQueue as any);
+    const result = await svc.generate(USER_ID, 'bp-1');
+
+    expect(result.status).toBe('queued');
+    expect(result.jobId).toBe('job-1');
+    expect(mockQueue.add).toHaveBeenCalledWith('generate', { blueprintId: 'bp-1', userId: USER_ID }, expect.any(Object));
+  });
+
+  it('throws 400 when blueprint is already generating', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', status: 'generating' });
+    const svc = new BlueprintService(prisma, null as any, {} as any);
+    await expect(svc.generate(USER_ID, 'bp-1')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('throws 404 when blueprint not found', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue(null);
+    const svc = new BlueprintService(prisma, null as any, {} as any);
+    await expect(svc.generate(USER_ID, 'bp-1')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
