@@ -78,6 +78,8 @@ export default function FeedbacksPage() {
   const [commentFiles, setCommentFiles] = useState<Record<string, File[]>>({});
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
   const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; email: string } | null>>({});
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
+  const [savingComment, setSavingComment] = useState(false);
   const [preview, setPreview] = useState<{ url: string; isVideo: boolean; revokeOnClose?: boolean } | null>(null);
   const [selectedFilesOpenByFeedback, setSelectedFilesOpenByFeedback] = useState<Record<string, boolean>>({});
   const [historyFeedbackId, setHistoryFeedbackId] = useState<string | null>(null);
@@ -401,29 +403,100 @@ export default function FeedbacksPage() {
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span>
                         <strong>{node.user?.email ?? node.userId}</strong> · {new Date(node.createdAt).toLocaleString()}
+                        {node.editedAt && <span className="text-muted-foreground"> · edited</span>}
                       </span>
-                      {canComment && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-[11px]"
-                          onClick={() => {
-                            setReplyToByFeedback((prev) => ({
-                              ...prev,
-                              [fb.id]: { id: node.id, email: node.user?.email ?? node.userId },
-                            }));
-                          }}
-                        >
-                          Reply
-                        </Button>
-                      )}
+                      <span className="flex items-center">
+                        {canComment && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => {
+                              setReplyToByFeedback((prev) => ({
+                                ...prev,
+                                [fb.id]: { id: node.id, email: node.user?.email ?? node.userId },
+                              }));
+                            }}
+                          >
+                            Reply
+                          </Button>
+                        )}
+                        {!isDeleted && profile?.id === node.userId && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => setEditingComment({ id: node.id, text: node.comment })}
+                          >
+                            Edit
+                          </Button>
+                        )}
+                        {!isDeleted && (isRoot || profile?.id === node.userId) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={async () => {
+                              if (!(await confirmDialog({ title: 'Delete comment', description: 'Are you sure you want to delete this comment? Replies to it will be kept.', destructive: true }))) {
+                                return;
+                              }
+                              try {
+                                await api.feedback.removeComment(fb.id, node.id);
+                                toast.success('Comment deleted');
+                                void load({ silent: true });
+                              } catch (err: any) {
+                                toast.error(err.message || 'Failed to delete comment');
+                              }
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </span>
                     </div>
                     {node.parentCommentId && commentById[node.parentCommentId] && (
                       <p className="text-[11px] text-muted-foreground">
                         Reply to <strong>{commentById[node.parentCommentId].user?.email ?? commentById[node.parentCommentId].userId}</strong>
                       </p>
                     )}
-                    <p className="text-sm">{node.comment}</p>
+                    {editingComment?.id === node.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editingComment.text}
+                          onChange={(e) => setEditingComment({ id: node.id, text: e.target.value })}
+                          className="min-h-[60px] text-sm"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="h-7"
+                            disabled={savingComment || !editingComment.text.trim()}
+                            onClick={async () => {
+                              setSavingComment(true);
+                              try {
+                                await api.feedback.updateComment(fb.id, node.id, editingComment.text.trim());
+                                setEditingComment(null);
+                                toast.success('Comment updated');
+                                void load({ silent: true });
+                              } catch (err: any) {
+                                toast.error(err.message || 'Failed to update comment');
+                              } finally {
+                                setSavingComment(false);
+                              }
+                            }}
+                          >
+                            {savingComment ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingComment(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm">{node.comment}</p>
+                    )}
                     {nodeAttachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 pt-1">
                         {nodeAttachments.map((a, i) =>

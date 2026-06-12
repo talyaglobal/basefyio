@@ -429,6 +429,92 @@ export class FeedbackService {
     return created;
   }
 
+  async updateComment(
+    userId: string,
+    feedbackId: string,
+    commentId: string,
+    dto: { comment: string },
+  ) {
+    const { feedback } = await this.assertCanAccessFeedback(userId, feedbackId);
+    const existing = await this.prisma.feedbackComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!existing || existing.feedbackId !== feedbackId) {
+      throw new NotFoundException('Comment not found');
+    }
+    if (existing.userId !== userId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
+
+    const updated = await this.prisma.feedbackComment.update({
+      where: { id: commentId },
+      data: { comment: dto.comment, editedAt: new Date() },
+      include: { user: { select: { email: true } } },
+    });
+    await this.appendEvent({
+      feedbackId,
+      userId,
+      action: 'COMMENT_EDITED',
+      detail: dto.comment.slice(0, 120),
+    });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
+    await this.realtime.publish({
+      entityType: 'feedback_comment',
+      action: 'comment_updated',
+      entityId: commentId,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        feedbackId,
+        feedbackTitle: feedback.title,
+        actorName,
+        commentPreview: dto.comment.slice(0, 200),
+      },
+    });
+    return updated;
+  }
+
+  async removeComment(userId: string, feedbackId: string, commentId: string) {
+    const { feedback, isRoot } = await this.assertCanAccessFeedback(
+      userId,
+      feedbackId,
+    );
+    const existing = await this.prisma.feedbackComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!existing || existing.feedbackId !== feedbackId) {
+      throw new NotFoundException('Comment not found');
+    }
+    if (existing.userId !== userId && !isRoot) {
+      throw new ForbiddenException('You can only delete your own comments');
+    }
+
+    // Hard delete; replies survive because parent_comment_id is ON DELETE SET NULL.
+    await this.prisma.feedbackComment.delete({ where: { id: commentId } });
+    await this.appendEvent({
+      feedbackId,
+      userId,
+      action: 'COMMENT_DELETED',
+      detail: existing.comment.slice(0, 120),
+    });
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const actorName = await this.resolveActorName(userId);
+    await this.realtime.publish({
+      entityType: 'feedback_comment',
+      action: 'comment_deleted',
+      entityId: commentId,
+      actorUserId: userId,
+      userIds: recipients,
+      payload: {
+        feedbackId,
+        feedbackTitle: feedback.title,
+        actorName,
+      },
+    });
+    return { success: true };
+  }
+
   async listHistory(userId: string, feedbackId: string) {
     await this.assertCanAccessFeedback(userId, feedbackId);
     return this.prisma.feedbackEvent.findMany({

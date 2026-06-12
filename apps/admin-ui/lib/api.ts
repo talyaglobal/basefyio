@@ -1541,6 +1541,7 @@ export const api = {
           attachments?: unknown;
           parentCommentId?: string | null;
           createdAt: string;
+          editedAt?: string | null;
         }[];
         type: string;
         status: string;
@@ -1591,6 +1592,21 @@ export const api = {
       }>(`/feedback/${id}/comments`, {
         method: 'POST',
         body: JSON.stringify(data),
+      });
+    },
+    updateComment(id: string, commentId: string, comment: string) {
+      return request<{
+        id: string;
+        comment: string;
+        editedAt?: string | null;
+      }>(`/feedback/${id}/comments/${commentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ comment }),
+      });
+    },
+    removeComment(id: string, commentId: string) {
+      return request<{ success: boolean }>(`/feedback/${id}/comments/${commentId}`, {
+        method: 'DELETE',
       });
     },
     history(id: string) {

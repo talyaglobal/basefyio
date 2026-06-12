@@ -16,6 +16,8 @@ export type RealtimeAction =
   | 'deleted'
   | 'status_changed'
   | 'comment_added'
+  | 'comment_updated'
+  | 'comment_deleted'
   | 'invite_sent'
   | 'invite_accepted'
   | 'invite_declined'
