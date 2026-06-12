@@ -536,6 +536,44 @@ export interface DataEngineHealth {
   reachable: boolean;
 }
 
+// ── Data Query (provider-aware query editor) ──────────────
+
+export interface DataQueryResult {
+  rows: Record<string, unknown>[];
+  fields: { name: string; dataTypeId: number }[];
+  rowCount: number;
+  duration: number;
+  page: number;
+  limit: number;
+  paginated: boolean;
+  total: number | null;
+  totalIsApprox?: boolean;
+  target: 'entity' | 'collection';
+  entity: string;
+  action: 'find' | 'count' | 'aggregate';
+}
+
+export interface DataQueryCapabilities {
+  engineAvailable: boolean;
+  queryModes: ('js' | 'aggregation')[];
+  capabilities: {
+    transactions: boolean;
+    fullTextSearch: boolean;
+    vectorSearch: boolean;
+    ttl: boolean;
+    aggregationPipeline: boolean;
+  } | null;
+}
+
+export interface SavedDataQueryItem {
+  id: string;
+  name: string;
+  mode: string;
+  entity: string | null;
+  source: string;
+  createdAt: string;
+}
+
 export interface RealmUser {
   id: string;
   username: string;

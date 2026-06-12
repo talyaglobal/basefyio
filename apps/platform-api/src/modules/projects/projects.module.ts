@@ -64,6 +64,6 @@ import { PublicCollectionApiService } from './public-collection-api.service';
     EmailProcessor,
     FoldersTagsService,
   ],
-  exports: [ProjectsService],
+  exports: [ProjectsService, CollectionService],
 })
 export class ProjectsModule {}

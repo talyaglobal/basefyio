@@ -17,6 +17,8 @@ export const ProjectActivityKind = {
   PROJECT_MOVED_TEAM: 'project.moved_team',
   SQL_EXECUTED: 'sql.executed',
   SQL_FAILED: 'sql.failed',
+  DATA_QUERY_EXECUTED: 'data_query.executed',
+  DATA_QUERY_FAILED: 'data_query.failed',
   INTEGRATION_GITHUB_CONNECTED: 'integration.github_connected',
   INTEGRATION_GITHUB_DISCONNECTED: 'integration.github_disconnected',
   INTEGRATION_VERCEL_CONNECTED: 'integration.vercel_connected',
