@@ -13,18 +13,18 @@ const USER_ID = 'user-1';
 const TEAM_ID = 'team-1';
 
 const REQUIRED_CONSENT_ITEMS = [
-  'PRIVACY',
-  'RISK',
-  'ARCHIVE_POLICY',
-  'DATA_RETENTION',
-  'ACCESS_CONTROL',
+  'privacy_statement',
+  'data_ownership',
+  'ai_analysis_consent',
+  'migration_risk_acceptance',
+  'database_access_authorization',
 ];
 
 const ARCHIVE_RECORD = {
   id: ARCHIVE_ID,
   projectId: PROJECT_ID,
   bucketName: 'bucket-1',
-  status: 'PENDING',
+  status: 'ACTIVE',
   source: 'USER_UPLOAD',
   retention: '90d',
   region: 'EU',
@@ -54,9 +54,10 @@ function buildPrisma(overrides: Record<string, any> = {}) {
   return {
     project: {
       findFirst: jest.fn<any>().mockResolvedValue({ id: PROJECT_ID, status: 'ACTIVE' }),
+      findUnique: jest.fn<any>().mockResolvedValue({ id: PROJECT_ID, teamId: TEAM_ID }),
     },
-    projectMembership: {
-      findFirst: jest.fn<any>().mockResolvedValue({ userId: USER_ID, projectId: PROJECT_ID }),
+    teamMember: {
+      findUnique: jest.fn<any>().mockResolvedValue({ userId: USER_ID }),
     },
     migrationArchive: {
       create: jest.fn<any>().mockResolvedValue(ARCHIVE_RECORD),
@@ -67,10 +68,15 @@ function buildPrisma(overrides: Record<string, any> = {}) {
       create: jest.fn<any>().mockResolvedValue(FILE_RECORD),
       findFirst: jest.fn<any>().mockResolvedValue(FILE_RECORD),
       findMany: jest.fn<any>().mockResolvedValue([FILE_RECORD]),
-      update: jest.fn<any>().mockResolvedValue(FILE_RECORD),
+      update: jest.fn<any>().mockResolvedValue({ ...FILE_RECORD, uploadStatus: 'COMPLETE' }),
+      count: jest.fn<any>().mockResolvedValue(0),
+      aggregate: jest.fn<any>().mockResolvedValue({ _sum: { sizeBytes: BigInt(1024) } }),
     },
-    migrationArchiveConsent: {
+    migrationConsent: {
       create: jest.fn<any>().mockResolvedValue({ id: 'consent-1' }),
+    },
+    auditLog: {
+      create: jest.fn<any>().mockResolvedValue({ id: 'audit-1' }),
     },
     ...overrides,
   };
@@ -226,7 +232,7 @@ describe('MigrationArchivesService.recordConsent()', () => {
   it('creates a consent record with ipAddress and accepted items', async () => {
     const { svc, prisma } = await buildService();
     await svc.recordConsent(PROJECT_ID, ARCHIVE_ID, USER_ID,validConsentDto);
-    expect((prisma as any).migrationArchiveConsent.create).toHaveBeenCalledWith(
+    expect((prisma as any).migrationConsent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           archiveId: ARCHIVE_ID,

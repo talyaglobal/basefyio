@@ -45,6 +45,7 @@ import { SupabaseCompatModule } from './modules/supabase-compat/supabase-compat.
 import { MigrationsModule } from './modules/migrations/migrations.module';
 import { MigrationArchivesModule } from './modules/migration-archives/migration-archives.module';
 import { MigrationAssessmentsModule } from './modules/migration-assessments/migration-assessments.module';
+import { DeveloperAccessModule } from './modules/developer-access/developer-access.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -96,6 +97,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     MigrationsModule,
     MigrationArchivesModule,
     MigrationAssessmentsModule,
+    DeveloperAccessModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },

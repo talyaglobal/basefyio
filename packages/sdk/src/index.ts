@@ -98,3 +98,6 @@ export type {
   AssessmentFinding,
   ExportPdfResult,
 } from './modules/assessments.js';
+
+export { AccessClient } from './modules/access.js';
+export type { ProjectAccessInfo, EndpointView, EndpointSnippets } from './modules/access.js';

@@ -3,6 +3,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MigrationAssessmentsController } from './migration-assessments.controller';
 import { MigrationAssessmentsService } from './migration-assessments.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { EntitlementService } from '../entitlement/entitlement.service';
 
 // ── Fixtures ───────────────────────────────────────────────────
 
@@ -57,8 +59,12 @@ async function buildController(serviceOverrides: Record<string, any> = {}) {
     controllers: [MigrationAssessmentsController],
     providers: [
       { provide: MigrationAssessmentsService, useValue: mockService },
+      { provide: EntitlementService, useValue: { assertCan: jest.fn<any>().mockResolvedValue(undefined) } },
     ],
-  }).compile();
+  })
+    .overrideGuard(JwtOrApiKeyGuard)
+    .useValue({ canActivate: () => true })
+    .compile();
   return {
     ctrl: module.get(MigrationAssessmentsController),
     svc: mockService,

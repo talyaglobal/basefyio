@@ -187,6 +187,9 @@ export class MigrationAssessmentsService {
       where: { archiveId },
     });
 
+    // Capture current version BEFORE any mutation so nextVersion is computed correctly.
+    const currentVersion: number = report?.latestVersion ?? 0;
+
     if (!report) {
       report = await (this.prisma as any).migrationAssessmentReport.create({
         data: {
@@ -197,14 +200,14 @@ export class MigrationAssessmentsService {
         },
       });
     } else {
-      report = await (this.prisma as any).migrationAssessmentReport.update({
+      await (this.prisma as any).migrationAssessmentReport.update({
         where: { id: report.id },
         data: { status: 'ANALYZING' },
       });
     }
 
     // 4. Increment latestVersion by 1
-    const nextVersion: number = (report.latestVersion ?? 0) + 1;
+    const nextVersion: number = currentVersion + 1;
 
     await (this.prisma as any).migrationAssessmentReport.update({
       where: { id: report.id },

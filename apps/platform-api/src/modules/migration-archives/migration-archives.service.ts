@@ -202,8 +202,8 @@ export class MigrationArchivesService {
   // ---------------------------------------------------------------------------
 
   async getArchive(projectId: string, archiveId: string): Promise<MigrationArchiveView> {
-    const archive = await this.prisma.migrationArchive.findUnique({
-      where: { id: archiveId },
+    const archive = await this.prisma.migrationArchive.findFirst({
+      where: { id: archiveId, projectId },
       select: {
         id: true,
         projectId: true,
@@ -219,7 +219,7 @@ export class MigrationArchivesService {
       },
     });
 
-    if (!archive || archive.projectId !== projectId) {
+    if (!archive) {
       throw new NotFoundException('Migration archive not found');
     }
 
