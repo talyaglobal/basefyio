@@ -20,12 +20,22 @@ export default {
   },
   // Only manage the new tables; Prisma owns everything else.
   tablesFilter: [
+    // RAG
     'rag_documents',
     'rag_chunks',
     'rag_index_jobs',
+    // Agent memory + messaging
     'chat_threads',
     'chat_messages',
     'agent_memory',
+    'agent_tool_calls',
+    'agent_policy_events',
+    // Agent creation
+    'agents',
+    'agent_versions',
+    'agent_tools',
+    'agent_runs',
+    'agent_run_attachments',
   ],
   verbose: true,
   strict: true,
