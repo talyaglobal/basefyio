@@ -14,7 +14,6 @@ import { useDashboard } from '@/app/dashboard/layout';
 import { ContextHelpPanel } from '@/components/context-help-panel';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
-import { parseJwt, getAccessToken } from '@/lib/auth';
 import {
   Book,
   BrainCircuit,
@@ -255,11 +254,11 @@ export default function ProjectLayout({
   useEffect(() => {
     if (!id || projectLoading || !project) return;
     if (!isRealtimePhase1Enabled()) return;
-    const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
     const unsubscribe = subscribebasefyioRealtime(`project:${id}`, (event: RealtimeEventEnvelope) => {
       if (event.entityType !== 'project') return;
-      // Skip self-triggered updates (UI already reflects the change)
-      if (event.action === 'updated' && event.actorUserId === currentUserId) return;
+      // No own-actor skip: only the acting tab already reflects the change —
+      // the same user's other tabs still need the refetch, and refreshProject
+      // is an idempotent GET so the acting tab reloading too is harmless.
       if (event.action === 'deleted') {
         toast.error('This project has been deleted');
         router.push('/dashboard/projects');
