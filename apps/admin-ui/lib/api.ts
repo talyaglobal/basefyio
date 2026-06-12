@@ -74,20 +74,38 @@ async function parseOkJsonBody<T>(res: Response): Promise<T> {
   }
 }
 
+/** Hung requests (e.g. the gateway holding a dead upstream mid-deploy)
+ *  must resolve into the caller's error path instead of spinning forever. */
+const REQUEST_TIMEOUT_MS = 65_000;
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const token = getAccessToken();
 
-  const res = await fetch(`/api/proxy${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`/api/proxy${path}`, {
+      signal: controller.signal,
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Request timed out — the server may be restarting. Try again shortly.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (res.status === 401) {
     const authBody = await res
