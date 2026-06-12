@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
+import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 
 interface ParsedFilter {
   clause: string;
@@ -75,6 +76,7 @@ export class PublicApiService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly projectsService: ProjectsService,
+    private readonly realtimeData: RealtimeDataService,
   ) {
     // Periodically close idle pools to avoid holding connections to databases
     // that are no longer being queried.
@@ -159,11 +161,19 @@ export class PublicApiService {
         valueGroups.push(`(${placeholders.join(', ')})`);
       }
 
-      const returning = returnRepresentation ? ' RETURNING *' : '';
-      const sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')}${returning}`;
+      // RETURNING * unconditionally: response shape below is unchanged, but
+      // realtime needs the rows to broadcast full INSERT payloads.
+      const sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')} RETURNING *`;
 
       const result = await client.query(sql, allValues);
-      return returnRepresentation ? result.rows : { count: result.rowCount };
+      return { __rows: result.rows, __count: result.rowCount };
+    }).then((r: any) => {
+      for (const row of r.__rows ?? []) {
+        this.realtimeData.publishChange(projectId, {
+          type: 'INSERT', kind: 'table', entity: table, new: row,
+        });
+      }
+      return returnRepresentation ? r.__rows : { count: r.__count };
     });
   }
 
@@ -195,11 +205,17 @@ export class PublicApiService {
         .join(', ');
 
       const setValues = setCols.map((k) => body[k] ?? null);
-      const returning = returnRepresentation ? ' RETURNING *' : '';
-      const sql = `UPDATE "${table}" SET ${setClause} WHERE ${where}${returning}`;
+      const sql = `UPDATE "${table}" SET ${setClause} WHERE ${where} RETURNING *`;
 
       const result = await client.query(sql, [...params, ...setValues]);
-      return returnRepresentation ? result.rows : { count: result.rowCount };
+      return { __rows: result.rows, __count: result.rowCount };
+    }).then((r: any) => {
+      for (const row of r.__rows ?? []) {
+        this.realtimeData.publishChange(projectId, {
+          type: 'UPDATE', kind: 'table', entity: table, new: row,
+        });
+      }
+      return returnRepresentation ? r.__rows : { count: r.__count };
     });
   }
 
@@ -218,11 +234,17 @@ export class PublicApiService {
         throw new BadRequestException('DELETE requires at least one filter to prevent full-table deletes');
       }
 
-      const returning = returnRepresentation ? ' RETURNING *' : '';
-      const sql = `DELETE FROM "${table}" WHERE ${where}${returning}`;
+      const sql = `DELETE FROM "${table}" WHERE ${where} RETURNING *`;
 
       const result = await client.query(sql, params);
-      return returnRepresentation ? result.rows : { count: result.rowCount };
+      return { __rows: result.rows, __count: result.rowCount };
+    }).then((r: any) => {
+      for (const row of r.__rows ?? []) {
+        this.realtimeData.publishChange(projectId, {
+          type: 'DELETE', kind: 'table', entity: table, old: row,
+        });
+      }
+      return returnRepresentation ? r.__rows : { count: r.__count };
     });
   }
 

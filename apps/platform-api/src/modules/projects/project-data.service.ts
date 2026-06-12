@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import {
   buildPostgresUri,
   getPgbouncerClientEndpoints,
@@ -38,6 +39,7 @@ export class ProjectDataService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly realtimeData: RealtimeDataService,
   ) {}
 
   private async getProjectPool(
@@ -448,6 +450,9 @@ export class ProjectDataService {
         `INSERT INTO ${qualified} (${cols}) VALUES (${placeholders}) RETURNING *`,
         values,
       );
+      this.realtimeData.publishChange(projectId, {
+        type: 'INSERT', kind: 'table', entity: tableName, new: result.rows[0],
+      });
       return result.rows[0];
     } catch (err: any) {
       throw new BadRequestException(`Insert failed: ${err.message}`);
@@ -498,6 +503,9 @@ export class ProjectDataService {
       );
 
       if (result.rowCount === 0) throw new NotFoundException('Row not found');
+      this.realtimeData.publishChange(projectId, {
+        type: 'UPDATE', kind: 'table', entity: tableName, new: result.rows[0], old: pkWhere,
+      });
       return result.rows[0];
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
@@ -540,6 +548,9 @@ export class ProjectDataService {
       );
 
       if (result.rowCount === 0) throw new NotFoundException('Row not found');
+      this.realtimeData.publishChange(projectId, {
+        type: 'DELETE', kind: 'table', entity: tableName, old: pkWhere,
+      });
       return { message: 'Row deleted' };
     } finally {
       client.release();
