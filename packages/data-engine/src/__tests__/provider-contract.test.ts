@@ -75,6 +75,7 @@ export function providerContractSuite(
         expect(typeof caps.fullTextSearch).toBe('boolean');
         expect(typeof caps.vectorSearch).toBe('boolean');
         expect(typeof caps.ttl).toBe('boolean');
+        expect(typeof caps.aggregationPipeline).toBe('boolean');
       });
     });
 

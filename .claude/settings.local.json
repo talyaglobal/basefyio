@@ -45,7 +45,19 @@
       "PowerShell(gh auth status)",
       "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui; npx tsc -p tsconfig.json --noEmit; \"tsc exit code: $LASTEXITCODE\")",
       "PowerShell(git -C C:\\\\IT\\\\Projects\\\\kolaybase-new diff -- \"apps/admin-ui/app/dashboard/projects/[id]/layout.tsx\"; $b = [System.IO.File]::ReadAllBytes\\(\"C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\admin-ui\\\\app\\\\dashboard\\\\projects\\\\[id]\\\\data\\\\page.tsx\"\\)[0..5]; $b -join ',')",
-      "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\platform-api; $out = npx tsc -p tsconfig.json --noEmit 2>$null; $errs = $out | Select-String -Pattern 'error TS'; \"Total: $\\($errs.Count\\)\"; \"--- integrations module ---\"; $errs | Where-Object { $_ -match 'integrations|vercel' })"
+      "PowerShell(Set-Location C:\\\\IT\\\\Projects\\\\kolaybase-new\\\\apps\\\\platform-api; $out = npx tsc -p tsconfig.json --noEmit 2>$null; $errs = $out | Select-String -Pattern 'error TS'; \"Total: $\\($errs.Count\\)\"; \"--- integrations module ---\"; $errs | Where-Object { $_ -match 'integrations|vercel' })",
+      "Bash(sed -n '120,170p' \"C:/IT/Projects/kolaybase-new/packages/data-engine/src/providers/nosql/nosql-engine.ts\")",
+      "Bash(sed -n '315,345p' \"C:/IT/Projects/kolaybase-new/packages/data-engine/src/providers/couchdb/couchdb-engine.ts\")",
+      "Bash(sed -n '125,155p' \"C:/IT/Projects/kolaybase-new/packages/data-engine/src/providers/postgres/postgres-engine.ts\")",
+      "Bash(sed -n '395,445p' \"C:/IT/Projects/kolaybase-new/md/data-engine.md\")",
+      "Bash(sed -n '655,670p' \"C:/IT/Projects/kolaybase-new/md/data-engine.md\")",
+      "Bash(sed -n '845,880p' \"C:/IT/Projects/kolaybase-new/md/data-engine.md\")",
+      "Bash(sed -n '60,82p' \"C:/IT/Projects/kolaybase-new/md/data-engine.md\")",
+      "Bash(sed -n '28,58p' \"C:/IT/Projects/kolaybase-new/md/data-engine-phase0.md\")",
+      "Bash(sed -n '188,212p' \"C:/IT/Projects/kolaybase-new/md/data-engine-phase0.md\")",
+      "Bash(sed -n '590,602p' \"C:/IT/Projects/kolaybase-new/md/data-engine-phase0.md\")",
+      "Bash(sed -n '130,160p' \"C:/IT/Projects/kolaybase-new/apps/admin-ui/components/ui/select.tsx\")",
+      "Bash(sed -n '145,170p' \"C:/IT/Projects/kolaybase-new/apps/admin-ui/components/ui/dropdown-menu.tsx\")"
     ]
   }
 }

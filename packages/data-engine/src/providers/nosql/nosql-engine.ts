@@ -158,6 +158,7 @@ export class NoSqlDataEngine implements DataEngine {
       fullTextSearch: true,
       vectorSearch: false,
       ttl: true,
+      aggregationPipeline: false,
     };
   }
 

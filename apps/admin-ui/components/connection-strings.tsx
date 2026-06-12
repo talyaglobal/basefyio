@@ -124,44 +124,68 @@ function buildAiQuickConnectPrompt(
   frameworkPreset: FrameworkPreset,
 ): string {
   const stack = frameworkPresetLabel(frameworkPreset);
-  return `You are helping in the user's repo. Wire the app to basefyio using ONLY the environment block below (real basefyio URLs and keys — not fake placeholders).
+  return `You are helping in the user's repo. This project uses **basefyio** as its database and backend. All data lives on basefyio — there is NO local database.
+
+## CRITICAL — No local database
+- The database is **hosted on basefyio** (see DATABASE_URL below). Do **NOT** create, install, or run a local PostgreSQL / SQLite / MySQL / Docker database.
+- Do **NOT** run \`docker-compose up\`, \`docker run postgres\`, or any command that starts a local database server.
+- Do **NOT** change DATABASE_URL to \`localhost\`, \`127.0.0.1\`, or any local address. The URL below points to the user's live basefyio project — use it as-is.
+- Do **NOT** create a new database. The database already exists on basefyio and may contain production data.
+- If a tool suggests "creating a database first", skip that step — the database is already provisioned.
 
 ## 0) Authentication — read this first
-- Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local Keycloak requirement for login.
-- **basefyio is the auth surface**: sign-in and API access go through basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using basefyio as the backend auth provider — the same hosted Keycloak that powers basefyio is already behind that service; the app should consume basefyio APIs/keys, not stand up a separate IdP.
-- **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** (signUp, signIn, signOut, OAuth helpers, etc.) for authentication — that is the supported basefyio auth path. Do **not** point \`@supabase/supabase-js\` or other Supabase clients at basefyio URLs for auth unless the user explicitly asks for a custom low-level integration.
-- Do **not** tell the user to "provision Keycloak", import realms, or mirror basefyio's internal Keycloak URLs unless they explicitly need low-level infra support from operators.
+- Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local auth requirement.
+- **basefyio is the auth surface**: sign-in and API access go through basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using basefyio as the backend auth provider.
+- **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** for authentication.
+- Do **not** tell the user to "provision Keycloak", import realms, or stand up a separate identity provider.
 
-## 1) Append to .env or .env.local (copy exactly — each line is KEY=value with no quotes around values)
+## 1) Environment variables (copy exactly — no quotes around values)
 ${envBlockOneLinePerVar}
 
 ## 2) Stack preset
 ${stack} (use the env names above; do not rename keys unless the framework strictly requires it).
 
-## 3) When the user asks you to run migrations
-- Ensure DATABASE_URL and DIRECT_URL are in .env (exactly as above).
-- From the project root, run their migration command (e.g. npx supabase db push, npm run db:push:basefyio, or prisma migrate). The machine must reach the Postgres host in those URLs.
-- Do not substitute hosts or passwords.
+## 3) Prisma / Drizzle / ORM — migrations and schema
+- \`DATABASE_URL\` is the connection-pooled endpoint (for queries at runtime).
+- \`DIRECT_URL\` is the direct connection (for \`prisma migrate\`, \`prisma db push\`, \`drizzle-kit push\`).
+- Both point to the **remote basefyio database** — never replace them with local URLs.
+- Run migrations against the remote database: \`npx prisma migrate dev\`, \`npx prisma db push\`, or \`npx drizzle-kit push\`.
+- The basefyio database already has the \`public\` schema ready. Your ORM creates tables there.
+- **Prisma schema example:**
+  \`\`\`prisma
+  datasource db {
+    provider  = "postgresql"
+    url       = env("DATABASE_URL")
+    directUrl = env("DIRECT_URL")
+  }
+  \`\`\`
+- After adding/changing models, run \`npx prisma db push\` (or \`migrate dev\`) — this runs against basefyio, not a local DB.
+- To inspect existing tables: \`npx prisma db pull\` — this introspects the remote basefyio database.
 
 ## 4) REST / basefyio API
-- **JS/TS (preferred):** use **basefyio-js** \`createClient\` with the env block; use \`basefyio.from(...)\` for tables and \`basefyio.auth\` for auth (same client).
-- **Raw HTTP (only if not using the SDK):** browser/client requests use the public URL + anon key from the block; send headers \`apikey\` and \`x-project-id\` with PROJECT_ID per API docs.
+- **JS/TS (preferred):** use **basefyio-js** \`createClient\` with the env block; use \`basefyio.from(...)\` for tables and \`basefyio.auth\` for auth.
+- **Raw HTTP:** send headers \`apikey\` and \`x-project-id\` with PROJECT_ID per API docs.
 - Service role key: server-side only; never expose to client bundles or public repos.
 
-## 5) Official documentation (learn basefyio before inventing patterns)
-Use these public URLs for product behavior, SDK, CLI, and REST conventions. Prefer them over generic third-party BaaS guesses when they conflict:
-- Docs home / overview: https://basefyio.com/docs
-- API reference (REST, auth, headers, projects): https://basefyio.com/docs/api
-- JavaScript/TypeScript SDK: https://basefyio.com/docs/sdk
-- CLI (basefyio login, link, projects): https://basefyio.com/docs/cli
+## 5) External database tools
+The user can also connect to their basefyio database from pgAdmin, DBeaver, DataGrip, TablePlus, or \`psql\` using the host, port, database, user, and password from DATABASE_URL. The database is always accessible — no VPN or tunnel needed.
 
-The user's live base URL, keys, and PROJECT_ID still come **only** from the env block in this prompt — docs explain *how* to use them, not replacement values.
+## 6) Official documentation
+- Docs home: https://basefyio.com/docs
+- API reference: https://basefyio.com/docs/api
+- SDK: https://basefyio.com/docs/sdk
+- CLI: https://basefyio.com/docs/cli
+- External DB access: https://basefyio.com/docs/connect
 
-## 6) CORS / CSP
-If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not silently change the basefyio URLs to unrelated domains.
+## 7) CORS / CSP
+If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not change the basefyio URLs.
 
-## 7) Do not
-Echo full secrets in your reply, invent fake values, or commit .env to git.`;
+## 8) Do NOT
+- Create or start a local database (PostgreSQL, SQLite, MySQL, Docker)
+- Change DATABASE_URL or DIRECT_URL to localhost
+- Echo full secrets in your reply
+- Invent fake values or commit .env to git
+- Install Supabase CLI or point Supabase clients at basefyio URLs`;
 }
 
 function CopyBlock({
@@ -320,7 +344,7 @@ datasource db {
     conn.host === 'localhost' || conn.host === '127.0.0.1'
       ? publicHostname
       : null;
-  const restBaseUrl = `${conn.publicBaseUrl}/api/proxy`;
+  const restBaseUrl = conn.publicBaseUrl;
   const pooledUrl = rewriteLocalhostInPgUri(conn.poolerUri, replacementHost);
   const directUrl = rewriteLocalhostInPgUri(conn.uri, replacementHost);
 

@@ -329,6 +329,7 @@ export class CouchDbDataEngine implements DataEngine {
       fullTextSearch: false,
       vectorSearch: false,
       ttl: false,
+      aggregationPipeline: false,
     };
   }
 

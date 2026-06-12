@@ -88,6 +88,8 @@ export interface ProviderCapabilities {
   fullTextSearch: boolean;
   vectorSearch: boolean;
   ttl: boolean;
+  /** Provider executes EntityAggregation pipelines natively or via a built-in executor. */
+  aggregationPipeline: boolean;
   vector?: VectorCapabilities;
 }
 

@@ -140,6 +140,22 @@ export {
   MAX_PROVISION_RETRIES,
 } from './tenancy/provisioning';
 
+// ── Query Frontends ────────────────────────────────────────
+
+export {
+  parseJsQuery,
+  JsQueryParseError,
+} from './query/js-query-parser';
+export type { ParsedJsQuery } from './query/js-query-parser';
+
+export { validateAggregation } from './query/aggregation-validator';
+
+export {
+  compileFilterObject,
+  compileSortObject,
+  assertSafePath,
+} from './query/filter-object';
+
 // ── Validation / Schema Compiler ───────────────────────────
 
 export {

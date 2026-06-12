@@ -1010,7 +1010,7 @@ export class ProjectDataService {
       password,
       poolerHost: extPoolerHost,
       poolerPort: extPoolerPort,
-      restUrl: `${publicApiUrl}/rest/v1`,
+      restUrl: `${publicApiUrl}/api/rest/v1`,
       publicBaseUrl,
       keycloakRealm: project.keycloakRealm,
       keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),
