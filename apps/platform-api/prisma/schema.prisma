@@ -274,6 +274,9 @@ model Project {
   dataStructures      DataStructure[]
   engineEndpoints     ProjectEngineEndpoint[]
   provisioningProject ProvisioningProject?
+  /// Frozen MinIO prefix seed. Slug may change on rename; this never does.
+  storagePrefix String? @map("storage_prefix")
+
   realtimeBindings    RealtimeBinding[]
 
   @@map("projects")

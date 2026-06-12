@@ -93,11 +93,11 @@ export class StorageService {
    */
   private resolveMinioBucketOwner(
     minioBucketName: string,
-    projects: { id: string; slug: string }[],
-  ): { id: string; slug: string } | null {
-    let best: { id: string; slug: string; prefixLen: number } | null = null;
+    projects: { id: string; slug: string; storagePrefix?: string | null }[],
+  ): { id: string; slug: string; storagePrefix?: string | null } | null {
+    let best: { id: string; slug: string; storagePrefix?: string | null; prefixLen: number } | null = null;
     for (const p of projects) {
-      const pref = this.minioProjectPrefix(p.slug);
+      const pref = this.minioProjectPrefix(p.storagePrefix ?? p.slug);
       if (minioBucketName.startsWith(pref)) {
         if (!best || pref.length > best.prefixLen) {
           best = { id: p.id, slug: p.slug, prefixLen: pref.length };
@@ -127,11 +127,11 @@ export class StorageService {
 
   async listBuckets(projectId: string, userId?: string): Promise<BucketSummary[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const prefix = this.minioProjectPrefix(project.slug);
+    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
 
     const allProjects = await this.prisma.project.findMany({
       where: { status: 'ACTIVE' },
-      select: { id: true, slug: true },
+      select: { id: true, slug: true, storagePrefix: true },
     });
 
     const allBuckets = await this.client.listBuckets();
@@ -169,7 +169,7 @@ export class StorageService {
       );
     }
 
-    const minioBucket = this.minioBucketName(project.slug, name);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, name);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (exists) throw new ConflictException(`Bucket "${name}" already exists`);
@@ -205,7 +205,7 @@ export class StorageService {
 
   async deleteBucket(projectId: string, userId: string | undefined, bucketName: string) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
@@ -240,10 +240,10 @@ export class StorageService {
 
     const allProjects = await this.prisma.project.findMany({
       where: { status: 'ACTIVE' },
-      select: { id: true, slug: true },
+      select: { id: true, slug: true, storagePrefix: true },
     });
 
-    const prefix = this.minioProjectPrefix(project.slug);
+    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
     const allBuckets = await this.client.listBuckets();
 
     for (const b of allBuckets) {
@@ -268,7 +268,7 @@ export class StorageService {
 
   async toggleBucketPublic(projectId: string, userId: string | undefined, bucketName: string, isPublic: boolean) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
@@ -303,7 +303,7 @@ export class StorageService {
     recursive = false,
   ): Promise<StorageObject[]> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
@@ -340,7 +340,7 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     await this.quota.assertCanUploadStorage(project.teamId, buffer.length);
 
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     const exists = await this.client.bucketExists(minioBucket);
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
@@ -370,7 +370,7 @@ export class StorageService {
     objectName: string,
   ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     try {
       const stat = await this.client.statObject(minioBucket, objectName);
@@ -391,7 +391,7 @@ export class StorageService {
     objectNames: string[],
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     await this.client.removeObjects(minioBucket, objectNames);
     this.logger.log(`Deleted ${objectNames.length} object(s) from "${minioBucket}"`);
@@ -406,7 +406,7 @@ export class StorageService {
     expiry = 3600,
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
-    const minioBucket = this.minioBucketName(project.slug, bucketName);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
     // Important: generate the signed URL using the public endpoint client directly.
     // Rewriting host/port after signing can invalidate the signature in production.
