@@ -355,6 +355,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
       couchdb:
         condition: service_healthy
     labels:
