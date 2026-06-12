@@ -77,6 +77,12 @@ class UpdateFeedbackDto {
   description?: string;
 }
 
+class UpdateCommentDto {
+  @IsString()
+  @IsNotEmpty()
+  comment: string;
+}
+
 class AddCommentDto {
   @IsString()
   @IsNotEmpty()
@@ -187,6 +193,27 @@ export class FeedbackController {
     @Body() dto: AddCommentDto,
   ) {
     return this.feedbackService.addComment(user.sub, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/comments/:commentId')
+  async updateComment(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateCommentDto,
+  ) {
+    return this.feedbackService.updateComment(user.sub, id, commentId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/comments/:commentId')
+  async removeComment(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.feedbackService.removeComment(user.sub, id, commentId);
   }
 
   @UseGuards(JwtAuthGuard)
