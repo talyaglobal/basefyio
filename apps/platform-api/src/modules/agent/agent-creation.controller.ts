@@ -23,7 +23,7 @@ import { CreateAgentVersionDto } from './dto/create-agent-version.dto';
 import { ListAgentsQuery } from './dto/list-agents.query';
 import { CreateRunDto } from './dto/create-run.dto';
 
-@Controller('projects/:projectId/agents')
+@Controller('v1/projects/:projectId/agents')
 @UseGuards(JwtOrApiKeyGuard)
 export class AgentCreationController {
   constructor(
