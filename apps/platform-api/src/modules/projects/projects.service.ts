@@ -693,7 +693,6 @@ export class ProjectsService {
     const suffix = `_del${Date.now()}`;
     const archivedDbName = `${project.dbName}${suffix}`.slice(0, 63);
     const archivedDbUser = `${project.dbUser}${suffix}`.slice(0, 63);
-    const archivedRealm = `${project.keycloakRealm}${suffix}`.slice(0, 255);
 
     // Rename DB + user so the original names are free for re-import immediately.
     // All data (tables, auth users, storage) remains intact for a potential restore.
@@ -710,7 +709,10 @@ export class ProjectsService {
       await pool.end();
     }
 
-    // Rename Keycloak realm by disabling it and recording the new name
+    // Keycloak has no realm rename — the realm keeps its original name and is
+    // only disabled here. The DB column must keep that real name too: writing
+    // an "_del" archived name into it points every later admin call (restore,
+    // auth export, hard delete) at a realm that never existed.
     try {
       await this.keycloak.disableRealm(project.keycloakRealm);
     } catch (err) {
@@ -726,7 +728,6 @@ export class ProjectsService {
         slug: deletedSlug,
         dbName: archivedDbName,
         dbUser: archivedDbUser,
-        keycloakRealm: archivedRealm,
       },
     });
 
@@ -956,11 +957,21 @@ export class ProjectsService {
       await pool.end();
     }
 
-    // Re-enable (and rename back) Keycloak realm
-    // Since Keycloak doesn't support direct rename, we enable the disabled realm
-    // under its archived name. The keycloakRealm field in DB is updated to match.
+    // Re-enable the Keycloak realm. Keycloak has no rename, so the realm kept
+    // its original name while trashed; legacy trash rows (from before this fix)
+    // carry an "_del" suffix in the column that the realm itself never had.
+    let restoredRealm = originalRealm;
     try {
-      await this.keycloak.enableRealm(project.keycloakRealm);
+      if (await this.keycloak.realmExists(originalRealm)) {
+        await this.keycloak.enableRealm(originalRealm);
+      } else if (await this.keycloak.realmExists(project.keycloakRealm)) {
+        restoredRealm = project.keycloakRealm;
+        await this.keycloak.enableRealm(restoredRealm);
+      } else {
+        this.logger.warn(
+          `Restore: Keycloak realm "${originalRealm}" not found; auth for this project needs re-provisioning`,
+        );
+      }
     } catch (err) {
       this.logger.warn(`Restore: could not re-enable Keycloak realm: ${err}`);
     }
@@ -977,7 +988,7 @@ export class ProjectsService {
           : {}),
         dbName: originalDbName,
         dbUser: originalDbUser,
-        keycloakRealm: project.keycloakRealm, // keep the archived realm name; it's re-enabled above
+        keycloakRealm: restoredRealm,
       },
     });
 
@@ -1034,13 +1045,7 @@ export class ProjectsService {
       throw new ForbiddenException('Only the team owner can permanently delete projects');
     }
 
-    // Keycloak realm and database are already cleaned up during soft delete.
-    // Attempt cleanup again just in case (e.g. old trash items from before this change).
-    try {
-      await this.keycloak.deleteRealm(project.keycloakRealm);
-    } catch {
-      // already deleted or never existed — safe to ignore
-    }
+    await this.deleteProjectRealm(project.keycloakRealm);
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
 
@@ -1055,15 +1060,29 @@ export class ProjectsService {
     return { message: 'Project permanently deleted' };
   }
 
+  /**
+   * Delete a project's Keycloak realm, tolerating legacy trash rows whose
+   * column carries an "_del" archived suffix the realm itself never had —
+   * those rows must still delete the realm under its real (stripped) name,
+   * otherwise the disabled realm leaks in Keycloak forever.
+   */
+  private async deleteProjectRealm(realmName: string): Promise<void> {
+    const candidates = [...new Set([realmName, realmName.replace(/_del\d+$/, '')])];
+    for (const name of candidates) {
+      try {
+        await this.keycloak.deleteRealm(name);
+        return;
+      } catch (err) {
+        this.logger.warn(`Realm cleanup: could not delete "${name}": ${err}`);
+      }
+    }
+  }
+
   async forceDelete(id: string) {
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) return;
 
-    try {
-      await this.keycloak.deleteRealm(project.keycloakRealm);
-    } catch (err) {
-      this.logger.warn(`Failed to delete Keycloak realm: ${err}`);
-    }
+    await this.deleteProjectRealm(project.keycloakRealm);
 
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
@@ -1101,11 +1120,7 @@ export class ProjectsService {
 
     for (const project of expired) {
       try {
-        try {
-          await this.keycloak.deleteRealm(project.keycloakRealm);
-        } catch (err) {
-          this.logger.warn(`Cleanup: failed to delete Keycloak realm for "${project.name}": ${err}`);
-        }
+        await this.deleteProjectRealm(project.keycloakRealm);
 
         await this.dropDatabase(project.dbName).catch(() => {});
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
