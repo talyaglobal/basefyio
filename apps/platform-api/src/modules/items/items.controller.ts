@@ -8,13 +8,27 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { ItemsService } from './items.service';
+import { PolicyCompilerService } from './policy-compiler.service';
+import { ItemPolicyGuard, RequireItemPermission } from './item-policy.guard';
 
 @Controller('v1/projects/:projectId/items')
-@UseGuards(JwtOrApiKeyGuard)
+@UseGuards(JwtOrApiKeyGuard, ItemPolicyGuard)
 export class ItemsController {
-  constructor(private readonly service: ItemsService) {}
+  constructor(
+    private readonly service: ItemsService,
+    private readonly policyService: PolicyCompilerService,
+  ) {}
+
+  @Post('/policy/apply')
+  @HttpCode(HttpStatus.OK)
+  async applyPolicies(
+    @Param('projectId') projectId: string,
+  ) {
+    return this.policyService.applyPolicies(projectId);
+  }
 
   @Get(':entityName')
+  @RequireItemPermission('read')
   list(
     @Param('projectId') projectId: string,
     @Param('entityName') entityName: string,
@@ -43,6 +57,7 @@ export class ItemsController {
   }
 
   @Get(':entityName/:id')
+  @RequireItemPermission('read')
   getOne(
     @Param('projectId') projectId: string,
     @Param('entityName') entityName: string,
@@ -54,6 +69,7 @@ export class ItemsController {
 
   @Post(':entityName')
   @HttpCode(HttpStatus.CREATED)
+  @RequireItemPermission('write')
   create(
     @Param('projectId') projectId: string,
     @Param('entityName') entityName: string,
@@ -64,6 +80,7 @@ export class ItemsController {
   }
 
   @Patch(':entityName/:id')
+  @RequireItemPermission('write')
   update(
     @Param('projectId') projectId: string,
     @Param('entityName') entityName: string,
@@ -76,6 +93,7 @@ export class ItemsController {
 
   @Delete(':entityName/:id')
   @HttpCode(HttpStatus.OK)
+  @RequireItemPermission('delete')
   remove(
     @Param('projectId') projectId: string,
     @Param('entityName') entityName: string,
