@@ -10,6 +10,7 @@ import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
+import { useDashboard } from '@/app/dashboard/layout';
 import { ContextHelpPanel } from '@/components/context-help-panel';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
@@ -133,6 +134,19 @@ export default function ProjectLayout({
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
+  const { activeTeamId, setActiveTeamId } = useDashboard();
+
+  // The navbar's team selector must always reflect the OPEN project's team —
+  // landing on a cross-team project (deep link, recent list) previously left
+  // the previous team selected.
+  useEffect(() => {
+    const teamId = (project as { teamId?: string } | null)?.teamId;
+    if (teamId && teamId !== activeTeamId) {
+      setActiveTeamId(teamId);
+      void api.teams.setActive(teamId).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(project as { teamId?: string } | null)?.teamId]);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(readStoredMode);
   const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
   const [autoExpanded, setAutoExpanded] = useState(false);
