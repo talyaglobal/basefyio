@@ -50,3 +50,16 @@ export interface BuildPackage {
   applicationModel: ApplicationModel;
   uiModel: UIModel;
 }
+
+export interface KPIWidget {
+  label: string;
+  table: string;
+  aggregate: 'count' | 'sum' | 'avg';
+  field?: string;
+  value?: number | string; // populated at render time
+}
+
+export interface DashboardConfig {
+  kpis: KPIWidget[];
+  recentTables: string[]; // show last 5 rows of each
+}

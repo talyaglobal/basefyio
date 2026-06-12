@@ -159,6 +159,16 @@ export class AiService {
     return bfKeywords.some((k) => m.includes(k));
   }
 
+  async complete(prompt: string): Promise<string> {
+    if (!this.openai) throw new Error('OpenAI not configured');
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+    });
+    return response.choices[0]?.message?.content ?? '';
+  }
+
   private buildSystemPrompt(context: AiContext): string {
     const mode = context.mode ?? 'ask';
 

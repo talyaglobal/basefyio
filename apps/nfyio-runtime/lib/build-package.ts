@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import { BuildPackage } from './types';
 
 const API_URL = process.env.PLATFORM_API_URL || 'http://localhost:3000';
@@ -7,6 +8,51 @@ export async function fetchBuildPackage(projectId: string): Promise<BuildPackage
     const res = await fetch(`${API_URL}/v1/blueprints/by-project/${projectId}/build-package`, {
       cache: 'no-store',
     });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export const loadBuildPackage = (projectId: string) =>
+  unstable_cache(
+    () =>
+      fetchBuildPackage(projectId).then((bp) => bp ?? demoBuildPackage()),
+    [`build-package-${projectId}`],
+    { revalidate: 60, tags: [`build-package-${projectId}`] },
+  )();
+
+export async function fetchTableRows(
+  projectId: string,
+  tableName: string,
+  limit = 20,
+): Promise<Record<string, unknown>[]> {
+  const API = process.env.PLATFORM_API_URL || 'http://localhost:3000';
+  try {
+    const res = await fetch(
+      `${API}/v1/projects/${projectId}/data/${tableName}?limit=${limit}`,
+      { cache: 'no-store' },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.rows) ? data.rows : Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchTableRow(
+  projectId: string,
+  tableName: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const API = process.env.PLATFORM_API_URL || 'http://localhost:3000';
+  try {
+    const res = await fetch(
+      `${API}/v1/projects/${projectId}/data/${tableName}/${id}`,
+      { cache: 'no-store' },
+    );
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -48,6 +94,7 @@ export function demoBuildPackage(): BuildPackage {
     applicationModel: {
       name: 'Demo App',
       navigation: [
+        { label: 'Dashboard', table: 'dashboard', icon: 'chart-bar' },
         { label: 'Customers', table: 'customers', icon: 'users' },
         { label: 'Orders', table: 'orders', icon: 'shopping-cart' },
       ],

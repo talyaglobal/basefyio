@@ -8,5 +8,6 @@ import { RagService } from './rag.service';
   // EmbeddingModule is @Global() so EmbeddingService and VectorStoreService
   // are available without an explicit import here.
   providers: [AiService, RagService],
+  exports: [AiService],
 })
 export class AiModule {}

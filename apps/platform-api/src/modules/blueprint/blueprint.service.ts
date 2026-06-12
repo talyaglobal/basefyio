@@ -431,4 +431,83 @@ Produce the BusinessModel JSON.`;
     if (!bp) throw new NotFoundException('Blueprint not found');
     return bp;
   }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 5: save dashboard widget
+  // ---------------------------------------------------------------------------
+
+  async saveWidget(
+    userId: string,
+    dto: {
+      blueprintId: string;
+      widgetLabel: string;
+      chartHint: 'table' | 'bar' | 'line' | 'pie';
+      sql: string;
+      columns: string[];
+      sampleData: Record<string, unknown>[];
+    },
+  ): Promise<{ blueprintId: string; versionId: string; version: number }> {
+    const bp = await (this.prisma as any).blueprint.findUnique({ where: { id: dto.blueprintId } });
+    if (!bp) throw new NotFoundException('Blueprint not found');
+
+    // Load current app model version
+    const currentVersion = bp.currentVersionId
+      ? await (this.prisma as any).applicationVersion.findUnique({ where: { id: bp.currentVersionId } })
+      : null;
+    const nextVersionNum = (currentVersion?.version ?? 0) + 1;
+
+    // Add widget to uiModel dashboard
+    const currentUiModel = (bp.uiModel ?? {}) as Record<string, unknown>;
+    const currentPages = (currentUiModel.pages as unknown[]) ?? [];
+
+    // Find or create dashboard page
+    const dashboardPageIdx = (currentPages as Array<{ type: string }>).findIndex((p) => p.type === 'dashboard');
+    const newWidget = {
+      type: 'chart',
+      chartHint: dto.chartHint,
+      label: dto.widgetLabel,
+      sql: dto.sql,
+      columns: dto.columns,
+      sampleData: dto.sampleData.slice(0, 5),
+    };
+
+    let updatedPages: unknown[];
+    if (dashboardPageIdx >= 0) {
+      updatedPages = currentPages.map((p, i) => {
+        if (i !== dashboardPageIdx) return p;
+        const page = p as Record<string, unknown>;
+        const widgets = (page.widgets as unknown[]) ?? [];
+        return { ...page, widgets: [...widgets, newWidget] };
+      });
+    } else {
+      // Create a new dashboard page with this widget
+      updatedPages = [
+        { type: 'dashboard', label: 'Dashboard', widgets: [newWidget] },
+        ...currentPages,
+      ];
+    }
+
+    const updatedUiModel = { ...currentUiModel, pages: updatedPages };
+
+    // Create new ApplicationVersion
+    const appModel = (currentVersion?.applicationModel ?? {}) as Record<string, unknown>;
+    const newVersion = await (this.prisma as any).applicationVersion.create({
+      data: {
+        blueprintId: dto.blueprintId,
+        version: nextVersionNum,
+        applicationModel: appModel,
+        changeSummary: `Added dashboard widget: ${dto.widgetLabel}`,
+        aiGenerated: false,
+        createdBy: userId,
+      },
+    });
+
+    // Update Blueprint uiModel + currentVersionId
+    await (this.prisma as any).blueprint.update({
+      where: { id: dto.blueprintId },
+      data: { uiModel: updatedUiModel, currentVersionId: newVersion.id },
+    });
+
+    return { blueprintId: dto.blueprintId, versionId: newVersion.id, version: nextVersionNum };
+  }
 }

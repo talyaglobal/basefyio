@@ -50,4 +50,20 @@ export class BlueprintController {
   getStatus(@Param('id') id: string) {
     return this.service.getGenerateStatus(id);
   }
+
+  @Post('widgets')
+  @HttpCode(HttpStatus.CREATED)
+  saveWidget(
+    @Body() body: {
+      blueprintId: string;
+      widgetLabel: string;
+      chartHint: 'table' | 'bar' | 'line' | 'pie';
+      sql: string;
+      columns: string[];
+      sampleData: Record<string, unknown>[];
+    },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.saveWidget(user.sub, body);
+  }
 }
