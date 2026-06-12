@@ -1884,4 +1884,44 @@ export const api = {
       });
     },
   },
+
+  blueprints: {
+    analyze(data: {
+      teamId: string;
+      sheets: Array<{ sheet: string; headers: string[]; sampleRows: unknown[][] }>;
+    }) {
+      return request<{ id: string; domain: string; dataModel: unknown; businessModel: unknown }>(
+        '/v1/blueprints/analyze',
+        { method: 'POST', body: JSON.stringify(data) },
+      );
+    },
+    get(id: string) {
+      return request<{
+        id: string;
+        status: string;
+        domain?: string;
+        dataModel: unknown;
+        businessModel: unknown;
+        uiModel: unknown;
+        currentVersionId?: string;
+      }>(`/v1/blueprints/${id}`);
+    },
+    approve(id: string, applicationModel: Record<string, unknown>) {
+      return request<{ blueprintId: string; status: string; versionId: string }>(
+        `/v1/blueprints/${id}/approve`,
+        { method: 'PATCH', body: JSON.stringify(applicationModel) },
+      );
+    },
+    generate(id: string) {
+      return request<{ blueprintId: string; jobId: string; status: string }>(
+        `/v1/blueprints/${id}/generate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+    },
+    getStatus(id: string) {
+      return request<{ id: string; status: string; projectId?: string }>(
+        `/v1/blueprints/${id}/status`,
+      );
+    },
+  },
 };

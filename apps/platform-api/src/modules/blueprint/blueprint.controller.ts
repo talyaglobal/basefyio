@@ -51,6 +51,26 @@ export class BlueprintController {
     return this.service.getGenerateStatus(id);
   }
 
+  @Post(':id/resync')
+  @HttpCode(HttpStatus.OK)
+  resync(
+    @Param('id') id: string,
+    @Body() body: { sheets: Array<{ sheet: string; headers: string[]; sampleRows: unknown[][] }> },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.resync(user.sub, id, body);
+  }
+
+  @Post(':id/invite')
+  @HttpCode(HttpStatus.ACCEPTED)
+  invite(
+    @Param('id') id: string,
+    @Body() body: { email: string; role: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.invite(user.sub, id, body);
+  }
+
   @Post('widgets')
   @HttpCode(HttpStatus.CREATED)
   saveWidget(

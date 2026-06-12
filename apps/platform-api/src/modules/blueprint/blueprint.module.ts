@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { BlueprintController } from './blueprint.controller';
 import { BlueprintService } from './blueprint.service';
 import { BlueprintGenerateProcessor } from './blueprint-generate.processor';
+import { BlueprintQuotaService } from './blueprint-quota.service';
 import { BLUEPRINT_GENERATE_QUEUE } from '../queue/queue.module';
 
 @Module({
@@ -12,7 +13,7 @@ import { BLUEPRINT_GENERATE_QUEUE } from '../queue/queue.module';
     BullModule.registerQueue({ name: BLUEPRINT_GENERATE_QUEUE }),
   ],
   controllers: [BlueprintController],
-  providers: [BlueprintService, BlueprintGenerateProcessor],
-  exports: [BlueprintService],
+  providers: [BlueprintService, BlueprintGenerateProcessor, BlueprintQuotaService],
+  exports: [BlueprintService, BlueprintQuotaService],
 })
 export class BlueprintModule {}

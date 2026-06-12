@@ -157,6 +157,63 @@ describe('BlueprintService.detectDomain (via analyze)', () => {
   });
 });
 
+describe('BlueprintService.resync', () => {
+  it('throws 404 when blueprint not found', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue(null);
+    const svc = new BlueprintService(prisma, null as any);
+    await expect(svc.resync(USER_ID, 'bp-x', { sheets: [] })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws 400 when blueprint is in generating status', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', status: 'generating' });
+    const svc = new BlueprintService(prisma, null as any);
+    await expect(svc.resync(USER_ID, 'bp-1', { sheets: [] })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('creates a new ApplicationVersion and returns approved status', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', teamId: TEAM_ID, status: 'generated', currentVersionId: null });
+    (prisma as any).applicationVersion = {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: 'ver-2', version: 1 }),
+    };
+    prisma.blueprint.update = jest.fn().mockResolvedValue({ id: 'bp-1', status: 'approved' });
+    const svc = new BlueprintService(prisma, null as any);
+    const result = await svc.resync(USER_ID, 'bp-1', {
+      sheets: [{ sheet: 'Customers', headers: ['name', 'email'], sampleRows: [['Alice', 'alice@example.com']] }],
+    });
+    expect(result.status).toBe('approved');
+    expect(result.tableCount).toBe(1);
+  });
+});
+
+describe('BlueprintService.invite', () => {
+  it('throws 404 when blueprint not found', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue(null);
+    const svc = new BlueprintService(prisma, null as any);
+    await expect(svc.invite(USER_ID, 'bp-x', { email: 'a@b.com', role: 'admin' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws 400 when blueprint has no project', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', status: 'draft', projectId: null, teamId: TEAM_ID });
+    const svc = new BlueprintService(prisma, null as any);
+    await expect(svc.invite(USER_ID, 'bp-1', { email: 'a@b.com', role: 'admin' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns pending invitation when project exists', async () => {
+    const prisma = makePrisma();
+    prisma.blueprint.findUnique.mockResolvedValue({ id: 'bp-1', status: 'generated', projectId: 'p-1', teamId: TEAM_ID });
+    const svc = new BlueprintService(prisma, null as any);
+    const result = await svc.invite(USER_ID, 'bp-1', { email: 'user@example.com', role: 'viewer' });
+    expect(result.status).toBe('pending');
+    expect(result.invitedEmail).toBe('user@example.com');
+  });
+});
+
 describe('BlueprintService.generate', () => {
   it('enqueues a job and returns queued status', async () => {
     const prisma = makePrisma();

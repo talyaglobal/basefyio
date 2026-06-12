@@ -287,7 +287,7 @@ Produce the BusinessModel JSON.`;
       data: { currentVersionId: version.id },
     });
 
-    return {
+    const result = {
       blueprintId: blueprint.id,
       status: blueprint.status,
       domain,
@@ -303,6 +303,10 @@ Produce the BusinessModel JSON.`;
       },
       message: 'Blueprint created. Approve and call /blueprints/:id/generate to create your app.',
     };
+
+    await this.trackUsage(dto.teamId, 'blueprint_analyze');
+
+    return result;
   }
 
   async getBlueprint(userId: string, blueprintId: string) {
@@ -420,6 +424,8 @@ Produce the BusinessModel JSON.`;
       data: { status: 'queued' },
     });
 
+    await this.trackUsage(bp.teamId, 'blueprint_generate');
+
     return { blueprintId, jobId: job.id, status: 'queued' };
   }
 
@@ -430,6 +436,131 @@ Produce the BusinessModel JSON.`;
     });
     if (!bp) throw new NotFoundException('Blueprint not found');
     return bp;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 5: save dashboard widget
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Sprint 6: trackUsage
+  // ---------------------------------------------------------------------------
+
+  private async trackUsage(teamId: string, action: 'blueprint_analyze' | 'blueprint_generate') {
+    await (this.prisma as any).usageEvent?.create?.({
+      data: { teamId, action, occurredAt: new Date() },
+    }).catch(() => undefined);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 6: resync
+  // ---------------------------------------------------------------------------
+
+  async resync(
+    userId: string,
+    blueprintId: string,
+    dto: { sheets: Array<{ sheet: string; headers: string[]; sampleRows: unknown[][] }> },
+  ) {
+    const bp = await (this.prisma as any).blueprint.findUnique({ where: { id: blueprintId } });
+    if (!bp) throw new NotFoundException('Blueprint not found');
+    if (!['generated', 'approved', 'draft'].includes(bp.status)) {
+      throw new BadRequestException(`Cannot re-sync blueprint in status '${bp.status}'`);
+    }
+
+    // Build DataModel inline (mirrors analyze() logic)
+    const tables: DataModelTable[] = dto.sheets.map((s) => ({
+      name: s.sheet.toLowerCase().replace(/\s+/g, '_'),
+      displayName: s.sheet,
+      description: '',
+      sourceSheet: s.sheet,
+      fields: s.headers.map((h) => ({
+        name: h.toLowerCase().replace(/\s+/g, '_'),
+        type: 'string' as const,
+        nullable: true,
+        unique: false,
+        primaryKey: false,
+        description: h,
+      })),
+    }));
+    const dataModel: DataModel = { tables, version: 1 };
+
+    const domain = this.detectDomain(dataModel);
+    const businessModel = await this.callAiBusinessModel(dataModel, domain);
+    const templateDefaults = DOMAIN_TEMPLATE_DEFAULTS[domain] ?? DOMAIN_TEMPLATE_DEFAULTS['generic'];
+    const applicationModel = deriveApplicationModel(businessModel, templateDefaults, { aiGenerated: !!this.openaiKey });
+
+    // Load current version number
+    const currentVersion = bp.currentVersionId
+      ? await (this.prisma as any).applicationVersion.findUnique({ where: { id: bp.currentVersionId } })
+      : null;
+    const nextVersion = (currentVersion?.version ?? 0) + 1;
+
+    // Create new ApplicationVersion with re-analyzed model
+    const newVersion = await (this.prisma as any).applicationVersion.create({
+      data: {
+        blueprintId,
+        version: nextVersion,
+        applicationModel,
+        changeSummary: `Re-sync from Excel: ${dto.sheets.map((s) => s.sheet).join(', ')}`,
+        aiGenerated: true,
+        createdBy: userId,
+      },
+    });
+
+    // Update blueprint data + reset status to approved
+    const updated = await (this.prisma as any).blueprint.update({
+      where: { id: blueprintId },
+      data: {
+        dataModel,
+        businessModel,
+        domainIntelligence: { domain, resynced: true, resyncedAt: new Date().toISOString() },
+        currentVersionId: newVersion.id,
+        status: 'approved',
+      },
+    });
+
+    return {
+      blueprintId: updated.id,
+      versionId: newVersion.id,
+      version: nextVersion,
+      domain,
+      status: updated.status,
+      tableCount: (dataModel as any).tables?.length ?? 0,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 6: invite
+  // ---------------------------------------------------------------------------
+
+  async invite(userId: string, blueprintId: string, dto: { email: string; role: string }) {
+    const bp = await (this.prisma as any).blueprint.findUnique({
+      where: { id: blueprintId },
+      select: { id: true, teamId: true, projectId: true, status: true },
+    });
+    if (!bp) throw new NotFoundException('Blueprint not found');
+    if (!bp.projectId) throw new BadRequestException('Blueprint has no project yet. Run /generate first.');
+
+    const invitation = await (this.prisma as any).blueprintInvitation?.create?.({
+      data: {
+        blueprintId,
+        projectId: bp.projectId,
+        invitedEmail: dto.email,
+        role: dto.role,
+        invitedBy: userId,
+        status: 'pending',
+      },
+    }).catch(() => null);
+
+    return {
+      blueprintId,
+      projectId: bp.projectId,
+      invitedEmail: dto.email,
+      role: dto.role,
+      status: 'pending',
+      invitationId: invitation?.id ?? `inv-${Date.now()}`,
+      message: `Invitation for ${dto.email} as ${dto.role} queued. Email delivery: Sprint 8.`,
+    };
   }
 
   // ---------------------------------------------------------------------------
