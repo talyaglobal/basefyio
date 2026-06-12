@@ -67,3 +67,7 @@ export type {
   ResourcePage,
   ListResourcesOptions,
 } from './lib/types.js';
+
+export { ItemsClient, createItemsModule } from './modules/items.js';
+export type { ItemsModule } from './modules/items.js';
+export type { Item, ItemsPage, ListItemsOptions } from './lib/types.js';

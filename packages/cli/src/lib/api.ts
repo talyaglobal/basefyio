@@ -387,6 +387,75 @@ export class ApiClient {
   async revokeProvisioningCredentialRef(credentialRefId: string) {
     await this.client.delete(`/api/v1/provisioning/credentials/${credentialRefId}`);
   }
+
+  // Items (content layer)
+
+  async listItems(
+    projectId: string,
+    entityName: string,
+    opts: {
+      limit?: number;
+      cursor?: string;
+      sort?: string;
+      order?: string;
+      filters?: Record<string, string>;
+    } = {},
+  ) {
+    const params: Record<string, any> = {};
+    if (opts.limit != null) params.limit = opts.limit;
+    if (opts.cursor) params.cursor = opts.cursor;
+    if (opts.sort) params.sort = opts.sort;
+    if (opts.order) params.order = opts.order;
+    if (opts.filters) {
+      for (const [k, v] of Object.entries(opts.filters)) {
+        params[`filter[${k}]`] = v;
+      }
+    }
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(entityName)}`,
+      { params },
+    );
+    return data as { data: any[]; nextCursor: string | null; total: number };
+  }
+
+  async getItem(projectId: string, entityName: string, id: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}`,
+    );
+    return data as Record<string, unknown>;
+  }
+
+  async createItem(
+    projectId: string,
+    entityName: string,
+    payload: Record<string, unknown>,
+  ) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(entityName)}`,
+      payload,
+    );
+    return data as Record<string, unknown>;
+  }
+
+  async updateItem(
+    projectId: string,
+    entityName: string,
+    id: string,
+    payload: Record<string, unknown>,
+  ) {
+    const { data } = await this.client.patch(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}`,
+      payload,
+    );
+    return data as Record<string, unknown>;
+  }
+
+  async deleteItem(projectId: string, entityName: string, id: string) {
+    const { data } = await this.client.delete(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}`,
+    );
+    return data as { deleted: boolean; id: string };
+  }
 }
 
 export const apiClient = new ApiClient();

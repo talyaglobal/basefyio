@@ -8,6 +8,7 @@ import { StorageClient } from './modules/storage.js';
 import { CollectionManager, CollectionClient } from './modules/collection.js';
 import { DataEngineClient, EntityClient } from './modules/data-engine.js';
 import { ProvisioningClient } from './modules/provisioning.js';
+import { ItemsClient } from './modules/items.js';
 
 export class BasefyioClient {
   readonly auth: AuthClient;
@@ -15,6 +16,7 @@ export class BasefyioClient {
   readonly collections: CollectionManager;
   readonly data: DataEngineClient;
   readonly provisioning: ProvisioningClient;
+  readonly items: ItemsClient;
 
   private db: DatabaseClient;
   private http: BasefyioFetchClient;
@@ -48,6 +50,7 @@ export class BasefyioClient {
     this.collections = new CollectionManager(this.http, this.projectId);
     this.data = new DataEngineClient(this.http, this.projectId);
     this.provisioning = new ProvisioningClient(this.http);
+    this.items = new ItemsClient(this.http);
   }
 
   /**

@@ -352,3 +352,25 @@ export interface AllProviderHealthResult {
   providers: ProviderHealthResult[];
   checkedAt: string;
 }
+
+// ── Items API ─────────────────────────────────────────────────────────────────
+
+export interface Item extends Record<string, unknown> {
+  id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ItemsPage {
+  data: Item[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface ListItemsOptions {
+  limit?: number;
+  cursor?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  filters?: Record<string, string>;
+}
