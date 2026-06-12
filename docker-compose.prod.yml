@@ -195,6 +195,31 @@ services:
 
   # CouchDB backs the Data Engine (DATA_ENGINE_PROVIDER=couchdb). Internal
   # network only — platform-api reaches it as http://couchdb:5984.
+  # MongoDB — alternative Data Engine with aggregation pipeline support.
+  # Runs alongside CouchDB; activate per-deployment by setting
+  #   DATA_ENGINE_PROVIDER=mongodb
+  #   NOSQL_CONNSTR=mongodb://<user>:<pass>@mongodb:27017
+  mongodb:
+    image: mongo:7
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${NOSQL_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${NOSQL_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
   couchdb:
     image: apache/couchdb:3
     restart: always
@@ -383,6 +408,7 @@ volumes:
   redis_data:
   minio_data:
   couchdb_data:
+  mongodb_data:
   pgbouncer_config:
   letsencrypt_data:
 

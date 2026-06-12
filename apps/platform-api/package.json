@@ -57,6 +57,7 @@
     "ioredis": "^5.9.3",
     "jwks-rsa": "^3.0.0",
     "minio": "^8.0.6",
+    "mongodb": "^6.10.0",
     "nodemailer": "^8.0.2",
     "openai": "^4.0.0",
     "papaparse": "^5.4.1",
