@@ -417,6 +417,20 @@ export class ProjectsService {
       // realm is a stored auth identifier and intentionally keeps its
       // original value — renaming realms would invalidate end-user logins.
       if (updateData.name !== project.name) {
+        const dupe = await this.prisma.project.findFirst({
+          where: {
+            name: { equals: updateData.name, mode: 'insensitive' },
+            teamId: project.teamId,
+            id: { not: project.id },
+            status: { not: 'DELETED' },
+          },
+          select: { id: true },
+        });
+        if (dupe) {
+          throw new BadRequestException(
+            'A project with this name already exists in this team',
+          );
+        }
         const nextSlug = await this.uniqueSlug(this.toSlug(updateData.name));
         if (nextSlug !== project.slug) {
           updateData.slug = nextSlug;
@@ -890,19 +904,32 @@ export class ProjectsService {
     const originalName = this.stripDeletedSuffix(project.name);
     const originalSlug = this.stripDeletedSuffix(project.slug);
 
-    const conflict = await this.prisma.project.findFirst({
+    // Name uniqueness is per-team: other teams may freely share project names.
+    const nameConflict = await this.prisma.project.findFirst({
       where: {
-        OR: [{ name: originalName }, { slug: originalSlug }],
+        name: { equals: originalName, mode: 'insensitive' },
+        teamId: project.teamId,
         id: { not: project.id },
         status: { not: 'DELETED' },
       },
-      select: { id: true, name: true },
+      select: { id: true },
     });
-
-    if (conflict) {
+    if (nameConflict) {
       throw new ForbiddenException(
-        `A project named "${originalName}" already exists. Please delete or rename the existing project before restoring this one.`,
+        `A project named "${originalName}" already exists in this team. Delete or rename it before restoring this one.`,
       );
+    }
+
+    // Slugs are global. If the original got taken while this project sat in
+    // the trash, mint a fresh one and freeze the storage prefix to the
+    // pre-delete slug so existing buckets stay reachable.
+    let restoredSlug = originalSlug;
+    const slugTaken = await this.prisma.project.findFirst({
+      where: { slug: originalSlug, id: { not: project.id } },
+      select: { id: true },
+    });
+    if (slugTaken) {
+      restoredSlug = await this.uniqueSlug(originalSlug);
     }
 
     // Derive the original DB name / user / realm from the archived names
@@ -944,7 +971,10 @@ export class ProjectsService {
         status: 'ACTIVE',
         deletedAt: null,
         name: originalName,
-        slug: originalSlug,
+        slug: restoredSlug,
+        ...(restoredSlug !== originalSlug && !project.storagePrefix
+          ? { storagePrefix: originalSlug }
+          : {}),
         dbName: originalDbName,
         dbUser: originalDbUser,
         keycloakRealm: project.keycloakRealm, // keep the archived realm name; it's re-enabled above
@@ -1720,22 +1750,17 @@ export class ProjectsService {
 
   /**
    * Slugs are globally unique (they seed realm and resource names), so two
-   * customers can collide on the same project name. The first taker keeps
-   * the clean slug; collisions get a short random suffix instead of a
-   * sequential counter — counters leak how many projects share a name
-   * across tenants and race under concurrent creates, random suffixes do
-   * neither. Existing project slugs are never touched.
+   * customers can collide on the same project name. Every slug carries a
+   * short random suffix — uniform across all projects, no cross-tenant
+   * name leak, no races under concurrent creates. Existing slugs are
+   * never rewritten retroactively.
    */
   private async uniqueSlug(base: string): Promise<string> {
     // Keep room for the suffix so realm/db names stay comfortably bounded.
     const trimmedBase = base.slice(0, 48);
 
-    const existing = await this.prisma.project.findFirst({
-      where: { slug: trimmedBase },
-      select: { id: true },
-    });
-    if (!existing) return trimmedBase;
-
+    // Every project gets a suffix — uniform identity, zero cross-tenant
+    // information leak, and restores/renames can never collide.
     for (let attempt = 0; attempt < 5; attempt++) {
       const suffix = randomBytes(4).toString('base64url')
         .replace(/[^a-zA-Z0-9]/g, '')
