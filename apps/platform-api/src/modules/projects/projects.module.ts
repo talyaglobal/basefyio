@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
+import { RealmReferenceRepairService } from './realm-reference-repair.service';
 import { ProjectDataController } from './project-data.controller';
 import { ProjectDatabaseController } from './project-database.controller';
 import { ProjectDatabaseService } from './project-database.service';
@@ -67,6 +68,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
     ExportProcessor,
     EmailProcessor,
     FoldersTagsService,
+    RealmReferenceRepairService,
   ],
   exports: [ProjectsService, CollectionService],
 })
