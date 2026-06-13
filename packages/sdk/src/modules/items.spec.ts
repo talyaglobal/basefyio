@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createItemsModule } from './items.js';
 
-const PAGE: import('../lib/types.js').ItemsPage = {
-  data: [{ id: 'i-1', name: 'Alice' }],
+const PAGE: import('../lib/types.js').StructureItemsPage = {
+  data: [{ id: 'i-1', data: { title: 'Alice' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
   nextCursor: null,
   total: 1,
 };
@@ -16,7 +16,7 @@ function makeClient() {
   };
 }
 
-describe('ItemsModule', () => {
+describe('ItemsModule (structure-based)', () => {
   let client: ReturnType<typeof makeClient>;
   let items: ReturnType<typeof createItemsModule>;
 
@@ -25,52 +25,54 @@ describe('ItemsModule', () => {
     items = createItemsModule(client as any);
   });
 
-  it('list: calls GET with correct path', async () => {
+  it('list: calls GET with correct structure path', async () => {
     client.get.mockResolvedValue(PAGE);
-    const result = await items.list('p-1', 'customers');
-    expect(client.get).toHaveBeenCalledWith('/v1/projects/p-1/items/customers');
+    const result = await items.list('p-1', 'str-1');
+    expect(client.get).toHaveBeenCalledWith('/v1/projects/p-1/structures/str-1/items');
     expect(result.data).toHaveLength(1);
   });
 
-  it('list: appends query params for filter/sort/cursor', async () => {
+  it('list: appends limit and cursor params', async () => {
     client.get.mockResolvedValue(PAGE);
-    await items.list('p-1', 'customers', {
-      limit: 10,
-      sort: 'created_at',
-      order: 'desc',
-      filters: { status: 'active' },
-      cursor: 'abc123',
-    });
+    await items.list('p-1', 'str-1', { limit: 10, cursor: 'tok-abc' });
     const call = client.get.mock.calls[0][0] as string;
     expect(call).toContain('limit=10');
-    expect(call).toContain('sort=created_at');
-    expect(call).toContain('order=desc');
-    expect(call).toContain('filter%5Bstatus%5D=active');
-    expect(call).toContain('cursor=abc123');
+    expect(call).toContain('cursor=tok-abc');
   });
 
-  it('get: calls GET with id', async () => {
-    client.get.mockResolvedValue({ id: 'i-1', name: 'Alice' });
-    const result = await items.get('p-1', 'customers', 'i-1');
-    expect(client.get).toHaveBeenCalledWith('/v1/projects/p-1/items/customers/i-1');
+  it('get: calls GET with itemId', async () => {
+    const item = PAGE.data[0];
+    client.get.mockResolvedValue(item);
+    const result = await items.get('p-1', 'str-1', 'i-1');
+    expect(client.get).toHaveBeenCalledWith('/v1/projects/p-1/structures/str-1/items/i-1');
     expect(result.id).toBe('i-1');
   });
 
   it('create: calls POST with data', async () => {
-    client.post.mockResolvedValue({ id: 'i-2', name: 'Bob' });
-    await items.create('p-1', 'customers', { name: 'Bob' });
-    expect(client.post).toHaveBeenCalledWith('/v1/projects/p-1/items/customers', { name: 'Bob' });
+    const item = PAGE.data[0];
+    client.post.mockResolvedValue(item);
+    const result = await items.create('p-1', 'str-1', { title: 'Alice' });
+    expect(client.post).toHaveBeenCalledWith(
+      '/v1/projects/p-1/structures/str-1/items',
+      { title: 'Alice' },
+    );
+    expect(result.id).toBe('i-1');
   });
 
-  it('update: calls PATCH with data', async () => {
-    client.patch.mockResolvedValue({ id: 'i-1', name: 'Alice Updated' });
-    await items.update('p-1', 'customers', 'i-1', { name: 'Alice Updated' });
-    expect(client.patch).toHaveBeenCalledWith('/v1/projects/p-1/items/customers/i-1', { name: 'Alice Updated' });
+  it('update: calls PATCH with itemId and data', async () => {
+    const item = PAGE.data[0];
+    client.patch.mockResolvedValue(item);
+    await items.update('p-1', 'str-1', 'i-1', { title: 'Bob' });
+    expect(client.patch).toHaveBeenCalledWith(
+      '/v1/projects/p-1/structures/str-1/items/i-1',
+      { title: 'Bob' },
+    );
   });
 
-  it('delete: calls DELETE', async () => {
+  it('delete: calls DELETE with itemId', async () => {
     client.delete.mockResolvedValue({ deleted: true, id: 'i-1' });
-    const result = await items.delete('p-1', 'customers', 'i-1');
+    const result = await items.delete('p-1', 'str-1', 'i-1');
+    expect(client.delete).toHaveBeenCalledWith('/v1/projects/p-1/structures/str-1/items/i-1');
     expect(result.deleted).toBe(true);
   });
 });

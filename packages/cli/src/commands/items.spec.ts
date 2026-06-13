@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ── Hoisted mocks (must be defined before vi.mock factories run) ──────────────
+// ── Hoisted mocks ────────────────────────────────────────────────────────────
 
 const { mockApiClient } = vi.hoisted(() => {
   const mockApiClient = {
@@ -12,8 +12,6 @@ const { mockApiClient } = vi.hoisted(() => {
   };
   return { mockApiClient };
 });
-
-// ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('../lib/config.js', () => ({
   isLoggedIn: vi.fn().mockReturnValue(true),
@@ -34,23 +32,23 @@ vi.mock('../lib/api.js', () => ({
   handleApiError: vi.fn().mockImplementation(async (err) => { throw err; }),
 }));
 
-// ── Imports (after mocks) ─────────────────────────────────────────────────────
+// ── Imports ──────────────────────────────────────────────────────────────────
 
-import { listItems, getItem, createItem, deleteItem } from './items.js';
+import { listItems, getItem, createItem, updateItem, deleteItem } from './items.js';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const PROJECT_ID   = 'proj-123';
-const ENTITY_NAME  = 'customers';
+const STRUCTURE_ID = 'str-456';
 const ITEM_ID      = 'i-1';
 
 const ITEM_PAGE = {
-  data: [{ id: ITEM_ID, name: 'Alice' }],
+  data: [{ id: ITEM_ID, data: { title: 'Alice' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
   nextCursor: null,
   total: 1,
 };
 
-const ITEM = { id: ITEM_ID, name: 'Alice' };
+const ITEM = { id: ITEM_ID, data: { title: 'Alice' } };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -62,110 +60,98 @@ describe('items CLI commands', () => {
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  // ── listItems ──────────────────────────────────────────────────────────────
-
   describe('listItems', () => {
-    it('calls apiClient.listItems with defaults and prints JSON', async () => {
+    it('calls apiClient.listItems with structureId and defaults', async () => {
       mockApiClient.listItems.mockResolvedValue(ITEM_PAGE);
-
-      await listItems(PROJECT_ID, ENTITY_NAME, {});
-
-      expect(mockApiClient.listItems).toHaveBeenCalledWith(PROJECT_ID, ENTITY_NAME, {
+      await listItems(PROJECT_ID, STRUCTURE_ID, {});
+      expect(mockApiClient.listItems).toHaveBeenCalledWith(PROJECT_ID, STRUCTURE_ID, {
         limit: 20,
         cursor: undefined,
-        sort: undefined,
-        order: undefined,
-        filters: {},
       });
       expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify(ITEM_PAGE, null, 2));
     });
 
-    it('passes limit, cursor, sort, order, and filters', async () => {
+    it('passes limit and cursor', async () => {
       mockApiClient.listItems.mockResolvedValue(ITEM_PAGE);
-
-      await listItems(PROJECT_ID, ENTITY_NAME, {
-        limit: '5',
-        cursor: 'tok-abc',
-        sort: 'name',
-        order: 'asc',
-        filter: ['status=active', 'role=admin'],
-      });
-
-      expect(mockApiClient.listItems).toHaveBeenCalledWith(PROJECT_ID, ENTITY_NAME, {
+      await listItems(PROJECT_ID, STRUCTURE_ID, { limit: '5', cursor: 'tok-abc' });
+      expect(mockApiClient.listItems).toHaveBeenCalledWith(PROJECT_ID, STRUCTURE_ID, {
         limit: 5,
         cursor: 'tok-abc',
-        sort: 'name',
-        order: 'asc',
-        filters: { status: 'active', role: 'admin' },
       });
     });
 
-    it('propagates errors via handleApiError', async () => {
-      const err = new Error('server error');
-      mockApiClient.listItems.mockRejectedValue(err);
-
-      await expect(listItems(PROJECT_ID, ENTITY_NAME, {})).rejects.toThrow('server error');
+    it('propagates errors', async () => {
+      mockApiClient.listItems.mockRejectedValue(new Error('server error'));
+      await expect(listItems(PROJECT_ID, STRUCTURE_ID, {})).rejects.toThrow('server error');
     });
   });
-
-  // ── getItem ────────────────────────────────────────────────────────────────
 
   describe('getItem', () => {
     it('calls apiClient.getItem and prints JSON', async () => {
       mockApiClient.getItem.mockResolvedValue(ITEM);
-
-      await getItem(PROJECT_ID, ENTITY_NAME, ITEM_ID);
-
-      expect(mockApiClient.getItem).toHaveBeenCalledWith(PROJECT_ID, ENTITY_NAME, ITEM_ID);
+      await getItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID);
+      expect(mockApiClient.getItem).toHaveBeenCalledWith(PROJECT_ID, STRUCTURE_ID, ITEM_ID);
       expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify(ITEM, null, 2));
     });
 
-    it('propagates errors via handleApiError', async () => {
+    it('propagates errors', async () => {
       mockApiClient.getItem.mockRejectedValue(new Error('not found'));
-      await expect(getItem(PROJECT_ID, ENTITY_NAME, ITEM_ID)).rejects.toThrow('not found');
+      await expect(getItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID)).rejects.toThrow('not found');
     });
   });
 
-  // ── createItem ─────────────────────────────────────────────────────────────
-
   describe('createItem', () => {
     it('parses JSON data and calls apiClient.createItem', async () => {
-      const created = { id: 'i-2', name: 'Bob' };
+      const created = { id: 'i-2', data: { title: 'Bob' } };
       mockApiClient.createItem.mockResolvedValue(created);
-
-      await createItem(PROJECT_ID, ENTITY_NAME, JSON.stringify({ name: 'Bob' }));
-
+      await createItem(PROJECT_ID, STRUCTURE_ID, JSON.stringify({ title: 'Bob' }));
       expect(mockApiClient.createItem).toHaveBeenCalledWith(
         PROJECT_ID,
-        ENTITY_NAME,
-        { name: 'Bob' },
+        STRUCTURE_ID,
+        { title: 'Bob' },
       );
       expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify(created, null, 2));
     });
 
     it('throws when --data is not valid JSON', async () => {
-      await expect(
-        createItem(PROJECT_ID, ENTITY_NAME, 'not-json'),
-      ).rejects.toThrow('--data must be a valid JSON string');
+      await expect(createItem(PROJECT_ID, STRUCTURE_ID, 'not-json')).rejects.toThrow(
+        '--data must be a valid JSON string',
+      );
     });
   });
 
-  // ── deleteItem ─────────────────────────────────────────────────────────────
+  describe('updateItem', () => {
+    it('parses JSON and calls apiClient.updateItem', async () => {
+      const updated = { id: ITEM_ID, data: { title: 'Updated' } };
+      mockApiClient.updateItem.mockResolvedValue(updated);
+      await updateItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID, JSON.stringify({ title: 'Updated' }));
+      expect(mockApiClient.updateItem).toHaveBeenCalledWith(
+        PROJECT_ID,
+        STRUCTURE_ID,
+        ITEM_ID,
+        { title: 'Updated' },
+      );
+    });
+
+    it('throws when --data is not valid JSON', async () => {
+      await expect(updateItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID, 'bad')).rejects.toThrow(
+        '--data must be a valid JSON string',
+      );
+    });
+  });
 
   describe('deleteItem', () => {
     it('calls apiClient.deleteItem and prints JSON', async () => {
       const result = { deleted: true, id: ITEM_ID };
       mockApiClient.deleteItem.mockResolvedValue(result);
-
-      await deleteItem(PROJECT_ID, ENTITY_NAME, ITEM_ID);
-
-      expect(mockApiClient.deleteItem).toHaveBeenCalledWith(PROJECT_ID, ENTITY_NAME, ITEM_ID);
+      await deleteItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID);
+      expect(mockApiClient.deleteItem).toHaveBeenCalledWith(PROJECT_ID, STRUCTURE_ID, ITEM_ID);
       expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
     });
 
-    it('propagates errors via handleApiError', async () => {
+    it('propagates errors', async () => {
       mockApiClient.deleteItem.mockRejectedValue(new Error('delete failed'));
-      await expect(deleteItem(PROJECT_ID, ENTITY_NAME, ITEM_ID)).rejects.toThrow('delete failed');
+      await expect(deleteItem(PROJECT_ID, STRUCTURE_ID, ITEM_ID)).rejects.toThrow('delete failed');
     });
   });
 });

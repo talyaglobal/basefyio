@@ -638,44 +638,50 @@ providers
 
 const items = program
   .command('items')
-  .description('Manage content-layer items within a project entity');
+  .description('Manage items within a data structure');
 
 items
-  .command('list <projectId> <entityName>')
-  .description('List items for an entity')
+  .command('list <projectId> <structureId>')
+  .description('List items in a data structure')
   .option('--limit <n>', 'Maximum number of results (default: 20)')
   .option('--cursor <cursor>', 'Pagination cursor from a previous response')
-  .option('--sort <col>', 'Column to sort by')
-  .option('--order <dir>', 'Sort direction: asc | desc')
-  .option('--filter <key=value...>', 'Filter key=value pairs (repeatable)', (v: string, acc: string[]) => { acc.push(v); return acc; }, [] as string[])
-  .action(async (projectId, entityName, options) => {
+  .action(async (projectId, structureId, options) => {
     const { listItems } = await import('./commands/items.js');
-    await listItems(projectId, entityName, options);
+    await listItems(projectId, structureId, options);
   });
 
 items
-  .command('get <projectId> <entityName> <id>')
+  .command('get <projectId> <structureId> <id>')
   .description('Get a single item by ID')
-  .action(async (projectId, entityName, id) => {
+  .action(async (projectId, structureId, id) => {
     const { getItem } = await import('./commands/items.js');
-    await getItem(projectId, entityName, id);
+    await getItem(projectId, structureId, id);
   });
 
 items
-  .command('create <projectId> <entityName>')
+  .command('create <projectId> <structureId>')
   .description('Create a new item')
   .requiredOption('--data <json>', 'Item data as a JSON string')
-  .action(async (projectId, entityName, options) => {
+  .action(async (projectId, structureId, options) => {
     const { createItem } = await import('./commands/items.js');
-    await createItem(projectId, entityName, options.data);
+    await createItem(projectId, structureId, options.data);
   });
 
 items
-  .command('delete <projectId> <entityName> <id>')
+  .command('update <projectId> <structureId> <id>')
+  .description('Update an item by ID')
+  .requiredOption('--data <json>', 'Partial item data as a JSON string')
+  .action(async (projectId, structureId, id, options) => {
+    const { updateItem } = await import('./commands/items.js');
+    await updateItem(projectId, structureId, id, options.data);
+  });
+
+items
+  .command('delete <projectId> <structureId> <id>')
   .description('Delete an item by ID')
-  .action(async (projectId, entityName, id) => {
+  .action(async (projectId, structureId, id) => {
     const { deleteItem } = await import('./commands/items.js');
-    await deleteItem(projectId, entityName, id);
+    await deleteItem(projectId, structureId, id);
   });
 
 program.parseAsync().then(() => {

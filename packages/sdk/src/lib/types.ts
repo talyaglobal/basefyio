@@ -353,7 +353,7 @@ export interface AllProviderHealthResult {
   checkedAt: string;
 }
 
-// ── Items API ─────────────────────────────────────────────────────────────────
+// ── Items API (AppEntity-based, legacy) ───────────────────────────────────────
 
 export interface Item extends Record<string, unknown> {
   id: string;
@@ -373,4 +373,24 @@ export interface ListItemsOptions {
   sort?: string;
   order?: 'asc' | 'desc';
   filters?: Record<string, string>;
+}
+
+// ── Structure Items API (DataStructure-based) ────────────────────────────────
+
+export interface StructureItem {
+  id: string;
+  data: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StructureItemsPage {
+  data: StructureItem[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface ListStructureItemsOptions {
+  limit?: number;
+  cursor?: string;
 }

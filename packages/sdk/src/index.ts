@@ -70,7 +70,14 @@ export type {
 
 export { ItemsClient, createItemsModule } from './modules/items.js';
 export type { ItemsModule } from './modules/items.js';
-export type { Item, ItemsPage, ListItemsOptions } from './lib/types.js';
+export type {
+  Item,
+  ItemsPage,
+  ListItemsOptions,
+  StructureItem,
+  StructureItemsPage,
+  ListStructureItemsOptions,
+} from './lib/types.js';
 
 export { MigrationsClient } from './modules/migrations.js';
 export type {
