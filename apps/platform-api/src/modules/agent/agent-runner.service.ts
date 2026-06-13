@@ -15,41 +15,47 @@ import {
 import { AgentCreationRepository } from './agent-creation.repository';
 import { AgentRepository } from './agent.repository';
 import { PolicyGatewayService, type PolicyContext } from './policy-gateway.service';
+import { AgentRunEventBus } from './agent-run-event-bus.service';
 import type { CreateRunDto } from './dto/create-run.dto';
 import { Inject } from '@nestjs/common';
 import {
   TOOL_ADAPTERS_TOKEN,
   type ToolAdapter,
 } from './tool-adapters/tool-adapter.interface';
+import type { Agent, AgentVersion, AgentRun } from '../../db/drizzle/schema/agent-creation';
 
 export interface SseEvent {
   event: string;
   data: unknown;
 }
 
+export interface AgentRunResult {
+  runId: string;
+  agentId: string;
+  status: 'completed' | 'failed';
+  finalContent: string | null;
+  stepCount: number;
+  latencyMs: number;
+  error?: string;
+}
+
 function writeSse(res: Response, event: SseEvent): void {
   res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
 }
 
-/**
- * Runner execution for Module 3 Commit 2.
- *
- * Flow per run:
- *  1. Resolve agent + active version, create agent_run row.
- *  2. Optionally create / reuse a chat_thread.
- *  3. Emit run_start SSE.
- *  4. Step loop (≤ maxSteps):
- *     a. Send accumulated messages to LLM.
- *     b. If assistant reply has no tool_calls → emit final, break.
- *     c. For each tool_call:
- *        - PolicyGateway.evaluate → record policy event.
- *        - If denied → emit tool_denied, add tool message, continue loop.
- *        - If allowed → execute tool stub, record tool call, emit tool_end.
- *     d. Append assistant + tool messages, emit step.
- *  5. Patch agent_run to completed/failed, emit done.
- *
- * Tool execution is stubbed: real tool adapters land in Module 4+.
- */
+interface CoreParams {
+  projectId: string;
+  userId?: string;
+  agentId: string;
+  agent: Agent;
+  version: AgentVersion;
+  run: AgentRun;
+  threadId: string | null;
+  message?: string | null;
+  allowMutating?: boolean;
+  onEvent?: (e: SseEvent) => void;
+}
+
 @Injectable()
 export class AgentRunnerService {
   private readonly logger = new Logger(AgentRunnerService.name);
@@ -62,6 +68,7 @@ export class AgentRunnerService {
     private readonly agentRepo: AgentRepository,
     private readonly policy: PolicyGatewayService,
     private readonly activity: ProjectActivityService,
+    private readonly eventBus: AgentRunEventBus,
     @Inject(TOOL_ADAPTERS_TOKEN) adapters: ToolAdapter[],
   ) {
     this.adapters = new Map(adapters.map((a) => [a.toolId, a]));
@@ -85,13 +92,9 @@ export class AgentRunnerService {
       throw new BadRequestException('Cannot run an archived agent');
     }
 
-    const version = await this.creationRepo.getVersion(
-      agentId,
-      agent.currentVersionId,
-    );
+    const version = await this.creationRepo.getVersion(agentId, agent.currentVersionId);
     if (!version) throw new NotFoundException('Agent version not found');
 
-    // Resolve or create thread.
     let threadId: string | null = body.threadId ?? null;
     if (threadId) {
       const thread = await this.agentRepo.getThread(projectId, threadId);
@@ -106,7 +109,6 @@ export class AgentRunnerService {
       threadId = thread.id;
     }
 
-    // Create run record.
     const run = await this.creationRepo.createRun({
       agentId,
       agentVersionId: version.id,
@@ -120,30 +122,105 @@ export class AgentRunnerService {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    const emit = (e: SseEvent) => writeSse(res, e);
+
+    try {
+      const result = await this.executeCore({
+        projectId,
+        userId,
+        agentId,
+        agent,
+        version,
+        run,
+        threadId,
+        message: body.message,
+        allowMutating: body.allowMutating,
+        onEvent: emit,
+      });
+
+      await this.activity.append(projectId, {
+        userId: userId ?? null,
+        kind: ProjectActivityKind.AGENT_RUN_EXECUTED,
+        title: `Agent "${agent.name}" run completed`,
+        metadata: { runId: run.id, agentId, stepCount: result.stepCount, latencyMs: result.latencyMs },
+      });
+    } finally {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
+
+  async runForFlow(
+    projectId: string,
+    agentId: string,
+    opts: { message?: string; allowMutating?: boolean } = {},
+  ): Promise<AgentRunResult> {
+    const agent = await this.creationRepo.getAgent(projectId, agentId);
+    if (!agent) throw new NotFoundException(`Agent '${agentId}' not found`);
+    if (!agent.currentVersionId) {
+      throw new BadRequestException('Agent has no active version');
+    }
+    if (agent.status === 'archived') {
+      throw new BadRequestException('Cannot run an archived agent');
+    }
+
+    const version = await this.creationRepo.getVersion(agentId, agent.currentVersionId);
+    if (!version) throw new NotFoundException('Agent version not found');
+
+    const run = await this.creationRepo.createRun({
+      agentId,
+      agentVersionId: version.id,
+      threadId: null,
+      projectId,
+    });
+
+    return this.executeCore({
+      projectId,
+      agentId,
+      agent,
+      version,
+      run,
+      threadId: null,
+      message: opts.message,
+      allowMutating: opts.allowMutating,
+    });
+  }
+
+  private async executeCore(params: CoreParams): Promise<AgentRunResult> {
+    const {
+      projectId,
+      userId,
+      agentId,
+      agent,
+      version,
+      run,
+      threadId,
+      message,
+      allowMutating,
+      onEvent,
+    } = params;
+
     const startMs = Date.now();
 
-    writeSse(res, {
+    onEvent?.({
       event: 'run_start',
       data: { runId: run.id, agentId, threadId, versionId: version.id },
     });
 
-    // Persist user message to thread.
-    if (threadId && body.message) {
+    if (threadId && message) {
       await this.agentRepo.addMessage({
         threadId,
         projectId,
         role: 'user',
-        content: body.message,
+        content: message,
       });
     }
 
-    // Build initial message array.
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
     if (version.systemPrompt) {
       messages.push({ role: 'system', content: version.systemPrompt });
     }
 
-    // Load thread history if available.
     if (threadId) {
       const history = await this.agentRepo.listMessages(projectId, threadId, {
         limit: 50,
@@ -157,9 +234,10 @@ export class AgentRunnerService {
           });
         }
       }
+    } else if (message) {
+      messages.push({ role: 'user', content: message });
     }
 
-    // Resolve enabled tools for this version.
     const toolIds: string[] =
       (version.toolsConfig as { toolIds?: string[] } | null)?.toolIds ?? [];
     const enabledTools = await this.creationRepo.listEnabledTools();
@@ -185,7 +263,7 @@ export class AgentRunnerService {
       agentId,
       runId: run.id,
       threadId,
-      allowMutating: body.allowMutating ?? false,
+      allowMutating: allowMutating ?? false,
     };
 
     let stepCount = 0;
@@ -209,7 +287,7 @@ export class AgentRunnerService {
         messages.push(assistantMsg);
         stepCount++;
 
-        writeSse(res, {
+        onEvent?.({
           event: 'step',
           data: {
             step: stepCount,
@@ -222,35 +300,29 @@ export class AgentRunnerService {
           },
         });
 
-        if (
-          choice.finish_reason === 'stop' ||
-          !assistantMsg.tool_calls?.length
-        ) {
+        if (choice.finish_reason === 'stop' || !assistantMsg.tool_calls?.length) {
           finalContent = assistantMsg.content ?? null;
           break;
         }
 
-        // Process tool calls.
         for (const toolCall of assistantMsg.tool_calls ?? []) {
           const toolId = toolCall.function.name;
           let toolInput: Record<string, unknown> = {};
           try {
             toolInput = JSON.parse(toolCall.function.arguments ?? '{}');
           } catch {
-            /* malformed arguments — pass empty object */
+            /* malformed arguments */
           }
 
-          writeSse(res, {
+          onEvent?.({
             event: 'tool_start',
             data: { toolCallId: toolCall.id, toolId, input: toolInput },
           });
 
           const decision = await this.policy.evaluate(toolId, policyCtx);
-
           const tcStart = Date.now();
 
           if (!decision.allowed) {
-            // Record denied tool call + policy event.
             const tc = await this.agentRepo.recordToolCall({
               runId: run.id,
               threadId,
@@ -268,7 +340,7 @@ export class AgentRunnerService {
               reasonCode: decision.reasonCode,
             });
 
-            writeSse(res, {
+            onEvent?.({
               event: 'tool_denied',
               data: {
                 toolCallId: toolCall.id,
@@ -281,15 +353,11 @@ export class AgentRunnerService {
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: JSON.stringify({
-                error: 'TOOL_DENIED',
-                reason: decision.reason,
-              }),
+              content: JSON.stringify({ error: 'TOOL_DENIED', reason: decision.reason }),
             });
             continue;
           }
 
-          // Allowed — dispatch to real adapter (falls back to stub if unknown).
           let output: Record<string, unknown> = {};
           let toolStatus: 'success' | 'failed' = 'success';
           const adapter = this.adapters.get(toolId);
@@ -303,7 +371,6 @@ export class AgentRunnerService {
               });
               output = result.output;
 
-              // Persist attachments (e.g. RAG citations, SQL rows).
               if (result.attachments?.length) {
                 for (const att of result.attachments) {
                   await this.agentRepo.recordAttachment({
@@ -317,9 +384,8 @@ export class AgentRunnerService {
                 }
               }
 
-              // Emit citation SSE event when RAG results are returned.
               if (result.citations?.length) {
-                writeSse(res, {
+                onEvent?.({
                   event: 'citation',
                   data: {
                     step: stepCount,
@@ -334,9 +400,7 @@ export class AgentRunnerService {
             }
           } catch (err: unknown) {
             toolStatus = 'failed';
-            output = {
-              error: err instanceof Error ? err.message : String(err),
-            };
+            output = { error: err instanceof Error ? err.message : String(err) };
           }
 
           const latencyMs = Date.now() - tcStart;
@@ -358,15 +422,9 @@ export class AgentRunnerService {
             decision: 'allow',
           });
 
-          writeSse(res, {
+          onEvent?.({
             event: 'tool_end',
-            data: {
-              toolCallId: toolCall.id,
-              toolId,
-              status: toolStatus,
-              output,
-              latencyMs,
-            },
+            data: { toolCallId: toolCall.id, toolId, status: toolStatus, output, latencyMs },
           });
 
           messages.push({
@@ -377,7 +435,6 @@ export class AgentRunnerService {
         }
       }
 
-      // Persist assistant reply to thread.
       if (threadId && finalContent !== null) {
         await this.agentRepo.addMessage({
           threadId,
@@ -395,17 +452,30 @@ export class AgentRunnerService {
         finishedAt: new Date(),
       });
 
-      await this.activity.append(projectId, {
-        userId: userId ?? null,
-        kind: ProjectActivityKind.AGENT_RUN_EXECUTED,
-        title: `Agent "${agent.name}" run completed`,
-        metadata: { runId: run.id, agentId, stepCount, latencyMs },
-      });
-
-      writeSse(res, {
+      onEvent?.({
         event: 'final',
         data: { content: finalContent, stepCount, latencyMs },
       });
+
+      const result: AgentRunResult = {
+        runId: run.id,
+        agentId,
+        status: 'completed',
+        finalContent,
+        stepCount,
+        latencyMs,
+      };
+
+      this.eventBus.emitCompleted({
+        runId: run.id,
+        agentId,
+        projectId,
+        finalContent,
+        stepCount,
+        latencyMs,
+      });
+
+      return result;
     } catch (err: unknown) {
       const latencyMs = Date.now() - startMs;
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -419,13 +489,31 @@ export class AgentRunnerService {
         finishedAt: new Date(),
       });
 
-      writeSse(res, {
+      onEvent?.({
         event: 'error',
         data: { error: errorMsg, stepCount },
       });
-    } finally {
-      res.write('data: [DONE]\n\n');
-      res.end();
+
+      const result: AgentRunResult = {
+        runId: run.id,
+        agentId,
+        status: 'failed',
+        finalContent: null,
+        stepCount,
+        latencyMs,
+        error: errorMsg,
+      };
+
+      this.eventBus.emitFailed({
+        runId: run.id,
+        agentId,
+        projectId,
+        error: errorMsg,
+        stepCount,
+        latencyMs,
+      });
+
+      return result;
     }
   }
 

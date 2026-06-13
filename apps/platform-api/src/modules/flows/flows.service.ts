@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FLOW_QUEUE } from '../queue/queue.module';
 import { FlowDefinition, FlowRunResult } from './types';
+import { AgentRunnerService } from '../agent/agent-runner.service';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class FlowsService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(FLOW_QUEUE) private readonly flowQueue: Queue,
+    private readonly agentRunner: AgentRunnerService,
   ) {}
 
   private async loadFlows(projectId: string): Promise<FlowDefinition[]> {
@@ -101,10 +103,11 @@ export class FlowsService {
     const started = Date.now();
     const errors: string[] = [];
     let actionsRun = 0;
+    const context: Record<string, unknown> = { ...payload };
 
     for (const action of flow.actions) {
       try {
-        await this.runAction(flow.projectId, action, payload);
+        await this.runAction(flow.projectId, action, context);
         actionsRun++;
       } catch (err: any) {
         errors.push(`${action.type}: ${err?.message ?? String(err)}`);
@@ -123,11 +126,11 @@ export class FlowsService {
   private async runAction(
     projectId: string,
     action: FlowDefinition['actions'][0],
-    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
   ): Promise<void> {
     switch (action.type) {
       case 'log':
-        console.log(`[Flow action log] projectId=${projectId}`, action.data, payload);
+        console.log(`[Flow action log] projectId=${projectId}`, action.data, context);
         break;
 
       case 'http.post':
@@ -135,14 +138,29 @@ export class FlowsService {
         await fetch(action.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...action.headers },
-          body: JSON.stringify({ ...action.data, payload }),
+          body: JSON.stringify({ ...action.data, context }),
         });
         break;
 
       case 'item.create':
-        // In V1: log the intent — full execution requires ItemsService injection
         console.log(`[Flow] item.create on ${action.entityName}:`, action.data);
         break;
+
+      case 'agent_run': {
+        const targetAgentId = action.agentId;
+        if (!targetAgentId) throw new Error('agent_run action requires agentId');
+        const result = await this.agentRunner.runForFlow(projectId, targetAgentId, {
+          message: action.message,
+          allowMutating: action.allowMutating,
+        });
+        if (action.outputKey) {
+          context[action.outputKey] = result.finalContent;
+        }
+        if (result.status === 'failed') {
+          throw new Error(`Agent run failed: ${result.error}`);
+        }
+        break;
+      }
 
       default:
         console.log(`[Flow] unhandled action type: ${action.type}`);

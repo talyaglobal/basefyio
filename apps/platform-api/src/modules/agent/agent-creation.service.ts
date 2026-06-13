@@ -16,6 +16,7 @@ import type { CreateAgentDto } from './dto/create-agent.dto';
 import type { UpdateAgentDto } from './dto/update-agent.dto';
 import type { CreateAgentVersionDto } from './dto/create-agent-version.dto';
 import type { ListAgentsQuery } from './dto/list-agents.query';
+import type { LinkDataSourceDto } from './dto/link-data-source.dto';
 
 @Injectable()
 export class AgentCreationService {
@@ -193,6 +194,53 @@ export class AgentCreationService {
     });
 
     return { runId, status: 'cancelled' };
+  }
+
+  // ── Data Sources ──────────────────────────────────────
+
+  async listDataSources(
+    projectId: string,
+    userId: string | undefined,
+    agentId: string,
+    versionId: string,
+  ) {
+    await this.assertProjectAccess(projectId, userId);
+    const agent = await this.repo.getAgent(projectId, agentId);
+    if (!agent) throw new NotFoundException('Agent not found');
+    const version = await this.repo.getVersion(agentId, versionId);
+    if (!version) throw new NotFoundException('Version not found');
+    return this.repo.listDataSources(versionId);
+  }
+
+  async linkDataSource(
+    projectId: string,
+    userId: string | undefined,
+    agentId: string,
+    versionId: string,
+    body: LinkDataSourceDto,
+  ) {
+    await this.assertProjectAccess(projectId, userId, 'ADMIN');
+    const agent = await this.repo.getAgent(projectId, agentId);
+    if (!agent) throw new NotFoundException('Agent not found');
+    const version = await this.repo.getVersion(agentId, versionId);
+    if (!version) throw new NotFoundException('Version not found');
+    return this.repo.linkDataSource(versionId, body.dataStructureId, body.access ?? 'read');
+  }
+
+  async unlinkDataSource(
+    projectId: string,
+    userId: string | undefined,
+    agentId: string,
+    versionId: string,
+    dataStructureId: string,
+  ) {
+    await this.assertProjectAccess(projectId, userId, 'ADMIN');
+    const agent = await this.repo.getAgent(projectId, agentId);
+    if (!agent) throw new NotFoundException('Agent not found');
+    const version = await this.repo.getVersion(agentId, versionId);
+    if (!version) throw new NotFoundException('Version not found');
+    await this.repo.unlinkDataSource(versionId, dataStructureId);
+    return { versionId, dataStructureId, unlinked: true };
   }
 
   // ── Helpers ───────────────────────────────────────────

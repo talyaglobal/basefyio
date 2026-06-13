@@ -7,10 +7,12 @@ import {
   agentVersions,
   agentTools,
   agentRuns,
+  agentVersionDataSources,
   type Agent,
   type AgentVersion,
   type AgentTool,
   type AgentRun,
+  type AgentVersionDataSource,
 } from '../../db/drizzle/schema/agent-creation';
 
 export interface CreateAgentInput {
@@ -246,5 +248,42 @@ export class AgentCreationRepository {
       )
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  // ── Data Sources ──────────────────────────────────────
+
+  async listDataSources(agentVersionId: string): Promise<AgentVersionDataSource[]> {
+    return this.db
+      .select()
+      .from(agentVersionDataSources)
+      .where(eq(agentVersionDataSources.agentVersionId, agentVersionId))
+      .orderBy(agentVersionDataSources.createdAt);
+  }
+
+  async linkDataSource(
+    agentVersionId: string,
+    dataStructureId: string,
+    access: 'read' | 'write' = 'read',
+  ): Promise<AgentVersionDataSource> {
+    const [row] = await this.db
+      .insert(agentVersionDataSources)
+      .values({ agentVersionId, dataStructureId, access })
+      .onConflictDoUpdate({
+        target: [agentVersionDataSources.agentVersionId, agentVersionDataSources.dataStructureId],
+        set: { access },
+      })
+      .returning();
+    return row;
+  }
+
+  async unlinkDataSource(agentVersionId: string, dataStructureId: string): Promise<void> {
+    await this.db
+      .delete(agentVersionDataSources)
+      .where(
+        and(
+          eq(agentVersionDataSources.agentVersionId, agentVersionId),
+          eq(agentVersionDataSources.dataStructureId, dataStructureId),
+        ),
+      );
   }
 }

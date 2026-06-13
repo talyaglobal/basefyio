@@ -36,6 +36,7 @@ export default {
     'agent_tools',
     'agent_runs',
     'agent_run_attachments',
+    'agent_version_data_sources',
   ],
   verbose: true,
   strict: true,

@@ -217,6 +217,38 @@ export const agentRuns = pgTable(
   }),
 );
 
+// ── agent_version_data_sources ───────────────────────────
+// Cross-ORM join: agentVersionId → Drizzle, dataStructureId → Prisma.
+// No Drizzle FK on dataStructureId intentionally (cross-ORM boundary).
+
+export const agentDataSourceAccess = pgEnum('agent_data_source_access', [
+  'read',
+  'write',
+]);
+
+export const agentVersionDataSources = pgTable(
+  'agent_version_data_sources',
+  {
+    id: text('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    agentVersionId: text('agent_version_id')
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: 'cascade' }),
+    // Prisma-owned DataStructure id — no FK enforced here.
+    dataStructureId: text('data_structure_id').notNull(),
+    access: agentDataSourceAccess('access').notNull().default('read'),
+    createdAt: timestamp('created_at', { precision: 3 }).notNull().defaultNow(),
+  },
+  (t) => ({
+    versionDsUnq: uniqueIndex('avds_version_ds_uq').on(
+      t.agentVersionId,
+      t.dataStructureId,
+    ),
+    versionIdx: index('avds_version_idx').on(t.agentVersionId),
+  }),
+);
+
 // ── Relations ────────────────────────────────────────────
 
 export const agentsRelations = relations(agents, ({ many }) => ({
@@ -232,6 +264,7 @@ export const agentVersionsRelations = relations(
       references: [agents.id],
     }),
     runs: many(agentRuns),
+    dataSources: many(agentVersionDataSources),
   }),
 );
 
@@ -260,3 +293,5 @@ export type AgentTool = typeof agentTools.$inferSelect;
 export type NewAgentTool = typeof agentTools.$inferInsert;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type NewAgentRun = typeof agentRuns.$inferInsert;
+export type AgentVersionDataSource = typeof agentVersionDataSources.$inferSelect;
+export type NewAgentVersionDataSource = typeof agentVersionDataSources.$inferInsert;

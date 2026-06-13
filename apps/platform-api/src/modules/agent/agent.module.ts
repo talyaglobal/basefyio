@@ -12,6 +12,7 @@ import { AgentCreationService } from './agent-creation.service';
 import { AgentCreationRepository } from './agent-creation.repository';
 import { PolicyGatewayService } from './policy-gateway.service';
 import { AgentRunnerService } from './agent-runner.service';
+import { AgentRunEventBus } from './agent-run-event-bus.service';
 import { RagSearchAdapter } from './tool-adapters/rag-search.adapter';
 import { SqlExecutorAdapter } from './tool-adapters/sql-executor.adapter';
 import { HttpCallerAdapter } from './tool-adapters/http-caller.adapter';
@@ -34,6 +35,7 @@ import type { ToolAdapter } from './tool-adapters/tool-adapter.interface';
     AgentCreationRepository,
     PolicyGatewayService,
     AgentRunnerService,
+    AgentRunEventBus,
     RagSearchAdapter,
     SqlExecutorAdapter,
     HttpCallerAdapter,
@@ -54,6 +56,7 @@ import type { ToolAdapter } from './tool-adapters/tool-adapter.interface';
     AgentCreationRepository,
     PolicyGatewayService,
     AgentRunnerService,
+    AgentRunEventBus,
   ],
 })
 export class AgentModule {}

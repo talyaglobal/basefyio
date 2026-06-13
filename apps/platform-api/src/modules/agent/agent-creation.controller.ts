@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -22,6 +23,7 @@ import { UpdateAgentDto } from './dto/update-agent.dto';
 import { CreateAgentVersionDto } from './dto/create-agent-version.dto';
 import { ListAgentsQuery } from './dto/list-agents.query';
 import { CreateRunDto } from './dto/create-run.dto';
+import { LinkDataSourceDto } from './dto/link-data-source.dto';
 
 @Controller('v1/projects/:projectId/agents')
 @UseGuards(JwtOrApiKeyGuard)
@@ -136,6 +138,46 @@ export class AgentCreationController {
       user?.sub,
       agentId,
       runId,
+    );
+  }
+
+  // ── Data Sources ──────────────────────────────────────
+
+  @Get(':agentId/versions/:versionId/data-sources')
+  async listDataSources(
+    @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
+    @Param('versionId') versionId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.agentCreation.listDataSources(projectId, user?.sub, agentId, versionId);
+  }
+
+  @Post(':agentId/versions/:versionId/data-sources')
+  async linkDataSource(
+    @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
+    @Param('versionId') versionId: string,
+    @Body() body: LinkDataSourceDto,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.agentCreation.linkDataSource(projectId, user?.sub, agentId, versionId, body);
+  }
+
+  @Delete(':agentId/versions/:versionId/data-sources/:dataStructureId')
+  async unlinkDataSource(
+    @Param('projectId') projectId: string,
+    @Param('agentId') agentId: string,
+    @Param('versionId') versionId: string,
+    @Param('dataStructureId') dataStructureId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.agentCreation.unlinkDataSource(
+      projectId,
+      user?.sub,
+      agentId,
+      versionId,
+      dataStructureId,
     );
   }
 }
