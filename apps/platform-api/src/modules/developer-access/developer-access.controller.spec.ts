@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { DeveloperAccessController } from './developer-access.controller';
 import { DeveloperAccessService } from './developer-access.service';
+import { CertificateService } from '../certificates/certificate.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 
 // ── Fixtures ───────────────────────────────────────────────────
@@ -52,10 +53,19 @@ async function buildController(serviceOverrides: Record<string, any> = {}) {
     ...serviceOverrides,
   };
 
+  const mockCertificates = {
+    list: jest.fn<any>().mockResolvedValue([]),
+    issue: jest.fn<any>().mockResolvedValue({}),
+    renew: jest.fn<any>().mockResolvedValue({}),
+    revoke: jest.fn<any>().mockResolvedValue(undefined),
+    getBundle: jest.fn<any>().mockResolvedValue({}),
+  };
+
   const module: TestingModule = await Test.createTestingModule({
     controllers: [DeveloperAccessController],
     providers: [
       { provide: DeveloperAccessService, useValue: mockService },
+      { provide: CertificateService, useValue: mockCertificates },
     ],
   })
     .overrideGuard(JwtOrApiKeyGuard)
