@@ -96,7 +96,7 @@ describe('access CLI command — projectAccess', () => {
     expect(values).toContain(BASE_ENDPOINT.database);
 
     // connectionString must appear somewhere in console output
-    const allLogs = consoleSpy.mock.calls.map(c => String(c[0] ?? '')).join('\n');
+    const allLogs = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
     expect(allLogs).toContain(BASE_ENDPOINT.connectionString);
   });
 
@@ -159,7 +159,7 @@ describe('access CLI command — projectAccess', () => {
 
     await showProjectAccess(PROJECT_ID);
 
-    const allLogs = consoleSpy.mock.calls.map(c => String(c[0] ?? '')).join('\n');
+    const allLogs = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
     expect(allLogs).not.toContain('secret123');
   });
 });

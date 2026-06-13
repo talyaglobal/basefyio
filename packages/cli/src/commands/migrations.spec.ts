@@ -89,7 +89,7 @@ describe('migrations CLI commands', () => {
       expect(mockApiClient.planMigration).toHaveBeenCalledWith(PROJECT_ID, {});
       expect(success).toHaveBeenCalledWith('No changes detected between the two versions');
       // apply hint must NOT be printed when there are no operations
-      const allLogs = consoleSpy.mock.calls.map(c => c[0] ?? '').join('\n');
+      const allLogs = consoleSpy.mock.calls.map((c: unknown[]) => c[0] ?? '').join('\n');
       expect(allLogs).not.toContain('migrations apply');
     });
 
