@@ -33,6 +33,8 @@ import { TenantEmbeddingModule } from './modules/tenant-embedding/tenant-embeddi
 import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { EntitlementModule } from './modules/entitlement/entitlement.module';
 import { DataStructuresModule } from './modules/data-structures/data-structures.module';
+import { StructureItemsModule } from './modules/structure-items/structure-items.module';
+import { CertificateModule } from './modules/certificates/certificate.module';
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
 import { BlueprintModule } from './modules/blueprint/blueprint.module';
 import { IntelligenceModule } from './modules/intelligence/intelligence.module';
@@ -46,6 +48,7 @@ import { MigrationsModule } from './modules/migrations/migrations.module';
 import { MigrationArchivesModule } from './modules/migration-archives/migration-archives.module';
 import { MigrationAssessmentsModule } from './modules/migration-assessments/migration-assessments.module';
 import { DeveloperAccessModule } from './modules/developer-access/developer-access.module';
+import { SecureGatewayModule } from './modules/secure-gateway/secure-gateway.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -85,6 +88,8 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DataEngineModule,
     EntitlementModule,
     DataStructuresModule,
+    StructureItemsModule,
+    CertificateModule,
     ProvisioningModule,
     BlueprintModule,
     IntelligenceModule,
@@ -98,6 +103,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     MigrationArchivesModule,
     MigrationAssessmentsModule,
     DeveloperAccessModule,
+    SecureGatewayModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },

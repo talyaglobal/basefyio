@@ -14,6 +14,7 @@ import { StructuresClient } from './modules/structures.js';
 import { ArchivesClient } from './modules/archives.js';
 import { AssessmentsClient } from './modules/assessments.js';
 import { AccessClient } from './modules/access.js';
+import { GatewayClient } from './modules/gateway.js';
 
 export class BasefyioClient {
   readonly auth: AuthClient;
@@ -27,6 +28,7 @@ export class BasefyioClient {
   readonly archives: ArchivesClient;
   readonly assessments: AssessmentsClient;
   readonly access: AccessClient;
+  readonly gateway: GatewayClient;
 
   private db: DatabaseClient;
   private http: BasefyioFetchClient;
@@ -66,6 +68,7 @@ export class BasefyioClient {
     this.archives = new ArchivesClient(this.http);
     this.assessments = new AssessmentsClient(this.http);
     this.access = new AccessClient(this.http);
+    this.gateway = new GatewayClient(this.http);
   }
 
   /**

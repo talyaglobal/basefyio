@@ -70,6 +70,13 @@ export const ProjectActivityKind = {
   MIGRATION_RESTORE_REQUESTED: 'migration.restore_requested',
   MIGRATION_ARCHIVE_DELETED: 'migration.archive_deleted',
   MIGRATION_ARCHIVE_INVOICE_ISSUED: 'migration.archive_invoice_issued',
+  CERT_ISSUED: 'cert.issued',
+  CERT_RENEWED: 'cert.renewed',
+  CERT_REVOKED: 'cert.revoked',
+  CERT_DOWNLOADED: 'cert.downloaded',
+  GATEWAY_CONNECTED: 'gateway.connected',
+  GATEWAY_CONNECT_DENIED: 'gateway.connect.denied',
+  GATEWAY_QUERY_EXECUTED: 'gateway.query.executed',
 } as const;
 
 export type ProjectActivityKindValue =

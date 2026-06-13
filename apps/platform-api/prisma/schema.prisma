@@ -273,7 +273,10 @@ model Project {
   entityDefinitions EntityDefinition[]
   migrationArchives   MigrationArchive[]
   dataStructures      DataStructure[]
+  structureItems      StructureItem[]
   engineEndpoints     ProjectEngineEndpoint[]
+  clientCertificates  ProjectClientCertificate[]
+  certificateEvents   CertificateEvent[]
   provisioningProject ProvisioningProject?
   blueprints          Blueprint[]
   migrationRuns       MigrationRun[]
@@ -1207,6 +1210,9 @@ model DataStructure {
   // Internal engine hint for JSON structures: "mongodb" | "couchbase".
   // Never exposed in API responses or UI. Set by service logic only.
   jsonBackend   String?           @map("json_backend") @db.VarChar(20)
+  // Field definitions: [{ name, type, required?, default? }]
+  // type: "string" | "number" | "boolean" | "object" | "array"
+  fields        Json              @default("[]")
   aiRecommended Boolean           @default(false) @map("ai_recommended")
   aiReasons     Json?             @map("ai_reasons")
   createdAt     DateTime          @default(now()) @map("created_at")
@@ -1214,10 +1220,30 @@ model DataStructure {
 
   project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   storages DataStructureStorage[]
+  items    StructureItem[]
 
   @@unique([projectId, name])
   @@index([projectId])
   @@map("data_structures")
+}
+
+// JSONB-backed item store for DataStructure records.
+// Phase 2: main Postgres JSONB backend (PostgresJsonbProvider).
+// Phase 5-6: swap provider to real engine via DataStructureStorage.engineType.
+model StructureItem {
+  id              String   @id @default(uuid())
+  dataStructureId String   @map("data_structure_id")
+  projectId       String   @map("project_id")
+  data            Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  dataStructure DataStructure @relation(fields: [dataStructureId], references: [id], onDelete: Cascade)
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([dataStructureId])
+  @@index([projectId])
+  @@map("structure_items")
 }
 
 // Decouples logical structure from physical storage so a JSON collection
@@ -1263,6 +1289,71 @@ model ProjectEngineEndpoint {
   @@unique([projectId, engineType])
   @@index([projectId, active])
   @@map("project_engine_endpoints")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 5 — PKI / CERTIFICATE SERVICE
+// Private key is NEVER stored here — only OpenBao path reference.
+// ══════════════════════════════════════════════════════════════
+
+enum CertificateStatus {
+  ACTIVE
+  REVOKED
+  ARCHIVED
+  EXPIRED
+}
+
+enum CertificateAccessLevel {
+  READ
+  READ_WRITE
+}
+
+model ProjectClientCertificate {
+  id             String                 @id @default(uuid())
+  projectId      String                 @map("project_id")
+  entitlementRef String?                @map("entitlement_ref") @db.VarChar(128)
+  // CN: "project-{projectId}@basefyio.com" by default
+  subject        String
+  serialNumber   String                 @unique @map("serial_number") @db.VarChar(256)
+  // SHA-256 fingerprint of the DER-encoded certificate (hex, uppercase)
+  fingerprint    String                 @db.VarChar(128)
+  // OpenBao KV path for private key — no key bytes stored here
+  openbaoKeyPath String                 @map("openbao_key_path")
+  // Public cert and CA PEM — safe to store; private key is never here
+  certificatePem String?                @map("certificate_pem") @db.Text
+  caCertPem      String?                @map("ca_cert_pem") @db.Text
+  accessLevel    CertificateAccessLevel @default(READ_WRITE) @map("access_level")
+  status         CertificateStatus      @default(ACTIVE)
+  notBefore      DateTime               @map("not_before")
+  notAfter       DateTime               @map("not_after")
+  issuedAt       DateTime               @default(now()) @map("issued_at")
+  revokedAt      DateTime?              @map("revoked_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events  CertificateEvent[]
+
+  @@index([projectId, status])
+  @@map("project_client_certificates")
+}
+
+// Immutable audit log for every cert lifecycle action.
+model CertificateEvent {
+  id            String   @id @default(uuid())
+  projectId     String   @map("project_id")
+  actorUserId   String?  @map("actor_user_id")
+  // "issue" | "renew" | "revoke" | "download"
+  action        String   @db.VarChar(32)
+  serialNumber  String?  @map("serial_number") @db.VarChar(256)
+  certificateId String?  @map("certificate_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  project     Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  certificate ProjectClientCertificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@map("certificate_events")
 }
 
 // ══════════════════════════════════════════════════════════════

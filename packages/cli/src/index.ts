@@ -411,6 +411,44 @@ program
     await projectAccess(projectId);
   });
 
+// ── Secure Gateway ────────────────────────────────────────────
+
+const gateway = program
+  .command('gateway')
+  .description('Manage secure gateway connections and run queries');
+
+gateway
+  .command('connect <projectId> <certId>')
+  .description('Verify a certificate against OpenBao and display the connection policy')
+  .action(async (projectId: string, certId: string) => {
+    const { gatewayConnect } = await import('./commands/gateway.js');
+    await gatewayConnect(projectId, certId);
+  });
+
+gateway
+  .command('query <projectId> <certId> <sql>')
+  .description('Execute a SQL query through the secure gateway')
+  .action(async (projectId: string, certId: string, sql: string) => {
+    const { gatewayQuery } = await import('./commands/gateway.js');
+    await gatewayQuery(projectId, certId, sql);
+  });
+
+gateway
+  .command('policy <projectId>')
+  .description('Show the default connection policy for a project')
+  .action(async (projectId: string) => {
+    const { gatewayPolicy } = await import('./commands/gateway.js');
+    await gatewayPolicy(projectId);
+  });
+
+gateway
+  .command('health')
+  .description('Check OpenBao PKI and KV mount availability')
+  .action(async () => {
+    const { gatewayHealth } = await import('./commands/gateway.js');
+    await gatewayHealth();
+  });
+
 // ── Top-level shortcuts ──────────────────────────────────────
 
 program

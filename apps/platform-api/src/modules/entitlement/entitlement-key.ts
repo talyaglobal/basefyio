@@ -7,6 +7,8 @@ export enum EntitlementKey {
   CUSTOM_DOMAIN             = 'customDomain',
   DEDICATED_ENDPOINT        = 'dedicatedEndpoint',
   CERT_DOWNLOAD             = 'certDownload',
+  GATEWAY_CONNECT           = 'gatewayConnect',
+  GATEWAY_QUERY             = 'gatewayQuery',
 }
 
 /** Keys that grant read-only archive/assessment access when present in Plan.features. */

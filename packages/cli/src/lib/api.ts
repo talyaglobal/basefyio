@@ -701,6 +701,70 @@ export class ApiClient {
       warning?: string;
     };
   }
+
+  // Gateway
+
+  async gatewayConnect(projectId: string, certId: string) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/gateway/connect`,
+      { certId },
+    );
+    return data as {
+      certId: string;
+      accessLevel: 'READ' | 'READ_WRITE';
+      policy: {
+        requireMtls: boolean;
+        allowedAccess: string;
+        maxConnections: number;
+        queryTimeoutMs: number;
+        maxRowLimit: number;
+        maxPayloadBytes: number;
+        providerType: string;
+      };
+      status: 'connected';
+    };
+  }
+
+  async gatewayQuery(
+    projectId: string,
+    certId: string,
+    sql: string,
+    params?: unknown[],
+  ) {
+    const { data } = await this.client.post(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/gateway/query`,
+      { certId, sql, params },
+    );
+    return data as { rows: Record<string, unknown>[]; rowCount: number; truncated?: boolean };
+  }
+
+  async gatewayPolicy(projectId: string) {
+    const { data } = await this.client.get(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/gateway/policy`,
+    );
+    return data as {
+      requireMtls: boolean;
+      allowedAccess: string;
+      maxConnections: number;
+      queryTimeoutMs: number;
+      maxRowLimit: number;
+      maxPayloadBytes: number;
+      providerType: string;
+    };
+  }
+
+  async gatewayHealth() {
+    const { data } = await this.client.get('/api/v1/secure-gateway/health/openbao');
+    return data as {
+      status: 'healthy' | 'degraded' | 'unavailable';
+      checkedAt: string;
+      components: {
+        system: { status: string; detail?: string; hint?: string };
+        pkiMount: { status: string; detail?: string; hint?: string };
+        kvMount: { status: string; detail?: string; hint?: string };
+      };
+    };
+  }
 }
 
 export const apiClient = new ApiClient();
