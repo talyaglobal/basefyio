@@ -7,15 +7,17 @@
  *     "update available, run `bf upgrade`" notice. Non-blocking by design: the
  *     network fetch happens AFTER the command has produced its output, capped
  *     at ~1.5s, and only once a day. Suppressed in CI / non-TTY / piped output.
- *  2. Auto-update (opt-in) — set BASEFYIO_AUTO_UPDATE=1 and the CLI will run
- *     `npm i -g basefyio-cli@latest` itself when it sees a newer version, then
- *     transparently re-run your original command on the new version.
+ *  2. Auto-update (default ON) — when the CLI sees a newer version it runs
+ *     `npm i -g basefyio-cli@latest` itself, then transparently re-runs your
+ *     original command on the new version. Opt out with BASEFYIO_AUTO_UPDATE=0
+ *     (or BASEFYIO_NO_AUTO_UPDATE=1).
  *
- * Silent auto-install is opt-in rather than default because a global npm
- * install needs write access to the global prefix — fine on most Windows
- * setups and any node-version-manager install, but it can require sudo on a
- * system-wide macOS/Linux Node. The notifier is the safe universal default;
- * npm, gh and vercel all behave this way.
+ * A global npm install needs write access to the global prefix — fine on most
+ * Windows setups and any node-version-manager install, but it can require sudo
+ * on a system-wide macOS/Linux Node. So auto-update is best-effort: a failed
+ * install is remembered per-version (autoUpdateFailedFor) and not retried on
+ * every command; the notifier still nudges the user to run `bf upgrade`. It is
+ * also skipped entirely in CI / non-TTY / piped output.
  */
 
 import Conf from 'conf';
@@ -27,6 +29,8 @@ const PACKAGE_NAME = 'basefyio-cli';
 interface UpdateCache {
   latestVersion?: string;
   lastCheck?: number;
+  /** Version whose auto-install already failed here — don't retry it every run. */
+  autoUpdateFailedFor?: string;
 }
 
 const cache = new Conf<UpdateCache>({
@@ -145,17 +149,22 @@ export async function finalizeUpdateCheck(
 }
 
 /**
- * Run BEFORE the command. When BASEFYIO_AUTO_UPDATE=1 and a newer version is
- * already cached, install it and re-run the original command on it. Re-exec is
- * guarded by BASEFYIO_UPDATE_REEXEC so a failed/no-op install can never loop.
+ * Run BEFORE the command. Auto-update is ON by default: if a newer version is
+ * already cached, install it and re-run the original command on it. Opt out
+ * with BASEFYIO_AUTO_UPDATE=0 / BASEFYIO_NO_AUTO_UPDATE=1. Re-exec is guarded by
+ * BASEFYIO_UPDATE_REEXEC so a failed/no-op install can never loop, and a
+ * version that fails to install is not retried on every command.
  * Never returns when it updates — it re-execs and exits.
  */
 export async function maybeAutoUpdate(
   currentVersion: string,
   commandName: string | undefined,
 ): Promise<void> {
+  const optedOut =
+    process.env.BASEFYIO_AUTO_UPDATE === '0' ||
+    process.env.BASEFYIO_NO_AUTO_UPDATE === '1';
   if (
-    process.env.BASEFYIO_AUTO_UPDATE !== '1' ||
+    optedOut ||
     process.env.BASEFYIO_UPDATE_REEXEC === '1' ||
     shouldSkip(commandName) ||
     notifierDisabled()
@@ -166,6 +175,11 @@ export async function maybeAutoUpdate(
   const latest = cache.get('latestVersion');
   if (!latest || !isNewerVersion(latest, currentVersion)) return;
 
+  // A previous auto-install of this exact version already failed here (e.g. a
+  // system-wide Node needing sudo) — don't retry it every command; the notifier
+  // will still nudge the user to run `bf upgrade`.
+  if (cache.get('autoUpdateFailedFor') === latest) return;
+
   const { default: chalk } = await import('chalk');
   process.stderr.write(
     chalk.cyan(`Updating ${PACKAGE_NAME} ${currentVersion} → ${latest}…\n`),
@@ -174,6 +188,7 @@ export async function maybeAutoUpdate(
   try {
     const { execa } = await import('execa');
     await execa('npm', ['install', '-g', `${PACKAGE_NAME}@latest`], { stdio: 'ignore' });
+    cache.delete('autoUpdateFailedFor');
     process.stderr.write(chalk.green(`✓ Updated to ${latest}. Re-running your command…\n\n`));
 
     const result = await execa(
@@ -187,11 +202,12 @@ export async function maybeAutoUpdate(
     );
     process.exit(result.exitCode ?? 0);
   } catch (err: any) {
-    // Auto-update is best-effort: fall through to running the user's command on
-    // the current version. The notifier will still nudge them at the end.
+    // Best-effort: remember this version failed so we don't storm the registry
+    // on every command, then fall through to running on the current version.
+    cache.set('autoUpdateFailedFor', latest);
     process.stderr.write(
       chalk.yellow(`⚠ Auto-update failed (${err?.shortMessage || err?.message || 'unknown'}). ` +
-        `Continuing on ${currentVersion}.\n`),
+        `Continuing on ${currentVersion}. Run "bf upgrade" to update manually.\n`),
     );
   }
 }
