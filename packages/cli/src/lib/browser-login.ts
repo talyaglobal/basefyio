@@ -16,6 +16,10 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
 /**
  * Auth must complete within this window. The user may need to log in to the
@@ -24,65 +28,151 @@ import { randomBytes } from 'node:crypto';
  */
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
-const SUCCESS_HTML = `<!DOCTYPE html>
+/** Read the CLI version from package.json, tolerating the bundled layout. */
+function readCliVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const rel of ['../package.json', '../../package.json', './package.json']) {
+      try {
+        const pkg = JSON.parse(readFileSync(resolve(here, rel), 'utf8')) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg?.name === 'basefyio-cli' && pkg.version) return pkg.version;
+      } catch {
+        // try the next candidate path
+      }
+    }
+  } catch {
+    // import.meta.url unavailable — fall through to empty
+  }
+  return '';
+}
+
+/**
+ * Terminal "you can close this tab" page shown after the loopback callback
+ * fires. Intentionally has no auto-close timer and no close button: browsers
+ * block window.close() on tabs the script didn't open, so the countdown only
+ * ever produced a dead "Close tab" button. The user closes the tab manually.
+ */
+function successHtml(): string {
+  const cliVersion = readCliVersion();
+  const machine = escapeHtml(
+    [
+      hostname(),
+      '@ basefyio',
+      cliVersion ? cliVersion : null,
+      `node-${process.version}`,
+      `${process.platform} (${process.arch})`,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
+
+  const now = new Date();
+  const datePart = now.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timePart = now.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const when = escapeHtml(`${datePart} at ${timePart}`);
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>basefyio CLI</title>
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px;
-           margin: 80px auto; text-align: center; color: #1f2937; }
-    h2 { color: #10b981; margin-bottom: 8px; }
-    .hint { color: #6b7280; font-size: 13px; margin-top: 32px; line-height: 1.55; }
-    .hint code { background:#f3f4f6; padding:1px 6px; border-radius:4px; font-size:12px; }
-    #countdown { color: #6b7280; font-size: 14px; margin-top: 18px; }
-    button { background:#10b981; color:#fff; border:0; padding:10px 18px;
-             border-radius:8px; font-size:14px; cursor:pointer; margin-top:8px; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+      color: #000; background: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1 { margin: 0 0 12px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+    .sub { margin: 0 0 28px; font-size: 15px; color: #000; }
+    .check {
+      width: 48px; height: 48px; margin-bottom: 28px; border-radius: 50%;
+      background: #000; display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      width: 100%; max-width: 480px;
+      border: 1px solid #eaeaea; border-radius: 10px;
+      padding: 16px 18px; font-size: 14px; color: #000;
+    }
+    .row { display: flex; align-items: flex-start; gap: 10px; }
+    .row + .row { margin-top: 10px; }
+    .row svg { flex: 0 0 auto; margin-top: 3px; color: #999; }
+    .strong { font-weight: 600; }
+    .muted { color: #999; }
+    .foot { margin-top: 24px; font-size: 13px; color: #999; }
+    .foot a { color: #999; text-decoration: none; margin: 0 8px; }
+    .foot a:hover { color: #000; }
   </style>
 </head>
 <body>
-  <h2>Authentication complete</h2>
-  <p>You are now logged in. Return to your terminal to continue.</p>
-  <div id="countdown">This tab will try to close in <b id="t">3</b>s…</div>
-  <button onclick="window.close()">Close tab</button>
-  <p class="hint">
-    The <code>127.0.0.1</code> URL is normal — the basefyio CLI runs a
-    short-lived local server to receive the auth code from Keycloak.
-    This is the OAuth 2.0 loopback flow (RFC 8252) used by every native CLI.
-  </p>
-  <script>
-    var n = 3;
-    var el = document.getElementById('t');
-    var iv = setInterval(function () {
-      n -= 1;
-      if (el) el.textContent = String(Math.max(n, 0));
-      if (n <= 0) {
-        clearInterval(iv);
-        // Try multiple close strategies
-        window.close();
-        // Navigate to about:blank first — some browsers allow closing after that
-        setTimeout(function () {
-          window.open('about:blank', '_self');
-          window.close();
-        }, 300);
-        // Final fallback: show "safe to close" message
-        setTimeout(function () {
-          document.getElementById('countdown').textContent =
-            'You can safely close this tab now.';
-        }, 800);
-      }
-    }, 1000);
-  </script>
+  <h1>Authorization successful</h1>
+  <p class="sub">You can close this tab.</p>
+  <div class="check" aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  </div>
+  <div class="card">
+    <div class="row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+      <div><span class="strong">basefyio CLI</span> <span class="muted">${machine}</span></div>
+    </div>
+    <div class="row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      <div>${when}</div>
+    </div>
+  </div>
+  <div class="foot">
+    <a href="https://basefyio.com/legal/terms" target="_blank" rel="noopener noreferrer">Terms</a>
+    <a href="https://basefyio.com/legal/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+  </div>
 </body>
 </html>`;
+}
 
 const ERROR_HTML = (msg: string) => `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>basefyio CLI</title></head>
-<body style="font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center">
-  <h2 style="color:#ef4444">Authentication failed</h2>
-  <p>${escapeHtml(msg)}</p>
-  <p>Please return to your terminal and try again.</p>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>basefyio CLI</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+      color: #000; background: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; -webkit-font-smoothing: antialiased;
+    }
+    h1 { margin: 0 0 12px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+    .sub { margin: 0 0 28px; font-size: 15px; color: #666; max-width: 480px; line-height: 1.55; }
+    .mark {
+      width: 48px; height: 48px; margin-bottom: 28px; border-radius: 50%;
+      background: #000; display: flex; align-items: center; justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Authorization failed</h1>
+  <p class="sub">${escapeHtml(msg)}<br>Return to your terminal and try again.</p>
+  <div class="mark" aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+  </div>
 </body>
 </html>`;
 
@@ -175,7 +265,7 @@ export function startBrowserLogin(): BrowserLoginHandle {
     }
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(SUCCESS_HTML);
+    res.end(successHtml());
     server.close();
     resolveResult({ exchangeCode: codeParam, nonce, port: actualPort });
   });
