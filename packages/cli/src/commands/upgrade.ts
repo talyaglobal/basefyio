@@ -22,11 +22,13 @@ export async function upgradeCommand() {
     console.log(chalk.gray('  Run  bf --help  to see commands'));
   } catch (err: any) {
     spinner.fail('Update failed');
-    console.error(chalk.red(err?.shortMessage || err?.message || String(err)));
-    console.error(chalk.yellow('Try manually:  npm install -g basefyio-cli@latest'));
-    console.error(
-      chalk.gray('On macOS/Linux a system-wide Node may need:  sudo npm install -g basefyio-cli@latest'),
-    );
+    const { isPermissionError, permissionHelp } = await import('../lib/install-error.js');
+    if (isPermissionError(err)) {
+      console.error('\n' + permissionHelp(chalk) + '\n');
+    } else {
+      console.error(chalk.red(err?.shortMessage || err?.message || String(err)));
+      console.error(chalk.yellow('Try manually:  npm install -g basefyio-cli@latest'));
+    }
     process.exit(1);
   }
 }
