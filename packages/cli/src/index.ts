@@ -42,6 +42,15 @@ program
     await logoutCommand();
   });
 
+program
+  .command('upgrade')
+  .alias('update')
+  .description('Update the basefyio CLI to the latest published version')
+  .action(async () => {
+    const { upgradeCommand } = await import('./commands/upgrade.js');
+    await upgradeCommand();
+  });
+
 // ── Project lifecycle ───────────────────────────────────────
 
 program
@@ -293,8 +302,32 @@ secrets.command('unset <key>')
     await unsetSecret(key);
   });
 
-program.parseAsync().then(() => {
+// Name of the sub-command the user invoked (argv[2]); used to skip the update
+// machinery for login/logout/upgrade and for flag-only invocations.
+const invokedCommand = process.argv[2];
+
+async function main() {
+  // Opt-in auto-update: if enabled and a newer version is already cached, this
+  // installs it and re-execs the original command (never returns in that case).
+  const { maybeAutoUpdate, finalizeUpdateCheck } = await import('./lib/update-check.js');
+  await maybeAutoUpdate(pkg.version, invokedCommand);
+
+  await program.parseAsync();
+
+  // After the command's output: refresh the daily version cache and nudge if
+  // a newer version is available. Best-effort — never let it throw.
+  try {
+    await finalizeUpdateCheck(pkg.version, invokedCommand);
+  } catch {
+    /* notifier is non-essential */
+  }
+
   // Ensure the process exits even when axios HTTP keep-alive connections
   // are still open (they hold the event loop alive indefinitely).
   setImmediate(() => process.exit(0));
+}
+
+main().catch((err) => {
+  console.error(err?.message || err);
+  process.exit(1);
 });
