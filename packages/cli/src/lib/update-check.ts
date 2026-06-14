@@ -205,9 +205,20 @@ export async function maybeAutoUpdate(
     // Best-effort: remember this version failed so we don't storm the registry
     // on every command, then fall through to running on the current version.
     cache.set('autoUpdateFailedFor', latest);
-    process.stderr.write(
-      chalk.yellow(`⚠ Auto-update failed (${err?.shortMessage || err?.message || 'unknown'}). ` +
-        `Continuing on ${currentVersion}. Run "bf upgrade" to update manually.\n`),
-    );
+    const { isPermissionError, permissionHelp } = await import('./install-error.js');
+    if (isPermissionError(err)) {
+      // A global install needs root/admin here — explain why and how, since the
+      // CLI can't elevate itself. Then continue running the user's command.
+      process.stderr.write(
+        chalk.yellow(`\n⚠ Couldn't auto-update ${PACKAGE_NAME} ${currentVersion} → ${latest}.\n\n`) +
+          permissionHelp(chalk) +
+          '\n\n',
+      );
+    } else {
+      process.stderr.write(
+        chalk.yellow(`⚠ Auto-update failed (${err?.shortMessage || err?.message || 'unknown'}). ` +
+          `Continuing on ${currentVersion}. Run "bf upgrade" to update manually.\n`),
+      );
+    }
   }
 }
