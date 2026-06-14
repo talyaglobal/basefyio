@@ -68,7 +68,7 @@ export async function loginCommand(options: LoginOptions) {
   const hint60 = setTimeout(() => {
     spinner.text =
       'Still waiting… make sure you completed the login and clicked "Allow access". ' +
-      'If the browser shows "Authentication complete" but this stays here, ' +
+      'If the browser shows "Authorization successful" but this stays here, ' +
       'a firewall may be blocking the loopback callback. Try cancelling (Ctrl+C) and re-running.';
   }, 60_000);
   hint60.unref();
