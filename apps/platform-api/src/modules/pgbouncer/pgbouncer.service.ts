@@ -73,8 +73,8 @@ export class PgBouncerService implements OnModuleInit {
     // connections (existing customers, internal services) keep working.
     const tlsLines = tlsReady
       ? `client_tls_sslmode = allow
-client_tls_cert = ${join(this.configDir, 'server.crt')}
-client_tls_key = ${join(this.configDir, 'server.key')}
+client_tls_cert_file = ${join(this.configDir, 'server.crt')}
+client_tls_key_file = ${join(this.configDir, 'server.key')}
 `
       : '';
 
