@@ -6,8 +6,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Pool } from 'pg';
-import { writeFile } from 'fs/promises';
+import { access, chmod, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 @Injectable()
 export class PgBouncerService implements OnModuleInit {
@@ -40,7 +44,13 @@ export class PgBouncerService implements OnModuleInit {
       select: { dbName: true, dbUser: true, dbPassword: true },
     });
 
-    const iniContent = this.buildIni(projects);
+    // Opportunistic client TLS so customers can connect with sslmode=require
+    // (migrations, pgAdmin, DBeaver). Only enabled if the cert is actually in
+    // place — a missing cert with client_tls_* set would stop PgBouncer from
+    // starting and take down DB access for every project.
+    const tlsReady = await this.ensureTlsCert();
+
+    const iniContent = this.buildIni(projects, tlsReady);
     const userlistContent = this.buildUserlist(projects);
 
     await writeFile(join(this.configDir, 'pgbouncer.ini'), iniContent, 'utf-8');
@@ -53,10 +63,20 @@ export class PgBouncerService implements OnModuleInit {
 
   private buildIni(
     projects: { dbName: string; dbUser: string }[],
+    tlsReady: boolean,
   ): string {
     const dbEntries = projects
       .map((p) => `${p.dbName} = host=${this.pgHost} port=${this.pgPort} dbname=${p.dbName}`)
       .join('\n');
+
+    // "allow" = opportunistic: clients may negotiate TLS, but plaintext
+    // connections (existing customers, internal services) keep working.
+    const tlsLines = tlsReady
+      ? `client_tls_sslmode = allow
+client_tls_cert = ${join(this.configDir, 'server.crt')}
+client_tls_key = ${join(this.configDir, 'server.key')}
+`
+      : '';
 
     return `[databases]
 ${dbEntries}
@@ -80,7 +100,47 @@ log_pooler_errors = 1
 admin_users = pgbouncer_admin
 stats_users = pgbouncer_admin
 ignore_startup_parameters = extra_float_digits,search_path
-`;
+${tlsLines}`;
+  }
+
+  /**
+   * Ensure a self-signed TLS cert exists in the shared config volume so
+   * PgBouncer can offer TLS to clients. Generated once with openssl (present
+   * in the platform-api image); returns false on any failure so the caller
+   * falls back to a plaintext-only config rather than a broken one.
+   */
+  private async ensureTlsCert(): Promise<boolean> {
+    const certPath = join(this.configDir, 'server.crt');
+    const keyPath = join(this.configDir, 'server.key');
+
+    try {
+      await access(certPath);
+      await access(keyPath);
+      return true;
+    } catch {
+      // Not present yet — generate below.
+    }
+
+    const cn = this.config.get<string>('pgbouncer.externalHost') || 'localhost';
+    try {
+      await execFileAsync('openssl', [
+        'req', '-new', '-x509', '-nodes', '-days', '3650',
+        '-keyout', keyPath,
+        '-out', certPath,
+        '-subj', `/CN=${cn}`,
+      ]);
+      // PgBouncer runs as a different user than platform-api in the shared
+      // volume, so the key must be group/other-readable for it to load.
+      await chmod(certPath, 0o644);
+      await chmod(keyPath, 0o644);
+      this.logger.log(`Generated self-signed TLS cert for PgBouncer (CN=${cn})`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(
+        `PgBouncer TLS cert generation failed; continuing without client TLS: ${err.message}`,
+      );
+      return false;
+    }
   }
 
   private buildUserlist(
