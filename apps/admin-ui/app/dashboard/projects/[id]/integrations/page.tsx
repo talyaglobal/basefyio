@@ -122,7 +122,7 @@ function GitHubCard({
     if (!changing && status?.connected) return;
     if (!useTeamToken) return;
     if (repos.length > 0) return;
-    loadTeamRepos();
+    loadTeamRepos({ silent: true });
   }, [changing, useTeamToken]);
 
   useEffect(() => {
@@ -175,14 +175,20 @@ function GitHubCard({
     }
   }
 
-  async function loadTeamRepos() {
+  async function loadTeamRepos(opts?: { silent?: boolean }) {
     if (!teamGitHub?.connected) return;
     setFetchingRepos(true);
     try {
       const r = await api.teamIntegrations.listGitHubRepos(teamId);
       setRepos(r);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load repositories');
+      // Auto-load (page mount) must not spam a toast — e.g. an expired team
+      // GitHub token. Surface it only on an explicit user action.
+      if (opts?.silent) {
+        console.warn('GitHub repos load failed:', err?.message);
+      } else {
+        toast.error(err.message || 'Failed to load repositories');
+      }
     } finally {
       setFetchingRepos(false);
     }
@@ -527,7 +533,7 @@ function VercelCard({
     if (!changing && status?.connected) return;
     if (!useTeamToken) return;
     if (projects.length > 0) return;
-    loadTeamProjects();
+    loadTeamProjects({ silent: true });
   }, [changing, useTeamToken]);
 
   async function loadStatus() {
@@ -546,14 +552,20 @@ function VercelCard({
     }
   }
 
-  async function loadTeamProjects() {
+  async function loadTeamProjects(opts?: { silent?: boolean }) {
     if (!teamVercel?.connected) return;
     setFetchingProjects(true);
     try {
       const p = await api.teamIntegrations.listVercelProjects(teamId);
       setProjects(p);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load Vercel projects');
+      // Auto-load (page mount) must not spam a toast — e.g. an expired team
+      // Vercel token. Surface it only on an explicit user action.
+      if (opts?.silent) {
+        console.warn('Vercel projects load failed:', err?.message);
+      } else {
+        toast.error(err.message || 'Failed to load Vercel projects');
+      }
     } finally {
       setFetchingProjects(false);
     }

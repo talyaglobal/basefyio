@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  BadGatewayException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -59,6 +60,28 @@ export class TeamIntegrationsService {
     const team = await this.prisma.team.findUnique({ where: { id: teamId } });
     if (!team) throw new NotFoundException('Team not found');
     return team;
+  }
+
+  /**
+   * Translate a provider (GitHub/Vercel) HTTP failure into a clean client-
+   * facing error. Without this, a stored token that the provider later
+   * rejected (401/403) surfaced as an opaque 500 "Internal server error" —
+   * e.g. opening the Integrations page with an expired team Vercel token.
+   */
+  private providerError(provider: 'GitHub' | 'Vercel', err: any): never {
+    const status = err?.response?.status;
+    if (status === 401 || status === 403) {
+      throw new BadRequestException(
+        `${provider} connection for this team is expired or invalid. ` +
+          `Reconnect ${provider} under Team → Integrations.`,
+      );
+    }
+    this.logger.warn(
+      `${provider} API request failed: ${status ?? ''} ${err?.message ?? ''}`,
+    );
+    throw new BadGatewayException(
+      `Could not reach ${provider}. Please try again in a moment.`,
+    );
   }
 
   // ── GitHub ────────────────────────────────────────────────────
@@ -228,37 +251,41 @@ export class TeamIntegrationsService {
       throw new BadRequestException('GitHub not connected for this team');
     }
 
-    const allRepos: any[] = [];
-    let page = 1;
-    while (page <= 10) {
-      const { data } = await firstValueFrom(
-        this.http.get('https://api.github.com/user/repos', {
-          headers: {
-            Authorization: `Bearer ${team.githubOAuthToken}`,
-            Accept: 'application/vnd.github+json',
-          },
-          params: { per_page: 100, page, sort: 'updated', type: 'all' },
-          timeout: 15000,
-        }),
-      );
-      if (!data || data.length === 0) break;
-      allRepos.push(
-        ...data.map((r: any) => ({
-          id: r.id,
-          full_name: r.full_name,
-          name: r.name,
-          owner: r.owner.login,
-          private: r.private,
-          html_url: r.html_url,
-          default_branch: r.default_branch,
-          description: r.description,
-          updated_at: r.updated_at,
-        })),
-      );
-      if (data.length < 100) break;
-      page++;
+    try {
+      const allRepos: any[] = [];
+      let page = 1;
+      while (page <= 10) {
+        const { data } = await firstValueFrom(
+          this.http.get('https://api.github.com/user/repos', {
+            headers: {
+              Authorization: `Bearer ${team.githubOAuthToken}`,
+              Accept: 'application/vnd.github+json',
+            },
+            params: { per_page: 100, page, sort: 'updated', type: 'all' },
+            timeout: 15000,
+          }),
+        );
+        if (!data || data.length === 0) break;
+        allRepos.push(
+          ...data.map((r: any) => ({
+            id: r.id,
+            full_name: r.full_name,
+            name: r.name,
+            owner: r.owner.login,
+            private: r.private,
+            html_url: r.html_url,
+            default_branch: r.default_branch,
+            description: r.description,
+            updated_at: r.updated_at,
+          })),
+        );
+        if (data.length < 100) break;
+        page++;
+      }
+      return allRepos;
+    } catch (err: any) {
+      this.providerError('GitHub', err);
     }
-    return allRepos;
   }
 
   async listGitHubBranches(teamId: string, owner: string, repo: string): Promise<any[]> {
@@ -266,17 +293,21 @@ export class TeamIntegrationsService {
     if (!team.githubOAuthToken) {
       throw new BadRequestException('GitHub not connected for this team');
     }
-    const { data } = await firstValueFrom(
-      this.http.get(`https://api.github.com/repos/${owner}/${repo}/branches`, {
-        headers: {
-          Authorization: `Bearer ${team.githubOAuthToken}`,
-          Accept: 'application/vnd.github+json',
-        },
-        params: { per_page: 100 },
-        timeout: 15000,
-      }),
-    );
-    return (data || []).map((b: any) => ({ name: b.name, protected: b.protected }));
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get(`https://api.github.com/repos/${owner}/${repo}/branches`, {
+          headers: {
+            Authorization: `Bearer ${team.githubOAuthToken}`,
+            Accept: 'application/vnd.github+json',
+          },
+          params: { per_page: 100 },
+          timeout: 15000,
+        }),
+      );
+      return (data || []).map((b: any) => ({ name: b.name, protected: b.protected }));
+    } catch (err: any) {
+      this.providerError('GitHub', err);
+    }
   }
 
   // ── Vercel ────────────────────────────────────────────────────
@@ -465,20 +496,24 @@ export class TeamIntegrationsService {
     const params: Record<string, string> = { limit: '100' };
     if (team.vercelOAuthTeamId) params.teamId = team.vercelOAuthTeamId;
 
-    const { data } = await firstValueFrom(
-      this.http.get('https://api.vercel.com/v9/projects', {
-        headers: { Authorization: `Bearer ${team.vercelOAuthToken}` },
-        params,
-        timeout: 15000,
-      }),
-    );
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get('https://api.vercel.com/v9/projects', {
+          headers: { Authorization: `Bearer ${team.vercelOAuthToken}` },
+          params,
+          timeout: 15000,
+        }),
+      );
 
-    return (data?.projects || []).map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      framework: p.framework || null,
-      url: p.link?.deployHooks?.[0]?.url || null,
-      updatedAt: p.updatedAt,
-    }));
+      return (data?.projects || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        framework: p.framework || null,
+        url: p.link?.deployHooks?.[0]?.url || null,
+        updatedAt: p.updatedAt,
+      }));
+    } catch (err: any) {
+      this.providerError('Vercel', err);
+    }
   }
 }
