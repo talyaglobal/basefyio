@@ -248,7 +248,7 @@ export class EmailService {
 
     try {
       this.logger.debug(`[EMAIL] Attempting to send: "${params.subject}" → ${params.to} from ${this.fromEmail}`);
-      
+
       const result = await this.resend.emails.send({
         from: this.fromEmail,
         to: params.to,
@@ -256,6 +256,19 @@ export class EmailService {
         subject: params.subject,
         html: params.html,
       });
+
+      // The Resend SDK resolves (does NOT throw) on API errors — it returns
+      // { data: null, error }. Without this check a rejected send (e.g. an
+      // unverified "from" domain) was logged as a success with "ID: unknown",
+      // hiding a fully-broken email pipeline. Treat result.error as a failure.
+      if (result.error) {
+        this.logger.error(
+          `[EMAIL] ✗ Rejected by Resend: "${params.subject}" → ${params.to}\n` +
+            `From: ${this.fromEmail}\n` +
+            `Error: ${result.error.name || ''} — ${result.error.message || JSON.stringify(result.error)}`,
+        );
+        return null;
+      }
 
       this.logger.log(`[EMAIL] ✓ Sent successfully: "${params.subject}" → ${params.to} (ID: ${result.data?.id || 'unknown'})`);
       return result;
