@@ -63,7 +63,7 @@ function newBlogPost(title) {
 title: "${title.replace(/"/g, '\\"')}"
 description: "TODO: 140–160 char meta description targeting the keyword for this post."
 date: "${today()}"
-author: "Kolaybase Team"
+author: "Basefyio Team"
 tags: ["TODO"]
 draft: true
 ---
@@ -92,31 +92,31 @@ Wrap up with a clear next step and an internal link.
 
 function newComparison(competitor) {
   if (!competitor) die('Provide a competitor, e.g. seo:new -- compare "PlanetScale"');
-  const slug = `kolaybase-vs-${slugify(competitor)}`;
+  const slug = `basefyio-vs-${slugify(competitor)}`;
   const snippet = `  {
     slug: "${slug}",
     competitor: "${competitor}",
-    title: "Kolaybase vs. ${competitor}: TODO headline",
+    title: "Basefyio vs. ${competitor}: TODO headline",
     description:
-      "TODO 140–160 char meta description comparing Kolaybase and ${competitor}.",
+      "TODO 140–160 char meta description comparing Basefyio and ${competitor}.",
     intro:
       "TODO one-paragraph framing of how the two platforms differ.",
     positioning:
-      "TODO honest, specific statement of what Kolaybase does differently.",
+      "TODO honest, specific statement of what Basefyio does differently.",
     rows: [
-      { feature: "Database model", kolaybase: "TODO", competitor: "TODO" },
-      { feature: "Self-hosting", kolaybase: "TODO", competitor: "TODO" },
-      { feature: "Auto REST API", kolaybase: "TODO", competitor: "TODO" },
-      { feature: "Authentication", kolaybase: "TODO", competitor: "TODO" },
-      { feature: "Lock-in", kolaybase: "TODO", competitor: "TODO" },
+      { feature: "Database model", basefyio: "TODO", competitor: "TODO" },
+      { feature: "Self-hosting", basefyio: "TODO", competitor: "TODO" },
+      { feature: "Auto REST API", basefyio: "TODO", competitor: "TODO" },
+      { feature: "Authentication", basefyio: "TODO", competitor: "TODO" },
+      { feature: "Lock-in", basefyio: "TODO", competitor: "TODO" },
     ],
     faqs: [
       {
-        question: "Is Kolaybase a ${competitor} alternative?",
+        question: "Is Basefyio a ${competitor} alternative?",
         answer: "TODO",
       },
       {
-        question: "Can I migrate from ${competitor} to Kolaybase?",
+        question: "Can I migrate from ${competitor} to Basefyio?",
         answer: "TODO",
       },
     ],
@@ -173,7 +173,7 @@ function newTerm(term) {
     body: [
       "TODO paragraph 1 — what it is and why it matters.",
       "TODO paragraph 2 — how it works / common patterns.",
-      "TODO paragraph 3 — practical note or how it relates to Kolaybase.",
+      "TODO paragraph 3 — practical note or how it relates to Basefyio.",
     ],
     related: ["TODO-slug", "TODO-slug"],
   },`;
