@@ -319,8 +319,15 @@ export default function DashboardLayout({
     let debounceTimer: ReturnType<typeof setTimeout>;
     const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
+      // Only refresh the dashboard for events that change the team's project or
+      // member LIST. Per-project data activity is published to the team channel
+      // as `project_activity` on every row write / table change / AI-agent query
+      // — bumping refreshKey on those flooded the dashboard with full refetches
+      // (the "constantly refreshing" loop). Ignore them here; project pages have
+      // their own project-channel live refresh.
+      if (event.entityType === 'project_activity') return;
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 500);
+      debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 800);
     });
     return () => {
       clearTimeout(debounceTimer);

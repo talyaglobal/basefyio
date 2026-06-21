@@ -359,9 +359,12 @@ export default function ProjectsPage() {
     if (!isRealtimePhase1Enabled()) return;
     const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
       if (event.teamId !== activeTeamId) return;
+      // Refresh the project LIST only for structural changes. `project_activity`
+      // (per-row data writes / table changes / AI-agent queries) is published to
+      // the team channel constantly and must NOT trigger a list refetch, or the
+      // page refetches in a loop whenever there's any data activity.
       if (
         event.entityType === 'project' ||
-        event.entityType === 'project_activity' ||
         event.entityType === 'project_folder' ||
         event.entityType === 'project_tag' ||
         event.entityType === 'team'
