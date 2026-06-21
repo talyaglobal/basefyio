@@ -141,6 +141,7 @@ export default function ManagementPage() {
   const [tabLoading, setTabLoading] = useState(false);
   const [savingRoleUserId, setSavingRoleUserId] = useState<string | null>(null);
   const [savingActiveUserId, setSavingActiveUserId] = useState<string | null>(null);
+  const [unlockingUserId, setUnlockingUserId] = useState<string | null>(null);
   const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
   const [savingPackageUserId, setSavingPackageUserId] = useState<string | null>(null);
   const [savingPlanName, setSavingPlanName] = useState<string | null>(null);
@@ -1908,6 +1909,39 @@ export default function ManagementPage() {
                       >
                         {u.isActive === false ? 'Activate' : 'Deactivate'}
                       </Button>
+                      {u.lockedUntil && new Date(u.lockedUntil) > new Date() && (
+                        <>
+                          <span
+                            className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                            title={`Locked after too many failed logins until ${new Date(u.lockedUntil).toLocaleString()}`}
+                          >
+                            Locked
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={unlockingUserId === u.id}
+                            onClick={async () => {
+                              setUnlockingUserId(u.id);
+                              try {
+                                await api.auth.unlockManagementUser(u.id);
+                                setUsers((prev) =>
+                                  prev.map((x) =>
+                                    x.id === u.id ? { ...x, lockedUntil: null } : x,
+                                  ),
+                                );
+                                toast.success(`${u.email} unlocked`);
+                              } catch (err: any) {
+                                toast.error(err.message || 'Failed to unlock user');
+                              } finally {
+                                setUnlockingUserId(null);
+                              }
+                            }}
+                          >
+                            {unlockingUserId === u.id ? 'Unlocking…' : 'Unlock'}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </td>
                   <td className="px-2 py-2">

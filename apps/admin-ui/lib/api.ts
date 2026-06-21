@@ -394,6 +394,12 @@ export const api = {
         },
       );
     },
+    unlockManagementUser(userId: string) {
+      return request<{ unlocked: boolean }>(
+        `/auth/management/users/${userId}/unlock`,
+        { method: 'POST' },
+      );
+    },
     managementTeams() {
       return request<ManagementTeam[]>('/auth/management/teams');
     },

@@ -1547,12 +1547,27 @@ export class AuthService {
       this.prisma.user.count({ where }),
     ]);
 
+    // Lock state lives in loginSecurityState (keyed by email), separate from the
+    // user row — fetch it for this page so ROOT can see/clear locked accounts.
+    const emails = users.map((u) => u.email);
+    const securityStates = emails.length
+      ? await this.prisma.loginSecurityState.findMany({
+          where: { email: { in: emails } },
+          select: { email: true, lockedUntil: true },
+        })
+      : [];
+    const lockUntilByEmail = new Map(
+      securityStates.map((s) => [s.email, s.lockedUntil]),
+    );
+
     const enriched = await Promise.all(
       users.map(async (u) => {
+        const lockedUntil = lockUntilByEmail.get(u.email) ?? null;
         try {
           const snap = await this.keycloak.getPlatformUserManagementSnapshotById(u.id, u.email);
           return {
             ...u,
+            lockedUntil,
             isActive: snap.isActive,
             authProvider: snap.authProvider,
             signOnMethod: snap.signOnMethod,
@@ -1562,6 +1577,7 @@ export class AuthService {
         } catch {
           return {
             ...u,
+            lockedUntil,
             isActive: true,
             authProvider: 'local' as const,
             signOnMethod: 'local' as const,
@@ -1573,6 +1589,28 @@ export class AuthService {
     );
 
     return { users: enriched, total };
+  }
+
+  /**
+   * Clear a failed-login lockout so the user can sign in immediately, instead
+   * of waiting out the 30-minute window. ROOT/management action.
+   */
+  async unlockManagementUserAccount(targetUserId: string) {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { email: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    // updateMany is a no-op (not an error) when the user never had a security
+    // row, so this is safe whether or not they were actually locked.
+    await this.prisma.loginSecurityState.updateMany({
+      where: { email: target.email },
+      data: { failedAttempts: 0, consecutiveFailed: 0, lockedUntil: null },
+    });
+
+    this.logger.log(`Login lock cleared for ${target.email} (${targetUserId})`);
+    return { unlocked: true };
   }
 
   async updateUserRoleByRoot(currentUserId: string, targetUserId: string, role: string) {

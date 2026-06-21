@@ -270,6 +270,43 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
   @RequireManagementPermission('canManageUsers')
+  @Post('management/users/:id/unlock')
+  async unlockManagementUser(
+    @CurrentUser() user: JwtPayload,
+    @Req() req: RequestWithTraceId,
+    @Param('id') id: string,
+  ) {
+    const startedAt = Date.now();
+    try {
+      const result = await this.authService.unlockManagementUserAccount(id);
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_USER_UNLOCKED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'MEDIUM',
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err) {
+      await this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: user.sub,
+        action: 'AUTH_USER_UNLOCKED',
+        resourceType: 'user',
+        resourceId: id,
+        severity: 'HIGH',
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManageUsers')
   @Patch('management/users/:id/active')
   async updateManagementUserActive(
     @CurrentUser() user: JwtPayload,

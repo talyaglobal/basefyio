@@ -246,6 +246,8 @@ export interface ManagementUser {
   signOnMethod?: 'local' | 'google' | 'github';
   linkedProviders?: Array<'google' | 'github'>;
   hasPasswordAuth?: boolean;
+  /** Failed-login lockout expiry; account is locked while this is in the future. */
+  lockedUntil?: string | null;
   createdAt: string;
   _count: { teamMembers: number };
 }
