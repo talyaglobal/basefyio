@@ -1689,6 +1689,16 @@ export class AuthService {
       forceChangeOnFirstLogin,
     );
 
+    // A password reset must fully restore the ability to log in: clear our own
+    // failed-attempt counters (which also drive the login captcha) and any
+    // lock window, so the user isn't blocked by a leftover captcha/lock right
+    // after the reset. (Keycloak's brute-force lock is cleared inside
+    // resetPlatformUserPasswordWithPolicy.)
+    await this.prisma.loginSecurityState.updateMany({
+      where: { email: target.email },
+      data: { failedAttempts: 0, consecutiveFailed: 0, lockedUntil: null },
+    });
+
     this.logger.log(
       `Root user ${currentUserId} reset password for ${targetUserId} (forceChangeOnFirstLogin=${forceChangeOnFirstLogin})`,
     );
