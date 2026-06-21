@@ -31,6 +31,9 @@ import {
   AlertTriangle,
   Minus,
   Table2,
+  HelpCircle,
+  ChevronDown,
+  Lightbulb,
 } from 'lucide-react';
 import {
   normalizeImportProgressData,
@@ -116,6 +119,7 @@ export function CreateProjectDialog({
   const [view, setView] = useState<DialogView>('db-type');
 
   const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
+  const [showDbHelp, setShowDbHelp] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -383,6 +387,7 @@ export function CreateProjectDialog({
   function resetState() {
     setView('db-type');
     setDatabaseType(null);
+    setShowDbHelp(false);
     setName('');
     setDescription('');
     setSupabaseUrl('');
@@ -846,6 +851,22 @@ export function CreateProjectDialog({
                       row-level security. Best for transactional apps with a
                       well-defined schema.
                     </p>
+                    <div className="mt-2 overflow-hidden rounded-md border bg-background/60 text-[10px]">
+                      <div className="grid grid-cols-3 border-b bg-muted/60 font-mono font-medium text-muted-foreground">
+                        <span className="px-2 py-1">id</span>
+                        <span className="px-2 py-1">name</span>
+                        <span className="px-2 py-1">email</span>
+                      </div>
+                      <div className="grid grid-cols-3 font-mono">
+                        <span className="px-2 py-1">1</span>
+                        <span className="px-2 py-1">Ada</span>
+                        <span className="truncate px-2 py-1">ada@x.com</span>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[10px] text-muted-foreground/70">
+                      Example — a <span className="font-medium">row</span> in a{' '}
+                      <code className="font-mono">users</code> table
+                    </p>
                   </div>
                 </div>
               </button>
@@ -876,9 +897,61 @@ export function CreateProjectDialog({
                       Schema-flexible collections of JSON documents. Best for
                       evolving data models and document-centric apps.
                     </p>
+                    <pre className="mt-2 overflow-x-auto rounded-md border bg-background/60 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">{`{
+  "id": "usr_1",
+  "name": "Ada",
+  "tags": ["admin", "beta"]
+}`}</pre>
+                    <p className="mt-1 text-[10px] text-muted-foreground/70">
+                      Example — a <span className="font-medium">document</span> in a{' '}
+                      <code className="font-mono">users</code> collection
+                    </p>
                   </div>
                 </div>
               </button>
+            </div>
+
+            {/* Guided help for developers unsure which model to pick */}
+            <div className="mt-1">
+              <button
+                type="button"
+                onClick={() => setShowDbHelp((v) => !v)}
+                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+                Not sure which to pick? Help me decide
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${showDbHelp ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {showDbHelp && (
+                <div className="mt-2 space-y-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  <p>
+                    <span className="font-medium text-foreground">Choose Relational</span> if your
+                    data has a clear, repeating shape — users, orders, products, invoices — and you
+                    will link records together or need strict rules. This fits most apps.
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">Choose NoSQL</span> if each record
+                    can look different or the shape changes often — flexible content, nested JSON,
+                    event logs, quick prototyping.
+                  </p>
+                  <div className="flex items-start gap-1.5 rounded-md bg-primary/10 px-2 py-1.5 text-foreground">
+                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>
+                      Still unsure? Start with{' '}
+                      <button
+                        type="button"
+                        onClick={() => setDatabaseType('RELATIONAL')}
+                        className="font-medium text-primary underline"
+                      >
+                        Relational
+                      </button>{' '}
+                      — it covers the widest range of apps, and you can create a NoSQL project later.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <DialogFooter>
