@@ -794,9 +794,32 @@ export class KeycloakAdminService implements OnModuleInit {
         temporary: false,
       },
     });
+    // Clear any Keycloak brute-force lock so the new password works on the very
+    // next login. Without this, prior failed attempts keep the account locked
+    // at the Keycloak level and the password grant returns invalid_grant — which
+    // surfaces to the user as "Email or password is incorrect" even though the
+    // password is correct.
+    await this.clearBruteForceLock(keycloakUserId);
+
     this.logger.log(
       `Password reset for platform user ${keycloakUserId} (forceChangeOnFirstLogin=${forceChangeOnFirstLogin})`,
     );
+  }
+
+  /**
+   * Clear Keycloak's own brute-force detection lock for a platform user.
+   * Best-effort: a no-op if brute-force is disabled or the user has no lock.
+   */
+  async clearBruteForceLock(keycloakUserId: string): Promise<void> {
+    await this.ensureAuth();
+    try {
+      await this.client.attackDetection.del({ realm: 'master', id: keycloakUserId });
+      this.logger.log(`Cleared Keycloak brute-force lock for ${keycloakUserId}`);
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not clear brute-force lock for ${keycloakUserId}: ${err?.message ?? err}`,
+      );
+    }
   }
 
   async getPlatformUserForcePasswordChangeByEmail(email: string): Promise<boolean> {

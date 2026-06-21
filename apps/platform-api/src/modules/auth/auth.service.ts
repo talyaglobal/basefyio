@@ -1609,6 +1609,10 @@ export class AuthService {
       data: { failedAttempts: 0, consecutiveFailed: 0, lockedUntil: null },
     });
 
+    // Also clear Keycloak's own brute-force lock — otherwise the account stays
+    // locked at the auth layer and logins fail with "incorrect" credentials.
+    await this.keycloak.clearBruteForceLock(targetUserId);
+
     this.logger.log(`Login lock cleared for ${target.email} (${targetUserId})`);
     return { unlocked: true };
   }
