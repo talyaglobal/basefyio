@@ -1,12 +1,12 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { CreditCard } from 'lucide-react';
-import { isAuthenticated, parseJwt, getAccessToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
+import { parseJwt, getAccessToken, getRefreshToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { UserInfo, UserProfile, Team } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -79,10 +79,10 @@ export default function DashboardLayout({
     if (typeof window !== 'undefined') return sessionStorage.getItem('basefyio_view_team') || 'all';
     return 'all';
   });
-  const setViewTeamId = (id: string) => {
+  const setViewTeamId = useCallback((id: string) => {
     setViewTeamIdRaw(id);
     sessionStorage.setItem('basefyio_view_team', id);
-  };
+  }, []);
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -109,7 +109,11 @@ export default function DashboardLayout({
       router.replace('/set-new-password');
       return;
     }
-    if (!isAuthenticated()) {
+    // Only treat the user as logged out when BOTH tokens are gone. The access
+    // token can be briefly absent (refresh in flight, large-token cookie drop),
+    // and the user demanded the session never end on its own — only an explicit
+    // Logout clears both tokens. A genuinely logged-out visitor has neither.
+    if (!getAccessToken() && !getRefreshToken()) {
       router.replace('/login');
       return;
     }
@@ -292,7 +296,20 @@ export default function DashboardLayout({
   // Single source-of-truth for teams + invites — Header and Sidebar read from context
   useEffect(() => {
     if (!activeTeamId) return;
-    api.teams.list().then(setTeams).catch(() => {});
+    // Keep the same array reference when the team list is unchanged, so the
+    // memoized context value (and every effect that depends on `teams`) does
+    // not churn and re-fire on each refetch.
+    api.teams
+      .list()
+      .then((next) =>
+        setTeams((prev) =>
+          prev.length === next.length &&
+          prev.every((t, i) => t.id === next[i]?.id && t.name === next[i]?.name)
+            ? prev
+            : next,
+        ),
+      )
+      .catch(() => {});
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
   }, [activeTeamId, refreshKey]);
 
@@ -319,8 +336,37 @@ export default function DashboardLayout({
     );
   }
 
+  const contextValue = useMemo(
+    () => ({
+      activeTeamId,
+      setActiveTeamId: handleTeamChange,
+      viewTeamId,
+      setViewTeamId,
+      refreshKey,
+      refreshTeams,
+      refreshUser,
+      profile,
+      refreshProfile,
+      teams,
+      inviteCount,
+    }),
+    [
+      activeTeamId,
+      handleTeamChange,
+      viewTeamId,
+      setViewTeamId,
+      refreshKey,
+      refreshTeams,
+      refreshUser,
+      profile,
+      refreshProfile,
+      teams,
+      inviteCount,
+    ],
+  );
+
   return (
-    <DashboardContext.Provider value={{ activeTeamId, setActiveTeamId: handleTeamChange, viewTeamId, setViewTeamId, refreshKey, refreshTeams, refreshUser, profile, refreshProfile, teams, inviteCount }}>
+    <DashboardContext.Provider value={contextValue}>
       <div className="flex h-screen flex-col overflow-hidden">
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
