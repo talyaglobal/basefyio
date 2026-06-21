@@ -575,8 +575,12 @@ export const api = {
         body: JSON.stringify(data ?? {}),
       });
     },
+    // Pass an empty teamId for the "All Teams" view — the API then returns
+    // deleted projects across every team the user belongs to.
     listDeleted(teamId: string) {
-      return request<ProjectListItem[]>(`/projects/deleted?teamId=${teamId}`);
+      return request<ProjectListItem[]>(
+        `/projects/deleted?teamId=${encodeURIComponent(teamId || '')}`,
+      );
     },
     listDeletionReasons(limit = 200) {
       return request<ProjectDeletionReasonEntry[]>(

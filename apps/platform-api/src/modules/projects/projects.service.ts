@@ -862,18 +862,26 @@ export class ProjectsService {
     });
   }
 
-  async findDeleted(teamId: string, userId: string) {
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId, userId } },
-    });
-    if (!membership || membership.role !== 'OWNER') {
-      throw new ForbiddenException('Only the team owner can view deleted projects');
-    }
-
+  /**
+   * Deleted projects the user can see. When `teamId` is omitted (the "All
+   * Teams" view) this spans every team the user belongs to; each row carries
+   * its `teamName` and a `canManage` flag (owner / admin / project creator)
+   * so the UI can show ownership and gate restore / permanent-delete.
+   */
+  async findDeleted(teamId: string | undefined, userId: string) {
     await this.purgeDeletedProjectsPastRetention();
 
-    return this.prisma.project.findMany({
-      where: { teamId, status: 'DELETED' },
+    const memberships = await this.prisma.teamMember.findMany({
+      where: { userId, ...(teamId ? { teamId } : {}) },
+      select: { teamId: true, role: true },
+    });
+    if (memberships.length === 0) return [];
+
+    const roleByTeam = new Map(memberships.map((m) => [m.teamId, m.role]));
+    const teamIds = memberships.map((m) => m.teamId);
+
+    const projects = await this.prisma.project.findMany({
+      where: { teamId: { in: teamIds }, status: 'DELETED' },
       orderBy: [{ deletedAt: 'desc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
@@ -884,8 +892,54 @@ export class ProjectsService {
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
+        createdBy: true,
+        teamId: true,
+        team: { select: { id: true, name: true } },
       },
     });
+
+    return projects.map((p) => {
+      const role = roleByTeam.get(p.teamId);
+      const canManage =
+        role === 'OWNER' || role === 'ADMIN' || p.createdBy === userId;
+      const { team, createdBy, ...rest } = p;
+      return {
+        ...rest,
+        // Show the clean original name, not the archived "..._del<ts>" form.
+        name: this.stripDeletedSuffix(p.name),
+        slug: this.stripDeletedSuffix(p.slug),
+        teamId: p.teamId,
+        teamName: team?.name ?? null,
+        createdBy,
+        canManage,
+      };
+    });
+  }
+
+  /**
+   * A deleted project may be restored or permanently removed by the team
+   * owner, a team admin, or the user who created the project.
+   */
+  private async assertCanManageDeleted(
+    project: { teamId: string; createdBy: string | null },
+    userId: string,
+  ): Promise<void> {
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+    if (
+      membership.role === 'OWNER' ||
+      membership.role === 'ADMIN' ||
+      project.createdBy === userId
+    ) {
+      return;
+    }
+    throw new ForbiddenException(
+      'Only the team owner, a team admin, or the project creator can do this',
+    );
   }
 
   async restore(id: string, userId: string) {
@@ -895,12 +949,7 @@ export class ProjectsService {
       throw new ForbiddenException('Project is not deleted');
     }
 
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership || membership.role !== 'OWNER') {
-      throw new ForbiddenException('Only the team owner can restore projects');
-    }
+    await this.assertCanManageDeleted(project, userId);
 
     const originalName = this.stripDeletedSuffix(project.name);
     const originalSlug = this.stripDeletedSuffix(project.slug);
@@ -1041,12 +1090,7 @@ export class ProjectsService {
       throw new ForbiddenException('Only deleted projects can be permanently removed');
     }
 
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership || membership.role !== 'OWNER') {
-      throw new ForbiddenException('Only the team owner can permanently delete projects');
-    }
+    await this.assertCanManageDeleted(project, userId);
 
     await this.deleteProjectRealm(project.keycloakRealm);
     await this.dropDatabase(project.dbName).catch(() => {});

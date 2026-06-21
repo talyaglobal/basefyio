@@ -151,6 +151,11 @@ export interface ProjectListItem {
   updatedAt: string;
   /** Set when status is DELETED; used for 24h trash retention. */
   deletedAt?: string | null;
+  /** Team id/name — populated by the all-teams trash listing. */
+  teamId?: string;
+  teamName?: string | null;
+  /** Trash only: whether this user may restore / permanently delete it. */
+  canManage?: boolean;
 }
 
 export interface Team {

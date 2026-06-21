@@ -62,6 +62,7 @@ import {
   SortAsc,
   Tag,
   Trash2,
+  Users,
   X,
   Zap,
   LayoutGrid,
@@ -621,19 +622,13 @@ export default function ProjectsPage() {
 
   // ── Trash (deleted projects) ──────────────────────────────────────────────────
   async function loadDeletedProjects() {
-    if (!activeTeamId) return;
     setLoadingTrash(true);
     try {
-      if (isAllTeams) {
-        const allTeams = await api.teams.list();
-        const chunks = await Promise.all(
-          allTeams.map((t) => api.projects.listDeleted(t.id).catch(() => [] as ProjectListItem[])),
-        );
-        setDeletedProjects(chunks.flat());
-      } else {
-        const deleted = await api.projects.listDeleted(activeTeamId);
-        setDeletedProjects(deleted);
-      }
+      // Empty teamId → the API returns deleted projects across all the user's
+      // teams (each tagged with its team name + canManage flag).
+      const teamScope = isAllTeams ? '' : (viewTeamId || activeTeamId || '');
+      const deleted = await api.projects.listDeleted(teamScope);
+      setDeletedProjects(deleted);
     } catch {
       setDeletedProjects([]);
     } finally {
@@ -1141,18 +1136,16 @@ export default function ProjectsPage() {
                 <p className="px-2 text-xs text-muted-foreground/50 mt-1">No tags yet</p>
               )}
 
-              {/* Trash (only visible to team owner) */}
-              {isOwner && (
-                <TrashDropZone
-                  showTrash={showTrash}
-                  deletedCount={deletedProjects.length}
-                  dropHighlight={projectDragActive && dropTargetId === 'droppable-trash'}
-                  onClick={() => {
-                    setShowTrash(!showTrash);
-                    setSelectedFolder('all');
-                  }}
-                />
-              )}
+              {/* Trash — visible to everyone; restore / delete are gated server-side */}
+              <TrashDropZone
+                showTrash={showTrash}
+                deletedCount={deletedProjects.length}
+                dropHighlight={projectDragActive && dropTargetId === 'droppable-trash'}
+                onClick={() => {
+                  setShowTrash(!showTrash);
+                  setSelectedFolder('all');
+                }}
+              />
             </div>
           </aside>
 
@@ -1208,6 +1201,7 @@ export default function ProjectsPage() {
                   <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deletedProjects.map((project) => {
                       const displayName = project.name.replace(/_(\d+_)?deleted$/, '');
+                      const canManage = project.canManage !== false;
                       return (
                       <div
                         key={project.id}
@@ -1218,6 +1212,12 @@ export default function ProjectsPage() {
                             <h3 className="text-sm font-medium truncate text-muted-foreground line-through">
                               {displayName}
                             </h3>
+                            {project.teamName && (
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                <Users className="h-2.5 w-2.5" />
+                                {project.teamName}
+                              </span>
+                            )}
                             {project.description && (
                               <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
                             )}
@@ -1242,23 +1242,29 @@ export default function ProjectsPage() {
                             return `Deleted ${dateStr} ${timeStr} · ${rem} until purge`;
                           })()}
                         </p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleRestore(project.id)}
-                            disabled={restoringId === project.id}
-                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-                          >
-                            <RotateCcw className={`h-3 w-3 ${restoringId === project.id ? 'animate-spin' : ''}`} />
-                            {restoringId === project.id ? 'Restoring...' : 'Restore'}
-                          </button>
-                          <button
-                            onClick={() => setPermDeleteConfirm(project)}
-                            className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Delete Forever
-                          </button>
-                        </div>
+                        {canManage ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleRestore(project.id)}
+                              disabled={restoringId === project.id}
+                              className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                            >
+                              <RotateCcw className={`h-3 w-3 ${restoringId === project.id ? 'animate-spin' : ''}`} />
+                              {restoringId === project.id ? 'Restoring...' : 'Restore'}
+                            </button>
+                            <button
+                              onClick={() => setPermDeleteConfirm(project)}
+                              className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete Forever
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground/60">
+                            Only the team owner, an admin, or the project creator can restore or delete this.
+                          </p>
+                        )}
                       </div>
                       );
                     })}
