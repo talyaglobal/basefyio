@@ -32,8 +32,6 @@ import {
   Minus,
   Table2,
   HelpCircle,
-  ChevronDown,
-  Lightbulb,
 } from 'lucide-react';
 import {
   normalizeImportProgressData,
@@ -42,6 +40,7 @@ import {
   type ProjectListItem,
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
+import { DatabaseAdvisor } from '@/components/database-advisor';
 
 export interface ReimportTarget {
   projectId: string;
@@ -60,7 +59,7 @@ interface CreateProjectDialogProps {
   reimportSource?: ReimportSource | null;
 }
 
-type DialogView = 'db-type' | 'create' | 'import' | 'import-zip' | 'importing' | 'result';
+type DialogView = 'db-type' | 'advisor' | 'create' | 'import' | 'import-zip' | 'importing' | 'result';
 
 type ProjectDatabaseType = 'RELATIONAL' | 'NOSQL';
 
@@ -119,7 +118,6 @@ export function CreateProjectDialog({
   const [view, setView] = useState<DialogView>('db-type');
 
   const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
-  const [showDbHelp, setShowDbHelp] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -387,7 +385,6 @@ export function CreateProjectDialog({
   function resetState() {
     setView('db-type');
     setDatabaseType(null);
-    setShowDbHelp(false);
     setName('');
     setDescription('');
     setSupabaseUrl('');
@@ -911,48 +908,15 @@ export function CreateProjectDialog({
               </button>
             </div>
 
-            {/* Guided help for developers unsure which model to pick */}
-            <div className="mt-1">
-              <button
-                type="button"
-                onClick={() => setShowDbHelp((v) => !v)}
-                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
-                <HelpCircle className="h-3.5 w-3.5" />
-                Not sure which to pick? Help me decide
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${showDbHelp ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {showDbHelp && (
-                <div className="mt-2 space-y-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  <p>
-                    <span className="font-medium text-foreground">Choose Relational</span> if your
-                    data has a clear, repeating shape — users, orders, products, invoices — and you
-                    will link records together or need strict rules. This fits most apps.
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Choose NoSQL</span> if each record
-                    can look different or the shape changes often — flexible content, nested JSON,
-                    event logs, quick prototyping.
-                  </p>
-                  <div className="flex items-start gap-1.5 rounded-md bg-primary/10 px-2 py-1.5 text-foreground">
-                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span>
-                      Still unsure? Start with{' '}
-                      <button
-                        type="button"
-                        onClick={() => setDatabaseType('RELATIONAL')}
-                        className="font-medium text-primary underline"
-                      >
-                        Relational
-                      </button>{' '}
-                      — it covers the widest range of apps, and you can create a NoSQL project later.
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Guided advisor for developers unsure which model to pick */}
+            <button
+              type="button"
+              onClick={() => setView('advisor')}
+              className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+              Not sure which to pick? Answer a few questions — basefyio will recommend
+            </button>
 
             <DialogFooter>
               <Button
@@ -994,6 +958,24 @@ export function CreateProjectDialog({
               <HardDrive className="h-5 w-5" />
               Import from ZIP
             </button>
+          </>
+        )}
+
+        {view === 'advisor' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Find the right database</DialogTitle>
+              <DialogDescription>
+                A few quick questions about what you&apos;re building — no technical jargon.
+              </DialogDescription>
+            </DialogHeader>
+            <DatabaseAdvisor
+              onBack={() => setView('db-type')}
+              onPick={(model) => {
+                setDatabaseType(model);
+                setView('create');
+              }}
+            />
           </>
         )}
 

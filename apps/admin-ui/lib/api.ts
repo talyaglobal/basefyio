@@ -609,6 +609,12 @@ export const api = {
         body: JSON.stringify({ teamId: targetTeamId }),
       });
     },
+    setMaxRowsPerTable(projectId: string, maxRowsPerTable: number) {
+      return request<{ maxRowsPerTable: number; planCeiling: number }>(
+        `/projects/${projectId}/max-rows`,
+        { method: 'PATCH', body: JSON.stringify({ maxRowsPerTable }) },
+      );
+    },
     dbIndexes(projectId: string) {
       return request<any[]>(`/projects/${projectId}/database/indexes`);
     },

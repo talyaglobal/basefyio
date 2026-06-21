@@ -182,9 +182,13 @@ export class ProjectDataService {
     orderDir?: 'asc' | 'desc',
   ) {
     // Allow longer timeout for search queries on large tables
-    const { pool } = await this.getProjectPool(projectId, ownerId, {
+    const { pool, project } = await this.getProjectPool(projectId, ownerId, {
       statementTimeoutMs: search?.trim() ? 60_000 : 15_000,
     });
+    // Cap the page size at the project's configured per-table row limit
+    // (plan-gated). Never below 1 — a misconfigured 0 would break the grid.
+    const cap = Math.max(1, (project as { maxRowsPerTable?: number }).maxRowsPerTable ?? 1000);
+    if (limit > cap) limit = cap;
     const client = await pool.connect();
     const offset = (page - 1) * limit;
 

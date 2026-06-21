@@ -663,6 +663,39 @@ export class ProjectsService {
     return { message: 'Project moved successfully' };
   }
 
+  /** Per-plan ceiling for the Data grid's per-table row limit. */
+  private static readonly ROW_LIMIT_CEILINGS: Record<string, number> = {
+    free: 1000,
+    pro: 10000,
+    business: 100000,
+    enterprise: 100000,
+  };
+
+  async setMaxRowsPerTable(projectId: string, userId: string, value: number) {
+    const project = await this.findOne(projectId, userId);
+    const ALLOWED = [1000, 10000, 100000];
+    if (!ALLOWED.includes(value)) {
+      throw new BadRequestException('Row limit must be 1,000, 10,000, or 100,000');
+    }
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId: project.teamId },
+      include: { plan: true },
+    });
+    const planName = (sub?.plan?.name || 'free').toLowerCase();
+    const ceiling = ProjectsService.ROW_LIMIT_CEILINGS[planName] ?? 1000;
+    if (value > ceiling) {
+      throw new ForbiddenException(
+        `Your current plan allows up to ${ceiling.toLocaleString()} rows per table. ` +
+          `Upgrade your plan to raise this limit.`,
+      );
+    }
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { maxRowsPerTable: value },
+    });
+    return { maxRowsPerTable: value, planCeiling: ceiling };
+  }
+
   async remove(
     id: string,
     userId: string,

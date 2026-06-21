@@ -222,6 +222,15 @@ export class ProjectsController {
     return this.projectsService.findDeleted(teamId, user.sub);
   }
 
+  @Patch(':id/max-rows')
+  async setMaxRowsPerTable(
+    @Param('id') id: string,
+    @Body('maxRowsPerTable') maxRowsPerTable: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.setMaxRowsPerTable(id, user.sub, Number(maxRowsPerTable));
+  }
+
   @Get('deletion-reasons')
   async listDeletionReasons(
     @CurrentUser() user: JwtPayload,

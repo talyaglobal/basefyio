@@ -254,6 +254,12 @@ export function ProjectSettingsView() {
         </div>
       </form>
 
+      <MaxRowsCard
+        projectId={project.id}
+        current={project.maxRowsPerTable ?? 1000}
+        onSaved={() => { void refreshProject?.(); }}
+      />
+
       <RealtimeSettingsCard projectId={project.id} />
 
       <Separator />
@@ -263,5 +269,74 @@ export function ProjectSettingsView() {
         team settings.
       </p>
     </div>
+  );
+}
+
+const ROW_LIMIT_OPTIONS = [1000, 10000, 100000];
+
+function MaxRowsCard({
+  projectId,
+  current,
+  onSaved,
+}: {
+  projectId: string;
+  current: number;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState(String(current));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(String(current));
+  }, [current]);
+
+  async function save(next: string) {
+    const n = Number(next);
+    setSaving(true);
+    try {
+      await api.projects.setMaxRowsPerTable(projectId, n);
+      toast.success(`Row limit set to ${n.toLocaleString()} per table`);
+      onSaved();
+    } catch (err: any) {
+      // Plan-gated failures come back as a clear "upgrade your plan" message.
+      toast.error(err.message || 'Failed to update row limit');
+      setValue(String(current));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border bg-card p-6">
+      <div>
+        <h2 className="text-lg font-semibold">Rows per table</h2>
+        <p className="text-sm text-muted-foreground">
+          How many rows the Data grid loads per table. Higher limits are available on paid
+          plans — Free up to 1,000, Pro up to 10,000, Business up to 100,000.
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <Select
+          value={value}
+          onValueChange={(v) => {
+            setValue(v);
+            void save(v);
+          }}
+          disabled={saving}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ROW_LIMIT_OPTIONS.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n.toLocaleString()} rows
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
+    </section>
   );
 }

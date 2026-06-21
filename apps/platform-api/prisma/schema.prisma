@@ -276,6 +276,9 @@ model Project {
   provisioningProject ProvisioningProject?
   /// Frozen MinIO prefix seed. Slug may change on rename; this never does.
   storagePrefix String? @map("storage_prefix")
+  /// Max rows the Data grid loads per table. Default 1000; higher tiers (pro 10k,
+  /// business 100k) can raise it. Plan-gated when changed.
+  maxRowsPerTable Int @default(1000) @map("max_rows_per_table")
 
   realtimeBindings    RealtimeBinding[]
 

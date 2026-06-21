@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   Get,
   Post,
@@ -72,7 +73,18 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const created = await this.keycloak.createUser(project.keycloakRealm, body);
+    const email = body.email?.trim();
+    if (!email) {
+      throw new BadRequestException('Email is required');
+    }
+    // Enforce one account per email in the project's auth realm (the SDK signup
+    // path already does this; the dashboard "Add User" path did not, which let
+    // duplicate emails accumulate).
+    const existing = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
+    if (existing) {
+      throw new ConflictException('A user with this email already exists in this project');
+    }
+    const created = await this.keycloak.createUser(project.keycloakRealm, { ...body, email });
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_CREATED,

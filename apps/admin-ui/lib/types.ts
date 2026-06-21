@@ -92,6 +92,8 @@ export interface Project {
   status: 'ACTIVE' | 'PAUSED' | 'DELETED';
   /** Database model chosen in the New Project wizard. */
   databaseType?: 'RELATIONAL' | 'NOSQL';
+  /** Max rows the Data grid loads per table (plan-gated: 1000 / 10000 / 100000). */
+  maxRowsPerTable?: number;
   createdAt: string;
   updatedAt: string;
   importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP';
