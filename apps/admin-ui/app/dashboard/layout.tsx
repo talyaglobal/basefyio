@@ -328,17 +328,13 @@ export default function DashboardLayout({
     };
   }, [activeTeamId]);
 
-  if (!user || !activeTeamId) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
+  // NOTE: every hook must run before any early return — keep this useMemo
+  // above the loading guard below (React error #310 otherwise).
   const contextValue = useMemo(
     () => ({
-      activeTeamId,
+      // Non-null in practice: the Provider only renders its children after the
+      // `!activeTeamId` guard below, so consumers never see a null here.
+      activeTeamId: (activeTeamId ?? '') as string,
       setActiveTeamId: handleTeamChange,
       viewTeamId,
       setViewTeamId,
@@ -364,6 +360,14 @@ export default function DashboardLayout({
       inviteCount,
     ],
   );
+
+  if (!user || !activeTeamId) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <DashboardContext.Provider value={contextValue}>
