@@ -634,8 +634,24 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async findUserInRealm(realmName: string, email: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({ realm: realmName, email, exact: true });
-    return users[0] || null;
+    const norm = (email || '').trim().toLowerCase();
+    // `exact: true` on email has been observed to miss existing users on some
+    // realms (returns 0 while a broad search returns the user). Fall back to a
+    // non-exact search and match the email case-insensitively. Reliability here
+    // matters: it backs both the duplicate-email guard and signin's
+    // email→username self-heal.
+    let users = await this.client.users.find({ realm: realmName, email, exact: true });
+    if (!users.length) {
+      users = await this.client.users.find({ realm: realmName, email });
+    }
+    if (!users.length) {
+      users = await this.client.users.find({ realm: realmName, search: email });
+    }
+    return (
+      users.find((u) => (u.email || '').trim().toLowerCase() === norm) ||
+      users[0] ||
+      null
+    );
   }
 
   async findUserByEmailInRealm(realm: string, email: string) {
