@@ -713,7 +713,9 @@ export class KeycloakAdminService implements OnModuleInit {
     const update: Record<string, any> = {};
     if (data.firstName !== undefined) update.firstName = data.firstName;
     if (data.lastName !== undefined) update.lastName = data.lastName;
-    if (data.email !== undefined) { update.email = data.email; update.emailVerified = true; }
+    // Sync username to the new email so SDK signin (which authenticates by email)
+    // keeps working — see updateRealmUserEmail.
+    if (data.email !== undefined) { update.email = data.email; update.emailVerified = true; update.username = data.email; }
     if (data.enabled !== undefined) update.enabled = data.enabled;
     await this.client.users.update({ realm: realmName, id: userId }, update);
     this.logger.log(`User ${userId} updated in realm "${realmName}"`);
@@ -721,9 +723,12 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async updateRealmUserEmail(realmName: string, userId: string, newEmail: string) {
     await this.ensureAuth();
+    // Keep username in sync with email. SDK signin authenticates by email, and
+    // Keycloak's password grant resolves the literal username — so a username
+    // left at the old email makes the user unable to sign in with their new one.
     await this.client.users.update(
       { realm: realmName, id: userId },
-      { email: newEmail, emailVerified: true },
+      { username: newEmail, email: newEmail, emailVerified: true },
     );
     this.logger.log(`Email changed for user ${userId} in realm "${realmName}" to "${newEmail}"`);
   }

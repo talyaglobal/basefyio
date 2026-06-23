@@ -460,6 +460,40 @@ export class ProjectSdkAuthService {
         );
       }
 
+      // The grant sends the email in the username field. Keycloak's password
+      // grant resolves the literal username, so a user whose KC username drifted
+      // from their email (e.g. an email change) fails here even with the right
+      // password. Resolve the real username by email and retry once.
+      if (kcError === 'invalid_grant' && !retried) {
+        const user = await this.keycloak
+          .findUserInRealm(realmName, email)
+          .catch(() => null);
+        const realUsername = (user as { username?: string } | null)?.username;
+        if (realUsername && realUsername.toLowerCase() !== email.toLowerCase()) {
+          try {
+            const retry = await firstValueFrom(
+              this.http.post(
+                tokenUrl,
+                new URLSearchParams({
+                  grant_type: 'password', client_id: clientId, username: realUsername, password,
+                  scope: 'openid email profile',
+                }).toString(),
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+              ),
+            );
+            const d = retry.data;
+            return {
+              accessToken: d.access_token,
+              refreshToken: d.refresh_token,
+              expiresIn: d.expires_in,
+              tokenType: d.token_type,
+            };
+          } catch {
+            /* fall through to invalid-credentials below */
+          }
+        }
+      }
+
       // Genuine bad email/password — the common case. Anything else surfaces
       // its real reason instead of a blanket "Invalid credentials".
       if (kcError === 'invalid_grant') {
