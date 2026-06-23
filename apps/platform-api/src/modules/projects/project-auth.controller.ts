@@ -225,9 +225,17 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    const publicApiUrl = this.configService.get<string>('publicApiUrl');
+    // The OAuth flow brokers through Keycloak (kc_idp_hint), so the redirect URI
+    // the user must whitelist in their Google/GitHub OAuth app is Keycloak's
+    // broker endpoint — NOT the app callback. Returning the app callback here
+    // is what made every provider fail with redirect_uri_mismatch.
+    const publicKcUrl = (
+      this.configService.get<string>('keycloak.publicUrl') ||
+      this.configService.get<string>('keycloak.url') ||
+      ''
+    ).replace(/\/+$/, '');
     const callbackUrls = OAUTH_PROVIDERS.reduce<Record<string, string>>((acc, p) => {
-      acc[p] = `${publicApiUrl}/rest/v1/auth/callback/${projectId}/${p}`;
+      acc[p] = `${publicKcUrl}/realms/${project.keycloakRealm}/broker/${p}/endpoint`;
       return acc;
     }, {});
 
