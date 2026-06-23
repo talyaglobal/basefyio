@@ -106,6 +106,33 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   }, []);
 
   useEffect(() => {
+    // When "All Teams" is selected, the project switcher must search across
+    // every team's projects — not just the active team's.
+    if (viewTeamId === 'all') {
+      if (!teams.length) {
+        setTeamProjects([]);
+        return;
+      }
+      let cancelled = false;
+      setProjectsLoading(true);
+      Promise.all(teams.map((t) => api.projects.list(t.id).catch(() => [])))
+        .then((lists) => {
+          if (cancelled) return;
+          const seen = new Set<string>();
+          const flat = lists
+            .flat()
+            .filter((p) => p.status === 'ACTIVE')
+            .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+          setTeamProjects(flat);
+        })
+        .finally(() => {
+          if (!cancelled) setProjectsLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (!activeTeamId) {
       setTeamProjects([]);
       return;
@@ -118,7 +145,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       )
       .catch(() => setTeamProjects([]))
       .finally(() => setProjectsLoading(false));
-  }, [activeTeamId, refreshKey]);
+  }, [activeTeamId, viewTeamId, teams, refreshKey]);
 
   const currentProjectIdFromPath = pathname.startsWith('/dashboard/projects/')
     ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
@@ -466,7 +493,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 setProjectSearch('');
               }
             }}
-            disabled={!activeTeamId && !routeProject}
+            disabled={!activeTeamId && !routeProject && viewTeamId !== 'all'}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -476,7 +503,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           </button>
 
-          {projectsMenuOpen && (activeTeamId || routeProject) && (
+          {projectsMenuOpen && (activeTeamId || routeProject || viewTeamId === 'all') && (
             <>
               <div
                 className="fixed inset-0 z-40"
@@ -485,7 +512,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
                 <div className="border-b px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
-                    Projects in {activeTeam?.name ?? 'team'}
+                    {viewTeamId === 'all'
+                      ? 'Projects across all teams'
+                      : `Projects in ${activeTeam?.name ?? 'team'}`}
                   </p>
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
