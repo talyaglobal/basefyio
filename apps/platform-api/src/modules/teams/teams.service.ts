@@ -694,7 +694,16 @@ export class TeamsService {
     const perms = await this.prisma.teamRolePermission.findUnique({
       where: { teamId_role: { teamId, role: m.role } },
     });
-    if (!perms || !perms[permission]) {
+    // When a team has no explicit permission row for this role, fall back to the
+    // same role defaults the UI displays. Otherwise an Admin in a team that
+    // predates the permission rows (or never had them seeded) was denied actions
+    // — e.g. inviting members — that the Role Permissions table showed as allowed.
+    const effective: Record<string, boolean> = perms
+      ? (perms as unknown as Record<string, boolean>)
+      : m.role === 'ADMIN'
+        ? TeamsService.ADMIN_DEFAULTS
+        : TeamsService.MEMBER_DEFAULTS;
+    if (!effective[permission]) {
       throw new ForbiddenException('You do not have permission to perform this action');
     }
     return m;
