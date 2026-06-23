@@ -663,6 +663,33 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Password reset for user ${userId} in realm "${realmName}"`);
   }
 
+  /**
+   * Ensure a realm client has direct access grants (password grant) enabled.
+   * Legacy project realms created before this was the default would reject the
+   * SDK /auth/signin password flow with "Client not allowed for direct access
+   * grants". Returns true if the client now allows it. Best-effort.
+   */
+  async ensureRealmClientDirectGrant(realmName: string, clientId: string): Promise<boolean> {
+    await this.ensureAuth();
+    try {
+      const clients = await this.client.clients.find({ realm: realmName, clientId });
+      const c = clients[0];
+      if (!c?.id) return false;
+      if (c.directAccessGrantsEnabled) return true;
+      await this.client.clients.update(
+        { realm: realmName, id: c.id },
+        { directAccessGrantsEnabled: true },
+      );
+      this.logger.log(`Enabled direct access grants on "${clientId}" in realm "${realmName}"`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not enable direct access grants for "${clientId}" in "${realmName}": ${err?.message ?? err}`,
+      );
+      return false;
+    }
+  }
+
   async resetUserPasswordInRealm(
     realm: string,
     keycloakUserId: string,

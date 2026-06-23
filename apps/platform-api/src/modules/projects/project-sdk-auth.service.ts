@@ -413,7 +413,13 @@ export class ProjectSdkAuthService {
     }
   }
 
-  private async authenticateInRealm(realmName: string, clientId: string, email: string, password: string) {
+  private async authenticateInRealm(
+    realmName: string,
+    clientId: string,
+    email: string,
+    password: string,
+    retried = false,
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
@@ -434,8 +440,32 @@ export class ProjectSdkAuthService {
         expiresIn: data.expires_in,
         tokenType: data.token_type,
       };
-    } catch {
-      throw new UnauthorizedException('Invalid credentials');
+    } catch (err: any) {
+      const kcError: string = err?.response?.data?.error ?? '';
+      const kcDesc: string = err?.response?.data?.error_description ?? '';
+
+      // Legacy realm whose anon client lacks direct access grants — enable it
+      // once and retry, so SDK email/password signin self-heals instead of
+      // failing forever.
+      if (
+        !retried &&
+        (kcError === 'unauthorized_client' || /direct access grants/i.test(kcDesc))
+      ) {
+        const fixed = await this.keycloak.ensureRealmClientDirectGrant(realmName, clientId);
+        if (fixed) {
+          return this.authenticateInRealm(realmName, clientId, email, password, true);
+        }
+        throw new UnauthorizedException(
+          'Auth is misconfigured for this project (direct access grants). Please retry shortly.',
+        );
+      }
+
+      // Genuine bad email/password — the common case. Anything else surfaces
+      // its real reason instead of a blanket "Invalid credentials".
+      if (kcError === 'invalid_grant') {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      throw new UnauthorizedException(kcDesc || 'Authentication failed');
     }
   }
 
