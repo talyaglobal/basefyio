@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { setTokens, startProactiveRefresh } from '@/lib/auth';
+import { setTokens, startProactiveRefresh, isAuthenticated } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -52,6 +52,13 @@ function LoginForm() {
   const [captchaAnswer, setCaptchaAnswer] = useState('');
 
   useEffect(() => {
+    // Already signed in (session persists in localStorage across tabs/restarts):
+    // don't show the login form, go straight to the dashboard.
+    if (typeof window !== 'undefined' && !window.location.hash && isAuthenticated()) {
+      router.replace('/dashboard');
+      return;
+    }
+
     const errorParam = searchParams.get('error');
     if (errorParam) {
       toast.error(errorParam);
