@@ -14,10 +14,11 @@ export async function AuthNav({ appUrl }: { appUrl: string }) {
   );
 
   if (loggedIn) {
+    // Green pill with white text so it's obvious the visitor is signed in.
     return (
       <Link
         href={`${appUrl}/dashboard`}
-        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
       >
         Dashboard
       </Link>
