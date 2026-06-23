@@ -143,6 +143,18 @@ export default async function Home() {
               Pricing
             </Link>
             <Link
+              href="/compare"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground lg:inline"
+            >
+              Compare
+            </Link>
+            <Link
+              href="/use-cases"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground lg:inline"
+            >
+              Use cases
+            </Link>
+            <Link
               href="/docs"
               className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
@@ -176,13 +188,14 @@ export default async function Home() {
                 &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">
-                &mdash; create a project, get a dedicated database with instant
-                API, auth, and storage. Fully under your control.
+                &mdash; create a project and get a dedicated PostgreSQL database
+                &mdash; relational tables with full SQL, plus an optional document
+                store &mdash; with an instant REST API, auth, and storage. Fully
+                under your control.
               </p>
             </div>
             <p className="animate-fade-in mt-5 text-[15px] font-semibold text-amber-400 [animation-delay:200ms] motion-reduce:animate-none">
-              Welcome developers, vibecoders, CXOs, students &amp; young
-              entrepreneurs!
+              Built for developers &mdash; and friendly enough for your whole team.
             </p>
             <div className="animate-fade-in mt-8 flex flex-wrap items-center gap-3 [animation-delay:240ms] motion-reduce:animate-none">
               <Link
@@ -199,7 +212,7 @@ export default async function Home() {
                 href="/docs"
                 className="inline-flex h-12 items-center rounded-lg border border-border px-6 text-base font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
               >
-                Read the docs &nearr;
+                Read the docs ↗
               </Link>
             </div>
             <div className="animate-fade-in mt-5 flex flex-wrap gap-5 text-sm text-muted-foreground [animation-delay:300ms] motion-reduce:animate-none">

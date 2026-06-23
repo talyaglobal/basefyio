@@ -5,7 +5,7 @@ import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 
 const pageDescription =
-  "basefyio is a self-hosted backend-as-a-service platform. dedicated databases, NoSQL data engine, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
+  "basefyio is a self-hosted backend-as-a-service platform. A dedicated PostgreSQL database (relational + full SQL) with an optional document store, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs", {
@@ -35,10 +35,11 @@ export default function DocsOverview() {
     <div>
       <h1>Documentation</h1>
       <p>
-        basefyio is a <strong>self-hosted backend-as-a-service platform</strong> that gives every project
-        its own dedicated database, NoSQL document data engine, authentication system, file storage,
-        and auto-generated REST API. Deploy with Docker Compose, manage via the Admin Dashboard, and
-        build applications with the SDK or CLI.
+        basefyio is a <strong>self-hosted backend-as-a-service platform</strong>. Every project gets its
+        own dedicated <strong>PostgreSQL database</strong> &mdash; relational tables with full SQL &mdash;
+        plus an <strong>optional document store</strong> for flexible, schema-light data, an authentication
+        system, file storage, and an auto-generated REST API. Deploy with Docker Compose, manage via the
+        Admin Dashboard, and build applications with the SDK or CLI.
       </p>
 
       {/* ── Quick Start ──────────────────────────────────── */}

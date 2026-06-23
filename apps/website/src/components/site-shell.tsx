@@ -6,11 +6,12 @@ import { AuthNav } from "@/components/auth-nav";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const NAV_LINKS = [
-  { href: "/blog", label: "Blog" },
   { href: "/compare", label: "Compare" },
   { href: "/use-cases", label: "Use cases" },
   { href: "/integrations", label: "Integrations" },
+  { href: "/blog", label: "Blog" },
   { href: "/learn", label: "Learn" },
+  { href: "/#pricing", label: "Pricing" },
   { href: "/docs", label: "Docs" },
 ];
 
