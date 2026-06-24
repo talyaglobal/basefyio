@@ -5,6 +5,7 @@ import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
 import { DocsNav } from "./docs-nav";
+import { DocsSearch } from "./docs-search";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const docsDescription =
@@ -52,6 +53,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
 
       <div className="mx-auto flex max-w-6xl px-6">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-border py-8 pr-6 md:block">
+          <DocsSearch />
           <DocsNav />
         </aside>
 

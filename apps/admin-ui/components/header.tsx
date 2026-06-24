@@ -20,7 +20,10 @@ import {
   FolderOpen,
   KeyRound,
   LayoutDashboard,
+  Link2,
   List,
+  Radio,
+  Cloud,
   LogOut,
   MessageSquarePlus,
   Plus,
@@ -688,17 +691,61 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
 const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
 
-const docsLinks = [
-  { label: 'Overview', href: '/docs', icon: Book },
-  { label: 'Data Engine', href: '/docs/data-engine', icon: Database },
-  { label: 'API Reference', href: '/docs/api', icon: Server },
-  { label: 'SDK', href: '/docs/sdk', icon: Code },
-  { label: 'CLI', href: '/docs/cli', icon: Terminal },
-  { label: 'Security & RLS', href: '/docs/security', icon: Shield },
-  { label: 'Self-Hosting', href: '/docs/self-hosting', icon: Settings },
+// Map the docs nav's stable icon keys (from the website's /api/docs-nav) to icons.
+const DOC_ICONS: Record<string, typeof Book> = {
+  book: Book,
+  database: Database,
+  link: Link2,
+  radio: Radio,
+  key: KeyRound,
+  server: Server,
+  code: Code,
+  terminal: Terminal,
+  shield: Shield,
+  cloud: Cloud,
+};
+
+interface DocsLink { label: string; href: string; icon: string }
+
+// Fallback list — used only if the live docs nav can't be fetched. The live
+// list comes from the website's /api/docs-nav so the menu mirrors the docs
+// sidebar automatically (add a page there → it appears here).
+const FALLBACK_DOCS_LINKS: DocsLink[] = [
+  { label: 'Overview', href: '/docs', icon: 'book' },
+  { label: 'Data Engine', href: '/docs/data-engine', icon: 'database' },
+  { label: 'Connect', href: '/docs/connect', icon: 'link' },
+  { label: 'Realtime', href: '/docs/realtime', icon: 'radio' },
+  { label: 'Authentication', href: '/docs/auth', icon: 'key' },
+  { label: 'API Reference', href: '/docs/api', icon: 'server' },
+  { label: 'SDK', href: '/docs/sdk', icon: 'code' },
+  { label: 'CLI', href: '/docs/cli', icon: 'terminal' },
+  { label: 'Security & RLS', href: '/docs/security', icon: 'shield' },
+  { label: 'Self-Hosting', href: '/docs/self-hosting', icon: 'cloud' },
 ];
 
 function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [docsLinks, setDocsLinks] = useState<DocsLink[]>(FALLBACK_DOCS_LINKS);
+
+  // Fetch the canonical docs nav once so this menu stays in sync with the docs
+  // sidebar. Falls back silently to the static list on any failure.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${docsBaseUrl}/api/docs-nav`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const items = data?.items;
+        if (!cancelled && Array.isArray(items) && items.length) {
+          setDocsLinks(
+            items.filter((i: any) => i && typeof i.href === 'string' && typeof i.label === 'string'),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="relative" data-nav-dropdown-root="true">
       <Button
@@ -717,20 +764,23 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
           <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
           <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="p-1">
-              {docsLinks.map((item) => (
-                <a
-                  key={item.href}
-                  href={`${docsBaseUrl}${item.href}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => onOpenChange(false)}
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-                >
-                  <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
-                  {item.label}
-                  <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
-                </a>
-              ))}
+              {docsLinks.map((item) => {
+                const Icon = DOC_ICONS[item.icon] ?? Book;
+                return (
+                  <a
+                    key={item.href}
+                    href={`${docsBaseUrl}${item.href}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => onOpenChange(false)}
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                    {item.label}
+                    <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
+                  </a>
+                );
+              })}
             </div>
           </div>
         </>

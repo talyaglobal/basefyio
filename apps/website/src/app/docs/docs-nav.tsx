@@ -5,35 +5,30 @@ import { usePathname } from "next/navigation";
 import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import { DOCS_NAV_ITEMS } from "./docs-nav-items";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-}
-
-// Defined here (not in the server layout) because component references are
-// not serializable across the server -> client boundary; passing them as
-// props breaks static page generation.
-const items: NavItem[] = [
-  { href: "/docs", label: "Overview", icon: Book },
-  { href: "/docs/data-engine", label: "Data Engine", icon: Database },
-  { href: "/docs/connect", label: "Connect", icon: Link2 },
-  { href: "/docs/realtime", label: "Realtime", icon: Radio },
-  { href: "/docs/auth", label: "Authentication", icon: KeyRound },
-  { href: "/docs/api", label: "API Reference", icon: Server },
-  { href: "/docs/sdk", label: "SDK", icon: Code },
-  { href: "/docs/cli", label: "CLI", icon: Terminal },
-  { href: "/docs/security", label: "Security & RLS", icon: Shield },
-  { href: "/docs/self-hosting", label: "Self-Hosting", icon: Cloud },
-];
+// Map the stable icon keys from the shared nav source to Lucide components
+// (component references can't cross the server→client boundary, so we map here).
+const ICONS: Record<string, LucideIcon> = {
+  book: Book,
+  database: Database,
+  link: Link2,
+  radio: Radio,
+  key: KeyRound,
+  server: Server,
+  code: Code,
+  terminal: Terminal,
+  shield: Shield,
+  cloud: Cloud,
+};
 
 export function DocsNav() {
   const pathname = usePathname();
 
   return (
     <nav className="space-y-1">
-      {items.map(({ href, label, icon: Icon }) => {
+      {DOCS_NAV_ITEMS.map(({ href, label, icon }) => {
+        const Icon = ICONS[icon] ?? Book;
         const isActive =
           href === "/docs"
             ? pathname === "/docs"
