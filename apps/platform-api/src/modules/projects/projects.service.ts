@@ -1125,19 +1125,36 @@ export class ProjectsService {
 
     await this.assertCanManageDeleted(project, userId);
 
+    // Tearing down the realm + database can take longer than the client's HTTP
+    // timeout, which surfaced as an intermittent "Backend unreachable" (the work
+    // actually completed, so a retry "succeeded"). Run it in the background and
+    // return immediately. The row stays until teardown finishes; if teardown
+    // fails it's left in trash and the hourly purge cron retries it later.
+    void this.performPermanentTeardown(project, userId).catch((err) =>
+      this.logger.error(`Background teardown failed for "${project.name}" (${id}): ${err}`),
+    );
+
+    return { message: 'Project deletion started', status: 'deleting' };
+  }
+
+  /** Heavy teardown for a permanently-deleted project: realm, database, row. */
+  private async performPermanentTeardown(
+    project: { id: string; name: string; keycloakRealm: string; dbName: string; dbUser: string },
+    userId?: string,
+  ): Promise<void> {
     await this.deleteProjectRealm(project.keycloakRealm);
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
 
-    await this.prisma.project.delete({ where: { id } });
+    await this.prisma.project.delete({ where: { id: project.id } });
 
-    this.logger.log(`Project "${project.name}" permanently deleted by user ${userId}`);
+    this.logger.log(
+      `Project "${project.name}" permanently deleted${userId ? ` by user ${userId}` : ''}`,
+    );
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
-
-    return { message: 'Project permanently deleted' };
   }
 
   /**
