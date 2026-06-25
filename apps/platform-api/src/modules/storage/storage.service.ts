@@ -551,9 +551,23 @@ export class StorageService {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
 
-    await this.client.removeObjects(minioBucket, objectNames);
-    this.logger.log(`Deleted ${objectNames.length} object(s) from "${minioBucket}"`);
-    return { message: `Deleted ${objectNames.length} object(s)` };
+    // Expand any folder paths (ending in '/') into all the objects beneath them
+    // so selecting a folder deletes its whole contents.
+    const keys = new Set<string>();
+    for (const raw of objectNames || []) {
+      const name = (raw || '').replace(/^\/+/, '');
+      if (!name) continue;
+      if (name.endsWith('/')) {
+        for (const k of await this.listKeysUnder(minioBucket, name)) keys.add(k);
+      } else {
+        keys.add(name);
+      }
+    }
+
+    const all = Array.from(keys);
+    await this.client.removeObjects(minioBucket, all);
+    this.logger.log(`Deleted ${all.length} object(s) from "${minioBucket}"`);
+    return { message: `Deleted ${all.length} object(s)` };
   }
 
   async getPresignedUrl(

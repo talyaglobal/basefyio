@@ -520,8 +520,10 @@ function ObjectBrowser({
   const [moveSources, setMoveSources] = useState<string[] | null>(null);
   const [moveDest, setMoveDest] = useState('');
   const [moving, setMoving] = useState(false);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const dragItemsRef = useRef<string[]>([]);
 
   const isPublic = bucketInfo?.public === true;
 
@@ -543,6 +545,34 @@ function ObjectBrowser({
   const breadcrumbs = prefix ? prefix.split('/').filter(Boolean) : [];
   const folders = objects.filter((o) => o.prefix);
   const files = objects.filter((o) => !o.prefix && o.name);
+  // Both folders (by prefix) and files (by name) are selectable.
+  const selectableKeys = [...folders.map((f) => f.prefix!), ...files.map((f) => f.name)];
+
+  // Begin dragging: if the grabbed row is part of the current selection, drag
+  // the whole selection; otherwise just that one item.
+  function startDrag(key: string) {
+    dragItemsRef.current = selected.has(key) && selected.size > 0 ? Array.from(selected) : [key];
+  }
+
+  async function handleDropMove(destPrefix: string) {
+    const items = dragItemsRef.current;
+    dragItemsRef.current = [];
+    setDragOver(null);
+    const sources = (items || []).filter((s) => {
+      if (s === destPrefix) return false; // dropped on itself
+      if (s.endsWith('/') && destPrefix.startsWith(s)) return false; // folder into its own subtree
+      return true;
+    });
+    if (!sources.length) return;
+    try {
+      const { moved } = await api.storage.moveObjects(projectId, bucketName, sources, destPrefix);
+      toast.success(`Moved ${moved} item(s)`);
+      setSelected(new Set());
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
 
   async function handleUpload(fileList: FileList | null) {
     if (!fileList?.length) return;
@@ -724,7 +754,11 @@ function ObjectBrowser({
   }
 
   function toggleSelectAll() {
-    setSelected(selected.size === files.length ? new Set() : new Set(files.map((f) => f.name)));
+    setSelected(
+      selectableKeys.length > 0 && selected.size === selectableKeys.length
+        ? new Set()
+        : new Set(selectableKeys),
+    );
   }
 
   return (
@@ -819,22 +853,31 @@ function ObjectBrowser({
       <div className="flex items-center gap-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
         <button
           onClick={() => setPrefix('')}
-          className="flex items-center gap-1 font-medium text-primary hover:underline"
+          onDragOver={(e) => { e.preventDefault(); setDragOver(':root:'); }}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(null); }}
+          onDrop={(e) => { e.preventDefault(); handleDropMove(''); }}
+          className={`flex items-center gap-1 rounded px-1 font-medium text-primary hover:underline ${dragOver === ':root:' ? 'bg-primary/15 ring-1 ring-primary' : ''}`}
         >
           <HardDrive className="h-3.5 w-3.5" />
           {bucketName}
         </button>
-        {breadcrumbs.map((crumb, i) => (
+        {breadcrumbs.map((crumb, i) => {
+          const crumbPrefix = breadcrumbs.slice(0, i + 1).join('/') + '/';
+          return (
           <span key={i} className="flex items-center gap-1">
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
             <button
-              onClick={() => setPrefix(breadcrumbs.slice(0, i + 1).join('/') + '/')}
-              className={i === breadcrumbs.length - 1 ? 'font-medium' : 'text-primary hover:underline'}
+              onClick={() => setPrefix(crumbPrefix)}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(crumbPrefix); }}
+              onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(null); }}
+              onDrop={(e) => { e.preventDefault(); handleDropMove(crumbPrefix); }}
+              className={`rounded px-1 ${dragOver === crumbPrefix ? 'bg-primary/15 ring-1 ring-primary' : i === breadcrumbs.length - 1 ? 'font-medium' : 'text-primary hover:underline'}`}
             >
               {crumb}
             </button>
           </span>
-        ))}
+          );
+        })}
       </div>
 
       {/* File list */}
@@ -843,7 +886,7 @@ function ObjectBrowser({
           <input
             type="checkbox"
             className="h-3.5 w-3.5 rounded"
-            checked={files.length > 0 && selected.size === files.length}
+            checked={selectableKeys.length > 0 && selected.size === selectableKeys.length}
             onChange={toggleSelectAll}
           />
           <span className="flex-1">Name</span>
@@ -867,12 +910,24 @@ function ObjectBrowser({
           </div>
         ) : (
           <div>
-            {folders.map((folder) => (
+            {folders.map((folder) => {
+              const folderChecked = selected.has(folder.prefix!);
+              return (
               <div
                 key={folder.prefix}
-                className="flex w-full items-center gap-3 border-b px-4 py-2.5 text-sm hover:bg-muted/30 transition-colors"
+                draggable
+                onDragStart={() => startDrag(folder.prefix!)}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(folder.prefix!); }}
+                onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(null); }}
+                onDrop={(e) => { e.preventDefault(); handleDropMove(folder.prefix!); }}
+                className={`flex w-full items-center gap-3 border-b px-4 py-2.5 text-sm transition-colors ${dragOver === folder.prefix ? 'bg-primary/10 ring-1 ring-inset ring-primary' : folderChecked ? 'bg-primary/5' : 'hover:bg-muted/30'}`}
               >
-                <span className="h-3.5 w-3.5" />
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded"
+                  checked={folderChecked}
+                  onChange={() => toggleSelect(folder.prefix!)}
+                />
                 <button
                   onClick={() => setPrefix(folder.prefix!)}
                   className="flex flex-1 items-center gap-3 text-left"
@@ -907,7 +962,8 @@ function ObjectBrowser({
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {files.map((file) => {
               const fileName = file.name.replace(prefix, '');
@@ -915,6 +971,8 @@ function ObjectBrowser({
               return (
                 <div
                   key={file.name}
+                  draggable
+                  onDragStart={() => startDrag(file.name)}
                   className={`flex items-center gap-3 border-b px-4 py-2.5 text-sm transition-colors ${isChecked ? 'bg-primary/5' : 'hover:bg-muted/30'}`}
                 >
                   <input
