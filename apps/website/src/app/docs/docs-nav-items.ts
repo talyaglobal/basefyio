@@ -18,6 +18,7 @@ export const DOCS_NAV_ITEMS: DocsNavItem[] = [
   { href: "/docs/connect", label: "Connect", icon: "link", keywords: ["database url", "postgres", "psql", "pgadmin", "dbeaver", "connection string", "direct"] },
   { href: "/docs/realtime", label: "Realtime", icon: "radio", keywords: ["subscribe", "live", "events", "insert", "update", "delete", "websocket", "sse"] },
   { href: "/docs/auth", label: "Authentication", icon: "key", keywords: ["signup", "signin", "login", "password", "oauth", "google", "github", "magic link", "verify email", "reset password", "users", "session"] },
+  { href: "/docs/storage", label: "Storage", icon: "harddrive", keywords: ["files", "buckets", "upload", "download", "folder", "public", "signed url", "s3", "objects", "avatars", "assets"] },
   { href: "/docs/api", label: "API Reference", icon: "server", keywords: ["rest", "endpoints", "http", "rpc", "query"] },
   { href: "/docs/sdk", label: "SDK", icon: "code", keywords: ["javascript", "typescript", "client", "bf.from", "auth", "storage"] },
   { href: "/docs/cli", label: "CLI", icon: "terminal", keywords: ["command line", "bf", "basefyio init", "link", "migrate", "login"] },

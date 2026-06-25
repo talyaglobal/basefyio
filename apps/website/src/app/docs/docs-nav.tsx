@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, KeyRound } from "lucide-react";
+import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, KeyRound, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { DOCS_NAV_ITEMS } from "./docs-nav-items";
@@ -15,6 +15,7 @@ const ICONS: Record<string, LucideIcon> = {
   link: Link2,
   radio: Radio,
   key: KeyRound,
+  harddrive: HardDrive,
   server: Server,
   code: Code,
   terminal: Terminal,
