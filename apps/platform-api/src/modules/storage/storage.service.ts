@@ -177,18 +177,7 @@ export class StorageService {
     await this.client.makeBucket(minioBucket);
 
     if (isPublic) {
-      const policy = JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: { AWS: ['*'] },
-            Action: ['s3:GetObject'],
-            Resource: [`arn:aws:s3:::${minioBucket}/*`],
-          },
-        ],
-      });
-      await this.client.setBucketPolicy(minioBucket, policy);
+      await this.client.setBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
     }
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
@@ -274,23 +263,38 @@ export class StorageService {
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
 
     if (isPublic) {
-      const policy = JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: { AWS: ['*'] },
-            Action: ['s3:GetObject'],
-            Resource: [`arn:aws:s3:::${minioBucket}/*`],
-          },
-        ],
-      });
-      await this.client.setBucketPolicy(minioBucket, policy);
+      await this.client.setBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
     } else {
       await this.client.setBucketPolicy(minioBucket, '');
     }
 
     return { public: isPublic };
+  }
+
+  /**
+   * Anonymous read policy for a public bucket: GetObject so files open at their
+   * direct URL, AND ListBucket so the bucket/folder base URL returns a listing
+   * instead of AccessDenied. (A public bucket is an explicit choice to expose
+   * its contents.)
+   */
+  private publicBucketPolicy(minioBucket: string): string {
+    return JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: { AWS: ['*'] },
+          Action: ['s3:GetObject'],
+          Resource: [`arn:aws:s3:::${minioBucket}/*`],
+        },
+        {
+          Effect: 'Allow',
+          Principal: { AWS: ['*'] },
+          Action: ['s3:ListBucket'],
+          Resource: [`arn:aws:s3:::${minioBucket}`],
+        },
+      ],
+    });
   }
 
   // ── Object operations ──────────────────────────────────
@@ -408,6 +412,75 @@ export class StorageService {
       }),
     );
     return found;
+  }
+
+  private listKeysUnder(minioBucket: string, prefix: string): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      const keys: string[] = [];
+      const stream = this.client.listObjectsV2(minioBucket, prefix, true);
+      stream.on('data', (o) => {
+        if (o.name) keys.push(o.name);
+      });
+      stream.on('error', reject);
+      stream.on('end', () => resolve(keys));
+    });
+  }
+
+  /**
+   * Move files and/or whole folders into a destination folder (S3 has no native
+   * move — this is copy + delete). A source ending in '/' is a folder and is
+   * moved with its contents, keeping its name. destFolder '' means the bucket
+   * root. Same-bucket move, so storage quota is unchanged.
+   */
+  async moveObjects(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    sources: string[],
+    destFolder: string,
+  ): Promise<{ moved: number }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+
+    const destRaw = (destFolder || '').replace(/^\/+/, '');
+    if (destRaw.includes('..')) throw new BadRequestException('Invalid destination');
+    const dest = destRaw && !destRaw.endsWith('/') ? `${destRaw}/` : destRaw;
+
+    let moved = 0;
+    for (const raw of sources || []) {
+      const src = (raw || '').replace(/^\/+/, '');
+      if (!src) continue;
+
+      if (src.endsWith('/')) {
+        const folderName = src.replace(/\/$/, '').split('/').pop() || '';
+        const newBase = `${dest}${folderName}/`;
+        if (newBase === src) continue; // already there
+        if (newBase.startsWith(src)) {
+          throw new BadRequestException('Cannot move a folder into itself');
+        }
+        const keys = await this.listKeysUnder(minioBucket, src);
+        for (const key of keys) {
+          const newKey = `${newBase}${key.slice(src.length)}`;
+          // minio 8 keeps the (target, object, source) string overload at runtime;
+          // cast past the ambiguous overload typing.
+          await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${key}`);
+          await this.client.removeObject(minioBucket, key);
+          moved++;
+        }
+      } else {
+        const filename = src.split('/').pop() || src;
+        const newKey = `${dest}${filename}`;
+        if (newKey === src) continue;
+        await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${src}`);
+        await this.client.removeObject(minioBucket, src);
+        moved++;
+      }
+    }
+
+    this.logger.log(`Moved ${moved} object(s) to "${dest || '/'}" in "${minioBucket}"`);
+    return { moved };
   }
 
   async uploadObject(

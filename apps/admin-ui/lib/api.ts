@@ -1713,6 +1713,12 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ paths }) },
       );
     },
+    moveObjects(projectId: string, bucketName: string, sources: string[], destFolder: string) {
+      return request<{ moved: number }>(
+        `/projects/${projectId}/storage/buckets/${bucketName}/objects/move`,
+        { method: 'POST', body: JSON.stringify({ sources, destFolder }) },
+      );
+    },
   },
 
   folders: {

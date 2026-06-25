@@ -141,6 +141,29 @@ export class StorageController {
     return { existing };
   }
 
+  @Post('buckets/:bucketName/objects/move')
+  async moveObjects(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { sources: string[]; destFolder: string },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const result = await this.storage.moveObjects(
+      projectId,
+      user?.sub,
+      bucketName,
+      body.sources || [],
+      body.destFolder || '',
+    );
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
+      title: `Storage items moved: ${bucketName}`,
+      detail: `${result.moved} item(s) → ${body.destFolder || '/'}`,
+    });
+    return result;
+  }
+
   @Get('buckets/:bucketName/objects')
   async listObjects(
     @Param('projectId') projectId: string,

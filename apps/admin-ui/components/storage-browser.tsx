@@ -18,6 +18,7 @@ import {
   ExternalLink,
   File,
   Folder,
+  FolderInput,
   FolderPlus,
   Globe,
   HardDrive,
@@ -516,6 +517,9 @@ function ObjectBrowser({
   const [urlLoading, setUrlLoading] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [moveSources, setMoveSources] = useState<string[] | null>(null);
+  const [moveDest, setMoveDest] = useState('');
+  const [moving, setMoving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -628,6 +632,23 @@ function ObjectBrowser({
     }
   }
 
+  async function handleMove() {
+    if (!moveSources?.length) return;
+    setMoving(true);
+    try {
+      const { moved } = await api.storage.moveObjects(projectId, bucketName, moveSources, moveDest);
+      toast.success(`Moved ${moved} item(s)`);
+      setMoveSources(null);
+      setMoveDest('');
+      setSelected(new Set());
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setMoving(false);
+    }
+  }
+
   async function handleCopyPublicLink(path: string, label: string) {
     try {
       const { public: pub, url } = await api.storage.publicUrl(projectId, bucketName, path);
@@ -715,10 +736,20 @@ function ObjectBrowser({
           Refresh
         </Button>
         {selected.size > 0 && (
-          <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-            Delete ({selected.size})
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setMoveSources(Array.from(selected)); setMoveDest(''); }}
+            >
+              <FolderInput className="mr-1.5 h-3.5 w-3.5" />
+              Move ({selected.size})
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete ({selected.size})
+            </Button>
+          </>
         )}
         {isPublic && (
           <Button
@@ -854,6 +885,15 @@ function ObjectBrowser({
                 <span className="w-24 text-right text-muted-foreground">—</span>
                 <span className="w-44 text-right text-muted-foreground">—</span>
                 <div className="flex w-28 justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="Move folder"
+                    onClick={() => { setMoveSources([folder.prefix!]); setMoveDest(''); }}
+                  >
+                    <FolderInput className="h-3.5 w-3.5" />
+                  </Button>
                   {isPublic && (
                     <Button
                       variant="ghost"
@@ -930,6 +970,54 @@ function ObjectBrowser({
           </div>
         )}
       </div>
+
+      {moveSources && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !moving && setMoveSources(null)}>
+          <div className="w-full max-w-md rounded-lg border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold">Move {moveSources.length} item(s)</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Choose a destination folder in this bucket. Folders move with their contents.
+            </p>
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMoveDest('')}
+                  className={`rounded-md border px-2 py-1 text-xs ${moveDest === '' ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                >
+                  / (root)
+                </button>
+                {folders
+                  .filter((f) => !moveSources.includes(f.prefix!))
+                  .map((f) => (
+                    <button
+                      key={f.prefix}
+                      type="button"
+                      onClick={() => setMoveDest(f.prefix!)}
+                      className={`rounded-md border px-2 py-1 text-xs ${moveDest === f.prefix ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                    >
+                      {f.prefix!.replace(prefix, '').replace(/\/$/, '')}
+                    </button>
+                  ))}
+              </div>
+              <input
+                value={moveDest}
+                onChange={(e) => setMoveDest(e.target.value)}
+                placeholder="or type a folder path (blank = root)"
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setMoveSources(null)} disabled={moving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleMove} disabled={moving}>
+                {moving ? 'Moving…' : 'Move here'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
