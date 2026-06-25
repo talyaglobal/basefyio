@@ -201,7 +201,7 @@ export default function ProjectLogsPage() {
         <h2 className="text-sm font-semibold text-foreground">Activity</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Newest first. {totalActivity.toLocaleString('tr-TR')}{' '}
-          {totalActivity === 1 ? 'event' : 'events'} recorded. Use the page
+          {totalActivity === 1 ? 'event' : 'events'}{' '}recorded. Use the page
           controls below to scroll back through the project&apos;s full history.
         </p>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

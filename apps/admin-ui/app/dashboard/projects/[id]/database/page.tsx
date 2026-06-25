@@ -21,6 +21,15 @@ import { Loader2, Plus, Trash2, RefreshCw } from 'lucide-react';
 
 type Tab = 'indexes' | 'triggers' | 'functions' | 'extensions';
 
+// Singular labels — plural forms are irregular, so a naive slice() mangles them
+// ("triggers" → "trigge", "indexes" → "indexx").
+const TAB_SINGULAR: Record<Tab, string> = {
+  indexes: 'index',
+  triggers: 'trigger',
+  functions: 'function',
+  extensions: 'extension',
+};
+
 const FN_TEMPLATE = `CREATE OR REPLACE FUNCTION hello(name text)
 RETURNS text
 LANGUAGE sql
@@ -109,7 +118,7 @@ export default function DatabasePage() {
           {tab !== 'extensions' && (
             <Button size="sm" onClick={() => setDialogOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
-              New {tab.slice(0, -2)}{tab === 'indexes' ? 'x' : ''}
+              New {TAB_SINGULAR[tab]}
             </Button>
           )}
         </div>

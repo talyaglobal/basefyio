@@ -151,18 +151,27 @@ function EndpointCard({
 
 // ── filter reference ───────────────────────────────────────
 
-function FilterReference() {
+function FilterReference({ columns }: { columns: ColumnInfo[] }) {
+  // Build examples from the selected table's real columns so they map to
+  // something that actually exists; fall back to generic names if unknown.
+  const any = columns[0]?.name || 'id';
+  const textCol = columns.find((c) => /char|text|uuid|citext|name/i.test(c.type))?.name || any;
+  const numCol = columns.find((c) => /int|numeric|decimal|real|double|serial|money/i.test(c.type))?.name || any;
+  const eqCol = columns.find((c) => c.isPrimary)?.name || any;
+  const dateCol = columns.find((c) => /date|time/i.test(c.type))?.name || any;
+  const selectCols = columns.slice(0, 3).map((c) => c.name).join(',') || 'id';
+
   const filters = [
-    { op: 'eq', example: '?id=eq.5', desc: 'Equal' },
-    { op: 'neq', example: '?status=neq.inactive', desc: 'Not equal' },
-    { op: 'gt', example: '?age=gt.18', desc: 'Greater than' },
-    { op: 'gte', example: '?age=gte.18', desc: 'Greater than or equal' },
-    { op: 'lt', example: '?price=lt.100', desc: 'Less than' },
-    { op: 'lte', example: '?price=lte.100', desc: 'Less than or equal' },
-    { op: 'like', example: '?name=like.*john*', desc: 'Pattern match (case-sensitive)' },
-    { op: 'ilike', example: '?name=ilike.*john*', desc: 'Pattern match (case-insensitive)' },
-    { op: 'is', example: '?deleted=is.null', desc: 'IS NULL / TRUE / FALSE' },
-    { op: 'in', example: '?status=in.(active,pending)', desc: 'In list' },
+    { op: 'eq', example: `?${eqCol}=eq.5`, desc: 'Equal' },
+    { op: 'neq', example: `?${textCol}=neq.value`, desc: 'Not equal' },
+    { op: 'gt', example: `?${numCol}=gt.18`, desc: 'Greater than' },
+    { op: 'gte', example: `?${numCol}=gte.18`, desc: 'Greater than or equal' },
+    { op: 'lt', example: `?${numCol}=lt.100`, desc: 'Less than' },
+    { op: 'lte', example: `?${numCol}=lte.100`, desc: 'Less than or equal' },
+    { op: 'like', example: `?${textCol}=like.*abc*`, desc: 'Pattern match (case-sensitive)' },
+    { op: 'ilike', example: `?${textCol}=ilike.*abc*`, desc: 'Pattern match (case-insensitive)' },
+    { op: 'is', example: `?${textCol}=is.null`, desc: 'IS NULL / TRUE / FALSE' },
+    { op: 'in', example: `?${textCol}=in.(a,b)`, desc: 'In list' },
   ];
 
   return (
@@ -187,8 +196,8 @@ function FilterReference() {
         </div>
         <div className="mt-3 pt-3 border-t space-y-1 text-xs text-muted-foreground">
           <p><strong>Pagination:</strong> <code className="bg-muted px-1 rounded">?limit=20&amp;offset=0</code></p>
-          <p><strong>Sort:</strong> <code className="bg-muted px-1 rounded">?order=created_at.desc</code></p>
-          <p><strong>Select columns:</strong> <code className="bg-muted px-1 rounded">?select=id,name,email</code></p>
+          <p><strong>Sort:</strong> <code className="bg-muted px-1 rounded">?order={dateCol}.desc</code></p>
+          <p><strong>Select columns:</strong> <code className="bg-muted px-1 rounded">?select={selectCols}</code></p>
         </div>
       </div>
     </div>
@@ -343,7 +352,7 @@ export default function ApiExplorerPage() {
       )}
 
       {/* Filter reference */}
-      <FilterReference />
+      <FilterReference columns={columns} />
     </div>
   );
 }
