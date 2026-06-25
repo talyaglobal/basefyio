@@ -1695,6 +1695,24 @@ export const api = {
         body: JSON.stringify({ paths }),
       });
     },
+    createFolder(projectId: string, bucketName: string, path: string) {
+      return request<{ name: string }>(`/projects/${projectId}/storage/buckets/${bucketName}/folders`, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      });
+    },
+    publicUrl(projectId: string, bucketName: string, path = '') {
+      const p = path ? `?path=${encodeURIComponent(path)}` : '';
+      return request<{ public: boolean; url: string | null }>(
+        `/projects/${projectId}/storage/buckets/${bucketName}/public-url${p}`,
+      );
+    },
+    findExisting(projectId: string, bucketName: string, paths: string[]) {
+      return request<{ existing: string[] }>(
+        `/projects/${projectId}/storage/buckets/${bucketName}/objects/exists`,
+        { method: 'POST', body: JSON.stringify({ paths }) },
+      );
+    },
   },
 
   folders: {

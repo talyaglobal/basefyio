@@ -18,6 +18,7 @@ import {
   ExternalLink,
   File,
   Folder,
+  FolderPlus,
   Globe,
   HardDrive,
   Link2,
@@ -513,7 +514,12 @@ function ObjectBrowser({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [urlLoading, setUrlLoading] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const isPublic = bucketInfo?.public === true;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -551,6 +557,91 @@ function ObjectBrowser({
     }
   }
 
+  // Upload a whole local folder, preserving its structure. Files carry a
+  // webkitRelativePath like "myfolder/sub/file.png" — uploaded under the
+  // current prefix so the same folder tree is recreated. On name clashes we
+  // ask once whether to overwrite.
+  async function handleUploadFolder(fileList: FileList | null) {
+    const all = Array.from(fileList ?? []);
+    if (!all.length) return;
+    setUploading(true);
+    try {
+      const targets = all.map((file) => ({
+        file,
+        path: prefix + ((file as any).webkitRelativePath || file.name),
+      }));
+
+      let toUpload = targets;
+      try {
+        const { existing } = await api.storage.findExisting(
+          projectId,
+          bucketName,
+          targets.map((t) => t.path),
+        );
+        if (existing.length > 0) {
+          const overwrite = await confirmDialog({
+            title: 'Some files already exist',
+            description: `${existing.length} of ${targets.length} file(s) already exist in this location. Overwrite them?`,
+            confirmText: 'Overwrite',
+            cancelText: 'Skip existing',
+          });
+          if (!overwrite) {
+            const existingSet = new Set(existing);
+            toUpload = targets.filter((t) => !existingSet.has(t.path.replace(/^\/+/, '')));
+          }
+        }
+      } catch {
+        /* existence check is best-effort; fall back to uploading all */
+      }
+
+      if (toUpload.length === 0) {
+        toast.message('Nothing to upload — all files were skipped.');
+        return;
+      }
+
+      let done = 0;
+      for (const { file, path } of toUpload) {
+        await api.storage.upload(projectId, bucketName, path, file);
+        done++;
+      }
+      toast.success(`Uploaded ${done} file(s) from the folder`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setUploading(false);
+      if (folderInputRef.current) folderInputRef.current.value = '';
+    }
+  }
+
+  async function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      await api.storage.createFolder(projectId, bucketName, prefix + name);
+      toast.success(`Folder "${name}" created`);
+      setNewFolderName('');
+      setCreatingFolder(false);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleCopyPublicLink(path: string, label: string) {
+    try {
+      const { public: pub, url } = await api.storage.publicUrl(projectId, bucketName, path);
+      if (!pub || !url) {
+        toast.error('Bucket is private — make it public to get a shareable link.');
+        return;
+      }
+      copyToClipboard(url);
+      toast.success(`Public link copied (${label})`);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
   async function handleDownload(objectName: string) {
     try {
       const res = await fetch(
@@ -572,8 +663,18 @@ function ObjectBrowser({
   async function handleCopyUrl(objectName: string) {
     setUrlLoading(objectName);
     try {
+      // Public bucket → permanent public URL; private → temporary signed URL.
+      if (isPublic) {
+        const { url } = await api.storage.publicUrl(projectId, bucketName, objectName);
+        if (url) {
+          copyToClipboard(url);
+          toast.success('Public link copied');
+          return;
+        }
+      }
       const { url } = await api.storage.downloadUrl(projectId, bucketName, objectName);
       copyToClipboard(url);
+      toast.success('Temporary link copied');
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -619,6 +720,25 @@ function ObjectBrowser({
             Delete ({selected.size})
           </Button>
         )}
+        {isPublic && (
+          <Button
+            variant="outline"
+            size="sm"
+            title="Copy this bucket's public base URL"
+            onClick={() => handleCopyPublicLink('', 'bucket')}
+          >
+            <Globe className="mr-1.5 h-3.5 w-3.5" />
+            Public link
+          </Button>
+        )}
+        <Button variant="outline" size="sm" onClick={() => setCreatingFolder((v) => !v)}>
+          <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
+          New folder
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()} disabled={uploading}>
+          <Folder className="mr-1.5 h-3.5 w-3.5" />
+          Upload folder
+        </Button>
         <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           <Upload className="mr-1.5 h-3.5 w-3.5" />
           {uploading ? 'Uploading…' : 'Upload'}
@@ -630,7 +750,39 @@ function ObjectBrowser({
           className="hidden"
           onChange={(e) => handleUpload(e.target.files)}
         />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          // Non-standard but widely supported directory picker attributes.
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          onChange={(e) => handleUploadFolder(e.target.files)}
+        />
       </div>
+
+      {creatingFolder && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2">
+          <FolderPlus className="h-4 w-4 text-blue-500" />
+          <input
+            autoFocus
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateFolder();
+              if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
+            }}
+            placeholder="Folder name"
+            className="h-8 flex-1 rounded border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <Button size="sm" onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+            Create
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setCreatingFolder(false); setNewFolderName(''); }}>
+            Cancel
+          </Button>
+        </div>
+      )}
 
       {/* Breadcrumbs */}
       <div className="flex items-center gap-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
@@ -685,20 +837,36 @@ function ObjectBrowser({
         ) : (
           <div>
             {folders.map((folder) => (
-              <button
+              <div
                 key={folder.prefix}
-                onClick={() => setPrefix(folder.prefix!)}
                 className="flex w-full items-center gap-3 border-b px-4 py-2.5 text-sm hover:bg-muted/30 transition-colors"
               >
                 <span className="h-3.5 w-3.5" />
-                <Folder className="h-4 w-4 text-blue-500" />
-                <span className="flex-1 text-left font-medium">
-                  {folder.prefix!.replace(prefix, '').replace(/\/$/, '')}
-                </span>
+                <button
+                  onClick={() => setPrefix(folder.prefix!)}
+                  className="flex flex-1 items-center gap-3 text-left"
+                >
+                  <Folder className="h-4 w-4 text-blue-500" />
+                  <span className="flex-1 font-medium">
+                    {folder.prefix!.replace(prefix, '').replace(/\/$/, '')}
+                  </span>
+                </button>
                 <span className="w-24 text-right text-muted-foreground">—</span>
                 <span className="w-44 text-right text-muted-foreground">—</span>
-                <span className="w-28" />
-              </button>
+                <div className="flex w-28 justify-end gap-1">
+                  {isPublic && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Copy folder public link"
+                      onClick={() => handleCopyPublicLink(folder.prefix!, 'folder')}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
             ))}
 
             {files.map((file) => {

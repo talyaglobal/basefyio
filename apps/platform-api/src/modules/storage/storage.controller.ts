@@ -96,7 +96,50 @@ export class StorageController {
     return result;
   }
 
-  // ── Objects ────────────────────────────────────────────
+  @Get('buckets/:bucketName/public-url')
+  async getPublicUrl(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Query('path') path: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.storage.getPublicUrl(projectId, user?.sub, bucketName, path || '');
+  }
+
+  // ── Folders & Objects ──────────────────────────────────
+
+  @Post('buckets/:bucketName/folders')
+  async createFolder(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { path: string },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const result = await this.storage.createFolder(projectId, user?.sub, bucketName, body.path);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
+      title: `Storage folder created: ${bucketName}`,
+      detail: result.name,
+    });
+    return result;
+  }
+
+  @Post('buckets/:bucketName/objects/exists')
+  async findExisting(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { paths: string[] },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const existing = await this.storage.findExistingObjects(
+      projectId,
+      user?.sub,
+      bucketName,
+      body.paths || [],
+    );
+    return { existing };
+  }
 
   @Get('buckets/:bucketName/objects')
   async listObjects(

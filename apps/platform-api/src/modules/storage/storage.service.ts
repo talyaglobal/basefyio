@@ -325,6 +325,91 @@ export class StorageService {
     });
   }
 
+  /** Create an empty "folder" — a zero-byte marker object whose key ends in '/'. */
+  async createFolder(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    folderPath: string,
+  ) {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+
+    const clean = (folderPath || '').replace(/^\/+|\/+$/g, '').trim();
+    if (!clean) throw new BadRequestException('Folder name is required');
+    if (clean.includes('..') || clean.split('/').some((seg) => seg.trim() === '')) {
+      throw new BadRequestException('Invalid folder path');
+    }
+
+    const marker = `${clean}/`;
+    await this.client.putObject(minioBucket, marker, Buffer.alloc(0), 0, {
+      'Content-Type': 'application/x-directory',
+    });
+    this.logger.log(`Folder "${marker}" created in "${minioBucket}"`);
+    return { name: marker };
+  }
+
+  /** Build the anonymous public URL for an object/prefix in a (public) bucket. */
+  private buildPublicUrl(minioBucket: string, path = ''): string {
+    const scheme = this.publicSsl ? 'https' : 'http';
+    const omitPort =
+      (this.publicSsl && this.publicPort === 443) || (!this.publicSsl && this.publicPort === 80);
+    const host = omitPort ? this.publicEndpoint : `${this.publicEndpoint}:${this.publicPort}`;
+    const clean = (path || '').replace(/^\/+/, '');
+    return `${scheme}://${host}/${minioBucket}/${clean}`;
+  }
+
+  /**
+   * Public URL for a bucket root, a folder prefix, or an object. Only returns a
+   * URL when the bucket is public (anonymous s3:GetObject) — otherwise the URL
+   * would 403. For a folder/bucket this is the base that, with an object name
+   * appended, yields a working public link (object storage has no anonymous
+   * directory listing).
+   */
+  async getPublicUrl(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    path = '',
+  ): Promise<{ public: boolean; url: string | null }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const isPublic = await this.isBucketPublic(minioBucket);
+    if (!isPublic) return { public: false, url: null };
+    return { public: true, url: this.buildPublicUrl(minioBucket, path) };
+  }
+
+  /** Which of the given object paths already exist in the bucket (for overwrite prompts). */
+  async findExistingObjects(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    paths: string[],
+  ): Promise<string[]> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    const found: string[] = [];
+    await Promise.all(
+      (paths || []).slice(0, 1000).map(async (p) => {
+        const key = (p || '').replace(/^\/+/, '');
+        if (!key) return;
+        try {
+          await this.client.statObject(minioBucket, key);
+          found.push(key);
+        } catch {
+          /* not found */
+        }
+      }),
+    );
+    return found;
+  }
+
   async uploadObject(
     projectId: string,
     userId: string | undefined,
