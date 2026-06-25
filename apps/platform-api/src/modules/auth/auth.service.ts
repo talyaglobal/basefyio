@@ -260,9 +260,15 @@ export class AuthService {
     planName?: string;
   }) {
     this.ensureStrongPassword(data.password);
-    const existingEmail = await this.keycloak.findPlatformUserByEmail(data.email);
+    // Reject an already-registered email BEFORE sending any OTP — check both our
+    // DB (source of truth for completed signups) and Keycloak (catches orphans).
+    // Skipping this here is what let a registered user still receive a code.
+    const existingDbUser = await this.prisma.user.findFirst({
+      where: { email: { equals: data.email, mode: 'insensitive' } },
+    });
+    const existingEmail = existingDbUser || (await this.keycloak.findPlatformUserByEmail(data.email));
     if (existingEmail) {
-      throw new ConflictException('Email already registered');
+      throw new ConflictException('Email already registered. Please sign in instead.');
     }
 
     // Rate limit: one OTP request per 60 seconds per email
