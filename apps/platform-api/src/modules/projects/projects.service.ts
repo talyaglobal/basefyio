@@ -1263,8 +1263,8 @@ export class ProjectsService {
   }
 
   private assertStrongDbPassword(password: string) {
-    if (password.length < 12) {
-      throw new BadRequestException('Password must be at least 12 characters');
+    if (password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
     }
     if (!/[a-z]/.test(password)) {
       throw new BadRequestException('Password must include a lowercase letter');

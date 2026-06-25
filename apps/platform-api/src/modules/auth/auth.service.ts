@@ -185,6 +185,27 @@ export class AuthService {
     }
   }
 
+  /**
+   * Block signup for an email that already has a real (DB-backed) account. If a
+   * Keycloak user exists but our DB has no matching row, it's an orphan from a
+   * previously failed signup — delete it so the email becomes usable again
+   * (otherwise the user is stuck: can't sign up, and has no real account to
+   * sign in to).
+   */
+  private async assertEmailAvailableForSignup(email: string): Promise<void> {
+    const existingDbUser = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+    if (existingDbUser) {
+      throw new ConflictException('Email already registered. Please sign in instead.');
+    }
+    const orphan = await this.keycloak.findPlatformUserByEmail(email);
+    if (orphan?.id) {
+      this.logger.warn(`Removing orphan Keycloak user ${orphan.id} for "${email}" (no DB record)`);
+      await this.keycloak.deletePlatformUser(orphan.id).catch(() => {});
+    }
+  }
+
   private generateCaptcha(): { question: string; answer: string } {
     const a = Math.floor(Math.random() * 9) + 1;
     const b = Math.floor(Math.random() * 9) + 1;
@@ -260,16 +281,11 @@ export class AuthService {
     planName?: string;
   }) {
     this.ensureStrongPassword(data.password);
-    // Reject an already-registered email BEFORE sending any OTP — check both our
-    // DB (source of truth for completed signups) and Keycloak (catches orphans).
-    // Skipping this here is what let a registered user still receive a code.
-    const existingDbUser = await this.prisma.user.findFirst({
-      where: { email: { equals: data.email, mode: 'insensitive' } },
-    });
-    const existingEmail = existingDbUser || (await this.keycloak.findPlatformUserByEmail(data.email));
-    if (existingEmail) {
-      throw new ConflictException('Email already registered. Please sign in instead.');
-    }
+    // Reject a genuinely registered email BEFORE sending any OTP. Our DB is the
+    // source of truth for completed signups. If the DB has no row but Keycloak
+    // does, that Keycloak user is an orphan from a previously failed signup —
+    // remove it so the email is usable again instead of blocking forever.
+    await this.assertEmailAvailableForSignup(data.email);
 
     // Rate limit: one OTP request per 60 seconds per email
     const rateKey = `${this.SIGNUP_RATE_PREFIX}:${data.email}`;
@@ -316,17 +332,14 @@ export class AuthService {
       planName?: string;
     };
 
-    // Guard against an existing account. Check BOTH our DB (the source of truth
-    // for completed signups) and Keycloak (catches orphans from a previously
-    // failed signup). Either match means this email is taken — tell them to sign in.
-    const existingDbUser = await this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } },
-    });
-    const existingEmail = existingDbUser || (await this.keycloak.findPlatformUserByEmail(email));
-    if (existingEmail) {
+    // Block only if a real (DB-backed) account exists; if it's a Keycloak orphan
+    // from a prior failed signup, this clears it so creation below can proceed.
+    try {
+      await this.assertEmailAvailableForSignup(email);
+    } catch (err) {
       await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
       await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
-      throw new ConflictException('Email already registered. Please sign in instead.');
+      throw err;
     }
 
     let keycloakId: string;
@@ -1337,6 +1350,18 @@ export class AuthService {
         captchaExpiresAt: null,
       },
     });
+    // Auto sign-in after a platform password reset so the user lands straight in
+    // the dashboard instead of a "now go sign in" screen. (Realm/project resets
+    // keep the message-only flow — they don't log into the admin dashboard.)
+    if (!resetToken.realm) {
+      try {
+        const tokens = await this.login(resetToken.email, newPassword);
+        return { message: 'Your password has been reset.', autoSignedIn: true, ...tokens };
+      } catch (err) {
+        this.logger.warn(`Auto sign-in after reset failed for ${resetToken.email}: ${err}`);
+      }
+    }
+
     return { message: 'Your password has been reset. You can now sign in.' };
   }
 

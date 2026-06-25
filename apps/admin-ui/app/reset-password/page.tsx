@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { setTokens, startProactiveRefresh } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
@@ -110,7 +111,15 @@ function ResetPasswordForm() {
     setLoading(true);
 
     try {
-      await api.auth.resetPassword(token!, password);
+      const result = await api.auth.resetPassword(token!, password);
+      // Platform reset auto-signs-in: go straight to the dashboard.
+      if (result?.accessToken) {
+        setTokens(result as any);
+        startProactiveRefresh();
+        toast.success('Password reset — signing you in…');
+        router.replace('/dashboard');
+        return;
+      }
       setSuccess(true);
       toast.success('Password has been reset!');
     } catch (err: any) {

@@ -41,7 +41,7 @@ type RawEditorFormat = 'env' | 'json';
 
 const passwordSchema = z
   .string()
-  .min(12, 'At least 12 characters')
+  .min(8, 'At least 8 characters')
   .regex(/[a-z]/, 'At least one lowercase letter')
   .regex(/[A-Z]/, 'At least one uppercase letter')
   .regex(/[0-9]/, 'At least one number')
@@ -694,7 +694,7 @@ datasource db {
                 </p>
               )}
               <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-                <li>Minimum 12 characters</li>
+                <li>Minimum 8 characters</li>
                 <li>At least one uppercase and one lowercase letter</li>
                 <li>At least one number and one special character</li>
                 <li>No spaces allowed</li>

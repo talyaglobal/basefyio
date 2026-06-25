@@ -248,7 +248,12 @@ export const api = {
       });
     },
     resetPassword(token: string, password: string) {
-      return request<{ message: string }>('/auth/reset-password', {
+      return request<{
+        message: string;
+        autoSignedIn?: boolean;
+        accessToken?: string;
+        refreshToken?: string;
+      }>('/auth/reset-password', {
         method: 'POST',
         body: JSON.stringify({ token, password }),
       });
