@@ -310,12 +310,17 @@ export class AuthService {
       planName?: string;
     };
 
-    // Guard against race condition: another signup with same email completed during OTP window
-    const existingEmail = await this.keycloak.findPlatformUserByEmail(email);
+    // Guard against an existing account. Check BOTH our DB (the source of truth
+    // for completed signups) and Keycloak (catches orphans from a previously
+    // failed signup). Either match means this email is taken — tell them to sign in.
+    const existingDbUser = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+    const existingEmail = existingDbUser || (await this.keycloak.findPlatformUserByEmail(email));
     if (existingEmail) {
       await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
       await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
-      throw new ConflictException('Email already registered');
+      throw new ConflictException('Email already registered. Please sign in instead.');
     }
 
     let keycloakId: string;
@@ -323,12 +328,29 @@ export class AuthService {
       // Keycloak requires a username — use email since it's already unique
       keycloakId = await this.keycloak.createPlatformUser({ ...data, username: data.email });
     } catch (err: any) {
+      // A 409 means a Keycloak user with this email/username already exists
+      // (e.g. an orphan from a prior failed signup) — surface it as a conflict.
+      const status = err?.response?.status ?? err?.responseData?.status;
+      if (status === 409) {
+        throw new ConflictException('Email already registered. Please sign in instead.');
+      }
       throw new InternalServerErrorException(`Failed to create account: ${err.message}`);
     }
 
-    const user = await this.prisma.user.create({
-      data: { id: keycloakId, email: data.email, role: 'USER' },
-    });
+    let user: { id: string };
+    try {
+      user = await this.prisma.user.create({
+        data: { id: keycloakId, email: data.email, role: 'USER' },
+      });
+    } catch (err: any) {
+      // DB insert failed (e.g. the email already exists under another id). Don't
+      // leave the just-created Keycloak user orphaned — roll it back.
+      await this.keycloak.deletePlatformUser(keycloakId).catch(() => {});
+      if (err?.code === 'P2002') {
+        throw new ConflictException('Email already registered. Please sign in instead.');
+      }
+      throw new InternalServerErrorException(`Failed to create account: ${err.message}`);
+    }
 
     const displayName = data.firstName || data.email.split('@')[0];
     const emailSlug = data.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');

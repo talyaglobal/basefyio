@@ -777,10 +777,32 @@ export class KeycloakAdminService implements OnModuleInit {
     return id;
   }
 
+  /** Delete a platform (master realm) user — used to roll back a half-finished signup. */
+  async deletePlatformUser(userId: string): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.del({ realm: 'master', id: userId });
+    this.logger.log(`Platform user "${userId}" deleted`);
+  }
+
   async findPlatformUserByEmail(email: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({ realm: 'master', email, exact: true });
-    return users[0] || null;
+    const norm = (email || '').trim().toLowerCase();
+    // `exact: true` on email has been observed to miss existing users in the
+    // master realm (returns 0 while a broad search finds them). Fall back to a
+    // non-exact search and a free-text search, matching case-insensitively.
+    // This backs the signup duplicate-email guard — a miss here makes
+    // users.create fail with a cryptic 409 ("Network response was not OK").
+    let users = await this.client.users.find({ realm: 'master', email, exact: true });
+    if (!users.length) {
+      users = await this.client.users.find({ realm: 'master', email });
+    }
+    if (!users.length) {
+      users = await this.client.users.find({ realm: 'master', search: email });
+    }
+    return (
+      users.find((u) => (u.email || '').trim().toLowerCase() === norm) ||
+      null
+    );
   }
 
   async findPlatformUserByUsername(username: string) {
