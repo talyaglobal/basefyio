@@ -56,6 +56,18 @@ function copyToClipboard(text: string, label = 'URL') {
   toast.success(`${label} copied`);
 }
 
+/** Suggest a free name by appending _2, _3, … (keeping any file extension). */
+function computeFreeName(name: string, taken: Set<string>): string {
+  if (!taken.has(name)) return name;
+  const dot = name.lastIndexOf('.');
+  const hasExt = dot > 0;
+  const base = hasExt ? name.slice(0, dot) : name;
+  const ext = hasExt ? name.slice(dot) : '';
+  let i = 2;
+  while (taken.has(`${base}_${i}${ext}`)) i++;
+  return `${base}_${i}${ext}`;
+}
+
 // ── main component ───────────────────────────────────────
 
 export function StorageBrowser({ projectId }: { projectId: string }) {
@@ -521,9 +533,31 @@ function ObjectBrowser({
   const [moveDest, setMoveDest] = useState('');
   const [moving, setMoving] = useState(false);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{ title: string; names: { desired: string; free: string }[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const dragItemsRef = useRef<string[]>([]);
+  const conflictResolver = useRef<((a: 'rename' | 'skip' | 'cancel') => void) | null>(null);
+
+  // Promise-based conflict prompt: resolves when the user picks an action.
+  function askConflict(title: string, names: { desired: string; free: string }[]): Promise<'rename' | 'skip' | 'cancel'> {
+    setConflict({ title, names });
+    return new Promise((resolve) => { conflictResolver.current = resolve; });
+  }
+  function resolveConflict(action: 'rename' | 'skip' | 'cancel') {
+    setConflict(null);
+    const r = conflictResolver.current;
+    conflictResolver.current = null;
+    r?.(action);
+  }
+
+  // Names already used at the current prefix (folders + files, type-agnostic).
+  function existingNamesHere(): Set<string> {
+    return new Set<string>([
+      ...folders.map((f) => f.prefix!.slice(prefix.length).replace(/\/$/, '')),
+      ...files.map((f) => f.name.slice(prefix.length)),
+    ]);
+  }
 
   const isPublic = bucketInfo?.public === true;
 
@@ -575,13 +609,48 @@ function ObjectBrowser({
   }
 
   async function handleUpload(fileList: FileList | null) {
-    if (!fileList?.length) return;
+    const all = Array.from(fileList ?? []);
+    if (!all.length) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // Resolve name clashes against what's already here (any type).
+    const existing = existingNamesHere();
+    const clashes = all.filter((f) => existing.has(f.name));
+    let plan = all.map((f) => ({ file: f, name: f.name }));
+
+    if (clashes.length) {
+      const taken = new Set(existing);
+      const renameMap = new Map<File, string>();
+      for (const f of clashes) {
+        const free = computeFreeName(f.name, taken);
+        taken.add(free);
+        renameMap.set(f, free);
+      }
+      const action = await askConflict(
+        `${clashes.length} item(s) with the same name already exist here.`,
+        clashes.map((f) => ({ desired: f.name, free: renameMap.get(f)! })),
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (action === 'cancel') return;
+      if (action === 'skip') plan = plan.filter((p) => !existing.has(p.name));
+      if (action === 'rename') {
+        plan = plan.map((p) => (existing.has(p.name) ? { file: p.file, name: renameMap.get(p.file)! } : p));
+      }
+    }
+
+    if (!plan.length) {
+      toast.message('Nothing to upload — all files were skipped.');
+      return;
+    }
+
     setUploading(true);
     try {
-      for (const file of Array.from(fileList)) {
-        await api.storage.upload(projectId, bucketName, prefix + file.name, file);
-        toast.success(`Uploaded ${file.name}`);
+      for (const { file, name } of plan) {
+        await api.storage.upload(projectId, bucketName, prefix + name, file);
       }
+      toast.success(`Uploaded ${plan.length} file(s)`);
       await load();
     } catch (err: any) {
       toast.error(err.message);
@@ -651,9 +720,22 @@ function ObjectBrowser({
   async function handleCreateFolder() {
     const name = newFolderName.trim();
     if (!name) return;
+
+    let finalName = name;
+    const existing = existingNamesHere();
+    if (existing.has(name)) {
+      const free = computeFreeName(name, existing);
+      const action = await askConflict(
+        `A folder or file named "${name}" already exists here.`,
+        [{ desired: name, free }],
+      );
+      if (action !== 'rename') return; // skip / cancel → don't create
+      finalName = free;
+    }
+
     try {
-      await api.storage.createFolder(projectId, bucketName, prefix + name);
-      toast.success(`Folder "${name}" created`);
+      await api.storage.createFolder(projectId, bucketName, prefix + finalName);
+      toast.success(`Folder "${finalName}" created`);
       setNewFolderName('');
       setCreatingFolder(false);
       await load();
@@ -1071,6 +1153,37 @@ function ObjectBrowser({
               </Button>
               <Button size="sm" onClick={handleMove} disabled={moving}>
                 {moving ? 'Moving…' : 'Move here'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => resolveConflict('cancel')}>
+          <div className="w-full max-w-md rounded-lg border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold">Name already exists</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{conflict.title}</p>
+            <div className="mt-3 max-h-48 space-y-1 overflow-auto rounded-md border bg-muted/20 p-2 text-xs">
+              {conflict.names.map((n) => (
+                <div key={n.desired} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-muted-foreground line-through">{n.desired}</span>
+                  <span className="shrink-0 text-foreground">→ {n.free}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              <strong>Rename</strong> keeps both (adds _2, _3…). <strong>Skip</strong> leaves the existing one untouched.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => resolveConflict('cancel')}>
+                Cancel
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => resolveConflict('skip')}>
+                Skip
+              </Button>
+              <Button size="sm" onClick={() => resolveConflict('rename')}>
+                Rename
               </Button>
             </div>
           </div>

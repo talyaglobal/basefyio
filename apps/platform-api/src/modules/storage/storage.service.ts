@@ -316,6 +316,9 @@ export class StorageService {
       const objects: StorageObject[] = [];
       const stream = this.client.listObjectsV2(minioBucket, prefix, recursive);
       stream.on('data', (obj) => {
+        // Skip the folder's own zero-byte marker (its key equals the prefix
+        // being listed, or ends in '/') so it doesn't show as an empty file.
+        if (obj.name && (obj.name === prefix || obj.name.endsWith('/'))) return;
         objects.push({
           name: obj.name || '',
           prefix: obj.prefix,
