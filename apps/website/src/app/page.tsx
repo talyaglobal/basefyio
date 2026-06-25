@@ -11,6 +11,7 @@ import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
 import { HomeFaq } from "@/components/home-faq";
 import { AuthNav } from "@/components/auth-nav";
+import { MarketingFeedback } from "@/components/marketing-feedback";
 import { TerminalCard } from "@/components/terminal-card";
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
@@ -435,6 +436,8 @@ export default async function Home() {
 
       {/* Nav scroll behavior */}
       <NavScrollScript />
+
+      <MarketingFeedback appUrl={appRoot} variant="floating" />
     </div>
   );
 }

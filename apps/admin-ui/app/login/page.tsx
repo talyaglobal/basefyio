@@ -42,6 +42,13 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Where to land after auth: a `?next=` path (must be a same-origin path) or
+  // the dashboard. Lets the marketing Feedback button return here then go to
+  // the feedback composer once signed in.
+  const safeNext = () => {
+    const n = searchParams.get('next');
+    return n && n.startsWith('/') && !n.startsWith('//') ? n : '/dashboard';
+  };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,7 +62,7 @@ function LoginForm() {
     // Already signed in (session persists in localStorage across tabs/restarts):
     // don't show the login form, go straight to the dashboard.
     if (typeof window !== 'undefined' && !window.location.hash && isAuthenticated()) {
-      router.replace('/dashboard');
+      router.replace(safeNext());
       return;
     }
 
@@ -89,7 +96,7 @@ function LoginForm() {
         const retried = sessionStorage.getItem('basefyio_cli_retried');
         sessionStorage.removeItem('basefyio_cli_state');
         sessionStorage.removeItem('basefyio_cli_retried');
-        window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : '/dashboard');
+        window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : safeNext());
         return;
       }
     }

@@ -86,6 +86,19 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [newTeamOpen, setNewTeamOpen] = useState(false);
+
+  // Open the feedback composer when arriving with ?feedback=compose (e.g. from
+  // the marketing site's Feedback button, which routes here once signed in).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('feedback') === 'compose') {
+      setFeedbackOpen(true);
+      params.delete('feedback');
+      const qs = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
   const [newTeamName, setNewTeamName] = useState('');
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
+import { MarketingFeedback } from "@/components/marketing-feedback";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
 const NAV_LINKS = [
@@ -42,6 +43,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           <div className="flex items-center gap-4">
+            <span className="hidden sm:inline">
+              <MarketingFeedback appUrl={appUrl} />
+            </span>
             <Suspense fallback={null}>
               <AuthNav appUrl={appUrl} />
             </Suspense>
@@ -57,6 +61,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="flex-1">{children}</main>
+
+      <MarketingFeedback appUrl={appUrl} variant="floating" />
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-6">

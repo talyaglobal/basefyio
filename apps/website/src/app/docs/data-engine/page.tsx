@@ -166,6 +166,11 @@ await bf.data.collection('patients').delete(patient._id)
 // List entities
 const { data: entities } = await bf.data.listEntities()
 
+// Read a server-defined projection / view (paginated)
+const { data: feed } = await bf.data.view('mobileFeedCard', { limit: 20 })
+// feed.data[]  feed.total  feed.hasMore  feed.nextCursor
+// params: { limit?, offset?, cursor? }
+
 // Health check
 const { data: health } = await bf.data.health()
 // => { available: true, reachable: true }`}</code></pre>

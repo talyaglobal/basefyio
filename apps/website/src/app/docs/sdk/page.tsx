@@ -34,11 +34,26 @@ export default function SdkDocs() {
       <h2>Initialization</h2>
       <pre><code>{`import { createClient } from 'basefyio-js'
 
-const bf = createClient({
+// Reads BASEFYIO_PROJECT_ID, BASEFYIO_ANON_KEY and BASEFYIO_API_URL from the
+// environment automatically — a .env (e.g. written by \`basefyio link\`) is enough.
+const bf = createClient()
+
+// Or pass them explicitly:
+const bf2 = createClient({
   apiUrl: '${apiUrl}',
   projectId: 'your-project-id',
   apiKey: 'your-anon-key',
 })`}</code></pre>
+      <table>
+        <thead>
+          <tr><th>Environment variable</th><th>Maps to</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>BASEFYIO_PROJECT_ID</code></td><td><code>projectId</code></td></tr>
+          <tr><td><code>BASEFYIO_ANON_KEY</code></td><td><code>apiKey</code></td></tr>
+          <tr><td><code>BASEFYIO_API_URL</code></td><td><code>apiUrl</code></td></tr>
+        </tbody>
+      </table>
       <table>
         <thead>
           <tr><th>Option</th><th>Type</th><th>Description</th></tr>
