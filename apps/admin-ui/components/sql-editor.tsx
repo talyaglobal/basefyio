@@ -21,6 +21,45 @@ interface SqlTab {
   executedQuery?: string;
 }
 
+function renderResultTable(
+  fields?: { name: string; dataTypeId: number }[],
+  rows?: Record<string, unknown>[],
+) {
+  if (!fields?.length) {
+    return (
+      <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
+        Query executed successfully.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-auto rounded-md border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/50">
+            {fields.map((field) => (
+              <th key={field.name} className="px-4 py-2 text-left font-medium">
+                {field.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(rows ?? []).map((row, i) => (
+            <tr key={i} className="border-b last:border-0">
+              {fields.map((field) => (
+                <td key={field.name} className="px-4 py-2 font-mono">
+                  {row[field.name] === null ? 'NULL' : String(row[field.name])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function createTab(index: number): SqlTab {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -336,9 +375,11 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
             <div className="flex flex-wrap items-center gap-4">
               <span>
-                {result.paginated && (result.total ?? null) !== null
-                  ? `${result.total}${result.totalIsApprox ? '+' : ''} total · page ${result.page ?? 1}`
-                  : `${result.rowCount ?? 0} rows${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}
+                {result.resultSets && result.resultSets.length > 1
+                  ? `${result.resultSets.length} statements`
+                  : result.paginated && (result.total ?? null) !== null
+                    ? `${result.total}${result.totalIsApprox ? '+' : ''} total · page ${result.page ?? 1}`
+                    : `${result.rowCount ?? 0} rows${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}
               </span>
               <span>{result.duration}ms</span>
               {result.paginated && (
@@ -364,40 +405,25 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
             </div>
           </div>
 
-          {result.fields?.length ? (
-            <div className="overflow-auto rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    {result.fields.map((field) => (
-                      <th
-                        key={field.name}
-                        className="px-4 py-2 text-left font-medium"
-                      >
-                        {field.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(result.rows ?? []).map((row, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      {result.fields!.map((field) => (
-                        <td key={field.name} className="px-4 py-2 font-mono">
-                          {row[field.name] === null
-                            ? 'NULL'
-                            : String(row[field.name])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {result.resultSets && result.resultSets.length > 1 ? (
+            // Multi-statement script: show every statement's output in order.
+            <div className="space-y-4">
+              {result.resultSets.map((rs, i) => (
+                <div key={i} className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Statement {i + 1}
+                    {rs.fields?.length
+                      ? ` · ${rs.rows?.length ?? 0} ${(rs.rows?.length ?? 0) === 1 ? 'row' : 'rows'}`
+                      : rs.rowCount != null
+                        ? ` · ${rs.rowCount} ${rs.rowCount === 1 ? 'row' : 'rows'} affected`
+                        : ' · executed'}
+                  </div>
+                  {renderResultTable(rs.fields, rs.rows)}
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-              Query executed successfully.
-            </div>
+            renderResultTable(result.fields, result.rows)
           )}
         </div>
       )}

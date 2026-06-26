@@ -439,6 +439,12 @@ export interface SqlResult {
   total?: number | null;
   /** True when total was capped at 10k. */
   totalIsApprox?: boolean;
+  /** One entry per statement in a multi-statement script (in execution order). */
+  resultSets?: {
+    fields?: { name: string; dataTypeId: number }[];
+    rows?: Record<string, unknown>[];
+    rowCount: number | null;
+  }[];
 }
 
 export interface ApiError {

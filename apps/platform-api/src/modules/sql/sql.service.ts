@@ -116,10 +116,21 @@ export class SqlService {
       // node-postgres returns an array of results for a multi-statement query.
       // Show the last statement that returned rows (the final SELECT); fall back
       // to the last statement so non-SELECT scripts still report success.
-      const result: QueryResult = Array.isArray(rawResult)
-        ? ((rawResult as QueryResult[]).slice().reverse().find((r) => r.fields?.length) ??
-            (rawResult as QueryResult[])[rawResult.length - 1])
-        : (rawResult as QueryResult);
+      const allResults: QueryResult[] = Array.isArray(rawResult)
+        ? (rawResult as QueryResult[])
+        : [rawResult as QueryResult];
+      // Each statement in a multi-statement script gets its own result set so
+      // the UI can show every query's output, not just the last one.
+      const resultSets = allResults.map((r) => ({
+        fields: r.fields?.map((f) => ({ name: f.name, dataTypeId: f.dataTypeID })),
+        rows: r.rows,
+        rowCount: r.rowCount,
+      }));
+      // Primary result (used for the toolbar/pagination of single queries): the
+      // last statement that returned rows, falling back to the last statement.
+      const result: QueryResult =
+        allResults.slice().reverse().find((r) => r.fields?.length) ??
+        allResults[allResults.length - 1];
 
       if (canPaginate && opts?.countTotal) {
         try {
@@ -196,6 +207,7 @@ export class SqlService {
         paginated: canPaginate,
         total,
         totalIsApprox,
+        resultSets,
       };
     } catch (err: any) {
       const duration = Date.now() - startTime;
