@@ -9,6 +9,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe/stripe.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { ACADEMIC_DOMAINS } from './academic-domains';
+
+/** Worldwide university/college domains, built once for O(1) lookup. */
+const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
 
 @Injectable()
 export class BillingService implements OnModuleInit {
@@ -338,15 +342,33 @@ export class BillingService implements OnModuleInit {
   }
 
   /**
-   * Is this an academic email? Covers .edu, .edu.<cc>, .ac.<cc>, .k12.* and a
-   * few common variants used by schools/universities worldwide.
+   * Is this an academic (student/teacher) email? Two layers of coverage:
+   *  1) Suffix rules — catch ANY institution under the common academic patterns
+   *     used worldwide: .edu, .edu.<cc>, .ac.<cc>, .sch.<cc>, and US K-12
+   *     (.k12.<state>.us). Works even for institutions not in the dataset.
+   *  2) A bundled dataset of 10k+ real university/college domains — catches
+   *     institutions on generic TLDs (e.g. Canada .ca, Germany .de, France .fr)
+   *     that the suffix rules can't express. Subdomains (mail.uni.de,
+   *     student.x.ac.uk) match via their registrable parent.
    */
   private isAcademicEmail(email: string): boolean {
     const domain = (email || '').trim().toLowerCase().split('@')[1] || '';
     if (!domain) return false;
-    return /(?:^|\.)(?:edu|ac)(?:\.[a-z]{2,})?$|\.edu$|\.edu\.[a-z]{2,}$|\.ac\.[a-z]{2,}$|\.k12\.[a-z]{2,}$/.test(
-      domain,
-    );
+
+    // Layer 1: academic suffix patterns.
+    if (
+      /(?:\.edu|\.edu\.[a-z]{2,3}|\.ac\.[a-z]{2,3}|\.sch\.[a-z]{2,3})$/.test(domain) ||
+      domain.includes('.k12.')
+    ) {
+      return true;
+    }
+
+    // Layer 2: known university domain (exact or any parent suffix).
+    const parts = domain.split('.');
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (ACADEMIC_DOMAIN_SET.has(parts.slice(i).join('.'))) return true;
+    }
+    return false;
   }
 
   /**
