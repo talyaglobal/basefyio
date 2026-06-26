@@ -193,6 +193,33 @@ function CardForm({
   const elements = useElements();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stripe renders CardElement in an iframe where the app's CSS variables
+  // (hsl(var(--foreground))) don't resolve, so the text fell back to black and
+  // was unreadable on the dark card form. Resolve the theme colors to concrete
+  // values at runtime so the input text matches the surrounding theme.
+  const [cardStyle, setCardStyle] = useState({
+    base: {
+      fontSize: '16px',
+      color: '#ffffff',
+      '::placeholder': { color: '#94a3b8' },
+    },
+    invalid: { color: '#ef4444' },
+  });
+  useEffect(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const resolve = (name: string, fallback: string) => {
+      const raw = cs.getPropertyValue(name).trim();
+      return raw ? `hsl(${raw})` : fallback;
+    };
+    setCardStyle({
+      base: {
+        fontSize: '16px',
+        color: resolve('--foreground', '#ffffff'),
+        '::placeholder': { color: resolve('--muted-foreground', '#94a3b8') },
+      },
+      invalid: { color: resolve('--destructive', '#ef4444') },
+    });
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -248,18 +275,7 @@ function CardForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="rounded-lg border bg-background p-4">
-        <CardElement
-          options={{
-            style: {
-              base: {
-                fontSize: '16px',
-                color: 'hsl(var(--foreground))',
-                '::placeholder': { color: 'hsl(var(--muted-foreground))' },
-              },
-              invalid: { color: 'hsl(var(--destructive))' },
-            },
-          }}
-        />
+        <CardElement options={{ style: cardStyle }} />
       </div>
       {error && (
         <div className="flex items-center gap-2 text-sm text-destructive">
