@@ -87,6 +87,9 @@ export default function DashboardLayout({
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [inviteCount, setInviteCount] = useState(0);
+  // Set when the initial team load fails (e.g. backend 502/unreachable) so we
+  // can show a friendly error with Retry instead of an infinite spinner.
+  const [initError, setInitError] = useState(false);
   const [accountStatusLoaded, setAccountStatusLoaded] = useState(false);
   // Cached billing data — fetched once per team, not on every navigation
   const [billingData, setBillingData] = useState<any>(null);
@@ -127,6 +130,7 @@ export default function DashboardLayout({
     let cancelled = false;
 
     async function init() {
+      setInitError(false);
       await api.auth.me().catch(() => {});
 
       if (cancelled) return;
@@ -144,20 +148,25 @@ export default function DashboardLayout({
         .catch(() => {});
 
       const cachedTeam = Cookies.get('basefyio_active_team');
+      let resolved = false;
 
       if (cachedTeam) {
         try {
           const teams = await api.teams.list();
           if (cancelled) return;
-          const valid = teams.some((t) => t.id === cachedTeam);
-          if (valid) {
+          if (teams.some((t) => t.id === cachedTeam)) {
             setActiveTeamId(cachedTeam);
-            return;
+            resolved = true;
+          } else {
+            // List loaded but the cached team is gone — drop it and re-resolve.
+            Cookies.remove('basefyio_active_team');
           }
-        } catch {}
-        if (cancelled) return;
-        Cookies.remove('basefyio_active_team');
+        } catch {
+          // Backend unreachable — keep the cached cookie and try getActive below.
+        }
       }
+
+      if (resolved || cancelled) return;
 
       try {
         const { teamId } = await api.teams.getActive();
@@ -165,7 +174,11 @@ export default function DashboardLayout({
           setActiveTeamId(teamId);
           Cookies.set('basefyio_active_team', teamId, { expires: 365, path: '/' });
         }
-      } catch {}
+      } catch {
+        // Could not determine a team after all attempts → surface a retryable
+        // error instead of spinning forever.
+        if (!cancelled) setInitError(true);
+      }
     }
 
     init();
@@ -367,6 +380,32 @@ export default function DashboardLayout({
       inviteCount,
     ],
   );
+
+  if (initError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+          <svg className="h-6 w-6 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 9v4M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">Can&apos;t reach the server</h2>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            We couldn&apos;t load your workspace. This is usually temporary — please try again
+            in a moment. Your session is still active.
+          </p>
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (!user || !activeTeamId) {
     return (
