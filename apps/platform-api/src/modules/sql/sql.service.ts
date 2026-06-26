@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
+import { Pool, QueryResult } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ProjectActivityKind,
@@ -83,10 +83,15 @@ export class SqlService {
     const limit = Math.min(Math.max(1, opts?.limit ?? 100), 1000);
     const offset = (page - 1) * limit;
     const stripped = query.replace(/;\s*$/, '');
+    // Pagination wraps the query in a subselect, which only works for a single
+    // SELECT. A multi-statement script (e.g. "CREATE TEMP ...; SELECT ...;")
+    // must run as-is — we then surface the last result that returns rows.
+    const multi = this.isMultiStatement(query);
+    const canPaginate = isSelectShape && !multi;
     let runQuery: string;
     let total: number | null = null;
     let totalIsApprox = false;
-    if (isSelectShape) {
+    if (canPaginate) {
       runQuery = `SELECT * FROM (${stripped}) AS _bf_paged LIMIT ${limit} OFFSET ${offset}`;
     } else {
       runQuery = query;
@@ -105,10 +110,18 @@ export class SqlService {
     const client = await pool.connect();
 
     try {
-      const result = await client.query(runQuery);
+      const rawResult = await client.query(runQuery);
       const duration = Date.now() - startTime;
 
-      if (isSelectShape && opts?.countTotal) {
+      // node-postgres returns an array of results for a multi-statement query.
+      // Show the last statement that returned rows (the final SELECT); fall back
+      // to the last statement so non-SELECT scripts still report success.
+      const result: QueryResult = Array.isArray(rawResult)
+        ? ((rawResult as QueryResult[]).slice().reverse().find((r) => r.fields?.length) ??
+            (rawResult as QueryResult[])[rawResult.length - 1])
+        : (rawResult as QueryResult);
+
+      if (canPaginate && opts?.countTotal) {
         try {
           const countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`;
           const c = await client.query(countSql);
@@ -180,7 +193,7 @@ export class SqlService {
         duration,
         page,
         limit,
-        paginated: isSelectShape,
+        paginated: canPaginate,
         total,
         totalIsApprox,
       };
@@ -210,6 +223,21 @@ export class SqlService {
       client.release();
       await pool.end();
     }
+  }
+
+  /**
+   * Best-effort detection of a multi-statement script: strip comments, string
+   * literals and dollar-quoted blocks, then look for a semicolon before the end.
+   */
+  private isMultiStatement(query: string): boolean {
+    let s = query
+      .replace(/\/\*[\s\S]*?\*\//g, ' ') // block comments
+      .replace(/--[^\n]*/g, ' '); // line comments
+    s = s.replace(/\$([A-Za-z0-9_]*)\$[\s\S]*?\$\1\$/g, ' '); // dollar-quoted
+    s = s.replace(/'(?:[^']|'')*'/g, ' '); // single-quoted strings
+    s = s.replace(/"(?:[^"]|"")*"/g, ' '); // quoted identifiers
+    s = s.replace(/;\s*$/g, '').trim(); // drop trailing semicolon(s)
+    return s.includes(';');
   }
 
   private validateQuery(query: string) {

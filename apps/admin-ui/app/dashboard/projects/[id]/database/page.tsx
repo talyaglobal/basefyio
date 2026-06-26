@@ -101,7 +101,7 @@ export default function DatabasePage() {
       key={t}
       type="button"
       onClick={() => setTab(t)}
-      className={`rounded px-3 py-1.5 text-sm ${tab === t ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+      className={`whitespace-nowrap shrink-0 rounded px-3 py-1.5 text-sm ${tab === t ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
     >
       {label}
     </button>
@@ -109,22 +109,22 @@ export default function DatabasePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">Database</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => load(tab)}>
+          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => load(tab)}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           {tab !== 'extensions' && (
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
-              <Plus className="mr-1.5 h-4 w-4" />
+            <Button size="sm" className="whitespace-nowrap" onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4 shrink-0" />
               New {TAB_SINGULAR[tab]}
             </Button>
           )}
         </div>
       </div>
 
-      <div className="inline-flex rounded-lg border bg-muted/40 p-1">
+      <div className="inline-flex max-w-full overflow-x-auto rounded-lg border bg-muted/40 p-1">
         {tabBtn('indexes', 'Indexes')}
         {tabBtn('triggers', 'Triggers')}
         {tabBtn('functions', 'Functions')}
