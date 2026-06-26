@@ -9,6 +9,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe/stripe.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { RedisService } from '../redis/redis.service';
+import { EmailService } from '../email/email.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
@@ -22,6 +24,8 @@ export class BillingService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
     private readonly realtime: RealtimeEventsService,
+    private readonly redis: RedisService,
+    private readonly email: EmailService,
   ) {}
 
   async onModuleInit() {
@@ -404,24 +408,65 @@ export class BillingService implements OnModuleInit {
     return this.isAcademicEmail(email);
   }
 
-  /** Verify a team owner's student status and, if valid, apply a 90% discount. */
-  async verifyStudent(teamId: string, userId: string, email: string) {
+  private studentOtpKey(teamId: string, email: string): string {
+    return `student_otp:${teamId}:${email.trim().toLowerCase()}`;
+  }
+
+  /**
+   * Step 1 — the email must be an academic address AND the person must prove they
+   * own it: we email a one-time code. Domain alone isn't enough (anyone could
+   * type name@harvard.edu), so the OTP is what actually grants the discount.
+   */
+  async requestStudentOtp(teamId: string, userId: string, email: string) {
     await this.assertTeamOwner(teamId, userId);
     const clean = (email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) {
       throw new BadRequestException('Please enter a valid email address');
     }
 
-    const verified = await this.checkStudentEligibility(clean);
-    if (!verified) {
+    const eligible = await this.checkStudentEligibility(clean);
+    if (!eligible) {
       return {
-        verified: false,
-        discountPercent: 0,
+        otpSent: false,
         message:
-          'We could not verify student/teacher status for this email. Use your academic email (e.g. name@university.edu).',
+          'This does not look like a recognized academic email. Use your school/university address (e.g. name@university.edu).',
       };
     }
 
+    // Rate-limit: one code per 60s per (team,email).
+    const rateKey = `${this.studentOtpKey(teamId, clean)}:rate`;
+    if (await this.redis.get(rateKey)) {
+      throw new BadRequestException('Please wait a moment before requesting a new code.');
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.redis.set(this.studentOtpKey(teamId, clean), otp, 600); // 10 min
+    await this.redis.set(rateKey, '1', 60);
+    await this.email.sendStudentVerifyEmail(clean, otp).catch((err) => {
+      this.logger.error(`Failed to send student OTP to ${clean}: ${err.message}`);
+    });
+
+    this.logger.log(`Student verification code sent to ${clean} (team ${teamId})`);
+    return { otpSent: true, message: `We sent a 6-digit code to ${clean}.` };
+  }
+
+  /**
+   * Step 2 — confirm the emailed code. Only on a correct code do we apply the
+   * 90% discount, which proves the person controls the academic mailbox.
+   */
+  async confirmStudentOtp(teamId: string, userId: string, email: string, code: string) {
+    await this.assertTeamOwner(teamId, userId);
+    const clean = (email || '').trim().toLowerCase();
+    const key = this.studentOtpKey(teamId, clean);
+    const stored = await this.redis.get(key);
+    if (!stored) {
+      return { verified: false, discountPercent: 0, message: 'Code expired. Please request a new one.' };
+    }
+    if (stored !== (code || '').trim()) {
+      return { verified: false, discountPercent: 0, message: 'Invalid code. Please try again.' };
+    }
+
+    await this.redis.del(key);
     const DISCOUNT = 90;
     await this.prisma.subscription.update({
       where: { teamId },
@@ -431,7 +476,7 @@ export class BillingService implements OnModuleInit {
         studentVerifiedAt: new Date(),
       },
     });
-    this.logger.log(`Student discount (${DISCOUNT}%) applied to team ${teamId} via ${clean}`);
+    this.logger.log(`Student discount (${DISCOUNT}%) applied to team ${teamId} via verified ${clean}`);
 
     return {
       verified: true,

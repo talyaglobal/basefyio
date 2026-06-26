@@ -13,9 +13,11 @@ import { BillingProcessor } from '../queue/billing.processor';
 import { QueueModule } from '../queue/queue.module';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { RealtimeStreamService } from '../../common/realtime/realtime-stream.service';
+import { RedisModule } from '../redis/redis.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [PrismaModule, ObservabilityModule, QueueModule],
+  imports: [PrismaModule, ObservabilityModule, QueueModule, RedisModule, EmailModule],
   controllers: [BillingController],
   providers: [
     BillingService,

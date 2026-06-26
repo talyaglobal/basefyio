@@ -1886,10 +1886,16 @@ export const api = {
         body: JSON.stringify({ teamId, paymentMethodId }),
       });
     },
-    verifyStudent(teamId: string, email: string) {
-      return request<{ verified: boolean; discountPercent: number; message: string }>(
-        '/billing/student-verification',
+    requestStudentOtp(teamId: string, email: string) {
+      return request<{ otpSent: boolean; message: string }>(
+        '/billing/student-verification/request',
         { method: 'POST', body: JSON.stringify({ teamId, email }) },
+      );
+    },
+    confirmStudentOtp(teamId: string, email: string, code: string) {
+      return request<{ verified: boolean; discountPercent: number; message: string }>(
+        '/billing/student-verification/confirm',
+        { method: 'POST', body: JSON.stringify({ teamId, email, code }) },
       );
     },
     managementPlans() {

@@ -206,19 +206,33 @@ function CardForm({
     invalid: { color: '#ef4444' },
   });
   useEffect(() => {
-    const cs = getComputedStyle(document.documentElement);
-    const resolve = (name: string, fallback: string) => {
-      const raw = cs.getPropertyValue(name).trim();
-      return raw ? `hsl(${raw})` : fallback;
+    // Resolve theme colors to a concrete rgb() that Stripe's iframe accepts.
+    // Passing hsl(var(--x)) or the modern space-separated hsl(0 0% 98%) breaks
+    // Stripe's stricter CSS parser, which can leave the card field unstyled or
+    // blank — so let the browser compute the final color for us.
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const resolve = (cssColor: string, fallback: string) => {
+      try {
+        probe.style.color = '';
+        probe.style.color = cssColor;
+        const c = getComputedStyle(probe).color;
+        return c && c.startsWith('rgb') ? c : fallback;
+      } catch {
+        return fallback;
+      }
     };
-    setCardStyle({
+    const next = {
       base: {
         fontSize: '16px',
-        color: resolve('--foreground', '#ffffff'),
-        '::placeholder': { color: resolve('--muted-foreground', '#94a3b8') },
+        color: resolve('hsl(var(--foreground))', '#ffffff'),
+        '::placeholder': { color: resolve('hsl(var(--muted-foreground))', '#94a3b8') },
       },
-      invalid: { color: resolve('--destructive', '#ef4444') },
-    });
+      invalid: { color: resolve('hsl(var(--destructive))', '#ef4444') },
+    };
+    document.body.removeChild(probe);
+    setCardStyle(next);
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -324,8 +338,10 @@ export default function BillingPage() {
   const [loadingUpgradePreview, setLoadingUpgradePreview] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [studentEmail, setStudentEmail] = useState('');
+  const [studentCode, setStudentCode] = useState('');
+  const [studentStep, setStudentStep] = useState<'email' | 'code'>('email');
   const [verifyingStudent, setVerifyingStudent] = useState(false);
-  const [studentResult, setStudentResult] = useState<{ verified: boolean; message: string } | null>(null);
+  const [studentResult, setStudentResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [accountForm, setAccountForm] = useState({
     companyName: '',
     billingEmail: '',
@@ -390,19 +406,40 @@ export default function BillingPage() {
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
 
-  const handleVerifyStudent = async () => {
+  const handleRequestStudentOtp = async () => {
     if (!activeTeamId || !studentEmail.trim()) return;
     setVerifyingStudent(true);
     setStudentResult(null);
     try {
-      const res = await api.billing.verifyStudent(activeTeamId, studentEmail.trim());
-      setStudentResult({ verified: res.verified, message: res.message });
+      const res = await api.billing.requestStudentOtp(activeTeamId, studentEmail.trim());
+      if (res.otpSent) {
+        setStudentStep('code');
+        setStudentResult({ ok: true, message: res.message });
+      } else {
+        setStudentResult({ ok: false, message: res.message });
+      }
+    } catch (err: any) {
+      setStudentResult({ ok: false, message: err.message || 'Could not send code' });
+    } finally {
+      setVerifyingStudent(false);
+    }
+  };
+
+  const handleConfirmStudentOtp = async () => {
+    if (!activeTeamId || !studentCode.trim()) return;
+    setVerifyingStudent(true);
+    setStudentResult(null);
+    try {
+      const res = await api.billing.confirmStudentOtp(activeTeamId, studentEmail.trim(), studentCode.trim());
+      setStudentResult({ ok: res.verified, message: res.message });
       if (res.verified) {
         toast.success(res.message);
+        setStudentStep('email');
+        setStudentCode('');
         loadData();
       }
     } catch (err: any) {
-      setStudentResult({ verified: false, message: err.message || 'Verification failed' });
+      setStudentResult({ ok: false, message: err.message || 'Verification failed' });
     } finally {
       setVerifyingStudent(false);
     }
@@ -914,22 +951,51 @@ export default function BillingPage() {
           </div>
         ) : (
           <>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                type="email"
-                value={studentEmail}
-                onChange={(e) => setStudentEmail(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyStudent(); }}
-                placeholder="your.name@university.edu"
-                className="h-9 flex-1 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button onClick={handleVerifyStudent} disabled={verifyingStudent || !studentEmail.trim()}>
-                {verifyingStudent ? 'Verifying…' : 'Validate ID'}
-              </Button>
-            </div>
+            {studentStep === 'email' ? (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="email"
+                  value={studentEmail}
+                  onChange={(e) => setStudentEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleRequestStudentOtp(); }}
+                  placeholder="your.name@university.edu"
+                  className="h-9 flex-1 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button onClick={handleRequestStudentOtp} disabled={verifyingStudent || !studentEmail.trim()}>
+                  {verifyingStudent ? 'Sending…' : 'Send code'}
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Enter the 6-digit code sent to <span className="font-medium text-foreground">{studentEmail}</span>.
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={studentCode}
+                    onChange={(e) => setStudentCode(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmStudentOtp(); }}
+                    placeholder="123456"
+                    className="h-9 flex-1 rounded-md border bg-background px-3 text-sm tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button onClick={handleConfirmStudentOtp} disabled={verifyingStudent || studentCode.length < 6}>
+                    {verifyingStudent ? 'Verifying…' : 'Verify'}
+                  </Button>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline"
+                  onClick={() => { setStudentStep('email'); setStudentCode(''); setStudentResult(null); }}
+                >
+                  Use a different email
+                </button>
+              </div>
+            )}
             {studentResult && (
-              <div className={`mt-3 flex items-center gap-2 text-sm ${studentResult.verified ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
-                {studentResult.verified ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+              <div className={`mt-3 flex items-center gap-2 text-sm ${studentResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                {studentResult.ok ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
                 <span>{studentResult.message}</span>
               </div>
             )}

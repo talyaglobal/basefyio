@@ -41,6 +41,15 @@ export class EmailService {
     return this.send({ to, subject: 'Verify your email to join basefyio', html });
   }
 
+  async sendStudentVerifyEmail(to: string, otp: string) {
+    const html = signupVerifyEmailTemplate({ email: to, otp });
+    return this.send({
+      to,
+      subject: 'Your basefyio student verification code',
+      html,
+    });
+  }
+
   async sendWelcome(to: string, displayName: string) {
     const html = welcomeTemplate({
       displayName,

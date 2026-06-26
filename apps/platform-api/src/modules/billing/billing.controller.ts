@@ -77,14 +77,25 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('student-verification')
-  async verifyStudent(
+  @Post('student-verification/request')
+  async requestStudentOtp(
     @Req() req: any,
     @Body() body: { email: string; teamId?: string },
   ) {
     const userId = req.user.sub;
     const teamId = body.teamId || (await this.billing.getUserActiveTeamId(userId));
-    return this.billing.verifyStudent(teamId, userId, body.email);
+    return this.billing.requestStudentOtp(teamId, userId, body.email);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('student-verification/confirm')
+  async confirmStudentOtp(
+    @Req() req: any,
+    @Body() body: { email: string; code: string; teamId?: string },
+  ) {
+    const userId = req.user.sub;
+    const teamId = body.teamId || (await this.billing.getUserActiveTeamId(userId));
+    return this.billing.confirmStudentOtp(teamId, userId, body.email, body.code);
   }
 
   @UseGuards(JwtAuthGuard)
