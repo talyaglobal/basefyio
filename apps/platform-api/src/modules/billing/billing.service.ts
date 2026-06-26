@@ -1163,19 +1163,43 @@ export class BillingService implements OnModuleInit {
           },
         });
 
-        await this.prisma.invoice.create({
-          data: {
+        // Reuse an existing open/unpaid draft for this team instead of creating a
+        // second record — otherwise the paid charge and the leftover draft both
+        // show up and the user sees a phantom outstanding balance (duplicate invoice).
+        const openInv = await this.prisma.invoice.findFirst({
+          where: {
             teamId: sub.teamId,
-            stripeInvoiceId: paymentIntent.id,
-            amountDue,
-            amountPaid: amountDue,
-            currency: 'usd',
-            status: 'paid',
-            periodStart: now,
-            periodEnd: nextBillingDate,
-            retryCount: 0,
+            status: { in: ['open', 'unpaid'] },
+            amountPaid: 0,
           },
+          orderBy: { createdAt: 'desc' },
         });
+        if (openInv) {
+          await this.prisma.invoice.update({
+            where: { id: openInv.id },
+            data: {
+              status: 'paid',
+              amountPaid: amountDue,
+              stripeInvoiceId: paymentIntent.id,
+              periodStart: now,
+              periodEnd: nextBillingDate,
+            },
+          });
+        } else {
+          await this.prisma.invoice.create({
+            data: {
+              teamId: sub.teamId,
+              stripeInvoiceId: paymentIntent.id,
+              amountDue,
+              amountPaid: amountDue,
+              currency: 'usd',
+              status: 'paid',
+              periodStart: now,
+              periodEnd: nextBillingDate,
+              retryCount: 0,
+            },
+          });
+        }
 
         this.logger.log(
           `Recurring charge succeeded for team ${teamId}. Amount: $${(amountDue / 100).toFixed(2)}`,

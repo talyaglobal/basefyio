@@ -351,9 +351,6 @@ export default async function Home() {
             <p className="mt-4 max-w-[200px] text-xs text-muted-foreground leading-relaxed">
               The database platform for modern teams.
             </p>
-            <p className="mt-3 text-xs text-muted-foreground">
-              The database platform for modern teams
-            </p>
           </div>
           <div>
             <span className="section-label mb-4">Product</span>
@@ -405,9 +402,9 @@ export default async function Home() {
             <span className="section-label mb-4">Legal</span>
             <ul className="space-y-2">
               {[
-                { href: "#", label: "Privacy" },
-                { href: "#", label: "Terms" },
-                { href: "#", label: "KVKK" },
+                { href: "/privacy", label: "Privacy" },
+                { href: "/terms", label: "Terms" },
+                { href: "/kvkk", label: "KVKK" },
               ].map((l) => (
                 <li key={l.label}>
                   <Link
