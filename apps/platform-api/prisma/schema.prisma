@@ -585,6 +585,10 @@ model Subscription {
   pendingPlanId        String?            @map("pending_plan_id")
   pendingAmountDue     Int?               @map("pending_amount_due")
   cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  /// Student/education discount (0–100). Applied to every charge once verified.
+  studentDiscountPercent Int              @default(0) @map("student_discount_percent")
+  studentVerifiedEmail   String?          @map("student_verified_email")
+  studentVerifiedAt      DateTime?        @map("student_verified_at")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 

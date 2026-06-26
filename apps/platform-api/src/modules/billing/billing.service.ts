@@ -328,6 +328,96 @@ export class BillingService implements OnModuleInit {
     return { url: session.url };
   }
 
+  // ── Student / education discount ───────────────────────────────────────────
+
+  /** Apply a team's student discount to a base amount in cents. */
+  private withStudentDiscount(amountCents: number, discountPercent?: number | null): number {
+    const pct = Math.min(Math.max(discountPercent ?? 0, 0), 100);
+    if (!pct) return amountCents;
+    return Math.round((amountCents * (100 - pct)) / 100);
+  }
+
+  /**
+   * Is this an academic email? Covers .edu, .edu.<cc>, .ac.<cc>, .k12.* and a
+   * few common variants used by schools/universities worldwide.
+   */
+  private isAcademicEmail(email: string): boolean {
+    const domain = (email || '').trim().toLowerCase().split('@')[1] || '';
+    if (!domain) return false;
+    return /(?:^|\.)(?:edu|ac)(?:\.[a-z]{2,})?$|\.edu$|\.edu\.[a-z]{2,}$|\.ac\.[a-z]{2,}$|\.k12\.[a-z]{2,}$/.test(
+      domain,
+    );
+  }
+
+  /**
+   * Verify student/teacher status for the education discount.
+   * Uses SheerID when SHEERID_API_KEY + SHEERID_PROGRAM_ID are configured;
+   * otherwise falls back to academic-email-domain verification.
+   */
+  private async checkStudentEligibility(email: string): Promise<boolean> {
+    const sheerKey = process.env.SHEERID_API_KEY;
+    const sheerProgram = process.env.SHEERID_PROGRAM_ID;
+    if (sheerKey && sheerProgram) {
+      try {
+        const res = await fetch(
+          `https://services.sheerid.com/rest/v2/verification/program/${sheerProgram}/step/collectStudentPersonalInfo`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${sheerKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email }),
+          },
+        );
+        const data: any = await res.json().catch(() => ({}));
+        if (data?.currentStep === 'success' || data?.verificationStatus === 'success') {
+          return true;
+        }
+        // SheerID inconclusive → fall through to domain heuristic.
+      } catch (err: any) {
+        this.logger.warn(`SheerID verification failed, falling back to domain check: ${err.message}`);
+      }
+    }
+    return this.isAcademicEmail(email);
+  }
+
+  /** Verify a team owner's student status and, if valid, apply a 90% discount. */
+  async verifyStudent(teamId: string, userId: string, email: string) {
+    await this.assertTeamOwner(teamId, userId);
+    const clean = (email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) {
+      throw new BadRequestException('Please enter a valid email address');
+    }
+
+    const verified = await this.checkStudentEligibility(clean);
+    if (!verified) {
+      return {
+        verified: false,
+        discountPercent: 0,
+        message:
+          'We could not verify student/teacher status for this email. Use your academic email (e.g. name@university.edu).',
+      };
+    }
+
+    const DISCOUNT = 90;
+    await this.prisma.subscription.update({
+      where: { teamId },
+      data: {
+        studentDiscountPercent: DISCOUNT,
+        studentVerifiedEmail: clean,
+        studentVerifiedAt: new Date(),
+      },
+    });
+    this.logger.log(`Student discount (${DISCOUNT}%) applied to team ${teamId} via ${clean}`);
+
+    return {
+      verified: true,
+      discountPercent: DISCOUNT,
+      message: `Verified! ${DISCOUNT}% education discount applied to your subscription.`,
+    };
+  }
+
   /** Get invoices for a team */
   async getInvoices(teamId: string, userId: string) {
     await this.assertTeamMember(teamId, userId);
@@ -780,8 +870,11 @@ export class BillingService implements OnModuleInit {
       sub.currentPeriodEnd || new Date(),
     );
 
-    // Calculate amount to charge immediately
-    const amountDue = Math.max(0, newPlan.priceMonthly - prorationCredit);
+    // Calculate amount to charge immediately (after any student discount)
+    const amountDue = Math.max(
+      0,
+      this.withStudentDiscount(newPlan.priceMonthly, sub.studentDiscountPercent) - prorationCredit,
+    );
 
     // Calculate next billing date (same day of month, next month)
     const now = new Date();
@@ -1068,7 +1161,9 @@ export class BillingService implements OnModuleInit {
       sub.pendingPlanId != null &&
       sub.pendingAmountDue != null &&
       sub.pendingAmountDue > 0;
-    const amountDue = hasPendingUpgrade ? sub.pendingAmountDue! : sub.plan.priceMonthly;
+    const amountDue = hasPendingUpgrade
+      ? sub.pendingAmountDue!
+      : this.withStudentDiscount(sub.plan.priceMonthly, sub.studentDiscountPercent);
 
     try {
       const paymentIntent = await this.stripe.createPaymentIntent({
@@ -1325,7 +1420,9 @@ export class BillingService implements OnModuleInit {
       sub.pendingPlanId != null &&
       sub.pendingAmountDue != null &&
       sub.pendingAmountDue > 0;
-    const amountDue = hasPendingUpgrade ? sub.pendingAmountDue! : sub.plan.priceMonthly;
+    const amountDue = hasPendingUpgrade
+      ? sub.pendingAmountDue!
+      : this.withStudentDiscount(sub.plan.priceMonthly, sub.studentDiscountPercent);
 
     try {
       const paymentIntent = await this.stripe.createPaymentIntent({
@@ -1476,7 +1573,10 @@ export class BillingService implements OnModuleInit {
       sub.currentPeriodEnd || new Date(),
     );
 
-    const amountDue = Math.max(0, newPlan.priceMonthly - prorationCredit);
+    const amountDue = Math.max(
+      0,
+      this.withStudentDiscount(newPlan.priceMonthly, sub.studentDiscountPercent) - prorationCredit,
+    );
 
     const now = new Date();
     const billingDayOfMonth = now.getDate();

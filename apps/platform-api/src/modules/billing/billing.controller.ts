@@ -77,6 +77,17 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('student-verification')
+  async verifyStudent(
+    @Req() req: any,
+    @Body() body: { email: string; teamId?: string },
+  ) {
+    const userId = req.user.sub;
+    const teamId = body.teamId || (await this.billing.getUserActiveTeamId(userId));
+    return this.billing.verifyStudent(teamId, userId, body.email);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('checkout')
   async createCheckout(
     @Req() req: any,

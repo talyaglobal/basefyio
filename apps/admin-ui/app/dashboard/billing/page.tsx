@@ -323,6 +323,9 @@ export default function BillingPage() {
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
   const [loadingUpgradePreview, setLoadingUpgradePreview] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [studentEmail, setStudentEmail] = useState('');
+  const [verifyingStudent, setVerifyingStudent] = useState(false);
+  const [studentResult, setStudentResult] = useState<{ verified: boolean; message: string } | null>(null);
   const [accountForm, setAccountForm] = useState({
     companyName: '',
     billingEmail: '',
@@ -386,6 +389,24 @@ export default function BillingPage() {
 
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
+
+  const handleVerifyStudent = async () => {
+    if (!activeTeamId || !studentEmail.trim()) return;
+    setVerifyingStudent(true);
+    setStudentResult(null);
+    try {
+      const res = await api.billing.verifyStudent(activeTeamId, studentEmail.trim());
+      setStudentResult({ verified: res.verified, message: res.message });
+      if (res.verified) {
+        toast.success(res.message);
+        loadData();
+      }
+    } catch (err: any) {
+      setStudentResult({ verified: false, message: err.message || 'Verification failed' });
+    } finally {
+      setVerifyingStudent(false);
+    }
+  };
 
   const handleChangePlan = async (planName: string) => {
     if (!activeTeamId) return;
@@ -873,6 +894,48 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+
+      {/* Student / education discount */}
+      <div className="rounded-xl border bg-card p-6">
+        <h2 className="text-lg font-semibold text-foreground mb-1">Student &amp; education discount</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          90% off for students, teachers and research assistants. Verify with your academic email
+          (e.g. <code className="text-xs">name@university.edu</code>).
+        </p>
+        {((subscription as any)?.studentDiscountPercent ?? 0) > 0 ? (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+            <Check className="h-4 w-4 shrink-0" />
+            <span>
+              {(subscription as any).studentDiscountPercent}% education discount is active
+              {(subscription as any).studentVerifiedEmail
+                ? ` (verified: ${(subscription as any).studentVerifiedEmail})`
+                : ''}.
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="email"
+                value={studentEmail}
+                onChange={(e) => setStudentEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyStudent(); }}
+                placeholder="your.name@university.edu"
+                className="h-9 flex-1 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button onClick={handleVerifyStudent} disabled={verifyingStudent || !studentEmail.trim()}>
+                {verifyingStudent ? 'Verifying…' : 'Validate ID'}
+              </Button>
+            </div>
+            {studentResult && (
+              <div className={`mt-3 flex items-center gap-2 text-sm ${studentResult.verified ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                {studentResult.verified ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+                <span>{studentResult.message}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Invoices */}
       <div className="rounded-xl border bg-card p-6">

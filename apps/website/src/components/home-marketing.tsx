@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { getAppSignupUrl } from "@/lib/site-url";
+import { getAppSignupUrl, getAppPortalUrl } from "@/lib/site-url";
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { HowItWorks } from "@/components/how-it-works";
 
@@ -598,7 +598,7 @@ export function HomeMarketing() {
                 teachers and research assistants!
               </p>
               <Link
-                href={getAppSignupUrl()}
+                href={`${getAppPortalUrl()}/dashboard/billing`}
                 className="inline-flex shrink-0 items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-subtle transition-all hover:opacity-90"
               >
                 Validate ID &rarr;

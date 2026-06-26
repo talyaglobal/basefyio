@@ -1886,6 +1886,12 @@ export const api = {
         body: JSON.stringify({ teamId, paymentMethodId }),
       });
     },
+    verifyStudent(teamId: string, email: string) {
+      return request<{ verified: boolean; discountPercent: number; message: string }>(
+        '/billing/student-verification',
+        { method: 'POST', body: JSON.stringify({ teamId, email }) },
+      );
+    },
     managementPlans() {
       return request<ManagementPlan[]>('/billing/management/plans');
     },
