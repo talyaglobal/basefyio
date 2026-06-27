@@ -572,8 +572,11 @@ export class KeycloakAdminService implements OnModuleInit {
       realm: realmName,
       username: data.email,
       email: data.email,
-      firstName: data.firstName || '',
-      lastName: data.lastName || '',
+      // Keycloak 24's User Profile requires firstName/lastName; empty values make
+      // the password grant fail with "Account is not fully set up". Fall back to
+      // the email local part so the account is always login-ready.
+      firstName: data.firstName?.trim() || data.email.split('@')[0] || 'user',
+      lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
       enabled: true,
       emailVerified: true,
       // Explicitly clear required actions so the realm's DEFAULT required actions
@@ -599,8 +602,11 @@ export class KeycloakAdminService implements OnModuleInit {
       realm: realmName,
       username: data.email,
       email: data.email,
-      firstName: data.firstName || '',
-      lastName: data.lastName || '',
+      // Keycloak 24's User Profile requires firstName/lastName; empty values make
+      // the password grant fail with "Account is not fully set up". Fall back to
+      // the email local part so the account is always login-ready.
+      firstName: data.firstName?.trim() || data.email.split('@')[0] || 'user',
+      lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
       enabled: true,
       // Mark verified so a realm with "Verify Email" on doesn't block the
       // password grant (the app runs its own email verification when needed).
@@ -683,10 +689,14 @@ export class KeycloakAdminService implements OnModuleInit {
    */
   async clearRealmUserLoginBlockers(realmName: string, userId: string): Promise<void> {
     await this.ensureAuth();
-    await this.client.users.update(
-      { realm: realmName, id: userId },
-      { emailVerified: true, requiredActions: [] },
-    );
+    const u = await this.client.users.findOne({ realm: realmName, id: userId });
+    const local = (u?.email || u?.username || 'user').split('@')[0] || 'user';
+    const update: Record<string, unknown> = { emailVerified: true, requiredActions: [] };
+    // Keycloak 24 User Profile requires firstName/lastName; fill them if empty so
+    // the grant stops failing with "Account is not fully set up".
+    if (!u?.firstName?.trim()) update.firstName = local;
+    if (!u?.lastName?.trim()) update.lastName = local;
+    await this.client.users.update({ realm: realmName, id: userId }, update);
     this.logger.log(`Cleared login blockers for user ${userId} in realm "${realmName}"`);
   }
 
@@ -785,8 +795,11 @@ export class KeycloakAdminService implements OnModuleInit {
       realm: 'master',
       username: data.email,
       email: data.email,
-      firstName: data.firstName || '',
-      lastName: data.lastName || '',
+      // Keycloak 24's User Profile requires firstName/lastName; empty values make
+      // the password grant fail with "Account is not fully set up". Fall back to
+      // the email local part so the account is always login-ready.
+      firstName: data.firstName?.trim() || data.email.split('@')[0] || 'user',
+      lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
       enabled: true,
       emailVerified: true,
       credentials: [

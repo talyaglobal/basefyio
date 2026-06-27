@@ -468,15 +468,26 @@ export class ProjectSdkAuthService {
         const user = (await this.keycloak
           .findUserInRealm(realmName, email)
           .catch(() => null)) as
-          | { id?: string; username?: string; emailVerified?: boolean; requiredActions?: string[] }
+          | {
+              id?: string;
+              username?: string;
+              emailVerified?: boolean;
+              requiredActions?: string[];
+              firstName?: string;
+              lastName?: string;
+            }
           | null;
         if (user?.id) {
-          // A fully-set-up account can still fail the grant when realm-default
-          // required actions (VERIFY_EMAIL / UPDATE_PASSWORD) or an unverified
-          // email got applied at creation. Clear those blockers and retry.
-          // Retrying with the SAME password means a wrong password still 401s.
+          // A fully-set-up account can still fail the grant ("Account is not fully
+          // set up") when realm-default required actions, an unverified email, or
+          // — on Keycloak 24 — missing firstName/lastName (User Profile) got left
+          // at creation. Heal those and retry with the SAME password (a wrong
+          // password still 401s).
           const blocked =
-            user.emailVerified === false || (user.requiredActions?.length ?? 0) > 0;
+            user.emailVerified === false ||
+            (user.requiredActions?.length ?? 0) > 0 ||
+            !user.firstName?.trim() ||
+            !user.lastName?.trim();
           if (blocked) {
             await this.keycloak
               .clearRealmUserLoginBlockers(realmName, user.id)
