@@ -1184,9 +1184,6 @@ export default function BillingPage() {
                       <Button variant="ghost" size="sm">View on Stripe</Button>
                     </a>
                   )}
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)}>
-                    Close
-                  </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   <strong>Invoice</strong> is the bill for your records (accounting); the
