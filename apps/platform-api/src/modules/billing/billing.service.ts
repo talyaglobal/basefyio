@@ -12,7 +12,7 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
-import PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
 const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
