@@ -77,10 +77,15 @@ async function proxy(
 
     const upstreamCt = upstream.headers.get('content-type') || '';
 
+    // Pass binary responses through untouched — reading them as text mangles
+    // bytes > 127 and corrupts the file (e.g. a PDF then renders as a blank page).
     if (
       upstreamCt.includes('application/octet-stream') ||
       upstreamCt.includes('application/zip') ||
-      upstreamCt.includes('image/')
+      upstreamCt.includes('application/pdf') ||
+      upstreamCt.includes('image/') ||
+      upstreamCt.includes('application/vnd.') ||
+      upstreamCt.includes('octet')
     ) {
       const blob = await upstream.arrayBuffer();
       return new NextResponse(blob, {
