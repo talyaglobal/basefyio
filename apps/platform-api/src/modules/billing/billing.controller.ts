@@ -83,13 +83,15 @@ export class BillingController {
     @Param('invoiceId') invoiceId: string,
     @Res() res: Response,
     @Query('teamId') teamId?: string,
+    @Query('type') type?: string,
   ) {
     const userId = req.user.sub;
     const resolvedTeam = teamId || (await this.billing.getUserActiveTeamId(userId));
-    const pdf = await this.billing.generateInvoicePdf(resolvedTeam, userId, invoiceId);
+    const kind = type === 'receipt' ? 'receipt' : 'invoice';
+    const pdf = await this.billing.generateInvoicePdf(resolvedTeam, userId, invoiceId, kind);
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="invoice-${invoiceId}.pdf"`,
+      'Content-Disposition': `attachment; filename="${kind}-${invoiceId}.pdf"`,
       'Content-Length': pdf.length,
     });
     res.end(pdf);

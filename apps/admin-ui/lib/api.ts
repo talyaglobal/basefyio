@@ -1780,13 +1780,13 @@ export const api = {
     usage(teamId: string) {
       return request<any>(`/billing/usage?teamId=${teamId}`);
     },
-    async downloadInvoicePdf(teamId: string, invoiceId: string): Promise<Blob> {
+    async downloadInvoicePdf(teamId: string, invoiceId: string, type: 'invoice' | 'receipt' = 'invoice'): Promise<Blob> {
       const token = getAccessToken();
       const res = await fetch(
-        `/api/proxy/billing/invoices/${invoiceId}/pdf?teamId=${encodeURIComponent(teamId)}`,
+        `/api/proxy/billing/invoices/${invoiceId}/pdf?teamId=${encodeURIComponent(teamId)}&type=${type}`,
         { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
       );
-      if (!res.ok) throw new Error('Failed to download invoice PDF');
+      if (!res.ok) throw new Error(`Failed to download ${type}`);
       return res.blob();
     },
     invoices(teamId: string) {

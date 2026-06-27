@@ -486,8 +486,16 @@ export class BillingService implements OnModuleInit {
     };
   }
 
-  /** Generate a downloadable PDF for an invoice (works for non-Stripe records too). */
-  async generateInvoicePdf(teamId: string, userId: string, invoiceId: string): Promise<Buffer> {
+  /**
+   * Generate a professional Invoice or Receipt PDF (Stripe-independent), styled
+   * after a standard billing document: header, seller/bill-to, line items, totals.
+   */
+  async generateInvoicePdf(
+    teamId: string,
+    userId: string,
+    invoiceId: string,
+    kind: 'invoice' | 'receipt' = 'invoice',
+  ): Promise<Buffer> {
     await this.assertTeamMember(teamId, userId);
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, teamId },
@@ -495,49 +503,142 @@ export class BillingService implements OnModuleInit {
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
 
-    const money = (cents: number) =>
-      `${(cents / 100).toFixed(2)} ${invoice.currency.toUpperCase()}`;
-    const date = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
+    const account = await this.prisma.billingAccount.findUnique({ where: { teamId } });
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId },
+      include: { plan: true },
+    });
+
+    const isReceipt = kind === 'receipt';
+    let pm: { brand?: string; last4?: string } | null = null;
+    if (isReceipt && this.stripe.isEnabled() && sub?.stripeCustomerId) {
+      const m = await this.stripe.getDefaultPaymentMethod(sub.stripeCustomerId).catch(() => null);
+      if (m?.card) pm = { brand: m.card.brand, last4: m.card.last4 };
+    }
+
+    const cur = invoice.currency.toUpperCase();
+    const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+    const dt = (d: Date | null) =>
+      d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
     const outstanding = Math.max(invoice.amountDue - invoice.amountPaid, 0);
 
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
-    const done = new Promise<Buffer>((resolve) =>
-      doc.on('end', () => resolve(Buffer.concat(chunks))),
-    );
+    const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
 
-    doc.fontSize(22).fillColor('#0f172a').text('basefyio', { continued: false });
-    doc.fontSize(10).fillColor('#64748b').text('Your database, instantly');
-    doc.moveDown(1.5);
+    const DARK = '#0f172a', GREY = '#475569', MUTE = '#94a3b8', LINE = '#e2e8f0';
 
-    doc.fillColor('#0f172a').fontSize(16).text('Invoice');
-    doc.moveDown(0.5);
-    doc.fontSize(10).fillColor('#334155');
-    const line = (label: string, value: string) =>
-      doc.text(`${label}: `, { continued: true }).fillColor('#0f172a').text(value).fillColor('#334155');
-    line('Invoice', invoice.stripeInvoiceId || invoice.id);
-    line('Team', invoice.team?.name || teamId);
-    line('Issued', date(invoice.createdAt));
-    line('Period', `${date(invoice.periodStart)} → ${date(invoice.periodEnd)}`);
-    line('Status', invoice.status.toUpperCase());
-    doc.moveDown(1);
+    // Header — title left, brand right
+    doc.fillColor(DARK).font('Helvetica-Bold').fontSize(28).text(isReceipt ? 'Receipt' : 'Invoice', 50, 50);
+    doc.fillColor('#3b82f6').fontSize(18).text('basefyio', 350, 56, { width: 195, align: 'right' });
 
-    if (invoice.lineItems?.length) {
-      doc.fillColor('#0f172a').fontSize(12).text('Line items');
-      doc.moveDown(0.3).fontSize(10).fillColor('#334155');
-      for (const li of invoice.lineItems) {
-        doc.text(`${li.description}  —  ${money(li.amountCents)}`);
-      }
-      doc.moveDown(1);
+    // Meta block
+    let y = 100;
+    doc.fontSize(9);
+    const meta = (label: string, val: string) => {
+      doc.font('Helvetica-Bold').fillColor(DARK).text(label, 50, y, { width: 95 });
+      doc.font('Helvetica').fillColor(GREY).text(val, 150, y, { width: 250 });
+      y += 15;
+    };
+    meta(isReceipt ? 'Receipt number' : 'Invoice number', invoice.stripeInvoiceId || invoice.id.slice(0, 18));
+    meta('Date of issue', dt(invoice.createdAt));
+    if (isReceipt) {
+      meta('Payment date', dt(invoice.createdAt));
+      if (pm) meta('Payment method', `${(pm.brand || 'CARD').toUpperCase()} •••• ${pm.last4 || '••••'}`);
+    } else {
+      meta('Date due', dt(invoice.periodStart || invoice.createdAt));
     }
 
-    doc.fontSize(11).fillColor('#0f172a');
-    line('Amount due', money(invoice.amountDue));
-    line('Amount paid', money(invoice.amountPaid));
-    line('Outstanding', money(outstanding));
-    doc.moveDown(2);
-    doc.fontSize(9).fillColor('#94a3b8').text('basefyio · support@talyasmart.com', { align: 'center' });
+    // Seller / Bill to
+    y += 12;
+    const colTop = y;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('basefyio (Talya Smart)', 50, y);
+    doc.font('Helvetica').fillColor(GREY)
+      .text('support@talyasmart.com', 50, y + 14)
+      .text('basefyio.com', 50, y + 28);
+
+    let by = colTop;
+    doc.font('Helvetica-Bold').fillColor(DARK).text('Bill to', 320, by);
+    by += 14;
+    doc.font('Helvetica').fillColor(GREY);
+    const bl = (t?: string | null) => { if (t && t.trim()) { doc.text(t, 320, by, { width: 225 }); by += 14; } };
+    bl(account?.companyName || invoice.team?.name);
+    bl(account?.addressLine1);
+    bl(account?.addressLine2);
+    bl([account?.city, account?.state, account?.postalCode].filter(Boolean).join(', '));
+    bl(account?.country);
+    bl(account?.billingEmail);
+
+    // Big amount line
+    y = Math.max(colTop + 42, by) + 26;
+    doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK);
+    if (isReceipt) {
+      doc.text(`${money(invoice.amountPaid)} ${cur} paid on ${dt(invoice.createdAt)}`, 50, y);
+    } else {
+      doc.text(`${money(invoice.amountDue)} ${cur}${outstanding > 0 ? ` due ${dt(invoice.periodStart || invoice.createdAt)}` : ''}`, 50, y);
+    }
+    y += 34;
+
+    // Line items table
+    const C = { desc: 50, qty: 330, unit: 390, amt: 480 };
+    doc.font('Helvetica').fontSize(8).fillColor(MUTE);
+    doc.text('Description', C.desc, y);
+    doc.text('Qty', C.qty, y);
+    doc.text('Unit price', C.unit, y);
+    doc.text('Amount', C.amt, y, { width: 65, align: 'right' });
+    y += 12;
+    doc.moveTo(50, y).lineTo(545, y).strokeColor(LINE).stroke();
+    y += 10;
+
+    const items = invoice.lineItems?.length
+      ? invoice.lineItems.map((li) => ({
+          desc: li.description,
+          period: '',
+          qty: li.quantity,
+          unit: li.unitPriceCents,
+          amt: li.amountCents,
+        }))
+      : [{
+          desc: `basefyio ${sub?.plan?.displayName || 'subscription'}`,
+          period: invoice.periodStart && invoice.periodEnd ? `${dt(invoice.periodStart)} – ${dt(invoice.periodEnd)}` : '',
+          qty: 1,
+          unit: invoice.amountDue,
+          amt: invoice.amountDue,
+        }];
+
+    for (const it of items) {
+      doc.font('Helvetica').fontSize(9).fillColor(DARK);
+      doc.text(it.desc, C.desc, y, { width: 270 });
+      doc.text(String(it.qty), C.qty, y);
+      doc.text(money(it.unit), C.unit, y);
+      doc.text(money(it.amt), C.amt, y, { width: 65, align: 'right' });
+      y += 13;
+      if (it.period) {
+        doc.fontSize(8).fillColor(MUTE).text(it.period, C.desc, y, { width: 270 });
+        y += 13;
+      }
+      y += 4;
+    }
+
+    // Totals
+    y += 6;
+    doc.moveTo(330, y).lineTo(545, y).strokeColor(LINE).stroke();
+    y += 10;
+    const tot = (label: string, val: string, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor(DARK);
+      doc.text(label, 330, y);
+      doc.text(val, 430, y, { width: 115, align: 'right' });
+      y += 16;
+    };
+    tot('Subtotal', money(invoice.amountDue));
+    tot('Total', money(invoice.amountDue));
+    if (isReceipt) tot('Amount paid', `${money(invoice.amountPaid)} ${cur}`, true);
+    else tot('Amount due', `${money(outstanding)} ${cur}`, true);
+
+    // Footer
+    doc.font('Helvetica').fontSize(8).fillColor(MUTE)
+      .text('basefyio by Talya Smart · support@talyasmart.com · basefyio.com', 50, 770, { width: 495, align: 'center' });
 
     doc.end();
     return done;

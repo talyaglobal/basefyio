@@ -445,20 +445,20 @@ export default function BillingPage() {
     }
   };
 
-  async function downloadInvoicePdf(inv: Invoice) {
+  async function downloadInvoicePdf(inv: Invoice, kind: 'invoice' | 'receipt' = 'invoice') {
     if (!activeTeamId) return;
     try {
-      const blob = await api.billing.downloadInvoicePdf(activeTeamId, inv.id);
+      const blob = await api.billing.downloadInvoicePdf(activeTeamId, inv.id, kind);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `invoice-${inv.stripeInvoiceId || inv.id}.pdf`;
+      a.download = `${kind}-${inv.stripeInvoiceId || inv.id}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to download invoice PDF');
+      toast.error(err.message || `Failed to download ${kind}`);
     }
   }
 
@@ -1079,16 +1079,22 @@ export default function BillingPage() {
                       </td>
                       <td className="py-3">
                         <div className="flex gap-3" onClick={(e) => e.stopPropagation()}>
-                          {inv.invoiceUrl && (
-                            <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>
-                          )}
                           <button
                             type="button"
                             className="text-primary hover:underline"
-                            onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(inv); }}
+                            onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(inv, 'invoice'); }}
                           >
-                            PDF
+                            Invoice
                           </button>
+                          {inv.amountPaid > 0 && (
+                            <button
+                              type="button"
+                              className="text-primary hover:underline"
+                              onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(inv, 'receipt'); }}
+                            >
+                              Receipt
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="text-primary hover:underline"
@@ -1164,21 +1170,30 @@ export default function BillingPage() {
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => downloadInvoicePdf(selectedInvoice, 'invoice')}>
+                    Download invoice
+                  </Button>
+                  {selectedInvoice.amountPaid > 0 && (
+                    <Button size="sm" onClick={() => downloadInvoicePdf(selectedInvoice, 'receipt')}>
+                      Download receipt
+                    </Button>
+                  )}
                   {selectedInvoice.invoiceUrl && (
                     <a href={selectedInvoice.invoiceUrl} target="_blank" rel="noopener noreferrer">
-                      <Button variant="outline" size="sm">View on Stripe</Button>
+                      <Button variant="ghost" size="sm">View on Stripe</Button>
                     </a>
                   )}
-                  {selectedInvoice.invoicePdf && (
-                    <a href={selectedInvoice.invoicePdf} target="_blank" rel="noopener noreferrer">
-                      <Button variant="outline" size="sm">Download PDF</Button>
-                    </a>
-                  )}
-                  <Button variant="outline" size="sm" onClick={() => setSelectedInvoice(null)}>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)}>
                     Close
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  <strong>Invoice</strong> is the bill for your records (accounting); the
+                  <strong> Receipt</strong> is proof of the payment (shows the card used). On each
+                  renewal the invoice is created when charged, and the receipt becomes available the
+                  moment the payment succeeds.
+                </p>
               </div>
             );
           })()}
