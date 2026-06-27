@@ -147,7 +147,21 @@ export class ExportProcessor extends WorkerHost {
           detail: 'Exporting auth realm and users',
           percent: 35,
         } satisfies ExportJobProgress);
-        await this.exportAuth(project.id, project.keycloakRealm, authDir);
+        // Best-effort: a legacy project may reference a Keycloak realm that no
+        // longer exists (getRealmInfo throws "Network response was not OK").
+        // Don't let that abort the whole backup — the database dump matters most.
+        try {
+          await this.exportAuth(project.id, project.keycloakRealm, authDir);
+        } catch (err: any) {
+          this.logger.warn(
+            `Auth export skipped for "${project.slug}" (realm "${project.keycloakRealm}"): ${err?.message}`,
+          );
+          await writeFile(
+            join(authDir, 'auth-export-skipped.txt'),
+            `Auth export skipped: realm "${project.keycloakRealm}" was unavailable.\nReason: ${err?.message ?? 'unknown'}\n`,
+            'utf8',
+          );
+        }
       }
 
       if (job.data.includeStorage) {
@@ -156,7 +170,18 @@ export class ExportProcessor extends WorkerHost {
           detail: 'Exporting storage buckets and objects',
           percent: 55,
         } satisfies ExportJobProgress);
-        await this.exportStorage(project.id, storageDir);
+        try {
+          await this.exportStorage(project.id, storageDir);
+        } catch (err: any) {
+          this.logger.warn(
+            `Storage export skipped for "${project.slug}": ${err?.message}`,
+          );
+          await writeFile(
+            join(storageDir, 'storage-export-skipped.txt'),
+            `Storage export skipped.\nReason: ${err?.message ?? 'unknown'}\n`,
+            'utf8',
+          );
+        }
       }
 
       if (job.data.includeConfig) {

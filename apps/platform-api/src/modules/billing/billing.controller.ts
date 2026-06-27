@@ -77,6 +77,25 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('invoices/:invoiceId/pdf')
+  async downloadInvoicePdf(
+    @Req() req: any,
+    @Param('invoiceId') invoiceId: string,
+    @Res() res: Response,
+    @Query('teamId') teamId?: string,
+  ) {
+    const userId = req.user.sub;
+    const resolvedTeam = teamId || (await this.billing.getUserActiveTeamId(userId));
+    const pdf = await this.billing.generateInvoicePdf(resolvedTeam, userId, invoiceId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="invoice-${invoiceId}.pdf"`,
+      'Content-Length': pdf.length,
+    });
+    res.end(pdf);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('student-verification/request')
   async requestStudentOtp(
     @Req() req: any,

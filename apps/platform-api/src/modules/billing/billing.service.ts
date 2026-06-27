@@ -12,6 +12,7 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
+import PDFDocument from 'pdfkit';
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
 const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
@@ -483,6 +484,63 @@ export class BillingService implements OnModuleInit {
       discountPercent: DISCOUNT,
       message: `Verified! ${DISCOUNT}% education discount applied to your subscription.`,
     };
+  }
+
+  /** Generate a downloadable PDF for an invoice (works for non-Stripe records too). */
+  async generateInvoicePdf(teamId: string, userId: string, invoiceId: string): Promise<Buffer> {
+    await this.assertTeamMember(teamId, userId);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, teamId },
+      include: { team: true, lineItems: true },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    const money = (cents: number) =>
+      `${(cents / 100).toFixed(2)} ${invoice.currency.toUpperCase()}`;
+    const date = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
+    const outstanding = Math.max(invoice.amountDue - invoice.amountPaid, 0);
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const done = new Promise<Buffer>((resolve) =>
+      doc.on('end', () => resolve(Buffer.concat(chunks))),
+    );
+
+    doc.fontSize(22).fillColor('#0f172a').text('basefyio', { continued: false });
+    doc.fontSize(10).fillColor('#64748b').text('Your database, instantly');
+    doc.moveDown(1.5);
+
+    doc.fillColor('#0f172a').fontSize(16).text('Invoice');
+    doc.moveDown(0.5);
+    doc.fontSize(10).fillColor('#334155');
+    const line = (label: string, value: string) =>
+      doc.text(`${label}: `, { continued: true }).fillColor('#0f172a').text(value).fillColor('#334155');
+    line('Invoice', invoice.stripeInvoiceId || invoice.id);
+    line('Team', invoice.team?.name || teamId);
+    line('Issued', date(invoice.createdAt));
+    line('Period', `${date(invoice.periodStart)} → ${date(invoice.periodEnd)}`);
+    line('Status', invoice.status.toUpperCase());
+    doc.moveDown(1);
+
+    if (invoice.lineItems?.length) {
+      doc.fillColor('#0f172a').fontSize(12).text('Line items');
+      doc.moveDown(0.3).fontSize(10).fillColor('#334155');
+      for (const li of invoice.lineItems) {
+        doc.text(`${li.description}  —  ${money(li.amountCents)}`);
+      }
+      doc.moveDown(1);
+    }
+
+    doc.fontSize(11).fillColor('#0f172a');
+    line('Amount due', money(invoice.amountDue));
+    line('Amount paid', money(invoice.amountPaid));
+    line('Outstanding', money(outstanding));
+    doc.moveDown(2);
+    doc.fontSize(9).fillColor('#94a3b8').text('basefyio · support@talyasmart.com', { align: 'center' });
+
+    doc.end();
+    return done;
   }
 
   /** Get invoices for a team */

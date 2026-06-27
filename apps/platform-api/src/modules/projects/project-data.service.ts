@@ -534,11 +534,13 @@ export class ProjectDataService {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
       const whereCols = Object.keys(pkWhere);
-      if (!whereCols.length) throw new BadRequestException('No primary key provided');
+      if (!whereCols.length) throw new BadRequestException('No row identifier provided');
       for (const k of whereCols) this.validateColumnName(k);
 
+      // IS NOT DISTINCT FROM is null-safe (matches NULL = NULL), so tables
+      // without a primary key can be matched on their full column set.
       const whereClause = whereCols
-        .map((k, i) => `"${k}" = $${i + 1}`)
+        .map((k, i) => `"${k}" IS NOT DISTINCT FROM $${i + 1}`)
         .join(' AND ');
       const values = whereCols.map((k) => pkWhere[k]);
 
@@ -546,8 +548,10 @@ export class ProjectDataService {
       // even when the table has no DELETE policy for the project DB role.
       await client.query('SET LOCAL row_security = off');
 
+      // Delete exactly one matching row via ctid — required for primary-key-less
+      // tables (legacy DBs) and harmless for keyed tables.
       const result = await client.query(
-        `DELETE FROM ${qualified} WHERE ${whereClause}`,
+        `DELETE FROM ${qualified} WHERE ctid = (SELECT ctid FROM ${qualified} WHERE ${whereClause} LIMIT 1)`,
         values,
       );
 

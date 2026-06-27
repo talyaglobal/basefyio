@@ -334,10 +334,18 @@ export default function TeamSettingsPage() {
   }, [searchParams]);
 
   async function loadAll() {
-    if (!activeTeamId) return;
     setLoading(true);
     try {
       const allTeams = await api.teams.list();
+
+      // The dashboard's active team can be briefly unresolved on first paint, or
+      // empty in the "All Teams" view — fall back to the first (personal) team so
+      // the Members list isn't stuck empty.
+      const teamId = activeTeamId || allTeams[0]?.id;
+      if (!teamId) {
+        setMembers([]);
+        return;
+      }
 
       // Build member-team-roles map from all teams
       const roleMap: Record<string, { teamName: string; role: string }[]> = {};
@@ -357,11 +365,11 @@ export default function TeamSettingsPage() {
       setMemberTeamRoles(roleMap);
 
       const [m, pi, mi, rp, projects] = await Promise.all([
-        api.teams.listMembers(activeTeamId),
-        api.teams.listTeamInvites(activeTeamId),
+        api.teams.listMembers(teamId),
+        api.teams.listTeamInvites(teamId),
         api.teams.myInvites(),
-        api.teams.getRolePermissions(activeTeamId),
-        api.projects.list(activeTeamId),
+        api.teams.getRolePermissions(teamId),
+        api.projects.list(teamId),
       ]);
       setMembers(m);
       setTeamProjects(projects);
@@ -369,7 +377,7 @@ export default function TeamSettingsPage() {
       setMyInvites(mi);
       setRolePermissions(rp);
       setDraftPermissions(rp);
-      const current = allTeams.find((t) => t.id === activeTeamId);
+      const current = allTeams.find((t) => t.id === teamId);
       if (current) setTeamName(current.name);
     } catch (err: any) {
       toast.error(err.message);

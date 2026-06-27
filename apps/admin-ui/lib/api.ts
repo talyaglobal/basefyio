@@ -1780,6 +1780,15 @@ export const api = {
     usage(teamId: string) {
       return request<any>(`/billing/usage?teamId=${teamId}`);
     },
+    async downloadInvoicePdf(teamId: string, invoiceId: string): Promise<Blob> {
+      const token = getAccessToken();
+      const res = await fetch(
+        `/api/proxy/billing/invoices/${invoiceId}/pdf?teamId=${encodeURIComponent(teamId)}`,
+        { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
+      );
+      if (!res.ok) throw new Error('Failed to download invoice PDF');
+      return res.blob();
+    },
     invoices(teamId: string) {
       return request<any[]>(`/billing/invoices?teamId=${teamId}`);
     },

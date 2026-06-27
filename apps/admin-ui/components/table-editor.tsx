@@ -1112,6 +1112,21 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     return where;
   }
 
+  // Row identifier for update/delete. Tables with a primary key use it; tables
+  // without one (e.g. legacy databases) match on their scalar columns and the
+  // backend deletes a single matching row via ctid.
+  function getRowMatch(row: Record<string, unknown>): Record<string, unknown> {
+    if (pkColumns.length) return getPkWhere(row);
+    const where: Record<string, unknown> = {};
+    for (const col of columns) {
+      const v = row[col.name];
+      if (v === null || ['string', 'number', 'boolean'].includes(typeof v)) {
+        where[col.name] = v;
+      }
+    }
+    return where;
+  }
+
   function startEdit(rowIdx: number, field: string) {
     if (pkColumns.includes(field)) return;
     const val = data?.rows[rowIdx]?.[field];
@@ -1191,9 +1206,9 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   async function handleDeleteRow(row: Record<string, unknown>) {
     if (!selected) return;
-    const pkWhere = getPkWhere(row);
+    const pkWhere = getRowMatch(row);
     if (!Object.keys(pkWhere).length) {
-      toast.error('Cannot delete: table has no primary key');
+      toast.error('Cannot delete: row has no identifiable columns');
       return;
     }
     if (!(await confirmDialog({ title: 'Delete row', description: 'Delete this row?', destructive: true }))) return;
@@ -1227,10 +1242,6 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   async function handleDeleteSelectedRows() {
     if (!selected || !filteredRows || selectedRows.size === 0) return;
-    if (pkColumns.length === 0) {
-      toast.error('Cannot delete: table has no primary key');
-      return;
-    }
     if (!(await confirmDialog({ title: 'Delete rows', description: `Delete ${selectedRows.size} row(s)?`, destructive: true }))) return;
 
     let deleted = 0;
@@ -1238,7 +1249,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       const row = filteredRows[idx];
       if (!row) continue;
       try {
-        await api.projects.deleteRow(projectId, selected, getPkWhere(row), schemaFor(selected));
+        await api.projects.deleteRow(projectId, selected, getRowMatch(row), schemaFor(selected));
         deleted++;
       } catch {}
     }

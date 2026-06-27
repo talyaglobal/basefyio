@@ -811,6 +811,15 @@ export class KeycloakAdminService implements OnModuleInit {
     return id;
   }
 
+  /** Fetch a master-realm user by id (null if missing). */
+  async getPlatformUserById(userId: string) {
+    await this.ensureAuth();
+    const u = await this.client.users
+      .findOne({ realm: 'master', id: userId })
+      .catch(() => null);
+    return u ?? null;
+  }
+
   /** Delete a platform (master realm) user — used to roll back a half-finished signup. */
   async deletePlatformUser(userId: string): Promise<void> {
     await this.ensureAuth();

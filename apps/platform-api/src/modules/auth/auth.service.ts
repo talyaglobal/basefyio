@@ -1184,8 +1184,19 @@ export class AuthService {
     let kcUser = await this.keycloak.findPlatformUserByEmail(emailNorm);
 
     if (!kcUser) {
-      // No user found by email in Keycloak
-      return { message: 'If that email exists, a reset link has been sent.' };
+      // The KC account's email may be empty/drifted from the real address (the
+      // DB is the source of truth). Resolve by DB id, then heal the KC email so
+      // the reset can be sent and future email-based lookups work.
+      const dbUserById = await this.prisma.user.findFirst({
+        where: { email: { equals: emailNorm, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (dbUserById) {
+        kcUser = await this.keycloak.getPlatformUserById(dbUserById.id);
+        if (kcUser?.id && (kcUser.email || '').toLowerCase() !== emailNorm) {
+          await this.keycloak.updatePlatformUserEmail(kcUser.id, emailNorm).catch(() => {});
+        }
+      }
     }
 
     if (!kcUser) {

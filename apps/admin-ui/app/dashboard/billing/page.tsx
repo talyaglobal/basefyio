@@ -445,6 +445,23 @@ export default function BillingPage() {
     }
   };
 
+  async function downloadInvoicePdf(inv: Invoice) {
+    if (!activeTeamId) return;
+    try {
+      const blob = await api.billing.downloadInvoicePdf(activeTeamId, inv.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${inv.stripeInvoiceId || inv.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download invoice PDF');
+    }
+  }
+
   const handleChangePlan = async (planName: string) => {
     if (!activeTeamId) return;
     setChangingPlan(planName);
@@ -1065,18 +1082,20 @@ export default function BillingPage() {
                           {inv.invoiceUrl && (
                             <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>
                           )}
-                          {inv.invoicePdf && (
-                            <a href={inv.invoicePdf} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">PDF</a>
-                          )}
-                          {!inv.invoiceUrl && !inv.invoicePdf && (
-                            <button
-                              type="button"
-                              className="text-primary hover:underline"
-                              onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); }}
-                            >
-                              Details
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="text-primary hover:underline"
+                            onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(inv); }}
+                          >
+                            PDF
+                          </button>
+                          <button
+                            type="button"
+                            className="text-primary hover:underline"
+                            onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); }}
+                          >
+                            Details
+                          </button>
                         </div>
                       </td>
                     </tr>
