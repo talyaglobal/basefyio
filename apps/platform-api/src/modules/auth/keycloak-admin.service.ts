@@ -576,6 +576,10 @@ export class KeycloakAdminService implements OnModuleInit {
       lastName: data.lastName || '',
       enabled: true,
       emailVerified: true,
+      // Explicitly clear required actions so the realm's DEFAULT required actions
+      // (e.g. VERIFY_EMAIL / UPDATE_PASSWORD on older realms) aren't auto-applied,
+      // which would make the password grant fail with invalid_grant on signin.
+      requiredActions: [],
       credentials: [
         { type: 'password', value: data.password, temporary: false },
       ],
@@ -598,7 +602,9 @@ export class KeycloakAdminService implements OnModuleInit {
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       enabled: true,
-      emailVerified: false,
+      // Mark verified so a realm with "Verify Email" on doesn't block the
+      // password grant (the app runs its own email verification when needed).
+      emailVerified: true,
       requiredActions: [],
       credentials: [
         { type: 'password', value: data.password, temporary: false },
@@ -667,6 +673,21 @@ export class KeycloakAdminService implements OnModuleInit {
       { emailVerified: true },
     );
     this.logger.log(`Email verified for user ${userId} in realm "${realmName}"`);
+  }
+
+  /**
+   * Clear the things that make a realm user's password grant fail with
+   * invalid_grant despite a correct password: an unverified email (when the
+   * realm enforces verification) and pending required actions (VERIFY_EMAIL /
+   * UPDATE_PASSWORD auto-applied from realm defaults). Used by signin self-heal.
+   */
+  async clearRealmUserLoginBlockers(realmName: string, userId: string): Promise<void> {
+    await this.ensureAuth();
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { emailVerified: true, requiredActions: [] },
+    );
+    this.logger.log(`Cleared login blockers for user ${userId} in realm "${realmName}"`);
   }
 
   async resetRealmUserPassword(realmName: string, userId: string, newPassword: string) {

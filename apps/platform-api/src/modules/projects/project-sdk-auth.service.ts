@@ -465,31 +465,50 @@ export class ProjectSdkAuthService {
       // from their email (e.g. an email change) fails here even with the right
       // password. Resolve the real username by email and retry once.
       if (kcError === 'invalid_grant' && !retried) {
-        const user = await this.keycloak
+        const user = (await this.keycloak
           .findUserInRealm(realmName, email)
-          .catch(() => null);
-        const realUsername = (user as { username?: string } | null)?.username;
-        if (realUsername && realUsername.toLowerCase() !== email.toLowerCase()) {
-          try {
-            const retry = await firstValueFrom(
-              this.http.post(
-                tokenUrl,
-                new URLSearchParams({
-                  grant_type: 'password', client_id: clientId, username: realUsername, password,
-                  scope: 'openid email profile',
-                }).toString(),
-                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-              ),
-            );
-            const d = retry.data;
-            return {
-              accessToken: d.access_token,
-              refreshToken: d.refresh_token,
-              expiresIn: d.expires_in,
-              tokenType: d.token_type,
-            };
-          } catch {
-            /* fall through to invalid-credentials below */
+          .catch(() => null)) as
+          | { id?: string; username?: string; emailVerified?: boolean; requiredActions?: string[] }
+          | null;
+        if (user?.id) {
+          // A fully-set-up account can still fail the grant when realm-default
+          // required actions (VERIFY_EMAIL / UPDATE_PASSWORD) or an unverified
+          // email got applied at creation. Clear those blockers and retry.
+          // Retrying with the SAME password means a wrong password still 401s.
+          const blocked =
+            user.emailVerified === false || (user.requiredActions?.length ?? 0) > 0;
+          if (blocked) {
+            await this.keycloak
+              .clearRealmUserLoginBlockers(realmName, user.id)
+              .catch(() => {});
+          }
+          // Also handle a username that drifted from the email.
+          const realUsername =
+            user.username && user.username.toLowerCase() !== email.toLowerCase()
+              ? user.username
+              : email;
+          if (blocked || realUsername !== email) {
+            try {
+              const retry = await firstValueFrom(
+                this.http.post(
+                  tokenUrl,
+                  new URLSearchParams({
+                    grant_type: 'password', client_id: clientId, username: realUsername, password,
+                    scope: 'openid email profile',
+                  }).toString(),
+                  { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+                ),
+              );
+              const d = retry.data;
+              return {
+                accessToken: d.access_token,
+                refreshToken: d.refresh_token,
+                expiresIn: d.expires_in,
+                tokenType: d.token_type,
+              };
+            } catch {
+              /* fall through to invalid-credentials below */
+            }
           }
         }
       }
