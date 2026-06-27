@@ -1047,10 +1047,9 @@ export class BillingService implements OnModuleInit {
         }
       } catch (err: any) {
         this.logger.error(`Payment failed for team ${teamId}: ${err.message}`);
-        await this.prisma.invoice.update({
-          where: { id: upgradeInvoice.id },
-          data: { status: 'unpaid' },
-        });
+        // A failed charge must not leave an invoice behind — drop the draft so
+        // the user only ever has the invoice once payment actually succeeds.
+        await this.prisma.invoice.delete({ where: { id: upgradeInvoice.id } }).catch(() => {});
         const firstFailureAt = sub.firstFailureAt ?? new Date();
         await this.prisma.subscription.update({
           where: { id: sub.id },
@@ -1462,30 +1461,19 @@ export class BillingService implements OnModuleInit {
       },
     });
 
+    // Do NOT create an invoice for a failed charge. A failed payment should
+    // leave no invoice record at all — the invoice appears only once payment
+    // succeeds. Clear any lingering local draft from this attempt. (Retry state
+    // lives on the subscription: pendingPlanId/pendingAmountDue/firstFailureAt.)
     if (chargeAmountCents > 0) {
-      const openUnpaid = await this.prisma.invoice.findFirst({
+      await this.prisma.invoice.deleteMany({
         where: {
           teamId,
           status: { in: ['open', 'unpaid'] },
           amountPaid: 0,
+          stripeInvoiceId: null,
         },
-        orderBy: { createdAt: 'desc' },
       });
-      if (!openUnpaid) {
-        await this.prisma.invoice.create({
-          data: {
-            teamId,
-            stripeInvoiceId: null,
-            amountDue: chargeAmountCents,
-            amountPaid: 0,
-            currency: 'usd',
-            status: 'unpaid',
-            periodStart: new Date(),
-            periodEnd: null,
-            retryCount: newRetryCount,
-          },
-        });
-      }
     }
 
     this.logger.warn(
