@@ -11,6 +11,7 @@ import { StripeService } from '../stripe/stripe.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
+import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
 import PDFDocument = require('pdfkit');
 
@@ -27,7 +28,14 @@ export class BillingService implements OnModuleInit {
     private readonly realtime: RealtimeEventsService,
     private readonly redis: RedisService,
     private readonly email: EmailService,
+    private readonly quickbooks: QuickbooksService,
   ) {}
+
+  /** Fire-and-forget: push a paid sale to QuickBooks as a Sales Receipt. */
+  private recordQbSale(invoiceId: string | undefined) {
+    if (!invoiceId) return;
+    void this.quickbooks.recordSale(invoiceId).catch(() => {});
+  }
 
   async onModuleInit() {
     if (this.stripe.isEnabled()) {
@@ -1193,6 +1201,7 @@ export class BillingService implements OnModuleInit {
         status: 'paid',
       },
     });
+    this.recordQbSale(upgradeInvoice.id);
 
     // Ensure team account is active
     await this.prisma.team.update({
@@ -1418,30 +1427,25 @@ export class BillingService implements OnModuleInit {
             },
             orderBy: { createdAt: 'desc' },
           });
-          if (openInv) {
-            await this.prisma.invoice.update({
-              where: { id: openInv.id },
-              data: {
-                status: 'paid',
-                amountPaid: amountDue,
-                stripeInvoiceId: paymentIntent.id,
-              },
-            });
-          } else {
-            await this.prisma.invoice.create({
-              data: {
-                teamId: sub.teamId,
-                stripeInvoiceId: paymentIntent.id,
-                amountDue,
-                amountPaid: amountDue,
-                currency: 'usd',
-                status: 'paid',
-                periodStart: now,
-                periodEnd: nextBillingDate,
-                retryCount: 0,
-              },
-            });
-          }
+          const paidInv = openInv
+            ? await this.prisma.invoice.update({
+                where: { id: openInv.id },
+                data: { status: 'paid', amountPaid: amountDue, stripeInvoiceId: paymentIntent.id },
+              })
+            : await this.prisma.invoice.create({
+                data: {
+                  teamId: sub.teamId,
+                  stripeInvoiceId: paymentIntent.id,
+                  amountDue,
+                  amountPaid: amountDue,
+                  currency: 'usd',
+                  status: 'paid',
+                  periodStart: now,
+                  periodEnd: nextBillingDate,
+                  retryCount: 0,
+                },
+              });
+          this.recordQbSale(paidInv.id);
 
           await this.prisma.subscription.update({
             where: { id: sub.id },
@@ -1494,32 +1498,31 @@ export class BillingService implements OnModuleInit {
           },
           orderBy: { createdAt: 'desc' },
         });
-        if (openInv) {
-          await this.prisma.invoice.update({
-            where: { id: openInv.id },
-            data: {
-              status: 'paid',
-              amountPaid: amountDue,
-              stripeInvoiceId: paymentIntent.id,
-              periodStart: now,
-              periodEnd: nextBillingDate,
-            },
-          });
-        } else {
-          await this.prisma.invoice.create({
-            data: {
-              teamId: sub.teamId,
-              stripeInvoiceId: paymentIntent.id,
-              amountDue,
-              amountPaid: amountDue,
-              currency: 'usd',
-              status: 'paid',
-              periodStart: now,
-              periodEnd: nextBillingDate,
-              retryCount: 0,
-            },
-          });
-        }
+        const recurInv = openInv
+          ? await this.prisma.invoice.update({
+              where: { id: openInv.id },
+              data: {
+                status: 'paid',
+                amountPaid: amountDue,
+                stripeInvoiceId: paymentIntent.id,
+                periodStart: now,
+                periodEnd: nextBillingDate,
+              },
+            })
+          : await this.prisma.invoice.create({
+              data: {
+                teamId: sub.teamId,
+                stripeInvoiceId: paymentIntent.id,
+                amountDue,
+                amountPaid: amountDue,
+                currency: 'usd',
+                status: 'paid',
+                periodStart: now,
+                periodEnd: nextBillingDate,
+                retryCount: 0,
+              },
+            });
+        this.recordQbSale(recurInv.id);
 
         this.logger.log(
           `Recurring charge succeeded for team ${teamId}. Amount: $${(amountDue / 100).toFixed(2)}`,
@@ -1671,30 +1674,25 @@ export class BillingService implements OnModuleInit {
             },
             orderBy: { createdAt: 'desc' },
           });
-          if (openInv) {
-            await this.prisma.invoice.update({
-              where: { id: openInv.id },
-              data: {
-                status: 'paid',
-                amountPaid: amountDue,
-                stripeInvoiceId: paymentIntent.id,
-              },
-            });
-          } else {
-            await this.prisma.invoice.create({
-              data: {
-                teamId,
-                stripeInvoiceId: paymentIntent.id,
-                amountDue,
-                amountPaid: amountDue,
-                currency: 'usd',
-                status: 'paid',
-                periodStart: now,
-                periodEnd: nextBillingDate,
-                retryCount: 0,
-              },
-            });
-          }
+          const retryInv = openInv
+            ? await this.prisma.invoice.update({
+                where: { id: openInv.id },
+                data: { status: 'paid', amountPaid: amountDue, stripeInvoiceId: paymentIntent.id },
+              })
+            : await this.prisma.invoice.create({
+                data: {
+                  teamId,
+                  stripeInvoiceId: paymentIntent.id,
+                  amountDue,
+                  amountPaid: amountDue,
+                  currency: 'usd',
+                  status: 'paid',
+                  periodStart: now,
+                  periodEnd: nextBillingDate,
+                  retryCount: 0,
+                },
+              });
+          this.recordQbSale(retryInv.id);
 
           await this.prisma.subscription.update({
             where: { id: sub.id },
@@ -1726,7 +1724,7 @@ export class BillingService implements OnModuleInit {
             },
           });
 
-          await this.prisma.invoice.create({
+          const retryInv2 = await this.prisma.invoice.create({
             data: {
               teamId,
               stripeInvoiceId: paymentIntent.id,
@@ -1739,6 +1737,7 @@ export class BillingService implements OnModuleInit {
               retryCount: 0,
             },
           });
+          this.recordQbSale(retryInv2.id);
         }
 
         this.logger.log(`Retry payment succeeded for team ${teamId}. Account unfrozen.`);

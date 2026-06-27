@@ -1480,3 +1480,23 @@ model ProvisioningAuditEvent {
   @@index([resourceId, createdAt(sort: Desc)])
   @@map("provisioning_audit_events")
 }
+
+/// Platform-wide QuickBooks Online connection (single row). Tokens are stored
+/// AES-256-GCM encrypted. Used to push a Sales Receipt to QuickBooks for every
+/// successful sale.
+model QuickbooksConnection {
+  id               String    @id @default("singleton")
+  realmId          String    @map("realm_id")
+  accessToken      String    @map("access_token")
+  refreshToken     String    @map("refresh_token")
+  expiresAt        DateTime  @map("expires_at")
+  refreshExpiresAt DateTime? @map("refresh_expires_at")
+  companyName      String?   @map("company_name")
+  environment      String    @default("production")
+  autoCreate       Boolean   @default(true) @map("auto_create")
+  connectedByUserId String?  @map("connected_by_user_id")
+  connectedAt      DateTime  @default(now()) @map("connected_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("quickbooks_connection")
+}

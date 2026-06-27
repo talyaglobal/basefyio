@@ -15,9 +15,10 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { RealtimeStreamService } from '../../common/realtime/realtime-stream.service';
 import { RedisModule } from '../redis/redis.module';
 import { EmailModule } from '../email/email.module';
+import { QuickbooksModule } from '../quickbooks/quickbooks.module';
 
 @Module({
-  imports: [PrismaModule, ObservabilityModule, QueueModule, RedisModule, EmailModule],
+  imports: [PrismaModule, ObservabilityModule, QueueModule, RedisModule, EmailModule, QuickbooksModule],
   controllers: [BillingController],
   providers: [
     BillingService,

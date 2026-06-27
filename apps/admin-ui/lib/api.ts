@@ -1895,6 +1895,24 @@ export const api = {
         body: JSON.stringify({ teamId, paymentMethodId }),
       });
     },
+    quickbooksStatus() {
+      return request<{
+        configured: boolean; connected: boolean; companyName: string | null;
+        realmId: string | null; environment: string; autoCreate: boolean;
+        connectedAt: string | null; redirectUri: string | null;
+      }>('/admin/quickbooks/status');
+    },
+    quickbooksAuthorizeUrl() {
+      return request<{ url: string }>('/admin/quickbooks/authorize-url');
+    },
+    quickbooksSetAutoCreate(autoCreate: boolean) {
+      return request<{ autoCreate: boolean }>('/admin/quickbooks/settings', {
+        method: 'PATCH', body: JSON.stringify({ autoCreate }),
+      });
+    },
+    quickbooksDisconnect() {
+      return request<{ connected: boolean }>('/admin/quickbooks/disconnect', { method: 'POST' });
+    },
     requestStudentOtp(teamId: string, email: string) {
       return request<{ otpSent: boolean; message: string }>(
         '/billing/student-verification/request',

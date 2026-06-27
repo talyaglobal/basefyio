@@ -2,6 +2,13 @@ export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
 
+  quickbooks: {
+    clientId: process.env.QUICKBOOKS_CLIENT_ID || '',
+    clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET || '',
+    redirectUri: process.env.QUICKBOOKS_REDIRECT_URI || '',
+    environment: process.env.QUICKBOOKS_ENVIRONMENT || 'production',
+  },
+
   database: {
     host: process.env.POSTGRES_HOST || 'localhost',
     port: parseInt(process.env.POSTGRES_PORT || '5432', 10),

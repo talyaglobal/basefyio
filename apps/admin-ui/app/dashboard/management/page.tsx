@@ -47,6 +47,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
+import { QuickbooksTab } from '@/components/quickbooks-tab';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
@@ -186,6 +187,7 @@ export default function ManagementPage() {
     | 'searchConsole'
     | 'analytics'
     | 'stripe'
+    | 'quickbooks'
     | 'emailReports'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
@@ -282,6 +284,7 @@ export default function ManagementPage() {
       | 'searchConsole'
       | 'analytics'
       | 'stripe'
+      | 'quickbooks'
       | 'emailReports',
     force = false,
   ) {
@@ -731,6 +734,19 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('stripe')}
         >
           Stripe
+        </button>
+        )}
+        {isRoot && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'quickbooks'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('quickbooks')}
+        >
+          QuickBooks
         </button>
         )}
         {(managementPermissions?.canManagePlans || isRoot) && (
@@ -1233,6 +1249,12 @@ export default function ManagementPage() {
             </div>
             );
           })() : null}
+        </section>
+      )}
+
+      {activeTab === 'quickbooks' && isRoot && (
+        <section className="rounded-xl border bg-card p-4">
+          <QuickbooksTab />
         </section>
       )}
 
