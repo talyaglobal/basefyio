@@ -1105,18 +1105,22 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   }
 
   function getPkWhere(row: Record<string, unknown>): Record<string, unknown> {
-    const where: Record<string, unknown> = {};
-    for (const pk of pkColumns) {
-      where[pk] = row[pk];
+    if (pkColumns.length) {
+      const where: Record<string, unknown> = {};
+      for (const pk of pkColumns) where[pk] = row[pk];
+      return where;
     }
-    return where;
+    // No primary key → identify the row by its physical id (ctid), carried in
+    // the row data as _bf_ctid, so edit/delete work on legacy PK-less tables.
+    if (row._bf_ctid != null) return { _bf_ctid: row._bf_ctid };
+    return {};
   }
 
-  // Row identifier for update/delete. Tables with a primary key use it; tables
-  // without one (e.g. legacy databases) match on their scalar columns and the
-  // backend deletes a single matching row via ctid.
+  // Row identifier for update/delete. Primary key if present, else the physical
+  // row id (ctid), else a scalar-column match as a last resort.
   function getRowMatch(row: Record<string, unknown>): Record<string, unknown> {
     if (pkColumns.length) return getPkWhere(row);
+    if (row._bf_ctid != null) return { _bf_ctid: row._bf_ctid };
     const where: Record<string, unknown> = {};
     for (const col of columns) {
       const v = row[col.name];

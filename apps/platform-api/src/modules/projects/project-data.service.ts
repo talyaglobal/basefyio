@@ -315,7 +315,10 @@ export class ProjectDataService {
       const limitParamIdx = params.length + 1;
       const offsetParamIdx = params.length + 2;
       const dataResult = await client.query(
-        `SELECT t.* ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+        // Carry the physical row id so the UI can edit/delete rows on tables that
+        // have no primary key (legacy DBs). It's not in the columns metadata, so
+        // the grid never renders it.
+        `SELECT t.*, t.ctid::text AS "_bf_ctid" ${fromClause} ${where} ${orderClause} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
         [...params, limit, offset],
       );
 
@@ -481,29 +484,33 @@ export class ProjectDataService {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
       const setCols = Object.keys(data);
-      const whereCols = Object.keys(pkWhere);
       if (!setCols.length) throw new BadRequestException('No data to update');
-      if (!whereCols.length) throw new BadRequestException('No primary key provided');
       for (const k of setCols) this.validateColumnName(k);
-      for (const k of whereCols) this.validateColumnName(k);
 
       let paramIdx = 1;
       const setClause = setCols
         .map((k) => `"${k}" = $${paramIdx++}`)
         .join(', ');
-      const whereClause = whereCols
-        .map((k) => `"${k}" = $${paramIdx++}`)
-        .join(' AND ');
+      const setValues = setCols.map((k) => (data[k] === null || data[k] === 'NULL' ? null : data[k]));
 
-      const values = [
-        ...setCols.map((k) => data[k] === null || data[k] === 'NULL' ? null : data[k]),
-        ...whereCols.map((k) => pkWhere[k]),
-      ];
+      let whereClause: string;
+      let whereValues: unknown[];
+      if (pkWhere._bf_ctid != null) {
+        // Physical-row-id update — works on tables with no primary key.
+        whereClause = `ctid = $${paramIdx++}::tid`;
+        whereValues = [pkWhere._bf_ctid];
+      } else {
+        const whereCols = Object.keys(pkWhere);
+        if (!whereCols.length) throw new BadRequestException('No primary key provided');
+        for (const k of whereCols) this.validateColumnName(k);
+        whereClause = whereCols.map((k) => `"${k}" IS NOT DISTINCT FROM $${paramIdx++}`).join(' AND ');
+        whereValues = whereCols.map((k) => pkWhere[k]);
+      }
 
       await client.query('SET LOCAL row_security = off');
       const result = await client.query(
         `UPDATE ${qualified} SET ${setClause} WHERE ${whereClause} RETURNING *`,
-        values,
+        [...setValues, ...whereValues],
       );
 
       if (result.rowCount === 0) throw new NotFoundException('Row not found');
@@ -533,27 +540,36 @@ export class ProjectDataService {
     try {
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
-      const whereCols = Object.keys(pkWhere);
-      if (!whereCols.length) throw new BadRequestException('No row identifier provided');
-      for (const k of whereCols) this.validateColumnName(k);
-
-      // IS NOT DISTINCT FROM is null-safe (matches NULL = NULL), so tables
-      // without a primary key can be matched on their full column set.
-      const whereClause = whereCols
-        .map((k, i) => `"${k}" IS NOT DISTINCT FROM $${i + 1}`)
-        .join(' AND ');
-      const values = whereCols.map((k) => pkWhere[k]);
 
       // Dashboard is an admin surface — bypass RLS so deletes always work
       // even when the table has no DELETE policy for the project DB role.
       await client.query('SET LOCAL row_security = off');
 
-      // Delete exactly one matching row via ctid — required for primary-key-less
-      // tables (legacy DBs) and harmless for keyed tables.
-      const result = await client.query(
-        `DELETE FROM ${qualified} WHERE ctid = (SELECT ctid FROM ${qualified} WHERE ${whereClause} LIMIT 1)`,
-        values,
-      );
+      let result;
+      if (pkWhere._bf_ctid != null) {
+        // Physical-row-id delete — exact, works on any primary-key-less table.
+        result = await client.query(
+          `DELETE FROM ${qualified} WHERE ctid = $1::tid`,
+          [pkWhere._bf_ctid],
+        );
+      } else {
+        const whereCols = Object.keys(pkWhere);
+        if (!whereCols.length) throw new BadRequestException('No row identifier provided');
+        for (const k of whereCols) this.validateColumnName(k);
+
+        // IS NOT DISTINCT FROM is null-safe (matches NULL = NULL), so tables
+        // without a primary key can be matched on their full column set.
+        const whereClause = whereCols
+          .map((k, i) => `"${k}" IS NOT DISTINCT FROM $${i + 1}`)
+          .join(' AND ');
+        const values = whereCols.map((k) => pkWhere[k]);
+
+        // Delete exactly one matching row via ctid.
+        result = await client.query(
+          `DELETE FROM ${qualified} WHERE ctid = (SELECT ctid FROM ${qualified} WHERE ${whereClause} LIMIT 1)`,
+          values,
+        );
+      }
 
       if (result.rowCount === 0) throw new NotFoundException('Row not found');
       this.realtimeData.publishChange(projectId, {

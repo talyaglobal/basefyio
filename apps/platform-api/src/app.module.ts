@@ -22,6 +22,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
+import { HealthController } from './modules/health/health.controller';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -85,6 +86,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RagModule,
     AgentModule,
   ],
+  controllers: [HealthController],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
   ],

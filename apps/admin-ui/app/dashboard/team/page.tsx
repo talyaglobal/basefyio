@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
@@ -276,6 +276,7 @@ export default function TeamSettingsPage() {
   const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey, teams: allTeams } = useActiveTeam();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const loadSeq = useRef(0);
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
   const [userProjectsDialog, setUserProjectsDialog] = useState<{ userId: string; name: string } | null>(null);
   /** Map of memberId → [{teamName, role}] for "All Teams" view */
@@ -334,6 +335,13 @@ export default function TeamSettingsPage() {
   }, [searchParams]);
 
   async function loadAll() {
+    // Guard against out-of-order responses: loadAll fires on mount (activeTeamId
+    // briefly unresolved → falls back to the first team) and again once the real
+    // activeTeamId resolves. If the first (fallback) call's response arrives last
+    // it would overwrite the correct members with stale/empty data — the
+    // "members empty until I switch teams" bug. Only the latest call may commit.
+    const seq = ++loadSeq.current;
+    const stillCurrent = () => seq === loadSeq.current;
     setLoading(true);
     try {
       const allTeams = await api.teams.list();
@@ -343,7 +351,7 @@ export default function TeamSettingsPage() {
       // the Members list isn't stuck empty.
       const teamId = activeTeamId || allTeams[0]?.id;
       if (!teamId) {
-        setMembers([]);
+        if (stillCurrent()) setMembers([]);
         return;
       }
 
@@ -362,7 +370,7 @@ export default function TeamSettingsPage() {
           roleMap[m.id].push({ teamName: (m as any)._teamName, role: (m as any)._teamRole });
         }
       }
-      setMemberTeamRoles(roleMap);
+      if (stillCurrent()) setMemberTeamRoles(roleMap);
 
       const [m, pi, mi, rp, projects] = await Promise.all([
         api.teams.listMembers(teamId),
@@ -371,6 +379,7 @@ export default function TeamSettingsPage() {
         api.teams.getRolePermissions(teamId),
         api.projects.list(teamId),
       ]);
+      if (!stillCurrent()) return; // a newer load superseded this one
       setMembers(m);
       setTeamProjects(projects);
       setPendingInvites(pi);
@@ -382,7 +391,7 @@ export default function TeamSettingsPage() {
     } catch (err: any) {
       toast.error(err.message);
     } finally {
-      setLoading(false);
+      if (stillCurrent()) setLoading(false);
     }
   }
 

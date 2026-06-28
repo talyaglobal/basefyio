@@ -329,6 +329,10 @@ services:
       - traefik.http.services.api.loadbalancer.server.port=4000
       # Flush SSE frames immediately instead of buffering
       - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
+      # Only route once the app answers — avoids deploy-time 502/503s
+      - traefik.http.services.api.loadbalancer.healthcheck.path=/api/health
+      - traefik.http.services.api.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.api.loadbalancer.healthcheck.timeout=5s
 
   admin-ui:
     image: ghcr.io/${GHCR_OWNER}/basefyio-ui:latest
@@ -356,6 +360,10 @@ services:
       - traefik.http.services.ui.loadbalancer.server.scheme=http
       # SSE streams need longer response timeouts (default 30s kills long-lived connections)
       - traefik.http.services.ui.loadbalancer.responseforwarding.flushinterval=100ms
+      # Only route once Next.js is serving — kills the deploy-time RSC 503s
+      - traefik.http.services.ui.loadbalancer.healthcheck.path=/login
+      - traefik.http.services.ui.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.ui.loadbalancer.healthcheck.timeout=5s
 
   website:
     image: ghcr.io/${GHCR_OWNER}/basefyio-website:latest
@@ -374,6 +382,9 @@ services:
       - traefik.http.routers.website.entrypoints=websecure
       - traefik.http.routers.website.tls.certresolver=le
       - traefik.http.services.website.loadbalancer.server.port=3000
+      - traefik.http.services.website.loadbalancer.healthcheck.path=/
+      - traefik.http.services.website.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.website.loadbalancer.healthcheck.timeout=5s
 
 volumes:
   postgres_data:

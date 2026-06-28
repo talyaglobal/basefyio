@@ -190,7 +190,17 @@ export class ExportProcessor extends WorkerHost {
           detail: 'Exporting project metadata',
           percent: 80,
         } satisfies ExportJobProgress);
-        await this.exportMetadata(project.id, metadataDir);
+        // Best-effort: never let optional metadata abort the whole backup.
+        try {
+          await this.exportMetadata(project.id, metadataDir);
+        } catch (err: any) {
+          this.logger.warn(`Metadata export skipped for "${project.slug}": ${err?.message}`);
+          await writeFile(
+            join(metadataDir, 'metadata-export-skipped.txt'),
+            `Metadata export skipped.\nReason: ${err?.message ?? 'unknown'}\n`,
+            'utf8',
+          );
+        }
       }
 
       await job.updateProgress({
