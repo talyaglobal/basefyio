@@ -80,6 +80,7 @@ export class ProjectSdkAuthService {
   async signup(
     projectId: string,
     data: { email: string; password: string; firstName?: string; lastName?: string },
+    clientIp?: string,
   ) {
     const project = await this.getProject(projectId);
     const cfg = await this.authConfig.getOrCreate(projectId);
@@ -121,18 +122,18 @@ export class ProjectSdkAuthService {
 
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, kcClientId, data.email, data.password,
+      project.keycloakRealm, kcClientId, data.email, data.password, false, clientIp,
     );
 
     return { ...tokens, userId, emailVerified: !cfg.requireEmailVerify };
   }
 
   /* ───────── Sign In ───────── */
-  async signin(projectId: string, email: string, password: string) {
+  async signin(projectId: string, email: string, password: string, clientIp?: string) {
     const project = await this.getProject(projectId);
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, kcClientId, email, password,
+      project.keycloakRealm, kcClientId, email, password, false, clientIp,
     );
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
     return { ...tokens, userId: user?.id, emailVerified: user?.emailVerified ?? false };
@@ -413,12 +414,28 @@ export class ProjectSdkAuthService {
     }
   }
 
+  /**
+   * Build token-request headers, forwarding the real end-user IP so Keycloak
+   * records it on the session (it trusts X-Forwarded-For via KC_PROXY_HEADERS).
+   * Without this, sessions show the platform-api container IP, since the SDK
+   * auth is proxied server-side.
+   */
+  private tokenHeaders(clientIp?: string): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    if (clientIp) {
+      headers['X-Forwarded-For'] = clientIp;
+      headers['X-Real-IP'] = clientIp;
+    }
+    return headers;
+  }
+
   private async authenticateInRealm(
     realmName: string,
     clientId: string,
     email: string,
     password: string,
     retried = false,
+    clientIp?: string,
   ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
@@ -431,7 +448,7 @@ export class ProjectSdkAuthService {
     try {
       const { data } = await firstValueFrom(
         this.http.post(tokenUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: this.tokenHeaders(clientIp),
         }),
       );
       return {
@@ -453,7 +470,7 @@ export class ProjectSdkAuthService {
       ) {
         const fixed = await this.keycloak.ensureRealmClientDirectGrant(realmName, clientId);
         if (fixed) {
-          return this.authenticateInRealm(realmName, clientId, email, password, true);
+          return this.authenticateInRealm(realmName, clientId, email, password, true, clientIp);
         }
         throw new UnauthorizedException(
           'Auth is misconfigured for this project (direct access grants). Please retry shortly.',
@@ -507,7 +524,7 @@ export class ProjectSdkAuthService {
                     grant_type: 'password', client_id: clientId, username: realUsername, password,
                     scope: 'openid email profile',
                   }).toString(),
-                  { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+                  { headers: this.tokenHeaders(clientIp) },
                 ),
               );
               const d = retry.data;

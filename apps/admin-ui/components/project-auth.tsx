@@ -491,6 +491,7 @@ function UserDetailDrawer({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 font-medium">
                           <Globe className="h-3.5 w-3.5 text-muted-foreground" />{s.ipAddress || 'unknown IP'}
+                          {s.location && <span className="font-normal text-muted-foreground">· {s.location}</span>}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
                           <Monitor className="h-3 w-3" />
@@ -579,6 +580,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
               <tr className="border-b bg-muted/50">
                 <th className="px-4 py-2 text-left font-medium">User</th>
                 <th className="px-4 py-2 text-left font-medium">IP</th>
+                <th className="px-4 py-2 text-left font-medium">Location</th>
                 <th className="px-4 py-2 text-left font-medium">Clients</th>
                 <th className="px-4 py-2 text-left font-medium">Started</th>
                 <th className="px-4 py-2 text-left font-medium">Last access</th>
@@ -590,6 +592,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
                 <tr key={s.id} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">{s.username || s.userId || '—'}</td>
                   <td className="px-4 py-2 text-muted-foreground">{s.ipAddress || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{s.location || '—'}</td>
                   <td className="px-4 py-2 text-muted-foreground">{(s.clients || []).join(', ') || '—'}</td>
                   <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.start)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.lastAccess)}</td>

@@ -20,13 +20,21 @@ import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 export class ProjectSdkAuthController {
   constructor(private readonly sdkAuth: ProjectSdkAuthService) {}
 
+  /** Real end-user IP from the proxy chain (first X-Forwarded-For hop). */
+  private clientIp(req: Request): string | undefined {
+    const xff = req.headers['x-forwarded-for'];
+    const raw = Array.isArray(xff) ? xff[0] : xff;
+    const ip = (raw ? raw.split(',')[0] : req.ip || req.socket?.remoteAddress || '').trim();
+    return ip || undefined;
+  }
+
   @Post('signup')
   async signup(
     @Req() req: Request,
     @Body() body: { email: string; password: string; firstName?: string; lastName?: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.signup(projectId, body);
+    return this.sdkAuth.signup(projectId, body, this.clientIp(req));
   }
 
   @Post('signin')
@@ -35,7 +43,7 @@ export class ProjectSdkAuthController {
     @Body() body: { email: string; password: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.signin(projectId, body.email, body.password);
+    return this.sdkAuth.signin(projectId, body.email, body.password, this.clientIp(req));
   }
 
   @Post('verify-email')

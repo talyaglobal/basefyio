@@ -571,13 +571,15 @@ export class KeycloakAdminService implements OnModuleInit {
   async listUserSessions(realmName: string, userId: string) {
     await this.ensureAuth();
     const sessions = await this.client.users.listSessions({ realm: realmName, id: userId });
-    return (sessions || []).map((s: any) => ({
+    const mapped = (sessions || []).map((s: any) => ({
       id: s.id,
       ipAddress: s.ipAddress ?? null,
       start: s.start ?? null,
       lastAccess: s.lastAccess ?? null,
       clients: s.clients ? Object.values(s.clients) : [],
+      location: null as string | null,
     }));
+    return this.enrichGeo(mapped);
   }
 
   /** Revoke one specific session (Keycloak has no admin-client wrapper for this). */
@@ -631,6 +633,52 @@ export class KeycloakAdminService implements OnModuleInit {
     return { message: enabled ? 'Required action added' : 'Required action removed' };
   }
 
+  private geoCache = new Map<string, string>();
+
+  private isPrivateIp(ip: string): boolean {
+    return (
+      !ip ||
+      ip === '127.0.0.1' ||
+      ip === '::1' ||
+      /^10\./.test(ip) ||
+      /^192\.168\./.test(ip) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+      ip.startsWith('fc') ||
+      ip.startsWith('fd')
+    );
+  }
+
+  /** Best-effort IP → "City, Country" (cached). Returns 'internal' for private IPs. */
+  private async geoLookup(ip: string | null): Promise<string | null> {
+    if (!ip) return null;
+    if (this.isPrivateIp(ip)) return 'internal';
+    if (this.geoCache.has(ip)) return this.geoCache.get(ip)!;
+    try {
+      const { data } = await axios.get(`https://ipwho.is/${ip}?fields=success,city,country`, {
+        timeout: 2500,
+      });
+      if (data?.success) {
+        const loc = [data.city, data.country].filter(Boolean).join(', ') || null;
+        if (loc) this.geoCache.set(ip, loc);
+        return loc;
+      }
+    } catch {
+      /* ignore — geo is best-effort */
+    }
+    return null;
+  }
+
+  private async enrichGeo<T extends { ipAddress: string | null; location?: string | null }>(
+    sessions: T[],
+  ): Promise<T[]> {
+    await Promise.all(
+      sessions.map(async (s) => {
+        s.location = await this.geoLookup(s.ipAddress);
+      }),
+    );
+    return sessions;
+  }
+
   /** All active sessions in the realm (aggregated across the project's clients). */
   async listRealmSessions(realmName: string) {
     await this.ensureAuth();
@@ -665,7 +713,8 @@ export class KeycloakAdminService implements OnModuleInit {
         /* skip this client */
       }
     }
-    return Array.from(byId.values()).sort((a, b) => (b.lastAccess || 0) - (a.lastAccess || 0));
+    const arr = Array.from(byId.values()).sort((a, b) => (b.lastAccess || 0) - (a.lastAccess || 0));
+    return this.enrichGeo(arr);
   }
 
   /** Credentials configured for a user (password / otp / webauthn). */

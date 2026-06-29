@@ -608,6 +608,7 @@ export interface RealmSession {
   start: number | null;
   lastAccess: number | null;
   clients: string[];
+  location?: string | null;
 }
 
 export interface RealmSessionFull extends RealmSession {
