@@ -24,6 +24,9 @@ import type {
   RealmUser,
   RealmUserDetail,
   RealmSession,
+  RealmSessionFull,
+  MfaUser,
+  RealmPolicies,
   SqlResult,
   StorageBucket,
   StorageObject,
@@ -1195,7 +1198,32 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    updateRealmUser(projectId: string, userId: string, data: { firstName?: string; lastName?: string; email?: string; enabled?: boolean }) {
+    realmSessions(projectId: string) {
+      return request<RealmSessionFull[]>(`/projects/${projectId}/auth/sessions`);
+    },
+    revokeRealmSession(projectId: string, sessionId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+    },
+    realmMfaUsers(projectId: string) {
+      return request<MfaUser[]>(`/projects/${projectId}/auth/mfa`);
+    },
+    removeRealmUserMfa(projectId: string, userId: string, credentialId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/credentials/${credentialId}`, {
+        method: 'DELETE',
+      });
+    },
+    getAuthPolicies(projectId: string) {
+      return request<RealmPolicies>(`/projects/${projectId}/auth/policies`);
+    },
+    updateAuthPolicies(projectId: string, data: Record<string, unknown>) {
+      return request<RealmPolicies>(`/projects/${projectId}/auth/policies`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    updateRealmUser(projectId: string, userId: string, data: { firstName?: string; lastName?: string; email?: string; enabled?: boolean; phoneNumber?: string; phoneVerified?: boolean }) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify(data),

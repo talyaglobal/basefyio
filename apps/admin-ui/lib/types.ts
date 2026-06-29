@@ -597,6 +597,8 @@ export interface RealmUser {
   lastName: string;
   enabled: boolean;
   emailVerified?: boolean;
+  phoneNumber?: string | null;
+  phoneVerified?: boolean;
   createdTimestamp: number;
 }
 
@@ -608,6 +610,11 @@ export interface RealmSession {
   clients: string[];
 }
 
+export interface RealmSessionFull extends RealmSession {
+  userId: string | null;
+  username: string | null;
+}
+
 export interface RealmUserDetail {
   id: string;
   username: string;
@@ -616,11 +623,44 @@ export interface RealmUserDetail {
   lastName: string;
   enabled: boolean;
   emailVerified?: boolean;
+  phoneNumber?: string | null;
+  phoneVerified?: boolean;
   createdTimestamp: number;
   providers: string[];
   sessions: RealmSession[];
   sessionCount: number;
   lastSignIn: number | null;
+}
+
+export interface MfaFactor {
+  id: string;
+  type: string;
+  userLabel: string | null;
+  createdDate: number | null;
+}
+
+export interface MfaUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  factors: MfaFactor[];
+}
+
+export interface RealmPolicies {
+  bruteForceProtected: boolean;
+  permanentLockout: boolean;
+  failureFactor: number;
+  waitIncrementSeconds: number;
+  maxFailureWaitSeconds: number;
+  passwordPolicy: string;
+  password: {
+    minLength: number;
+    requireUppercase: boolean;
+    requireLowercase: boolean;
+    requireDigits: boolean;
+    requireSpecial: boolean;
+  };
 }
 
 export interface RealmInfo {

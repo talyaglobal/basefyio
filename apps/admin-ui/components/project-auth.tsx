@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
-import type { RealmInfo, RealmUser, RealmUserDetail, RealmSession, ProjectAuthConfig } from '@/lib/types';
+import type { RealmInfo, RealmUser, RealmUserDetail, RealmSession, RealmSessionFull, MfaUser, RealmPolicies, ProjectAuthConfig } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,7 @@ import {
   Globe,
   Info,
   KeyRound,
+  Lock,
   LogOut,
   Mail,
   Monitor,
@@ -37,6 +38,8 @@ import {
   Server,
   Settings,
   Shield,
+  ShieldCheck,
+  Smartphone,
   Trash2,
   Users,
   X,
@@ -53,7 +56,7 @@ interface ProjectAuthProps {
   projectId: string;
 }
 
-type TabId = 'users' | 'settings' | 'providers' | 'email';
+type TabId = 'users' | 'sessions' | 'mfa' | 'policies' | 'settings' | 'providers' | 'email';
 
 export function ProjectAuth({ projectId }: ProjectAuthProps) {
   const [activeTab, setActiveTab] = useState<TabId>('users');
@@ -97,6 +100,9 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'users', label: 'Users', icon: <Users className="h-3.5 w-3.5" /> },
+    { id: 'sessions', label: 'Sessions', icon: <Monitor className="h-3.5 w-3.5" /> },
+    { id: 'mfa', label: 'MFA', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+    { id: 'policies', label: 'Policies', icon: <Lock className="h-3.5 w-3.5" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="h-3.5 w-3.5" /> },
     { id: 'providers', label: 'Providers', icon: <KeyRound className="h-3.5 w-3.5" /> },
     { id: 'email', label: 'Email', icon: <Mail className="h-3.5 w-3.5" /> },
@@ -177,6 +183,9 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
           onRefresh={loadAll}
         />
       )}
+      {activeTab === 'sessions' && <SessionsTab projectId={projectId} />}
+      {activeTab === 'mfa' && <MfaTab projectId={projectId} />}
+      {activeTab === 'policies' && <PoliciesTab projectId={projectId} />}
       {activeTab === 'settings' && config && (
         <SettingsTab projectId={projectId} config={config} onSaved={setConfig} />
       )}
@@ -249,6 +258,7 @@ function UsersTab({
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-2 text-left font-medium">User</th>
               <th className="px-4 py-2 text-left font-medium">UID</th>
+              <th className="px-4 py-2 text-left font-medium">Phone</th>
               <th className="px-4 py-2 text-left font-medium">Confirmed</th>
               <th className="px-4 py-2 text-left font-medium">Created</th>
               <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -279,6 +289,7 @@ function UsersTab({
                     {copiedId === u.id ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                   </button>
                 </td>
+                <td className="px-4 py-2 text-muted-foreground">{u.phoneNumber || '—'}</td>
                 <td className="px-4 py-2">
                   {u.emailVerified ? (
                     <Badge variant="default" className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">Confirmed</Badge>
@@ -391,7 +402,7 @@ function UserDetailDrawer({
   const sessions = detail?.sessions || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[100] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative h-full w-full max-w-md overflow-y-auto border-l bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-5 py-4">
@@ -419,6 +430,12 @@ function UserDetailDrawer({
               <DetailRow label="Email confirmed" value={detail.emailVerified
                 ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
                 : <span className="text-amber-600 dark:text-amber-400">No</span>} />
+              <DetailRow label="Phone" value={detail.phoneNumber || '—'} />
+              {detail.phoneNumber && (
+                <DetailRow label="Phone verified" value={detail.phoneVerified
+                  ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
+                  : <span className="text-amber-600 dark:text-amber-400">No</span>} />
+              )}
               <DetailRow label="Status" value={detail.enabled ? 'Active' : 'Disabled'} />
               <DetailRow label="Created" value={fmtTs(detail.createdTimestamp)} />
               <DetailRow label="Last signed in" value={fmtTs(detail.lastSignIn)} />
@@ -509,6 +526,257 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right">{value}</span>
     </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────── Sessions Tab */
+function SessionsTab({ projectId }: { projectId: string }) {
+  const [sessions, setSessions] = useState<RealmSessionFull[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setSessions(await api.projects.realmSessions(projectId)); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setLoading(false); }
+  }, [projectId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function revoke(id: string) {
+    setBusy(true);
+    try { await api.projects.revokeRealmSession(projectId, id); toast.success('Session revoked'); await load(); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setBusy(false); }
+  }
+
+  if (loading) {
+    return <div className="flex h-32 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{sessions.length} active session{sessions.length === 1 ? '' : 's'} across all users</p>
+        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="mr-2 h-3.5 w-3.5" />Refresh</Button>
+      </div>
+      {sessions.length === 0 ? (
+        <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
+          <Monitor className="mb-3 h-10 w-10 text-muted-foreground/50" />
+          <p className="font-medium">No active sessions</p>
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2 text-left font-medium">User</th>
+                <th className="px-4 py-2 text-left font-medium">IP</th>
+                <th className="px-4 py-2 text-left font-medium">Clients</th>
+                <th className="px-4 py-2 text-left font-medium">Started</th>
+                <th className="px-4 py-2 text-left font-medium">Last access</th>
+                <th className="px-4 py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => (
+                <tr key={s.id} className="border-b last:border-0">
+                  <td className="px-4 py-2 font-medium">{s.username || s.userId || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{s.ipAddress || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{(s.clients || []).join(', ') || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.start)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.lastAccess)}</td>
+                  <td className="px-4 py-2 text-right">
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy} onClick={() => revoke(s.id)}>Revoke</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────── MFA Tab */
+function MfaTab({ projectId }: { projectId: string }) {
+  const [users, setUsers] = useState<MfaUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setUsers(await api.projects.realmMfaUsers(projectId)); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setLoading(false); }
+  }, [projectId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function removeFactor(userId: string, credentialId: string, email: string) {
+    if (!(await confirmDialog({ title: 'Reset MFA', description: `Remove this MFA factor for "${email}"? They will need to re-enroll.`, destructive: true }))) return;
+    setBusy(true);
+    try { await api.projects.removeRealmUserMfa(projectId, userId, credentialId); toast.success('MFA factor removed'); await load(); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setBusy(false); }
+  }
+
+  if (loading) {
+    return <div className="flex h-32 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+        <Info className="h-4 w-4 shrink-0" />
+        <p>Users with an enrolled MFA factor (authenticator app / security key). Removing a factor forces re-enrollment on next login.</p>
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{users.length} user{users.length === 1 ? '' : 's'} with MFA</p>
+        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="mr-2 h-3.5 w-3.5" />Refresh</Button>
+      </div>
+      {users.length === 0 ? (
+        <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
+          <ShieldCheck className="mb-3 h-10 w-10 text-muted-foreground/50" />
+          <p className="font-medium">No users have MFA enrolled</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {users.map((u) => (
+            <div key={u.id} className="rounded-lg border p-4">
+              <div className="mb-2 font-medium">{u.email} <span className="text-xs text-muted-foreground">{[u.firstName, u.lastName].filter(Boolean).join(' ')}</span></div>
+              <div className="space-y-2">
+                {u.factors.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="uppercase">{f.type}</Badge>
+                      <span className="text-muted-foreground">{f.userLabel || ''} {f.createdDate ? `· enrolled ${fmtDateOnly(f.createdDate)}` : ''}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy} onClick={() => removeFactor(u.id, f.id, u.email)}>Remove</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────── Policies Tab */
+function PoliciesTab({ projectId }: { projectId: string }) {
+  const [pol, setPol] = useState<RealmPolicies | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.projects.getAuthPolicies(projectId)
+      .then(setPol)
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  async function save() {
+    if (!pol) return;
+    setSaving(true);
+    try {
+      const updated = await api.projects.updateAuthPolicies(projectId, {
+        bruteForceProtected: pol.bruteForceProtected,
+        permanentLockout: pol.permanentLockout,
+        failureFactor: pol.failureFactor,
+        waitIncrementSeconds: pol.waitIncrementSeconds,
+        maxFailureWaitSeconds: pol.maxFailureWaitSeconds,
+        password: pol.password,
+      });
+      setPol(updated);
+      toast.success('Policies saved');
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSaving(false); }
+  }
+
+  if (loading || !pol) {
+    return <div className="flex h-32 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  }
+
+  const set = (patch: Partial<RealmPolicies>) => setPol({ ...pol, ...patch });
+  const setPw = (patch: Partial<RealmPolicies['password']>) => setPol({ ...pol, password: { ...pol.password, ...patch } });
+
+  return (
+    <div className="space-y-6">
+      {/* Brute force */}
+      <div className="rounded-lg border p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Brute-force protection</h3>
+            <p className="text-xs text-muted-foreground">Temporarily lock accounts after repeated failed logins.</p>
+          </div>
+          <Toggle checked={pol.bruteForceProtected} onChange={(v) => set({ bruteForceProtected: v })} />
+        </div>
+        {pol.bruteForceProtected && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumField label="Max login failures" value={pol.failureFactor} onChange={(v) => set({ failureFactor: v })} />
+            <NumField label="Wait increment (seconds)" value={pol.waitIncrementSeconds} onChange={(v) => set({ waitIncrementSeconds: v })} />
+            <NumField label="Max wait (seconds)" value={pol.maxFailureWaitSeconds} onChange={(v) => set({ maxFailureWaitSeconds: v })} />
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <span className="text-sm">Permanent lockout</span>
+              <Toggle checked={pol.permanentLockout} onChange={(v) => set({ permanentLockout: v })} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Password policy */}
+      <div className="rounded-lg border p-6 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold">Password policy</h3>
+          <p className="text-xs text-muted-foreground">Complexity rules enforced when users set a password.</p>
+        </div>
+        <NumField label="Minimum length" value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <CheckRow label="Require uppercase letter" checked={pol.password.requireUppercase} onChange={(v) => setPw({ requireUppercase: v })} />
+          <CheckRow label="Require lowercase letter" checked={pol.password.requireLowercase} onChange={(v) => setPw({ requireLowercase: v })} />
+          <CheckRow label="Require digit" checked={pol.password.requireDigits} onChange={(v) => setPw({ requireDigits: v })} />
+          <CheckRow label="Require special character" checked={pol.password.requireSpecial} onChange={(v) => setPw({ requireSpecial: v })} />
+        </div>
+      </div>
+
+      <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save policies'}</Button>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${checked ? 'bg-primary' : 'bg-input'}`}
+    >
+      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+    </button>
+  );
+}
+
+function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input type="number" value={value} onChange={(e) => onChange(Number(e.target.value) || 0)} />
+    </div>
+  );
+}
+
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4" />
+    </label>
   );
 }
 
@@ -1510,6 +1778,8 @@ function EditUserDialog({
     lastName: user.lastName || '',
     email: user.email || '',
     enabled: user.enabled ?? true,
+    phoneNumber: user.phoneNumber || '',
+    phoneVerified: user.phoneVerified ?? false,
   });
   const [saving, setSaving] = useState(false);
 
@@ -1564,6 +1834,26 @@ function EditUserDialog({
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
               required
             />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="eu-phone">Phone</Label>
+              <Input
+                id="eu-phone"
+                value={form.phoneNumber}
+                onChange={(e) => setForm((p) => ({ ...p, phoneNumber: e.target.value }))}
+                placeholder="+1 555 0100"
+              />
+            </div>
+            <label className="flex items-end justify-between gap-2 pb-1">
+              <span className="text-sm">Phone verified</span>
+              <input
+                type="checkbox"
+                checked={form.phoneVerified}
+                onChange={(e) => setForm((p) => ({ ...p, phoneVerified: e.target.checked }))}
+                className="h-4 w-4"
+              />
+            </label>
           </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div>

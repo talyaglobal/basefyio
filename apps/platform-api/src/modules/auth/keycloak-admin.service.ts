@@ -550,7 +550,7 @@ export class KeycloakAdminService implements OnModuleInit {
 
   async listUsers(realmName: string) {
     await this.ensureAuth();
-    const users = await this.client.users.find({ realm: realmName });
+    const users = await this.client.users.find({ realm: realmName, briefRepresentation: false });
     return users.map((u) => ({
       id: u.id,
       username: u.username,
@@ -559,6 +559,8 @@ export class KeycloakAdminService implements OnModuleInit {
       lastName: u.lastName,
       enabled: u.enabled,
       emailVerified: u.emailVerified,
+      phoneNumber: (u.attributes as any)?.phoneNumber?.[0] ?? null,
+      phoneVerified: (u.attributes as any)?.phoneVerified?.[0] === 'true',
       createdTimestamp: u.createdTimestamp,
     }));
   }
@@ -613,6 +615,125 @@ export class KeycloakAdminService implements OnModuleInit {
       lifespan: 12 * 60 * 60,
     });
     return { message: 'Email sent' };
+  }
+
+  /** All active sessions in the realm (aggregated across the project's clients). */
+  async listRealmSessions(realmName: string) {
+    await this.ensureAuth();
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const adminToken = await this.getAdminAccessToken();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const clients = await this.client.clients.find({ realm: realmName });
+    const wanted = clients.filter(
+      (c) => c.clientId?.endsWith('-anon') || c.clientId?.endsWith('-service'),
+    );
+    const byId = new Map<string, any>();
+    for (const c of wanted) {
+      try {
+        const { data } = await axios.get(
+          `${baseUrl}/admin/realms/${realmName}/clients/${c.id}/user-sessions?first=0&max=200`,
+          { headers },
+        );
+        for (const s of data || []) {
+          if (!byId.has(s.id)) {
+            byId.set(s.id, {
+              id: s.id,
+              userId: s.userId ?? null,
+              username: s.username ?? null,
+              ipAddress: s.ipAddress ?? null,
+              start: s.start ?? null,
+              lastAccess: s.lastAccess ?? null,
+              clients: s.clients ? Object.values(s.clients) : [],
+            });
+          }
+        }
+      } catch {
+        /* skip this client */
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => (b.lastAccess || 0) - (a.lastAccess || 0));
+  }
+
+  /** Credentials configured for a user (password / otp / webauthn). */
+  async getUserCredentials(realmName: string, userId: string) {
+    await this.ensureAuth();
+    const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
+    return (creds || []).map((c: any) => ({
+      id: c.id,
+      type: c.type,
+      userLabel: c.userLabel ?? null,
+      createdDate: c.createdDate ?? null,
+    }));
+  }
+
+  /** Remove a credential (used to reset a user's MFA factor). */
+  async removeUserCredential(realmName: string, userId: string, credentialId: string) {
+    await this.ensureAuth();
+    await this.client.users.deleteCredential({ realm: realmName, id: userId, credentialId });
+    return { message: 'Credential removed' };
+  }
+
+  /** Users that have at least one MFA factor (OTP / WebAuthn) enrolled. */
+  async listMfaUsers(realmName: string) {
+    await this.ensureAuth();
+    const users = await this.client.users.find({ realm: realmName, max: 200 });
+    const out: any[] = [];
+    for (const u of users) {
+      if (!u.id) continue;
+      try {
+        const creds = await this.client.users.getCredentials({ realm: realmName, id: u.id });
+        const factors = (creds || []).filter((c: any) => c.type && c.type !== 'password');
+        if (factors.length) {
+          out.push({
+            id: u.id,
+            email: u.email,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            factors: factors.map((c: any) => ({
+              id: c.id,
+              type: c.type,
+              userLabel: c.userLabel ?? null,
+              createdDate: c.createdDate ?? null,
+            })),
+          });
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    return out;
+  }
+
+  /** Brute-force / lockout + password policy for the realm. */
+  async getRealmPolicies(realmName: string) {
+    await this.ensureAuth();
+    const r = await this.client.realms.findOne({ realm: realmName });
+    return {
+      bruteForceProtected: !!r?.bruteForceProtected,
+      permanentLockout: !!r?.permanentLockout,
+      failureFactor: r?.failureFactor ?? 30,
+      waitIncrementSeconds: r?.waitIncrementSeconds ?? 60,
+      maxFailureWaitSeconds: r?.maxFailureWaitSeconds ?? 900,
+      passwordPolicy: r?.passwordPolicy ?? '',
+    };
+  }
+
+  async updateRealmPolicies(realmName: string, data: Record<string, any>) {
+    await this.ensureAuth();
+    const update: Record<string, any> = {};
+    for (const k of [
+      'bruteForceProtected',
+      'permanentLockout',
+      'failureFactor',
+      'waitIncrementSeconds',
+      'maxFailureWaitSeconds',
+      'passwordPolicy',
+    ]) {
+      if (data[k] !== undefined) update[k] = data[k];
+    }
+    await this.client.realms.update({ realm: realmName }, update);
+    this.logger.log(`Realm "${realmName}" policies updated`);
+    return { message: 'Policies updated' };
   }
 
   async createUser(
@@ -693,6 +814,8 @@ export class KeycloakAdminService implements OnModuleInit {
       lastName: user.lastName,
       emailVerified: user.emailVerified,
       enabled: user.enabled,
+      phoneNumber: (user.attributes as any)?.phoneNumber?.[0] ?? null,
+      phoneVerified: (user.attributes as any)?.phoneVerified?.[0] === 'true',
       createdTimestamp: user.createdTimestamp,
     };
   }
@@ -807,7 +930,14 @@ export class KeycloakAdminService implements OnModuleInit {
   async updateRealmUser(
     realmName: string,
     userId: string,
-    data: { firstName?: string; lastName?: string; email?: string; enabled?: boolean },
+    data: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      enabled?: boolean;
+      phoneNumber?: string;
+      phoneVerified?: boolean;
+    },
   ) {
     await this.ensureAuth();
     const update: Record<string, any> = {};
@@ -817,6 +947,14 @@ export class KeycloakAdminService implements OnModuleInit {
     // keeps working — see updateRealmUserEmail.
     if (data.email !== undefined) { update.email = data.email; update.emailVerified = true; update.username = data.email; }
     if (data.enabled !== undefined) update.enabled = data.enabled;
+    // Phone is stored as a user attribute (Keycloak has no native phone field).
+    if (data.phoneNumber !== undefined || data.phoneVerified !== undefined) {
+      const current = await this.client.users.findOne({ realm: realmName, id: userId });
+      const attrs: Record<string, any> = { ...(current?.attributes || {}) };
+      if (data.phoneNumber !== undefined) attrs.phoneNumber = data.phoneNumber ? [data.phoneNumber] : [];
+      if (data.phoneVerified !== undefined) attrs.phoneVerified = [String(!!data.phoneVerified)];
+      update.attributes = attrs;
+    }
     await this.client.users.update({ realm: realmName, id: userId }, update);
     this.logger.log(`User ${userId} updated in realm "${realmName}"`);
   }

@@ -37,6 +37,36 @@ const OAUTH_PROVIDERS = [
 ] as const;
 type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
+/** Build a Keycloak passwordPolicy string from structured flags. */
+function buildPasswordPolicy(p: {
+  minLength?: number;
+  requireUppercase?: boolean;
+  requireLowercase?: boolean;
+  requireDigits?: boolean;
+  requireSpecial?: boolean;
+}): string {
+  const parts: string[] = [];
+  if (p.minLength && p.minLength > 0) parts.push(`length(${p.minLength})`);
+  if (p.requireUppercase) parts.push('upperCase(1)');
+  if (p.requireLowercase) parts.push('lowerCase(1)');
+  if (p.requireDigits) parts.push('digits(1)');
+  if (p.requireSpecial) parts.push('specialChars(1)');
+  return parts.join(' and ');
+}
+
+/** Parse a Keycloak passwordPolicy string back into structured flags. */
+function parsePasswordPolicy(s: string) {
+  const str = s || '';
+  const lenMatch = /length\((\d+)\)/.exec(str);
+  return {
+    minLength: lenMatch ? parseInt(lenMatch[1], 10) : 0,
+    requireUppercase: /upperCase\(/.test(str),
+    requireLowercase: /lowerCase\(/.test(str),
+    requireDigits: /digits\(/.test(str),
+    requireSpecial: /specialChars\(/.test(str),
+  };
+}
+
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
 export class ProjectAuthController {
@@ -162,6 +192,99 @@ export class ProjectAuthController {
     return result;
   }
 
+  // ── Realm-wide sessions ──
+  @Get('sessions')
+  async listRealmSessions(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    return this.keycloak.listRealmSessions(project.keycloakRealm);
+  }
+
+  @Delete('sessions/:sessionId')
+  async revokeRealmSession(
+    @Param('projectId') projectId: string,
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.revokeUserSession(project.keycloakRealm, sessionId);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `Auth session revoked`,
+      detail: `session ${sessionId.slice(0, 8)}`,
+    });
+    return result;
+  }
+
+  // ── MFA ──
+  @Get('mfa')
+  async listMfaUsers(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    return this.keycloak.listMfaUsers(project.keycloakRealm);
+  }
+
+  @Delete('users/:userId/credentials/:credentialId')
+  async removeCredential(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Param('credentialId') credentialId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.removeUserCredential(project.keycloakRealm, userId, credentialId);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `MFA factor removed: ${userId}`,
+    });
+    return result;
+  }
+
+  // ── Policies (brute-force + password) ──
+  @Get('policies')
+  async getPolicies(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
+    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+  }
+
+  @Put('policies')
+  async updatePolicies(
+    @Param('projectId') projectId: string,
+    @Body() body: Record<string, any>,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const update: Record<string, any> = {};
+    for (const k of [
+      'bruteForceProtected',
+      'permanentLockout',
+      'failureFactor',
+      'waitIncrementSeconds',
+      'maxFailureWaitSeconds',
+    ]) {
+      if (body[k] !== undefined) update[k] = body[k];
+    }
+    if (body.password) update.passwordPolicy = buildPasswordPolicy(body.password);
+    await this.keycloak.updateRealmPolicies(project.keycloakRealm, update);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
+      title: 'Authentication policies updated',
+    });
+    const p = await this.keycloak.getRealmPolicies(project.keycloakRealm);
+    return { ...p, password: parsePasswordPolicy(p.passwordPolicy) };
+  }
+
   @Post('users')
   async createUser(
     @Param('projectId') projectId: string,
@@ -193,7 +316,7 @@ export class ProjectAuthController {
   async updateUser(
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
-    @Body() body: { firstName?: string; lastName?: string; email?: string; enabled?: boolean },
+    @Body() body: { firstName?: string; lastName?: string; email?: string; enabled?: boolean; phoneNumber?: string; phoneVerified?: boolean },
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
