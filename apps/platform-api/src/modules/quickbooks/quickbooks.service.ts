@@ -209,7 +209,16 @@ export class QuickbooksService {
       if (!conn || !conn.autoCreate) return;
       await this.createSalesReceiptForInvoice(invoiceId);
     } catch (err: any) {
-      this.logger.error(`QuickBooks sales receipt failed for invoice ${invoiceId}: ${err?.response?.data ? JSON.stringify(err.response.data) : err.message}`);
+      // Log full error detail + Intuit's transaction id (intuit_tid) for support.
+      const tid = err?.response?.headers?.['intuit_tid'];
+      const status = err?.response?.status;
+      const body = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(
+        `QuickBooks sales receipt failed for invoice ${invoiceId}` +
+          (status ? ` (HTTP ${status})` : '') +
+          (tid ? ` [intuit_tid=${tid}]` : '') +
+          `: ${body}`,
+      );
     }
   }
 
@@ -255,13 +264,18 @@ export class QuickbooksService {
       CurrencyRef: { value: (invoice.currency || 'usd').toUpperCase() },
     };
 
-    const { data } = await axios.post(
+    const resp = await axios.post(
       `${this.apiBase()}/v3/company/${tok.realmId}/salesreceipt?minorversion=${MINOR_VERSION}`,
       payload,
       { headers: { Authorization: `Bearer ${tok.accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' } },
     );
-    const id = data?.SalesReceipt?.Id;
-    this.logger.log(`QuickBooks SalesReceipt ${id} created for invoice ${invoice.id} ($${amount})`);
+    const id = resp.data?.SalesReceipt?.Id;
+    // Capture Intuit's transaction id (intuit_tid) — required for support triage.
+    const tid = resp.headers?.['intuit_tid'];
+    this.logger.log(
+      `QuickBooks SalesReceipt ${id} created for invoice ${invoice.id} ($${amount})` +
+        (tid ? ` [intuit_tid=${tid}]` : ''),
+    );
     return id ? { id } : null;
   }
 
