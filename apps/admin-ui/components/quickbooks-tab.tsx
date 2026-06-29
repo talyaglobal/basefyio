@@ -123,8 +123,8 @@ export function QuickbooksTab() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Receipts synced" value={String(s.totalSynced ?? 0)} />
-        <Stat label="Succeeded" value={String(s.success ?? 0)} tone="emerald" />
+        <Stat label="In QuickBooks" value={String(s.success ?? 0)} tone="emerald" />
+        <Stat label="Deleted in QB" value={String(s.deleted ?? 0)} />
         <Stat label="Failed" value={String(s.failed ?? 0)} tone={s.failed ? 'red' : undefined} />
         <Stat label="Total synced amount" value={money(s.totalAmountCents ?? 0)} />
       </div>

@@ -317,23 +317,70 @@ export class QuickbooksService {
     return `${base}/app/salesreceipt?txnId=${id}`;
   }
 
+  /**
+   * Reconcile local sync log against QuickBooks: any receipt we recorded as
+   * 'success' that no longer exists in QuickBooks (e.g. the user deleted it) is
+   * marked 'deleted' so the dashboard stays in sync automatically.
+   */
+  private async reconcileDeletions(tok: { accessToken: string; realmId: string }): Promise<void> {
+    const candidates = await this.prisma.quickbooksSyncLog.findMany({
+      where: { status: 'success', salesReceiptId: { not: null } },
+      select: { id: true, salesReceiptId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    if (!candidates.length) return;
+
+    const ids = candidates.map((c) => c.salesReceiptId!).filter(Boolean);
+    const existing = new Set<string>();
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const q = await this.qbQuery(
+        tok,
+        `SELECT Id FROM SalesReceipt WHERE Id IN (${chunk.map((x) => `'${x}'`).join(',')})`,
+      );
+      for (const r of q.SalesReceipt ?? []) existing.add(String(r.Id));
+    }
+
+    const goneIds = candidates.filter((c) => !existing.has(String(c.salesReceiptId))).map((c) => c.id);
+    if (goneIds.length) {
+      await this.prisma.quickbooksSyncLog.updateMany({ where: { id: { in: goneIds } }, data: { status: 'deleted' } });
+      this.logger.log(`QuickBooks reconcile: ${goneIds.length} receipt(s) deleted in QB -> marked deleted locally`);
+    }
+  }
+
   /** Full dashboard: local sync summary/log + live QuickBooks company & recent Sales Receipts. */
   async getDashboard(limit = 25) {
     const conn = await this.prisma.quickbooksConnection.findUnique({ where: { id: ROW_ID } });
     if (!conn) return { connected: false, configured: this.isConfigured() };
 
-    const [total, success, failed, recentLog, agg] = await Promise.all([
-      this.prisma.quickbooksSyncLog.count(),
+    let tok: { accessToken: string; realmId: string } | null = null;
+    try {
+      tok = await this.getValidToken();
+    } catch {
+      tok = null;
+    }
+
+    // Auto-sync deletions before computing counts (best-effort).
+    if (tok) {
+      try {
+        await this.reconcileDeletions(tok);
+      } catch {
+        /* token/API hiccup — skip, never mark deleted on uncertainty */
+      }
+    }
+
+    const [success, failed, deleted, recentLog, agg] = await Promise.all([
       this.prisma.quickbooksSyncLog.count({ where: { status: 'success' } }),
       this.prisma.quickbooksSyncLog.count({ where: { status: 'failed' } }),
+      this.prisma.quickbooksSyncLog.count({ where: { status: 'deleted' } }),
       this.prisma.quickbooksSyncLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit }),
       this.prisma.quickbooksSyncLog.aggregate({ where: { status: 'success' }, _sum: { amountCents: true } }),
     ]);
 
     let live: any = { available: false };
-    try {
-      const tok = await this.getValidToken();
-      if (tok) {
+    if (tok) {
+      try {
         const companyQ = await this.qbQuery(tok, 'SELECT * FROM CompanyInfo');
         const ci = companyQ.CompanyInfo?.[0];
         const receiptsQ = await this.qbQuery(
@@ -359,9 +406,9 @@ export class QuickbooksService {
           salesReceiptTotal: list.reduce((s: number, r: any) => s + r.total, 0),
           salesReceipts: list,
         };
+      } catch (err: any) {
+        live = { available: false, error: err?.response?.data ? JSON.stringify(err.response.data) : err.message };
       }
-    } catch (err: any) {
-      live = { available: false, error: err?.response?.data ? JSON.stringify(err.response.data) : err.message };
     }
 
     return {
@@ -373,9 +420,10 @@ export class QuickbooksService {
       autoCreate: conn.autoCreate,
       connectedAt: conn.connectedAt,
       summary: {
-        totalSynced: total,
+        totalSynced: success,
         success,
         failed,
+        deleted,
         totalAmountCents: agg._sum.amountCents ?? 0,
         lastSyncAt: recentLog[0]?.createdAt ?? null,
       },
