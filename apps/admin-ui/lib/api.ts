@@ -1905,6 +1905,15 @@ export const api = {
     quickbooksAuthorizeUrl() {
       return request<{ url: string }>('/admin/quickbooks/authorize-url');
     },
+    quickbooksDashboard() {
+      return request<any>('/admin/quickbooks/dashboard');
+    },
+    quickbooksTest() {
+      return request<{ id: string; docNumber: string | null; url: string | null; amount: number }>(
+        '/admin/quickbooks/test',
+        { method: 'POST' },
+      );
+    },
     quickbooksSetAutoCreate(autoCreate: boolean) {
       return request<{ autoCreate: boolean }>('/admin/quickbooks/settings', {
         method: 'PATCH', body: JSON.stringify({ autoCreate }),

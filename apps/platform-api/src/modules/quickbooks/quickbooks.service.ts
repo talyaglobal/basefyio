@@ -202,14 +202,32 @@ export class QuickbooksService {
   }
 
   // ── sales receipt on each sale ────────────────────────────
-  /** Fire-and-forget: record a paid invoice as a QuickBooks Sales Receipt. */
+  /** Fire-and-forget: record a paid invoice as a QuickBooks Sales Receipt + log it. */
   async recordSale(invoiceId: string): Promise<void> {
+    const conn = await this.prisma.quickbooksConnection.findUnique({ where: { id: ROW_ID } });
+    if (!conn || !conn.autoCreate) return;
+
+    const inv = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { teamId: true, amountPaid: true, currency: true },
+    });
+    if (!inv || inv.amountPaid <= 0) return;
+
     try {
-      const conn = await this.prisma.quickbooksConnection.findUnique({ where: { id: ROW_ID } });
-      if (!conn || !conn.autoCreate) return;
-      await this.createSalesReceiptForInvoice(invoiceId);
+      const res = await this.createSalesReceiptForInvoice(invoiceId);
+      await this.prisma.quickbooksSyncLog.create({
+        data: {
+          invoiceId,
+          teamId: inv.teamId,
+          salesReceiptId: res?.id ?? null,
+          amountCents: inv.amountPaid,
+          currency: inv.currency,
+          customerName: res?.customerName ?? null,
+          status: 'success',
+          intuitTid: res?.tid ?? null,
+        },
+      });
     } catch (err: any) {
-      // Log full error detail + Intuit's transaction id (intuit_tid) for support.
       const tid = err?.response?.headers?.['intuit_tid'];
       const status = err?.response?.status;
       const body = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
@@ -219,10 +237,25 @@ export class QuickbooksService {
           (tid ? ` [intuit_tid=${tid}]` : '') +
           `: ${body}`,
       );
+      await this.prisma.quickbooksSyncLog
+        .create({
+          data: {
+            invoiceId,
+            teamId: inv.teamId,
+            amountCents: inv.amountPaid,
+            currency: inv.currency,
+            status: 'failed',
+            error: String(body).slice(0, 1000),
+            intuitTid: tid ?? null,
+          },
+        })
+        .catch(() => {});
     }
   }
 
-  async createSalesReceiptForInvoice(invoiceId: string): Promise<{ id: string } | null> {
+  async createSalesReceiptForInvoice(
+    invoiceId: string,
+  ): Promise<{ id: string; tid?: string; customerName?: string } | null> {
     const tok = await this.getValidToken();
     if (!tok) return null;
 
@@ -276,7 +309,129 @@ export class QuickbooksService {
       `QuickBooks SalesReceipt ${id} created for invoice ${invoice.id} ($${amount})` +
         (tid ? ` [intuit_tid=${tid}]` : ''),
     );
-    return id ? { id } : null;
+    return id ? { id, tid, customerName: displayName } : null;
+  }
+
+  private salesReceiptUrl(id: string): string {
+    const base = this.environment() === 'sandbox' ? 'https://app.sandbox.qbo.intuit.com' : 'https://app.qbo.intuit.com';
+    return `${base}/app/salesreceipt?txnId=${id}`;
+  }
+
+  /** Full dashboard: local sync summary/log + live QuickBooks company & recent Sales Receipts. */
+  async getDashboard(limit = 25) {
+    const conn = await this.prisma.quickbooksConnection.findUnique({ where: { id: ROW_ID } });
+    if (!conn) return { connected: false, configured: this.isConfigured() };
+
+    const [total, success, failed, recentLog, agg] = await Promise.all([
+      this.prisma.quickbooksSyncLog.count(),
+      this.prisma.quickbooksSyncLog.count({ where: { status: 'success' } }),
+      this.prisma.quickbooksSyncLog.count({ where: { status: 'failed' } }),
+      this.prisma.quickbooksSyncLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit }),
+      this.prisma.quickbooksSyncLog.aggregate({ where: { status: 'success' }, _sum: { amountCents: true } }),
+    ]);
+
+    let live: any = { available: false };
+    try {
+      const tok = await this.getValidToken();
+      if (tok) {
+        const companyQ = await this.qbQuery(tok, 'SELECT * FROM CompanyInfo');
+        const ci = companyQ.CompanyInfo?.[0];
+        const receiptsQ = await this.qbQuery(
+          tok,
+          `SELECT * FROM SalesReceipt ORDERBY TxnDate DESC MAXRESULTS ${Math.min(limit, 50)}`,
+        );
+        const list = (receiptsQ.SalesReceipt ?? []).map((r: any) => ({
+          id: r.Id,
+          docNumber: r.DocNumber ?? null,
+          total: Number(r.TotalAmt) || 0,
+          currency: r.CurrencyRef?.value ?? null,
+          customer: r.CustomerRef?.name ?? null,
+          txnDate: r.TxnDate ?? null,
+          privateNote: r.PrivateNote ?? null,
+          url: this.salesReceiptUrl(r.Id),
+        }));
+        live = {
+          available: true,
+          company: ci
+            ? { name: ci.CompanyName, legalName: ci.LegalName, country: ci.Country, email: ci.Email?.Address ?? null }
+            : null,
+          salesReceiptCount: list.length,
+          salesReceiptTotal: list.reduce((s: number, r: any) => s + r.total, 0),
+          salesReceipts: list,
+        };
+      }
+    } catch (err: any) {
+      live = { available: false, error: err?.response?.data ? JSON.stringify(err.response.data) : err.message };
+    }
+
+    return {
+      connected: true,
+      configured: true,
+      companyName: conn.companyName,
+      realmId: conn.realmId,
+      environment: conn.environment,
+      autoCreate: conn.autoCreate,
+      connectedAt: conn.connectedAt,
+      summary: {
+        totalSynced: total,
+        success,
+        failed,
+        totalAmountCents: agg._sum.amountCents ?? 0,
+        lastSyncAt: recentLog[0]?.createdAt ?? null,
+      },
+      recentSyncs: recentLog.map((l) => ({
+        id: l.id,
+        invoiceId: l.invoiceId,
+        salesReceiptId: l.salesReceiptId,
+        amountCents: l.amountCents,
+        currency: l.currency,
+        customerName: l.customerName,
+        status: l.status,
+        error: l.error,
+        createdAt: l.createdAt,
+        url: l.salesReceiptId ? this.salesReceiptUrl(l.salesReceiptId) : null,
+      })),
+      live,
+    };
+  }
+
+  /** Create a clearly-marked $1 TEST Sales Receipt to verify the connection on screen. */
+  async createTestSalesReceipt() {
+    const tok = await this.getValidToken();
+    if (!tok) throw new BadRequestException('QuickBooks is not connected');
+    const customerId = await this.ensureCustomer(tok, 'basefyio Test Customer', 'test@basefyio.com');
+    const itemId = await this.ensureServiceItem(tok);
+    const resp = await axios.post(
+      `${this.apiBase()}/v3/company/${tok.realmId}/salesreceipt?minorversion=${MINOR_VERSION}`,
+      {
+        CustomerRef: { value: customerId },
+        Line: [
+          {
+            Amount: 1.0,
+            DetailType: 'SalesItemLineDetail',
+            Description: 'basefyio connection test — safe to delete',
+            SalesItemLineDetail: { ItemRef: { value: itemId }, Qty: 1, UnitPrice: 1.0 },
+          },
+        ],
+        PrivateNote: 'TEST — basefyio QuickBooks connection verification. Safe to delete.',
+        CurrencyRef: { value: 'USD' },
+      },
+      { headers: { Authorization: `Bearer ${tok.accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' } },
+    );
+    const id = resp.data?.SalesReceipt?.Id;
+    await this.prisma.quickbooksSyncLog.create({
+      data: {
+        invoiceId: 'TEST',
+        salesReceiptId: id ?? null,
+        amountCents: 100,
+        currency: 'usd',
+        customerName: 'basefyio Test Customer',
+        status: 'success',
+        intuitTid: resp.headers?.['intuit_tid'] ?? null,
+      },
+    });
+    this.logger.log(`QuickBooks TEST SalesReceipt ${id} created`);
+    return { id, docNumber: resp.data?.SalesReceipt?.DocNumber ?? null, url: id ? this.salesReceiptUrl(id) : null, amount: 1.0 };
   }
 
   private async qbQuery(tok: { accessToken: string; realmId: string }, query: string): Promise<any> {

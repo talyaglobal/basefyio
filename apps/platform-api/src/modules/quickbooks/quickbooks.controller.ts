@@ -29,6 +29,18 @@ export class QuickbooksController {
   }
 
   @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Get('dashboard')
+  async dashboard() {
+    return this.quickbooks.getDashboard();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
+  @Post('test')
+  async test() {
+    return this.quickbooks.createTestSalesReceipt();
+  }
+
+  @UseGuards(JwtAuthGuard, RootRoleGuard)
   @Get('authorize-url')
   async authorizeUrl(@Req() req: any) {
     const url = await this.quickbooks.getAuthorizeUrl(req.user?.sub);

@@ -1500,3 +1500,22 @@ model QuickbooksConnection {
 
   @@map("quickbooks_connection")
 }
+
+/// One row per attempt to push a paid sale to QuickBooks as a Sales Receipt.
+/// Powers the QuickBooks dashboard (recent receipts + success/failure summary).
+model QuickbooksSyncLog {
+  id             String   @id @default(uuid())
+  invoiceId      String   @map("invoice_id")
+  teamId         String?  @map("team_id")
+  salesReceiptId String?  @map("sales_receipt_id")
+  amountCents    Int      @default(0) @map("amount_cents")
+  currency       String   @default("usd")
+  customerName   String?  @map("customer_name")
+  status         String   @default("success")
+  error          String?
+  intuitTid      String?  @map("intuit_tid")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("quickbooks_sync_log")
+}
