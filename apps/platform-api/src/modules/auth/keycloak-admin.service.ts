@@ -558,8 +558,61 @@ export class KeycloakAdminService implements OnModuleInit {
       firstName: u.firstName,
       lastName: u.lastName,
       enabled: u.enabled,
+      emailVerified: u.emailVerified,
       createdTimestamp: u.createdTimestamp,
     }));
+  }
+
+  // ── Sessions / providers / lifecycle emails (Supabase-style auth dashboard) ──
+
+  /** Active sessions for a single realm user. */
+  async listUserSessions(realmName: string, userId: string) {
+    await this.ensureAuth();
+    const sessions = await this.client.users.listSessions({ realm: realmName, id: userId });
+    return (sessions || []).map((s: any) => ({
+      id: s.id,
+      ipAddress: s.ipAddress ?? null,
+      start: s.start ?? null,
+      lastAccess: s.lastAccess ?? null,
+      clients: s.clients ? Object.values(s.clients) : [],
+    }));
+  }
+
+  /** Revoke one specific session (Keycloak has no admin-client wrapper for this). */
+  async revokeUserSession(realmName: string, sessionId: string) {
+    await this.ensureAuth();
+    const baseUrl = this.config.get<string>('keycloak.url');
+    const adminToken = await this.getAdminAccessToken();
+    await axios.delete(`${baseUrl}/admin/realms/${realmName}/sessions/${sessionId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    return { message: 'Session revoked' };
+  }
+
+  /** Sign the user out of all sessions. */
+  async logoutAllUserSessions(realmName: string, userId: string) {
+    await this.ensureAuth();
+    await this.client.users.logout({ realm: realmName, id: userId });
+    return { message: 'All sessions signed out' };
+  }
+
+  /** OAuth/identity providers the user has linked (e.g. google, github). */
+  async listUserFederatedIdentities(realmName: string, userId: string): Promise<string[]> {
+    await this.ensureAuth();
+    const fis = await this.client.users.listFederatedIdentities({ realm: realmName, id: userId });
+    return (fis || []).map((f: any) => f.identityProvider).filter(Boolean);
+  }
+
+  /** Send a lifecycle email (UPDATE_PASSWORD = recovery, VERIFY_EMAIL = confirm). */
+  async sendUserActionsEmail(realmName: string, userId: string, actions: string[]) {
+    await this.ensureAuth();
+    await this.client.users.executeActionsEmail({
+      realm: realmName,
+      id: userId,
+      actions: actions as any,
+      lifespan: 12 * 60 * 60,
+    });
+    return { message: 'Email sent' };
   }
 
   async createUser(

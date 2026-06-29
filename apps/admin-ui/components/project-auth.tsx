@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
-import type { RealmInfo, RealmUser, ProjectAuthConfig } from '@/lib/types';
+import type { RealmInfo, RealmUser, RealmUserDetail, RealmSession, ProjectAuthConfig } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,9 +24,12 @@ import {
   Copy,
   Eye,
   EyeOff,
+  Globe,
   Info,
   KeyRound,
+  LogOut,
   Mail,
+  Monitor,
   Pencil,
   Plus,
   RefreshCw,
@@ -36,7 +39,15 @@ import {
   Shield,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
+
+function fmtTs(ts?: number | null) {
+  return ts ? new Date(ts).toLocaleString() : '—';
+}
+function fmtDateOnly(ts?: number | null) {
+  return ts ? new Date(ts).toLocaleDateString() : '—';
+}
 
 interface ProjectAuthProps {
   projectId: string;
@@ -198,6 +209,8 @@ function UsersTab({
 }) {
   const [editingUser, setEditingUser] = useState<RealmUser | null>(null);
   const [resetingUser, setResetingUser] = useState<RealmUser | null>(null);
+  const [viewingUser, setViewingUser] = useState<RealmUser | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   async function handleDelete(userId: string, email: string) {
     if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${email}"?`, destructive: true }))) return;
@@ -208,6 +221,12 @@ function UsersTab({
     } catch (err: any) {
       toast.error(err.message);
     }
+  }
+
+  function copyId(id: string) {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
   }
 
   if (users.length === 0) {
@@ -224,55 +243,67 @@ function UsersTab({
 
   return (
     <>
-      <div className="rounded-md border">
+      <div className="rounded-md border overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="px-4 py-2 text-left font-medium">Email</th>
-              <th className="px-4 py-2 text-left font-medium">Name</th>
+              <th className="px-4 py-2 text-left font-medium">User</th>
+              <th className="px-4 py-2 text-left font-medium">UID</th>
+              <th className="px-4 py-2 text-left font-medium">Confirmed</th>
+              <th className="px-4 py-2 text-left font-medium">Created</th>
               <th className="px-4 py-2 text-left font-medium">Status</th>
               <th className="px-4 py-2 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-b last:border-0">
-                <td className="px-4 py-2 font-medium">{u.email}</td>
-                <td className="px-4 py-2 text-muted-foreground">
-                  {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
+              <tr
+                key={u.id}
+                className="border-b last:border-0 cursor-pointer hover:bg-muted/40"
+                onClick={() => setViewingUser(u)}
+              >
+                <td className="px-4 py-2">
+                  <div className="font-medium">{u.email}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
+                  </div>
                 </td>
+                <td className="px-4 py-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground"
+                    title="Copy user ID"
+                    onClick={(e) => { e.stopPropagation(); copyId(u.id); }}
+                  >
+                    {u.id.slice(0, 8)}…
+                    {copiedId === u.id ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                </td>
+                <td className="px-4 py-2">
+                  {u.emailVerified ? (
+                    <Badge variant="default" className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">Confirmed</Badge>
+                  ) : (
+                    <Badge variant="secondary">Unconfirmed</Badge>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-muted-foreground">{fmtDateOnly(u.createdTimestamp)}</td>
                 <td className="px-4 py-2">
                   <Badge variant={u.enabled ? 'default' : 'secondary'}>
                     {u.enabled ? 'Active' : 'Disabled'}
                   </Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="Edit user"
-                      onClick={() => setEditingUser(u)}
-                    >
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="View details" onClick={() => setViewingUser(u)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit user" onClick={() => setEditingUser(u)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="Reset password"
-                      onClick={() => setResetingUser(u)}
-                    >
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Reset password" onClick={() => setResetingUser(u)}>
                       <KeyRound className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      title="Delete user"
-                      onClick={() => handleDelete(u.id, u.email)}
-                    >
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete user" onClick={() => handleDelete(u.id, u.email)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -282,6 +313,17 @@ function UsersTab({
           </tbody>
         </table>
       </div>
+
+      {viewingUser && (
+        <UserDetailDrawer
+          user={viewingUser}
+          projectId={projectId}
+          onClose={() => setViewingUser(null)}
+          onEdit={() => { setEditingUser(viewingUser); setViewingUser(null); }}
+          onReset={() => { setResetingUser(viewingUser); setViewingUser(null); }}
+          onDeleted={() => { setViewingUser(null); onRefresh(); }}
+        />
+      )}
 
       {editingUser && (
         <EditUserDialog
@@ -303,6 +345,170 @@ function UsersTab({
         />
       )}
     </>
+  );
+}
+
+/* ──────────────────────────────────────────── User Detail Drawer (Supabase-style) */
+function UserDetailDrawer({
+  user,
+  projectId,
+  onClose,
+  onEdit,
+  onReset,
+  onDeleted,
+}: {
+  user: RealmUser;
+  projectId: string;
+  onClose: () => void;
+  onEdit: () => void;
+  onReset: () => void;
+  onDeleted: () => void;
+}) {
+  const [detail, setDetail] = useState<RealmUserDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setDetail(await api.projects.realmUserDetail(projectId, user.id));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load user');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function act(fn: () => Promise<any>, ok: string) {
+    setBusy(true);
+    try { await fn(); toast.success(ok); await load(); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setBusy(false); }
+  }
+
+  const sessions = detail?.sessions || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative h-full w-full max-w-md overflow-y-auto border-l bg-background shadow-xl">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold">{[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email}</h2>
+            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+
+        {loading || !detail ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : (
+          <div className="space-y-6 p-5">
+            {/* Overview */}
+            <section className="space-y-2 text-sm">
+              <DetailRow label="User UID" value={
+                <button type="button" className="flex items-center gap-1 font-mono text-xs hover:text-foreground"
+                  onClick={() => { navigator.clipboard.writeText(detail.id); toast.success('Copied'); }}>
+                  {detail.id} <Copy className="h-3 w-3" />
+                </button>
+              } />
+              <DetailRow label="Email confirmed" value={detail.emailVerified
+                ? <span className="text-emerald-600 dark:text-emerald-400">Yes</span>
+                : <span className="text-amber-600 dark:text-amber-400">No</span>} />
+              <DetailRow label="Status" value={detail.enabled ? 'Active' : 'Disabled'} />
+              <DetailRow label="Created" value={fmtTs(detail.createdTimestamp)} />
+              <DetailRow label="Last signed in" value={fmtTs(detail.lastSignIn)} />
+              <DetailRow label="Active sessions" value={String(detail.sessionCount)} />
+            </section>
+
+            {/* Providers */}
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Sign-in providers</h3>
+              <div className="flex flex-wrap gap-2">
+                {detail.providers.map((p) => (
+                  <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>
+                ))}
+              </div>
+            </section>
+
+            {/* Actions */}
+            <section className="grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="mr-2 h-3.5 w-3.5" />Edit</Button>
+              <Button variant="outline" size="sm" onClick={onReset}><KeyRound className="mr-2 h-3.5 w-3.5" />Set password</Button>
+              <Button variant="outline" size="sm" disabled={busy}
+                onClick={() => act(() => api.projects.sendRealmUserRecovery(projectId, user.id), 'Recovery email sent')}>
+                <Mail className="mr-2 h-3.5 w-3.5" />Send recovery
+              </Button>
+              <Button variant="outline" size="sm" disabled={busy}
+                onClick={() => act(() => api.projects.sendRealmUserVerification(projectId, user.id), 'Verification email sent')}>
+                <Mail className="mr-2 h-3.5 w-3.5" />Send verify
+              </Button>
+            </section>
+
+            {/* Sessions */}
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground">Sessions</h3>
+                {sessions.length > 0 && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
+                    onClick={() => act(() => api.projects.logoutRealmUser(projectId, user.id), 'Signed out of all sessions')}>
+                    <LogOut className="mr-1 h-3.5 w-3.5" />Sign out all
+                  </Button>
+                )}
+              </div>
+              {sessions.length === 0 ? (
+                <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">No active sessions</p>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((s: RealmSession) => (
+                    <div key={s.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />{s.ipAddress || 'unknown IP'}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                          <Monitor className="h-3 w-3" />
+                          {(s.clients || []).join(', ') || '—'} · last {fmtTs(s.lastAccess)}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy}
+                        onClick={() => act(() => api.projects.revokeRealmUserSession(projectId, user.id, s.id), 'Session revoked')}>
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Danger */}
+            <section className="border-t pt-4">
+              <Button variant="destructive" size="sm" className="w-full" disabled={busy}
+                onClick={async () => {
+                  if (!(await confirmDialog({ title: 'Delete user', description: `Delete user "${user.email}"?`, destructive: true }))) return;
+                  await act(() => api.projects.deleteRealmUser(projectId, user.id), 'User deleted');
+                  onDeleted();
+                }}>
+                <Trash2 className="mr-2 h-3.5 w-3.5" />Delete user
+              </Button>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right">{value}</span>
+    </div>
   );
 }
 

@@ -66,6 +66,102 @@ export class ProjectAuthController {
     return this.keycloak.listUsers(project.keycloakRealm);
   }
 
+  @Get('users/:userId')
+  async getUser(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const realm = project.keycloakRealm;
+    const [detail, providers, sessions] = await Promise.all([
+      this.keycloak.getRealmUserById(realm, userId),
+      this.keycloak.listUserFederatedIdentities(realm, userId).catch((): string[] => []),
+      this.keycloak.listUserSessions(realm, userId).catch((): any[] => []),
+    ]);
+    if (!detail) throw new BadRequestException('User not found');
+    // "Email" is always an available login method; linked OAuth providers add to it.
+    const sessTimes = (sessions as any[]).map((s) => s.lastAccess || s.start || 0);
+    const lastSignIn = sessTimes.length ? Math.max(...sessTimes) || null : null;
+    return { ...detail, providers: ['email', ...providers], sessions, lastSignIn, sessionCount: sessions.length };
+  }
+
+  @Get('users/:userId/sessions')
+  async listUserSessions(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    return this.keycloak.listUserSessions(project.keycloakRealm, userId);
+  }
+
+  @Delete('users/:userId/sessions/:sessionId')
+  async revokeUserSession(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.revokeUserSession(project.keycloakRealm, sessionId);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `Auth session revoked: ${userId}`,
+      detail: `session ${sessionId.slice(0, 8)}`,
+    });
+    return result;
+  }
+
+  @Post('users/:userId/logout')
+  async logoutUser(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.logoutAllUserSessions(project.keycloakRealm, userId);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `Auth user signed out of all sessions: ${userId}`,
+    });
+    return result;
+  }
+
+  @Post('users/:userId/send-recovery')
+  async sendRecovery(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.sendUserActionsEmail(project.keycloakRealm, userId, ['UPDATE_PASSWORD']);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_PASSWORD_RESET,
+      title: `Password recovery email sent: ${userId}`,
+    });
+    return result;
+  }
+
+  @Post('users/:userId/send-verification')
+  async sendVerification(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.keycloak.sendUserActionsEmail(project.keycloakRealm, userId, ['VERIFY_EMAIL']);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `Verification email sent: ${userId}`,
+    });
+    return result;
+  }
+
   @Post('users')
   async createUser(
     @Param('projectId') projectId: string,

@@ -22,6 +22,8 @@ import type {
   ProjectListItem,
   RealmInfo,
   RealmUser,
+  RealmUserDetail,
+  RealmSession,
   SqlResult,
   StorageBucket,
   StorageObject,
@@ -1208,6 +1210,32 @@ export const api = {
     deleteRealmUser(projectId: string, userId: string) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}`, {
         method: 'DELETE',
+      });
+    },
+    realmUserDetail(projectId: string, userId: string) {
+      return request<RealmUserDetail>(`/projects/${projectId}/auth/users/${userId}`);
+    },
+    realmUserSessions(projectId: string, userId: string) {
+      return request<RealmSession[]>(`/projects/${projectId}/auth/users/${userId}/sessions`);
+    },
+    revokeRealmUserSession(projectId: string, userId: string, sessionId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+    },
+    logoutRealmUser(projectId: string, userId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/logout`, {
+        method: 'POST',
+      });
+    },
+    sendRealmUserRecovery(projectId: string, userId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/send-recovery`, {
+        method: 'POST',
+      });
+    },
+    sendRealmUserVerification(projectId: string, userId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/send-verification`, {
+        method: 'POST',
       });
     },
     getAuthConfig(projectId: string) {

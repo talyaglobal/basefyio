@@ -596,7 +596,31 @@ export interface RealmUser {
   firstName: string;
   lastName: string;
   enabled: boolean;
+  emailVerified?: boolean;
   createdTimestamp: number;
+}
+
+export interface RealmSession {
+  id: string;
+  ipAddress: string | null;
+  start: number | null;
+  lastAccess: number | null;
+  clients: string[];
+}
+
+export interface RealmUserDetail {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  enabled: boolean;
+  emailVerified?: boolean;
+  createdTimestamp: number;
+  providers: string[];
+  sessions: RealmSession[];
+  sessionCount: number;
+  lastSignIn: number | null;
 }
 
 export interface RealmInfo {
