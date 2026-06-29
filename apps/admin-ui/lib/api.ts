@@ -1209,6 +1209,12 @@ export const api = {
     realmMfaUsers(projectId: string) {
       return request<MfaUser[]>(`/projects/${projectId}/auth/mfa`);
     },
+    requireRealmUserMfa(projectId: string, userId: string, enabled = true) {
+      return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/require-mfa`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      });
+    },
     removeRealmUserMfa(projectId: string, userId: string, credentialId: string) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/credentials/${credentialId}`, {
         method: 'DELETE',

@@ -660,6 +660,8 @@ export interface RealmPolicies {
     requireLowercase: boolean;
     requireDigits: boolean;
     requireSpecial: boolean;
+    historyCount: number;
+    expiryDays: number;
   };
 }
 

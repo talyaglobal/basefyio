@@ -44,6 +44,8 @@ function buildPasswordPolicy(p: {
   requireLowercase?: boolean;
   requireDigits?: boolean;
   requireSpecial?: boolean;
+  historyCount?: number;
+  expiryDays?: number;
 }): string {
   const parts: string[] = [];
   if (p.minLength && p.minLength > 0) parts.push(`length(${p.minLength})`);
@@ -51,19 +53,26 @@ function buildPasswordPolicy(p: {
   if (p.requireLowercase) parts.push('lowerCase(1)');
   if (p.requireDigits) parts.push('digits(1)');
   if (p.requireSpecial) parts.push('specialChars(1)');
+  if (p.historyCount && p.historyCount > 0) parts.push(`passwordHistory(${p.historyCount})`);
+  if (p.expiryDays && p.expiryDays > 0) parts.push(`forceExpiredPasswordChange(${p.expiryDays})`);
   return parts.join(' and ');
 }
 
 /** Parse a Keycloak passwordPolicy string back into structured flags. */
 function parsePasswordPolicy(s: string) {
   const str = s || '';
-  const lenMatch = /length\((\d+)\)/.exec(str);
+  const num = (re: RegExp) => {
+    const m = re.exec(str);
+    return m ? parseInt(m[1], 10) : 0;
+  };
   return {
-    minLength: lenMatch ? parseInt(lenMatch[1], 10) : 0,
+    minLength: num(/length\((\d+)\)/),
     requireUppercase: /upperCase\(/.test(str),
     requireLowercase: /lowerCase\(/.test(str),
     requireDigits: /digits\(/.test(str),
     requireSpecial: /specialChars\(/.test(str),
+    historyCount: num(/passwordHistory\((\d+)\)/),
+    expiryDays: num(/forceExpiredPasswordChange\((\d+)\)/),
   };
 }
 
@@ -215,6 +224,29 @@ export class ProjectAuthController {
       kind: ProjectActivityKind.AUTH_USER_UPDATED,
       title: `Auth session revoked`,
       detail: `session ${sessionId.slice(0, 8)}`,
+    });
+    return result;
+  }
+
+  @Post('users/:userId/require-mfa')
+  async requireMfa(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @Body() body: { enabled?: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const enabled = body?.enabled !== false;
+    const result = await this.keycloak.setUserRequiredAction(
+      project.keycloakRealm,
+      userId,
+      'CONFIGURE_TOTP',
+      enabled,
+    );
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `MFA enrollment ${enabled ? 'required' : 'cleared'}: ${userId}`,
     });
     return result;
   }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -401,8 +402,8 @@ function UserDetailDrawer({
 
   const sessions = detail?.sessions || [];
 
-  return (
-    <div className="fixed inset-0 z-[100] flex justify-end" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative h-full w-full max-w-md overflow-y-auto border-l bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-5 py-4">
@@ -464,6 +465,10 @@ function UserDetailDrawer({
                 onClick={() => act(() => api.projects.sendRealmUserVerification(projectId, user.id), 'Verification email sent')}>
                 <Mail className="mr-2 h-3.5 w-3.5" />Send verify
               </Button>
+              <Button variant="outline" size="sm" className="col-span-2" disabled={busy}
+                onClick={() => act(() => api.projects.requireRealmUserMfa(projectId, user.id, true), 'User must set up MFA at next login')}>
+                <ShieldCheck className="mr-2 h-3.5 w-3.5" />Require MFA enrollment
+              </Button>
             </section>
 
             {/* Sessions */}
@@ -516,7 +521,8 @@ function UserDetailDrawer({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -734,7 +740,11 @@ function PoliciesTab({ projectId }: { projectId: string }) {
           <h3 className="text-sm font-semibold">Password policy</h3>
           <p className="text-xs text-muted-foreground">Complexity rules enforced when users set a password.</p>
         </div>
-        <NumField label="Minimum length" value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <NumField label="Minimum length" value={pol.password.minLength} onChange={(v) => setPw({ minLength: v })} />
+          <NumField label="Password history (remembered)" value={pol.password.historyCount} onChange={(v) => setPw({ historyCount: v })} />
+          <NumField label="Expiry (days, 0 = never)" value={pol.password.expiryDays} onChange={(v) => setPw({ expiryDays: v })} />
+        </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <CheckRow label="Require uppercase letter" checked={pol.password.requireUppercase} onChange={(v) => setPw({ requireUppercase: v })} />
           <CheckRow label="Require lowercase letter" checked={pol.password.requireLowercase} onChange={(v) => setPw({ requireLowercase: v })} />

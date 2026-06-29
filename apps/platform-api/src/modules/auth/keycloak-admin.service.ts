@@ -617,6 +617,20 @@ export class KeycloakAdminService implements OnModuleInit {
     return { message: 'Email sent' };
   }
 
+  /** Add/remove a required action (e.g. CONFIGURE_TOTP to force MFA enrollment). */
+  async setUserRequiredAction(realmName: string, userId: string, action: string, enabled: boolean) {
+    await this.ensureAuth();
+    const u = await this.client.users.findOne({ realm: realmName, id: userId });
+    const current = new Set<string>((u?.requiredActions as string[]) || []);
+    if (enabled) current.add(action);
+    else current.delete(action);
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { requiredActions: Array.from(current) as any },
+    );
+    return { message: enabled ? 'Required action added' : 'Required action removed' };
+  }
+
   /** All active sessions in the realm (aggregated across the project's clients). */
   async listRealmSessions(realmName: string) {
     await this.ensureAuth();
