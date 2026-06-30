@@ -29,7 +29,7 @@ checked; the rest are gated on the platform-api stabilization pass.
 
 - [x] CLI builds
 - [x] SDK builds
-- [x] Tests pass *(cli: 5, sdk: 4)*
+- [x] Tests pass *(cli: 28, sdk: 22; platform-api: 303)*
 
 ## CI
 

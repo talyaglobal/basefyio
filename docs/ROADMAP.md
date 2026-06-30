@@ -28,11 +28,12 @@ database abstraction (Prisma).
 - ◐ Data engine / data query / data structures
 - ◐ Realtime & realtime-data
 - ◐ Queue · Redis · Observability · Health · Infrastructure · PgBouncer · Teams · Email
+- ◐ Admin UI (preview) — Next.js dashboard: login, projects, SQL editor, storage, in-browser playground
 - ☐ Tag `v0.1.0-alpha` once the platform API compiles and CI is fully green
 
 ## v0.2
 
-- ☐ Admin UI
+- ☐ Admin UI — promote from preview to supported
 - ☐ Storage API
 - ☐ Realtime improvements
 - ☐ Documentation expansion

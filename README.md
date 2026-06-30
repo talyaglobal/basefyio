@@ -280,8 +280,8 @@ The SQL module provides safe, audited query execution:
 
 See the full [Roadmap](docs/ROADMAP.md). In short:
 
-- **v0.1 Alpha** *(in progress)* — core runtime, CLI, SDK, auth, projects, provisioning, SQL, storage
-- **v0.2** — Admin UI, Storage API, realtime improvements, docs
+- **v0.1 Alpha** *(in progress)* — core runtime, CLI, SDK, auth, projects, provisioning, SQL, storage, Admin UI (preview)
+- **v0.2** — Admin UI (promoted to supported), Storage API, realtime improvements, docs
 - **v0.3** — Kubernetes/Helm, multi-node, backup/restore
 - **Future (MYFYIO ecosystem)** — agentfyio (AI/RAG/vector), mcpfyio, deployfyio, codefyio
 
