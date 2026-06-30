@@ -58,7 +58,7 @@ basefyio gives you:
 |---------------|----------------------------------|
 | Admin UI      | Next.js 14, Tailwind, shadcn/ui  |
 | Platform API  | NestJS, Prisma, TypeScript       |
-| Auth          | Keycloak 24                      |
+| Auth          | Built-in (OpenID Connect)        |
 | Database      | PostgreSQL 16                    |
 | Storage       | MinIO                            |
 | Orchestration | Docker Compose                   |
@@ -208,7 +208,7 @@ basefyio uses a two-tier authentication model.
 
 **Application users** authenticate inside their own isolated project realm. Each project gets a dedicated identity space — users, roles, and tokens are completely separated across projects.
 
-All API endpoints are secured with JWT validation backed by published JWKS endpoints. The underlying identity provider is Keycloak 24.
+All API endpoints are secured with JWT validation backed by published JWKS endpoints, using a standard OpenID Connect identity provider under the hood.
 
 ---
 

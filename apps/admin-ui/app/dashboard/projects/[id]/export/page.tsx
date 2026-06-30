@@ -11,6 +11,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useExportProgress } from '@/lib/export-progress-context';
 
+/** Human-readable byte size (small backups would round to "0.00 MB" otherwise). */
+function fmtBytes(bytes: number): string {
+  if (!bytes || bytes < 1) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const val = bytes / 1024 ** i;
+  return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 export default function ProjectExportPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -326,7 +335,7 @@ export default function ProjectExportPage() {
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {(b.size / 1024 / 1024).toFixed(2)} MB • {new Date(b.lastModified).toLocaleString()}
+                  {fmtBytes(b.size)} • {new Date(b.lastModified).toLocaleString()}
                   {b.kind === 'auto' && ' • daily backup, kept 7 days'}
                 </p>
               </div>

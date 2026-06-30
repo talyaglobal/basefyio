@@ -134,10 +134,10 @@ function buildAiQuickConnectPrompt(
 - If a tool suggests "creating a database first", skip that step — the database is already provisioned.
 
 ## 0) Authentication — read this first
-- Do **not** install, docker-compose, or run **Keycloak** inside the user's project. There is **no** local auth requirement.
+- Do **not** install, docker-compose, or run a **separate auth server** inside the user's project. There is **no** local auth requirement.
 - **basefyio is the auth surface**: sign-in and API access go through basefyio (the base URL and anon/service keys in the env block). Implement login and protected calls using basefyio as the backend auth provider.
 - **JavaScript / TypeScript apps**: use the official **basefyio-js** SDK (\`npm install basefyio-js\`, then \`createClient\` with \`apiUrl\`, \`projectId\`, and \`apiKey\` from the env block). Use **\`basefyio.auth\`** for authentication.
-- Do **not** tell the user to "provision Keycloak", import realms, or stand up a separate identity provider.
+- Do **not** tell the user to provision a separate auth server, import realms, or stand up a separate identity provider.
 
 ## 1) Environment variables (copy exactly — no quotes around values)
 ${envBlockOneLinePerVar}
@@ -792,7 +792,7 @@ datasource db {
         </h2>
         <p className="text-sm text-muted-foreground">
           Sign-in for this project is handled by basefyio (hosted auth behind the REST URL and keys
-          above). You do not run Keycloak in your own repo for normal integration.
+          above). You do not run a separate auth server in your own repo for normal integration.
         </p>
         <button
           type="button"
@@ -801,7 +801,7 @@ datasource db {
           aria-expanded={showKeycloakDetails}
         >
           <span className="min-w-0">
-            Keycloak realm and URL <span className="font-normal text-muted-foreground">(optional)</span>
+            Auth realm and URL <span className="font-normal text-muted-foreground">(optional)</span>
           </span>
           {showKeycloakDetails ? (
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -816,12 +816,12 @@ datasource db {
               them for support or advanced debugging — not required for app login wiring.
             </p>
             <CopyBlock
-              label="Keycloak Realm"
+              label="Auth Realm"
               value={conn.keycloakRealm}
               icon={Shield}
             />
             <CopyBlock
-              label="Keycloak URL"
+              label="Auth URL"
               value={conn.keycloakUrl}
               icon={Link2}
             />

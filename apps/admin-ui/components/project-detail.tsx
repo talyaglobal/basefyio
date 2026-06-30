@@ -349,7 +349,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         <div className="rounded-lg border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <Shield className="h-4 w-4" />
-            Keycloak Realm
+            Auth Realm
           </div>
           <p className="mt-2 font-mono text-sm">{project.keycloakRealm}</p>
         </div>

@@ -435,7 +435,9 @@ export class ProjectsService {
         if (nextSlug !== project.slug) {
           updateData.slug = nextSlug;
           if (!project.storagePrefix) {
-            updateData.storagePrefix = project.slug;
+            // Keep existing buckets reachable under the old slug, but guarantee
+            // the prefix is unique so it can't collide with another project.
+            updateData.storagePrefix = await this.uniqueStoragePrefix(project.slug, project.id);
           }
         }
       }
@@ -1061,6 +1063,10 @@ export class ProjectsService {
       this.logger.warn(`Restore: could not re-enable Keycloak realm: ${err}`);
     }
 
+    const restoredStoragePrefix =
+      restoredSlug !== originalSlug && !project.storagePrefix
+        ? await this.uniqueStoragePrefix(originalSlug, id)
+        : undefined;
     await this.prisma.project.update({
       where: { id },
       data: {
@@ -1068,9 +1074,7 @@ export class ProjectsService {
         deletedAt: null,
         name: originalName,
         slug: restoredSlug,
-        ...(restoredSlug !== originalSlug && !project.storagePrefix
-          ? { storagePrefix: originalSlug }
-          : {}),
+        ...(restoredStoragePrefix ? { storagePrefix: restoredStoragePrefix } : {}),
         dbName: originalDbName,
         dbUser: originalDbUser,
         keycloakRealm: restoredRealm,
@@ -1892,6 +1896,26 @@ export class ProjectsService {
 
   private stripDeletedSuffix(value: string): string {
     return value.replace(/_(\d+_)?deleted$/, '');
+  }
+
+  /**
+   * A project's effective storage prefix (storagePrefix ?? slug) must be unique
+   * across active projects — otherwise two projects map to the same MinIO bucket
+   * namespace and bucket ownership becomes ambiguous (buckets vanish from one
+   * project's list). When a candidate prefix already belongs to another active
+   * project, append a short random suffix to keep it unambiguous.
+   */
+  private async uniqueStoragePrefix(candidate: string, excludeProjectId: string): Promise<string> {
+    const clash = await this.prisma.project.findFirst({
+      where: {
+        status: 'ACTIVE',
+        id: { not: excludeProjectId },
+        OR: [{ slug: candidate }, { storagePrefix: candidate }],
+      },
+      select: { id: true },
+    });
+    if (!clash) return candidate;
+    return `${candidate}-${randomBytes(3).toString('hex')}`;
   }
 
   private async uniqueDeletedName(baseName: string): Promise<string> {

@@ -54,8 +54,8 @@ export default function PrivacyPage() {
           <h2>4. Sub-processors</h2>
           <p>
             We rely on a limited set of infrastructure and service providers, including a
-            payment processor (Stripe) and an identity provider (Keycloak) and our hosting
-            provider. They process data only as needed to deliver the Service.
+            payment processor (Stripe) and our hosting provider. They process data only as
+            needed to deliver the Service.
           </p>
 
           <h2>5. Data retention</h2>

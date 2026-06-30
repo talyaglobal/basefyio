@@ -184,21 +184,21 @@ export class CollectionService {
     const client = await pool.connect();
 
     try {
-      const result = await client.query(
-        `
-        SELECT
-          t.tablename AS name,
-          COALESCE(s.n_live_tup, 0)::int AS "documentCount"
-        FROM pg_catalog.pg_tables t
-        LEFT JOIN pg_stat_user_tables s
-          ON s.relname = t.tablename AND s.schemaname = t.schemaname
-        WHERE t.schemaname = $1
-        ORDER BY t.tablename
-        `,
+      const tables = await client.query(
+        `SELECT tablename AS name FROM pg_catalog.pg_tables WHERE schemaname = $1 ORDER BY tablename`,
         [NOSQL_SCHEMA],
       );
-
-      return result.rows;
+      // Use a real COUNT per collection: pg_stat.n_live_tup is only an estimate
+      // and reads 0 for freshly-populated collections (no ANALYZE yet), which
+      // made the sidebar badge show 0 documents.
+      const rows: CollectionInfo[] = [];
+      for (const t of tables.rows as { name: string }[]) {
+        const c = await client.query(
+          `SELECT COUNT(*)::int AS n FROM ${this.qualifiedName(t.name)}`,
+        );
+        rows.push({ name: t.name, documentCount: c.rows[0]?.n ?? 0 });
+      }
+      return rows;
     } finally {
       client.release();
       await pool.end();
