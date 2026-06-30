@@ -29,6 +29,10 @@ function inline(text: string, keyPrefix: string): React.ReactNode[] {
 
 const cells = (row: string) => row.replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
 
+/** Items/rows marked done (lead with ✅) render green. */
+const done = (text: string) =>
+  text.trimStart().startsWith('✅') ? 'text-emerald-600 dark:text-emerald-400 font-medium' : '';
+
 export function MarkdownView({ md }: { md: string }) {
   const lines = (md || '').replace(/\r\n/g, '\n').split('\n');
   const out: React.ReactNode[] = [];
@@ -73,7 +77,7 @@ export function MarkdownView({ md }: { md: string }) {
         <div key={K()} className="my-3 overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead><tr className="border-b bg-muted/40">{header.map((c, ci) => <th key={ci} className="px-3 py-2 text-left font-semibold">{inline(c, K())}</th>)}</tr></thead>
-            <tbody>{rows.map((r, ri) => <tr key={ri} className="border-b last:border-0">{r.map((c, ci) => <td key={ci} className="px-3 py-2 align-top">{inline(c, K())}</td>)}</tr>)}</tbody>
+            <tbody>{rows.map((r, ri) => <tr key={ri} className={`border-b last:border-0${r.some((c) => c.includes('✅')) ? ' bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : ''}`}>{r.map((c, ci) => <td key={ci} className="px-3 py-2 align-top">{inline(c, K())}</td>)}</tr>)}</tbody>
           </table>
         </div>,
       );
@@ -92,7 +96,7 @@ export function MarkdownView({ md }: { md: string }) {
     if (/^\s*[-*]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ''));
-      out.push(<ul key={K()} className="my-2 ml-5 list-disc space-y-1 text-sm">{items.map((it, ii) => <li key={ii}>{inline(it, K())}</li>)}</ul>);
+      out.push(<ul key={K()} className="my-2 ml-5 list-disc space-y-1 text-sm">{items.map((it, ii) => <li key={ii} className={done(it)}>{inline(it, K())}</li>)}</ul>);
       continue;
     }
 
@@ -100,7 +104,7 @@ export function MarkdownView({ md }: { md: string }) {
     if (/^\s*\d+\.\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+\.\s+/, ''));
-      out.push(<ol key={K()} className="my-2 ml-5 list-decimal space-y-1 text-sm">{items.map((it, ii) => <li key={ii}>{inline(it, K())}</li>)}</ol>);
+      out.push(<ol key={K()} className="my-2 ml-5 list-decimal space-y-1 text-sm">{items.map((it, ii) => <li key={ii} className={done(it)}>{inline(it, K())}</li>)}</ol>);
       continue;
     }
 
