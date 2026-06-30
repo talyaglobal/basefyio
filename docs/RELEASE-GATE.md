@@ -11,7 +11,7 @@ checked; the rest are gated on the platform-api stabilization pass.
 ## Repository
 
 - [x] Apache 2.0 license
-- [ ] No proprietary references (no kolaybase-new / internal remnants)
+- [ ] No proprietary references (no private-source / internal remnants)
 - [ ] No secrets committed
 - [ ] README matches reality
 - [ ] Roadmap matches reality
@@ -20,7 +20,7 @@ checked; the rest are gated on the platform-api stabilization pass.
 
 - [x] `pnpm typecheck` passes
 - [x] `pnpm build` passes
-- [x] `/api/health` returns 200 *(global prefix `api`; verified `{"status":"ok"}`)*
+- [x] `/health` returns 200 *(excluded from the `api` global prefix; verified `{"status":"ok"}` with Postgres+Redis up and Keycloak down)*
 - [x] Prisma client generates
 - [x] Database migrations apply *(initial migration `..._init` applied; `migrate deploy` clean)*
 - [x] No Drizzle references
@@ -83,7 +83,7 @@ using *only* the README, running the documented commands exactly as written:
 - [ ] Clone the repository
 - [ ] Follow only the README (no hidden knowledge required)
 - [ ] Run the documented commands exactly as written
-- [ ] `/api/health` endpoint reachable
+- [ ] `/health` endpoint reachable
 - [ ] CLI works (`basefyio --version`, `basefyio doctor`)
 - [ ] SDK example works
 - [ ] Docs never require undocumented steps

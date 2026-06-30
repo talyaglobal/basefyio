@@ -21,7 +21,9 @@ describe('Health (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api');
+    // Mirror the production prefix config exactly (see src/main.ts): health is
+    // excluded from the global `api` prefix so probes hit /health, not /api/health.
+    app.setGlobalPrefix('api', { exclude: ['health'] });
     // Bind to loopback explicitly: supertest(app.getHttpServer()) otherwise
     // ephemeral-listens on 0.0.0.0, which is denied (EPERM) in hardened CI
     // sandboxes. Loopback keeps this smoke portable across runners.
@@ -32,9 +34,14 @@ describe('Health (e2e)', () => {
     await app.close();
   });
 
-  it('GET /api/health returns 200 with ok status', async () => {
-    const res = await request(app.getHttpServer()).get('/api/health');
+  it('GET /health returns 200 with ok status (excluded from the api prefix)', async () => {
+    const res = await request(app.getHttpServer()).get('/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'ok' });
+  });
+
+  it('GET /api/health is 404 (health is not under the api prefix)', async () => {
+    const res = await request(app.getHttpServer()).get('/api/health');
+    expect(res.status).toBe(404);
   });
 });
