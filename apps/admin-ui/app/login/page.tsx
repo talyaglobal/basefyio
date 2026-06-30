@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Database } from 'lucide-react';
+import { Database, Rocket } from 'lucide-react';
 import { clearTokens, isAuthenticated, setTokens } from '@/lib/auth';
 import { getSdk, resetSdk } from '@/lib/sdk';
 import { Button } from '@/components/ui/button';
@@ -89,6 +90,21 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign in'}
           </Button>
         </form>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div>
+          <div className="relative flex justify-center">
+            <span className="bg-card px-2 text-xs text-muted-foreground">or</span>
+          </div>
+        </div>
+
+        <Link
+          href="/playground"
+          className="flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <Rocket className="h-4 w-4" />
+          Try basefyio in your browser — no signup
+        </Link>
       </div>
     </div>
   );
