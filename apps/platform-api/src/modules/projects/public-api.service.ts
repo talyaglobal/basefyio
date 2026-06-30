@@ -1,8 +1,11 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  HttpException,
   InternalServerErrorException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -319,8 +322,12 @@ export class PublicApiService {
     try {
       return await this.runRlsTransaction(projectId, ctx, fn);
     } catch (e: any) {
-      if (e?.code !== PG_INSUFFICIENT_PRIVILEGE) {
-        throw e;
+      // Only a SET ROLE membership failure means "this project predates the RLS
+      // bootstrap" → try to self-heal. A query-level insufficient_privilege (an
+      // RLS policy denial) or any other Postgres error is mapped to a proper
+      // HTTP status instead of bubbling up as a generic 500.
+      if (!(e?.code === PG_INSUFFICIENT_PRIVILEGE && e.__setRoleFailed)) {
+        throw this.mapPgError(e);
       }
 
       const lastAttempt = this.autoHealLastAttemptMs.get(projectId) ?? 0;
@@ -373,8 +380,44 @@ export class PublicApiService {
       );
       // Clear the cooldown marker so a healthy project doesn't carry stale state.
       this.autoHealLastAttemptMs.delete(projectId);
-      // One retry post-heal. If this also fails, surface the original code path.
-      return this.runRlsTransaction(projectId, ctx, fn);
+      // One retry post-heal. If this also fails, map the error to a proper status.
+      try {
+        return await this.runRlsTransaction(projectId, ctx, fn);
+      } catch (retryErr: any) {
+        throw this.mapPgError(retryErr);
+      }
+    }
+  }
+
+  /**
+   * Translate a raw Postgres / data-layer error into a proper HTTP status.
+   * Already-mapped HttpExceptions (validation errors, etc.) pass through; only
+   * unknown errors become a 500.
+   */
+  private mapPgError(e: any): unknown {
+    if (e instanceof HttpException) return e;
+    switch (e?.code) {
+      case '42501': // insufficient_privilege — RLS policy denied the operation
+        return new ForbiddenException('Permission denied by row-level security policy');
+      case '23505': // unique_violation
+        return new ConflictException(e.detail || 'A record with these values already exists');
+      case '23503': // foreign_key_violation
+        return new ConflictException(e.detail || 'Foreign key constraint violation');
+      case '23502': // not_null_violation
+        return new BadRequestException(e.column ? `Column "${e.column}" cannot be null` : 'Not-null constraint violation');
+      case '23514': // check_violation
+        return new BadRequestException('Check constraint violation');
+      case '22P02': // invalid_text_representation
+      case '22007': // invalid_datetime_format
+        return new BadRequestException('Invalid input value');
+      case '42703': // undefined_column
+        return new BadRequestException('Unknown column in request');
+      case '42P01': // undefined_table
+        return new NotFoundException(
+          'Table not found. Document (NoSQL) projects expose data at /rest/v1/collections/:name',
+        );
+      default:
+        return e; // unknown → NestJS renders a 500
     }
   }
 
@@ -388,8 +431,15 @@ export class PublicApiService {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // SET LOCAL survives only until COMMIT / ROLLBACK.
-      await client.query(`SET LOCAL ROLE "${ctx.role}"`);
+      // SET LOCAL survives only until COMMIT / ROLLBACK. Tag a failure here so
+      // withRls can tell a missing-role-membership (needs bootstrap) apart from
+      // a query-level RLS denial (which must surface as 403, not a bootstrap loop).
+      try {
+        await client.query(`SET LOCAL ROLE "${ctx.role}"`);
+      } catch (roleErr: any) {
+        if (roleErr && typeof roleErr === 'object') roleErr.__setRoleFailed = true;
+        throw roleErr;
+      }
 
       const claimsJson = ctx.jwtClaims
         ? JSON.stringify(ctx.jwtClaims)

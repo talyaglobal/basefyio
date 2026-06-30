@@ -65,6 +65,18 @@ export class ApiKeyGuard implements CanActivate {
         | undefined;
       if (authHeader && /^bearer /i.test(authHeader)) {
         const token = authHeader.replace(/^bearer /i, '').trim();
+        // Many SDKs mirror the apikey into the Authorization header by default.
+        // When the Bearer token is just the project key (not a user JWT), treat
+        // the caller as anon instead of rejecting it as an invalid access token.
+        if (token === apiKey || token === project.anonKey || token === project.serviceKey) {
+          request.apiKeyPayload = {
+            projectId: project.id,
+            role: isService ? 'service' : 'anon',
+            dbRole,
+            jwtClaims: undefined,
+          } as ApiKeyPayload;
+          return true;
+        }
         const claims = await this.verifyProjectJwt(token, project.keycloakRealm);
         if (claims) {
           jwtClaims = claims;
