@@ -23,9 +23,20 @@ basefyio gives you:
 - **Dedicated PostgreSQL database per project** — no shared schemas, no cross-project risk
 - **Built-in authentication** — isolated identity per project, JWT-secured API
 - **Multi-tenant architecture** — manage many projects from a single platform
+- **Role-based access control** — per-team and per-project roles and permissions
+- **Auto REST API per project** — a Supabase-style data API over your tables, served per project
+- **Flexible data engine** — relational tables and schema-flexible document collections
+- **Object storage** — S3-compatible per-project file storage and uploads
 - **Secure SQL execution** — validated, audited, timeout-bound query API
-- **Modern admin dashboard** — project management, SQL editor, and monitoring
-- **CLI** — initialize, manage, and deploy from the terminal
+- **AI-powered search** — embeddings, semantic search, and retrieval-augmented (RAG) queries
+- **Automation flows** — trigger-and-action workflows on a background job queue
+- **App Builder** — turn a spreadsheet into real database tables and a schema you can migrate
+- **Billing & subscriptions** — plans, usage, and metered limits
+- **Import from Supabase** — migrate an existing Supabase project (schema, data, and users)
+- **Optional infrastructure provisioning** — provision compute through pluggable cloud providers
+- **Background jobs & caching** — async processing, scheduling, and a shared cache layer
+- **Modern admin dashboard** — project management, SQL editor, data browser, and monitoring
+- **TypeScript SDK & CLI** — manage and integrate from code or the terminal
 - **Docker-first** — one command to start the full stack locally
 - **Self-hosted** — no vendor lock-in, no data leaving your servers
 
@@ -163,11 +174,14 @@ See [CLI documentation](./packages/cli/README.md) for the full reference.
 ```
 basefyio/
 ├── apps/
-│   ├── platform-api/    # REST API — auth, projects, SQL, audit
-│   └── admin-ui/        # Next.js dashboard
+│   ├── platform-api/    # REST API — auth, projects, SQL, data, audit, billing, AI, provisioning
+│   ├── admin-ui/        # Next.js admin dashboard
+│   └── website/         # Public marketing site
 ├── packages/
-│   └── cli/             # basefyio CLI
-├── scripts/             # Database initialization
+│   ├── cli/             # basefyio CLI
+│   ├── sdk/             # TypeScript SDK
+│   └── data-engine/     # Schema-flexible document/data engine
+├── scripts/             # Database initialization & maintenance
 └── docker-compose.yml
 ```
 
@@ -220,13 +234,17 @@ See [`.env.example`](.env.example) for the full list of required and optional co
 
 ## Roadmap
 
-- [ ] REST API generation per project
-- [ ] Role-based access control (RBAC) per project
-- [ ] Webhook support
-- [ ] S3-compatible file upload per project
-- [ ] Web-based SQL editor enhancements
+Already shipped (see **Features**): auto REST API per project, per-project RBAC,
+S3-compatible file storage, the TypeScript SDK, and the web-based SQL editor.
+
+Planned next:
+
+- [ ] Outbound webhooks
+- [ ] Realtime subscriptions
+- [ ] Python SDK
+- [ ] End-to-end test suite across the dashboard and critical user journeys
 - [ ] Kubernetes deployment guide
-- [ ] SDKs (TypeScript, Python)
+- [ ] Mutual-TLS database gateway (client certificates) for external access
 
 ---
 
