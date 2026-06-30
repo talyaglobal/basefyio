@@ -1,0 +1,2033 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
+import { api } from '@/lib/api';
+import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
+import type {
+  TableInfo,
+  ColumnInfo,
+  TableRows,
+  ForeignKeyInfo,
+  CollectionInfo,
+  EntityDefinitionInfo,
+} from '@/lib/types';
+import { CollectionDocumentsPanel } from '@/components/collection-documents-panel';
+import { EntityDocumentsPanel } from '@/components/entity-documents-panel';
+import { CreateEntityDialog } from '@/components/create-entity-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn, formatCount } from '@/lib/utils';
+import { CreateTableDialog } from '@/components/create-table-dialog';
+import { ImportDataDialog } from '@/components/import-data-dialog';
+import { DuplicateCleanerDialog } from '@/components/duplicate-cleaner-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Braces,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  Key,
+  Link2,
+  MoreVertical,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ScrollText,
+  Search,
+  Table2,
+  Trash2,
+  X,
+  Upload as ImportIcon,
+  CopyMinus,
+  CircleHelp,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { FieldTypeSelector } from '@/components/field-type-selector';
+import { DEFAULT_SUGGESTIONS } from '@/lib/pg-field-types';
+
+interface TableEditorProps {
+  projectId: string;
+  /** Deep-link target: `sql:users`, `nosql:posts`, or `entity:customers`. Consumed once. */
+  initialOpen?: string | null;
+  /** Initial kind filter: 'sql' | 'nosql' | 'entity'. */
+  initialFilter?: string | null;
+}
+
+/** The unified editor browses three kinds of data objects in one place. */
+type DataKind = 'sql' | 'nosql' | 'entity';
+
+function keyOf(kind: DataKind, name: string): string {
+  return `${kind}:${name}`;
+}
+
+/** Parse an item key; bare names (legacy persisted state) are SQL tables. */
+function parseKey(key: string): { kind: DataKind; name: string } {
+  const idx = key.indexOf(':');
+  if (idx > 0) {
+    const kind = key.slice(0, idx);
+    if (kind === 'sql' || kind === 'nosql' || kind === 'entity') {
+      return { kind, name: key.slice(idx + 1) };
+    }
+  }
+  return { kind: 'sql', name: key };
+}
+
+// ── Add Column Dialog ──────────────────────────────────────
+
+function AddColumnDialog({
+  open,
+  onOpenChange,
+  projectId,
+  tableName,
+  onAdded,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  projectId: string;
+  tableName: string;
+  onAdded: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState('text');
+  const [nullable, setNullable] = useState(true);
+  const [defaultValue, setDefaultValue] = useState('');
+  const [isUnique, setIsUnique] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setName('');
+    setType('text');
+    setNullable(true);
+    setDefaultValue('');
+    setIsUnique(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error('Column name is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.projects.addColumn(projectId, tableName, {
+        name: name.trim(),
+        type,
+        nullable,
+        defaultValue: defaultValue || undefined,
+        isUnique,
+      });
+      toast.success(`Column "${name}" added`);
+      reset();
+      onOpenChange(false);
+      onAdded();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Column</DialogTitle>
+          <DialogDescription>
+            Add a new column to <span className="font-mono font-semibold">{tableName}</span>
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="column_name"
+              pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <FieldTypeSelector value={type} onValueChange={setType} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Default Value</Label>
+            <Input
+              value={defaultValue}
+              onChange={(e) => setDefaultValue(e.target.value)}
+              placeholder="optional"
+              list="add-col-defaults"
+            />
+            {DEFAULT_SUGGESTIONS[type] && (
+              <datalist id="add-col-defaults">
+                {DEFAULT_SUGGESTIONS[type].map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            )}
+          </div>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={nullable}
+                onChange={(e) => setNullable(e.target.checked)}
+                className="rounded"
+              />
+              Nullable
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isUnique}
+                onChange={(e) => setIsUnique(e.target.checked)}
+                className="rounded"
+              />
+              Unique
+            </label>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Adding...' : 'Add Column'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Column Side Panel ──────────────────────────────────────
+
+function ColumnSidePanel({
+  columns,
+  tables,
+  projectId,
+  tableName,
+  onClose,
+  onUpdated,
+  onAddColumn,
+}: {
+  columns: ColumnInfo[];
+  tables: TableInfo[];
+  projectId: string;
+  tableName: string;
+  onClose: () => void;
+  onUpdated: () => void;
+  onAddColumn: () => void;
+}) {
+  const [editingCol, setEditingCol] = useState<ColumnInfo | null>(null);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('');
+  const [nullable, setNullable] = useState(true);
+  const [defaultValue, setDefaultValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const [foreignKeys, setForeignKeys] = useState<ForeignKeyInfo[]>([]);
+  const [fkLoading, setFkLoading] = useState(false);
+  const [addFkOpen, setAddFkOpen] = useState(false);
+
+  useEffect(() => {
+    api.projects.getForeignKeys(projectId, tableName).then(setForeignKeys).catch(() => setForeignKeys([]));
+  }, [projectId, tableName]);
+
+  async function reloadFks() {
+    setFkLoading(true);
+    try {
+      const fks = await api.projects.getForeignKeys(projectId, tableName);
+      setForeignKeys(fks);
+    } finally {
+      setFkLoading(false);
+    }
+  }
+
+  function startEdit(col: ColumnInfo) {
+    setEditingCol(col);
+    setName(col.name);
+    setType(col.type);
+    setNullable(col.nullable);
+    setDefaultValue(col.defaultValue ?? '');
+    setConfirmDelete(null);
+  }
+
+  function cancelEdit() {
+    setEditingCol(null);
+    setConfirmDelete(null);
+  }
+
+  async function saveEdit() {
+    if (!editingCol) return;
+    setSaving(true);
+    try {
+      const changes: Record<string, unknown> = {};
+      if (name !== editingCol.name) changes.name = name;
+      if (type !== editingCol.type) changes.type = type;
+      if (nullable !== editingCol.nullable) changes.nullable = nullable;
+      const newDefault = defaultValue || null;
+      if (newDefault !== editingCol.defaultValue) changes.defaultValue = newDefault;
+
+      if (Object.keys(changes).length === 0) {
+        setEditingCol(null);
+        return;
+      }
+
+      await api.projects.editColumn(projectId, tableName, editingCol.name, changes);
+      toast.success(`Column "${editingCol.name}" updated`);
+      setEditingCol(null);
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(colName: string) {
+    if (confirmDelete !== colName) {
+      setConfirmDelete(colName);
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.projects.deleteColumn(projectId, tableName, colName);
+      toast.success(`Column "${colName}" deleted`);
+      if (editingCol?.name === colName) setEditingCol(null);
+      setConfirmDelete(null);
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="w-72 shrink-0 border-l bg-card flex flex-col">
+      {/* Panel header */}
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Columns3 className="h-4 w-4" />
+          Columns
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onAddColumn} title="Add column">
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Column list or edit form */}
+      <div className="flex-1 overflow-y-auto">
+        {editingCol ? (
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Editing column</span>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>
+                Back
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Name</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-8 text-sm"
+                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Type</Label>
+              <FieldTypeSelector value={type} onValueChange={setType} compact />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Default Value</Label>
+              <Input
+                value={defaultValue}
+                onChange={(e) => setDefaultValue(e.target.value)}
+                placeholder="none"
+                className="h-8 text-sm"
+                list={`edit-col-defaults-${editingCol.name}`}
+              />
+              {DEFAULT_SUGGESTIONS[type] && (
+                <datalist id={`edit-col-defaults-${editingCol.name}`}>
+                  {DEFAULT_SUGGESTIONS[type].map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={nullable}
+                onChange={(e) => setNullable(e.target.checked)}
+                className="rounded"
+                disabled={editingCol.isPrimary}
+              />
+              Nullable
+            </label>
+
+            {editingCol.isPrimary && (
+              <Badge variant="secondary" className="text-amber-600 text-xs">
+                <Key className="mr-1 h-3 w-3" /> Primary Key
+              </Badge>
+            )}
+
+            <div className="flex flex-col gap-2 pt-2 border-t">
+              <Button size="sm" onClick={saveEdit} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <Button
+                size="sm"
+                variant={confirmDelete === editingCol.name ? 'destructive' : 'outline'}
+                onClick={() => handleDelete(editingCol.name)}
+                disabled={saving}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                {confirmDelete === editingCol.name ? 'Confirm Delete' : 'Delete Column'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-1 space-y-0.5">
+            {columns.map((col) => (
+              <button
+                key={col.name}
+                onClick={() => startEdit(col)}
+                className="group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {col.isPrimary && <Key className="h-3 w-3 shrink-0 text-amber-500" />}
+                    <span className="font-medium truncate">{col.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">{col.type}</span>
+                    {col.nullable && (
+                      <span className="text-[10px] text-blue-500 font-mono">nullable</span>
+                    )}
+                    {col.defaultValue && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
+                        = {col.defaultValue}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Relations (Foreign Keys) */}
+        <div className="border-t mt-2 pt-3">
+          <div className="flex items-center justify-between px-3 mb-2">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Link2 className="h-4 w-4 text-muted-foreground" />
+              Relations
+            </div>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setAddFkOpen(true)} title="Add foreign key">
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="p-1 space-y-1 max-h-32 overflow-y-auto">
+            {fkLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : foreignKeys.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No foreign keys</p>
+            ) : (
+              foreignKeys.map((fk) => (
+                <div key={fk.constraintName} className="group flex items-center justify-between rounded-md px-3 py-2 text-xs hover:bg-accent">
+                  <span className="truncate">
+                    <span className="font-medium">{fk.columnName}</span>
+                    <span className="text-muted-foreground"> → </span>
+                    <span className="font-mono">{fk.foreignTableName}.{fk.foreignColumnName}</span>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                    onClick={async () => {
+                      try {
+                        await api.projects.deleteForeignKey(projectId, tableName, fk.constraintName);
+                        toast.success('Foreign key removed');
+                        reloadFks();
+                        onUpdated();
+                      } catch (err: any) {
+                        toast.error(err.message);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      <AddForeignKeyDialog
+        open={addFkOpen}
+        onOpenChange={setAddFkOpen}
+        projectId={projectId}
+        tableName={tableName}
+        tables={tables}
+        columns={columns}
+        onAdded={() => {
+          reloadFks();
+          onUpdated();
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Add Foreign Key Dialog ─────────────────────────────────────────────────
+
+function AddForeignKeyDialog({
+  open,
+  onOpenChange,
+  projectId,
+  tableName,
+  tables,
+  columns,
+  onAdded,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  projectId: string;
+  tableName: string;
+  tables: TableInfo[];
+  columns: ColumnInfo[];
+  onAdded: () => void;
+}) {
+  const [columnName, setColumnName] = useState('');
+  const [foreignTableName, setForeignTableName] = useState('');
+  const [foreignColumns, setForeignColumns] = useState<ColumnInfo[]>([]);
+  const [foreignColumnName, setForeignColumnName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setColumnName('');
+    setForeignTableName('');
+    setForeignColumns([]);
+    setForeignColumnName('');
+  }
+
+  useEffect(() => {
+    if (foreignTableName && foreignTableName !== tableName) {
+      api.projects.columns(projectId, foreignTableName).then(setForeignColumns);
+    } else {
+      setForeignColumns([]);
+      setForeignColumnName('');
+    }
+  }, [projectId, foreignTableName, tableName]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!columnName || !foreignTableName || !foreignColumnName) {
+      toast.error('Column, foreign table, and foreign column are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.projects.addForeignKey(projectId, tableName, {
+        columnName,
+        foreignTableName,
+        foreignColumnName,
+      });
+      toast.success('Foreign key added');
+      reset();
+      onOpenChange(false);
+      onAdded();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const otherTables = tables.filter((t) => t.name !== tableName);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Foreign Key</DialogTitle>
+          <DialogDescription>
+            Add a relation from <span className="font-mono font-semibold">{tableName}</span> to another table.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Column</Label>
+            <select
+              value={columnName}
+              onChange={(e) => setColumnName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Select column</option>
+              {columns.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>References table</Label>
+            <select
+              value={foreignTableName}
+              onChange={(e) => setForeignTableName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Select table</option>
+              {otherTables.map((t) => (
+                <option key={t.name} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>References column</Label>
+            <select
+              value={foreignColumnName}
+              onChange={(e) => setForeignColumnName(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              required
+              disabled={!foreignTableName}
+            >
+              <option value="">Select column</option>
+              {foreignColumns.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Adding...' : 'Add Foreign Key'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main Table Editor ──────────────────────────────────────
+
+export function TableEditor({ projectId, initialOpen = null, initialFilter = null }: TableEditorProps) {
+  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [collections, setCollections] = useState<CollectionInfo[]>([]);
+  const [entities, setEntities] = useState<EntityDefinitionInfo[]>([]);
+  const [kindFilter, setKindFilter] = useState<'all' | DataKind>(
+    initialFilter === 'sql' || initialFilter === 'nosql' || initialFilter === 'entity'
+      ? initialFilter
+      : 'all',
+  );
+  // Deep-link target is consumed once; later refreshes restore normally.
+  const initialOpenRef = useRef<string | null>(initialOpen);
+
+  // Look up schema for a given table name from the listTables result so the
+  // backend resolves "public.users" vs "auth.users" unambiguously.
+  const schemaFor = (name: string | null): string | undefined =>
+    name ? tables.find((t) => t.name === name)?.schema : undefined;
+  /** Selected sidebar item key (`kind:name`); null = nothing open. */
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  /** SQL table name currently driving the grid — set only for kind 'sql'. */
+  const [selected, setSelected] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [data, setData] = useState<TableRows | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createEntityOpen, setCreateEntityOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [dedupeOpen, setDedupeOpen] = useState(false);
+
+  const [editingCell, setEditingCell] = useState<{ rowIdx: number; field: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [addingRow, setAddingRow] = useState(false);
+  const [newRow, setNewRow] = useState<Record<string, string>>({});
+  const editRef = useRef<HTMLInputElement>(null);
+
+  // ── Sidebar resize ────────────────────────────────────────────
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('basefyio_table_editor_sidebar_width');
+      if (saved) return Math.max(160, Math.min(480, Number(saved)));
+    }
+    return 224;
+  });
+  const isResizing = useRef(false);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
+
+  function handleResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    isResizing.current = true;
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = sidebarWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!isResizing.current) return;
+      const delta = ev.clientX - resizeStartX.current;
+      const next = Math.max(160, Math.min(480, resizeStartWidth.current + delta));
+      setSidebarWidth(next);
+    }
+
+    function onMouseUp() {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      setSidebarWidth((w) => {
+        localStorage.setItem('basefyio_table_editor_sidebar_width', String(w));
+        return w;
+      });
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [columnPanelOpen, setColumnPanelOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('basefyio_table_editor_column_panel_open') === 'true';
+  });
+
+  const [filterText, setFilterText] = useState('');
+  // `appliedFilter` is the debounced version of `filterText` that actually
+  // hits the API. Decoupling these lets the user type without firing a query
+  // on every keystroke — we only refetch ~350ms after they stop typing, and
+  // a server-side search runs across ALL rows (not just the current page).
+  const [appliedFilter, setAppliedFilter] = useState('');
+  // Sort state for the active table. `sortBy` is the column name (null for no
+  // sort = DB-native order); clicking a column cycles asc → desc → off.
+  // Sorting happens server-side so it covers the full table, not just the
+  // current page.
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [tableSearch, setTableSearch] = useState('');
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    const handle = setTimeout(() => setAppliedFilter(filterText.trim()), 350);
+    return () => clearTimeout(handle);
+  }, [filterText]);
+
+  const pkColumns = columns.filter((c) => c.isPrimary).map((c) => c.name);
+  const tableSearchLower = tableSearch.trim().toLowerCase();
+
+  // Single sidebar list mixing SQL tables, NoSQL collections, and Data Engine
+  // entities — each item labeled with its kind so the user always knows what
+  // they are looking at. Filterable by kind via the chips above the list.
+  type SidebarItem = { kind: DataKind; name: string; label: string; count: number | null };
+  const sidebarItems: SidebarItem[] = [
+    ...tables.map((t) => ({
+      kind: 'sql' as const, name: t.name, label: t.name, count: t.rowCount as number | null,
+    })),
+    ...collections.map((c) => ({
+      kind: 'nosql' as const, name: c.name, label: c.name, count: c.documentCount as number | null,
+    })),
+    ...entities.map((e) => ({
+      kind: 'entity' as const, name: e.logicalName, label: e.logicalName, count: null,
+    })),
+  ].sort((a, b) => a.label.localeCompare(b.label));
+  const filteredItems = sidebarItems.filter(
+    (i) =>
+      (kindFilter === 'all' || i.kind === kindFilter) &&
+      (tableSearchLower.length === 0 || i.label.toLowerCase().includes(tableSearchLower)),
+  );
+
+  const KIND_CHIPS: { value: 'all' | DataKind; label: string; count: number }[] = [
+    { value: 'all', label: 'All', count: sidebarItems.length },
+    { value: 'sql', label: 'SQL', count: tables.length },
+    { value: 'nosql', label: 'JSON', count: collections.length },
+    { value: 'entity', label: 'Entities', count: entities.length },
+  ];
+
+  /**
+   * localStorage key for the per-project Table Editor state (active table +
+   * open tabs). Keyed by projectId so opening Project A then switching to
+   * Project B doesn't bleed each other's tabs together.
+   */
+  const stateStorageKey = `basefyio_table_editor_state_${projectId}`;
+
+  useEffect(() => {
+    loadTables();
+  }, [projectId]);
+
+  useEffect(() => {
+    if (editRef.current) editRef.current.focus();
+  }, [editingCell]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('basefyio_table_editor_column_panel_open', columnPanelOpen ? 'true' : 'false');
+  }, [columnPanelOpen]);
+
+  // Persist active item + tab strip whenever they change. Skip the initial
+  // "empty" state — writing `{selected: null, openTabs: []}` before tables
+  // have loaded would wipe out a perfectly good saved state on every refresh.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!selectedKey && openTabs.length === 0) return;
+    try {
+      localStorage.setItem(
+        stateStorageKey,
+        JSON.stringify({ selected: selectedKey, openTabs }),
+      );
+    } catch {
+      // localStorage can throw in private mode or when quota is exceeded.
+      // Persistence is best-effort; refreshes just won't remember.
+    }
+  }, [selectedKey, openTabs, stateStorageKey]);
+
+  useLiveProjectRefresh(projectId, ['table.'], () => {
+    void loadTables();
+    void reloadRows();
+  });
+
+  async function loadTables() {
+    setLoading(true);
+    try {
+      // Collections (nosql schema in the project DB) and Data Engine entities
+      // each degrade to [] on failure — neither may break the SQL table list.
+      const [result, colls, ents] = await Promise.all([
+        api.projects.tables(projectId),
+        api.projects.listCollections(projectId).catch(() => [] as CollectionInfo[]),
+        api.projects.listEntityDefinitions(projectId).catch(() => [] as EntityDefinitionInfo[]),
+      ]);
+      setTables(result);
+      setCollections(colls);
+      setEntities(ents);
+
+      // An item key is valid only if its backing object still exists.
+      const normalize = (key: string) => {
+        const { kind, name } = parseKey(key);
+        return keyOf(kind, name);
+      };
+      const validKey = (key: string): boolean => {
+        const { kind, name } = parseKey(key);
+        if (kind === 'sql') return result.some((t) => t.name === name);
+        if (kind === 'nosql') return colls.some((c) => c.name === name);
+        return ents.some((e) => e.logicalName === name);
+      };
+
+      // Try to restore from localStorage on first load. Legacy entries are
+      // bare table names — parseKey treats those as SQL. Stale entries get
+      // filtered out so we don't try to open a phantom.
+      let restoredSelected: string | null = null;
+      let restoredTabs: string[] = [];
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(stateStorageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw) as {
+              selected?: string | null;
+              openTabs?: string[];
+            };
+            if (Array.isArray(parsed.openTabs)) {
+              restoredTabs = parsed.openTabs.map(normalize).filter(validKey);
+            }
+            if (typeof parsed.selected === 'string' && validKey(normalize(parsed.selected))) {
+              restoredSelected = normalize(parsed.selected);
+            }
+          }
+        } catch {
+          // Corrupt JSON — drop and start fresh.
+        }
+      }
+
+      // A deep link (?open=kind:name) wins over restored state, once.
+      const deepLinkRaw = initialOpenRef.current;
+      initialOpenRef.current = null;
+      const deepLinkKey =
+        deepLinkRaw && validKey(normalize(deepLinkRaw)) ? normalize(deepLinkRaw) : null;
+
+      if (restoredTabs.length > 0) {
+        setOpenTabs(restoredTabs);
+      } else {
+        setOpenTabs((prev) => prev.map(normalize).filter(validKey));
+      }
+
+      const firstAvailable =
+        result.length > 0
+          ? keyOf('sql', result[0].name)
+          : colls.length > 0
+            ? keyOf('nosql', colls[0].name)
+            : ents.length > 0
+              ? keyOf('entity', ents[0].logicalName)
+              : null;
+
+      const target =
+        deepLinkKey ??
+        restoredSelected ??
+        (selectedKey && validKey(selectedKey) ? selectedKey : firstAvailable);
+
+      if (target) {
+        openItem(target);
+      } else {
+        setSelectedKey(null);
+        setSelected(null);
+        setOpenTabs([]);
+        setColumns([]);
+        setData(null);
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openItem(key: string) {
+    setOpenTabs((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    selectItem(key);
+  }
+
+  function openTable(name: string) {
+    openItem(keyOf('sql', name));
+  }
+
+  function selectItem(key: string) {
+    const { kind, name } = parseKey(key);
+    setSelectedKey(key);
+    if (kind === 'sql') {
+      void selectTable(name);
+    } else {
+      // Non-SQL items render their own panel; clear the SQL grid state so
+      // the SQL rows effect stays dormant (it bails when `selected` is null).
+      setSelected(null);
+      setColumns([]);
+      setData(null);
+      setEditingCell(null);
+      setAddingRow(false);
+      setSelectedRows(new Set());
+    }
+  }
+
+  function closeTab(key: string) {
+    setOpenTabs((prev) => {
+      const next = prev.filter((t) => t !== key);
+      if (selectedKey === key) {
+        const fallback = next[next.length - 1] ?? null;
+        if (fallback) {
+          selectItem(fallback);
+        } else {
+          setSelectedKey(null);
+          setSelected(null);
+          setColumns([]);
+          setData(null);
+          setEditingCell(null);
+          setAddingRow(false);
+          setSelectedRows(new Set());
+        }
+      }
+      return next;
+    });
+  }
+
+  async function selectTable(name: string) {
+    setSelected(name);
+    setPage(1);
+    setEditingCell(null);
+    setAddingRow(false);
+    setFilterText('');
+    setAppliedFilter('');
+    setSortBy(null);
+    setSortDir('asc');
+    setSelectedRows(new Set());
+
+    // Only load columns here — rows are fetched by the `[appliedFilter, selected]`
+    // effect below, which is the single source of truth for the data set.
+    // Loading both here would cause a redundant fetch when the effect fires.
+    try {
+      const cols = await api.projects.columns(projectId, name, schemaFor(name));
+      setColumns(cols);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function reloadTableData() {
+    if (!selected) return;
+    setDataLoading(true);
+    try {
+      const [cols, rows] = await Promise.all([
+        api.projects.columns(projectId, selected, schemaFor(selected)),
+        api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir),
+      ]);
+      setColumns(cols);
+      setData(rows);
+      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  /** Update the cached table list with the exact row count we just observed. */
+  function syncSidebarCount(name: string, total: number) {
+    setTables((prev) =>
+      prev.map((t) => (t.name === name ? { ...t, rowCount: total } : t)),
+    );
+  }
+
+  // When the debounced filter changes (or the user opens a different table),
+  // reset to page 1 and refetch with the new search term. This is the single
+  // place that handles rows fetching when the filter changes; everything else
+  // delegates to it.
+  useEffect(() => {
+    if (!selected) return;
+    setSelectedRows(new Set());
+    setEditingCell(null);
+    setPage(1);
+    let cancelled = false;
+    setDataLoading(true);
+    api.projects
+      .rows(projectId, selected, 1, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir)
+      .then((rows) => {
+        if (cancelled) return;
+        setData(rows);
+        if (!appliedFilter) syncSidebarCount(selected, rows.total);
+      })
+      .catch((err: any) => {
+        if (!cancelled) toast.error(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setDataLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedFilter, selected, sortBy, sortDir]);
+
+  async function reloadRows() {
+    if (!selected) return;
+    setDataLoading(true);
+    try {
+      const rows = await api.projects.rows(projectId, selected, page, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      setData(rows);
+      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function loadPage(p: number) {
+    if (!selected) return;
+    setPage(p);
+    setEditingCell(null);
+    setSelectedRows(new Set());
+    setDataLoading(true);
+    try {
+      const rows = await api.projects.rows(projectId, selected, p, 50, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+      setData(rows);
+      if (!appliedFilter) syncSidebarCount(selected, rows.total);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleDropTable(name: string) {
+    if (!(await confirmDialog({ title: 'Drop table', description: `Drop table "${name}"? This will delete all data permanently.`, confirmText: 'Drop table', destructive: true }))) return;
+    try {
+      await api.projects.dropTable(projectId, name);
+      toast.success(`Table "${name}" dropped`);
+      setOpenTabs((prev) => prev.filter((t) => t !== keyOf('sql', name)));
+      if (selected === name) {
+        setSelected(null);
+        setSelectedKey(null);
+      }
+      loadTables();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleDropCollection(name: string) {
+    if (!(await confirmDialog({ title: 'Drop collection', description: `Drop collection "${name}"? This will delete all documents permanently.`, confirmText: 'Drop collection', destructive: true }))) return;
+    try {
+      await api.projects.dropCollection(projectId, name);
+      toast.success(`Collection "${name}" dropped`);
+      const key = keyOf('nosql', name);
+      setOpenTabs((prev) => prev.filter((t) => t !== key));
+      if (selectedKey === key) setSelectedKey(null);
+      loadTables();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  function getPkWhere(row: Record<string, unknown>): Record<string, unknown> {
+    if (pkColumns.length) {
+      const where: Record<string, unknown> = {};
+      for (const pk of pkColumns) where[pk] = row[pk];
+      return where;
+    }
+    // No primary key → identify the row by its physical id (ctid), carried in
+    // the row data as _bf_ctid, so edit/delete work on legacy PK-less tables.
+    if (row._bf_ctid != null) return { _bf_ctid: row._bf_ctid };
+    return {};
+  }
+
+  // Row identifier for update/delete. Primary key if present, else the physical
+  // row id (ctid), else a scalar-column match as a last resort.
+  function getRowMatch(row: Record<string, unknown>): Record<string, unknown> {
+    if (pkColumns.length) return getPkWhere(row);
+    if (row._bf_ctid != null) return { _bf_ctid: row._bf_ctid };
+    const where: Record<string, unknown> = {};
+    for (const col of columns) {
+      const v = row[col.name];
+      if (v === null || ['string', 'number', 'boolean'].includes(typeof v)) {
+        where[col.name] = v;
+      }
+    }
+    return where;
+  }
+
+  function startEdit(rowIdx: number, field: string) {
+    if (pkColumns.includes(field)) return;
+    const val = data?.rows[rowIdx]?.[field];
+    setEditingCell({ rowIdx, field });
+    setEditValue(val === null ? '' : String(val));
+  }
+
+  async function commitEdit() {
+    if (!editingCell || !selected || !data) return;
+    const row = data.rows[editingCell.rowIdx];
+    if (!row) return;
+
+    const pkWhere = getPkWhere(row);
+    if (!Object.keys(pkWhere).length) {
+      toast.error('Cannot edit: table has no primary key');
+      setEditingCell(null);
+      return;
+    }
+
+    const oldVal = row[editingCell.field];
+    const newVal = editValue === '' ? null : editValue;
+    if (String(oldVal ?? '') === String(newVal ?? '')) {
+      setEditingCell(null);
+      return;
+    }
+
+    try {
+      await api.projects.updateRow(projectId, selected, pkWhere, {
+        [editingCell.field]: newVal,
+      }, schemaFor(selected));
+      toast.success('Cell updated');
+      setEditingCell(null);
+      reloadRows();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  function cancelEdit() {
+    setEditingCell(null);
+  }
+
+  function handleEditKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') commitEdit();
+    if (e.key === 'Escape') cancelEdit();
+  }
+
+  function startAddRow() {
+    const defaults: Record<string, string> = {};
+    for (const col of columns) {
+      defaults[col.name] = '';
+    }
+    setNewRow(defaults);
+    setAddingRow(true);
+  }
+
+  async function commitNewRow() {
+    if (!selected) return;
+    const payload: Record<string, unknown> = {};
+    for (const col of columns) {
+      const val = newRow[col.name];
+      if (val === undefined || val === '') continue;
+      payload[col.name] = val === 'NULL' ? null : val;
+    }
+
+    try {
+      await api.projects.insertRow(projectId, selected, payload, schemaFor(selected));
+      toast.success('Row inserted');
+      setAddingRow(false);
+      setNewRow({});
+      reloadRows();
+      loadTables();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleDeleteRow(row: Record<string, unknown>) {
+    if (!selected) return;
+    const pkWhere = getRowMatch(row);
+    if (!Object.keys(pkWhere).length) {
+      toast.error('Cannot delete: row has no identifiable columns');
+      return;
+    }
+    if (!(await confirmDialog({ title: 'Delete row', description: 'Delete this row?', destructive: true }))) return;
+
+    try {
+      await api.projects.deleteRow(projectId, selected, pkWhere, schemaFor(selected));
+      toast.success('Row deleted');
+      reloadRows();
+      loadTables();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  function toggleRowSelect(idx: number) {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  }
+
+  function toggleSelectAllRows() {
+    if (!filteredRows) return;
+    if (selectedRows.size === filteredRows.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(filteredRows.map((_, i) => i)));
+    }
+  }
+
+  async function handleDeleteSelectedRows() {
+    if (!selected || !filteredRows || selectedRows.size === 0) return;
+    if (!(await confirmDialog({ title: 'Delete rows', description: `Delete ${selectedRows.size} row(s)?`, destructive: true }))) return;
+
+    let deleted = 0;
+    for (const idx of Array.from(selectedRows)) {
+      const row = filteredRows[idx];
+      if (!row) continue;
+      try {
+        await api.projects.deleteRow(projectId, selected, getRowMatch(row), schemaFor(selected));
+        deleted++;
+      } catch {}
+    }
+
+    toast.success(`Deleted ${deleted} row(s)`);
+    setSelectedRows(new Set());
+    reloadRows();
+    loadTables();
+  }
+
+  /**
+   * Cycle sort state for a column: off → asc → desc → off.
+   * Triggers a fresh fetch via the existing useEffect on [sortBy, sortDir].
+   */
+  function toggleSort(colName: string) {
+    if (sortBy !== colName) {
+      setSortBy(colName);
+      setSortDir('asc');
+      return;
+    }
+    if (sortDir === 'asc') {
+      setSortDir('desc');
+      return;
+    }
+    setSortBy(null);
+    setSortDir('asc');
+  }
+
+  // Server already filtered by `appliedFilter`, so we just pass through.
+  // The variable is kept named `filteredRows` because lots of JSX below
+  // references it; renaming would touch many lines for no gain.
+  const filteredRows = data?.rows;
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  function downloadCsvTemplate() {
+    if (!columns.length || !selected) return;
+    const headers = columns.map((c) => c.name).join(',');
+    const blob = new Blob([headers + '\n'], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selected}_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const selParsed = selectedKey ? parseKey(selectedKey) : null;
+  const selKind = selParsed?.kind ?? null;
+  const selName = selParsed?.name ?? null;
+
+  return (
+    <div className="flex flex-col h-full">
+      {tables.length === 0 && collections.length === 0 && entities.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed">
+          <Table2 className="mb-3 h-10 w-10 text-muted-foreground/50" />
+          <p className="font-medium">No data objects yet</p>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Create a SQL table, a NoSQL collection, or a Data Engine entity to get started.
+          </p>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create New
+          </Button>
+        </div>
+      ) : (
+        <div
+          className="flex flex-1 min-h-0 gap-0 overflow-hidden rounded-lg border"
+        >
+          {/* Sidebar: table list */}
+          <div
+            className="shrink-0 border-r bg-muted/30 flex flex-col relative"
+            style={{ width: sidebarWidth }}
+          >
+            <div className="sticky top-0 z-10 shrink-0 border-b bg-muted/40 p-2 backdrop-blur-sm">
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  placeholder="Search tables & collections…"
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                  className="h-9 bg-background pl-8 pr-8 text-sm shadow-sm"
+                  aria-label="Search tables and collections by name"
+                />
+                {tableSearch.trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Clear table search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {/* Kind filter chips */}
+              <div className="mt-2 flex flex-wrap gap-1" role="radiogroup" aria-label="Filter by data type">
+                {KIND_CHIPS.map((chip) => (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={kindFilter === chip.value}
+                    onClick={() => setKindFilter(chip.value)}
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                      kindFilter === chip.value
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
+                    )}
+                  >
+                    {chip.label}
+                    <span className="ml-1 opacity-60">{chip.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+              {filteredItems.length === 0 ? (
+                <div className="px-3 py-6">
+                  <p className="text-xs text-muted-foreground">
+                    {tableSearchLower.length > 0
+                      ? `No items match "${tableSearch}".`
+                      : 'No items of this type yet.'}
+                  </p>
+                </div>
+              ) : (
+                filteredItems.map((t) => (
+                  <div key={`${t.kind}:${t.name}`} className="group relative">
+                    <button
+                      onClick={() => openItem(keyOf(t.kind, t.name))}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-1.5 rounded-md px-3 py-2 text-sm transition-colors pr-9',
+                        selectedKey === keyOf(t.kind, t.name)
+                          ? 'bg-primary/10 font-medium text-primary'
+                          : 'text-muted-foreground hover:bg-accent',
+                      )}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        {t.kind === 'sql' ? (
+                          <Table2 className="h-3.5 w-3.5 shrink-0" />
+                        ) : t.kind === 'nosql' ? (
+                          <Braces className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                        ) : (
+                          <ScrollText className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                        )}
+                        <span className="truncate">{t.label}</span>
+                      </span>
+                      <span className="flex items-center gap-1 shrink-0">
+                        <span
+                          className={cn(
+                            'rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide',
+                            t.kind === 'sql'
+                              ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                              : t.kind === 'nosql'
+                                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                          )}
+                          title={
+                            t.kind === 'sql'
+                              ? 'SQL table'
+                              : t.kind === 'nosql'
+                                ? 'NoSQL collection'
+                                : 'Data Engine entity'
+                          }
+                        >
+                          {t.kind === 'sql' ? 'SQL' : t.kind === 'nosql' ? 'JSON' : 'ENTITY'}
+                        </span>
+                        {t.count !== null && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">
+                            {formatCount(t.count)}
+                          </Badge>
+                        )}
+                      </span>
+                    </button>
+                    {t.kind !== 'entity' && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+                            title={t.kind === 'sql' ? 'Table options' : 'Collection options'}
+                          >
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {t.kind === 'sql' ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  openTable(t.name);
+                                  setColumnPanelOpen(true);
+                                }}
+                              >
+                                <Pencil className="mr-2 h-3.5 w-3.5" />
+                                Edit table
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => handleDropTable(t.name)}
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                Delete table
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => handleDropCollection(t.name)}
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              Delete collection
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Drag handle */}
+            <div
+              onMouseDown={handleResizeMouseDown}
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 transition-colors z-10"
+              title="Drag to resize"
+            />
+          </div>
+
+          {/* Main content */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {selectedKey ? (
+              <>
+                <div className="flex items-center border-b bg-muted/30 px-2 py-1.5">
+                  <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+                    {openTabs.map((tab) => {
+                      const active = tab === selectedKey;
+                      const { kind: tabKind, name: tabName } = parseKey(tab);
+                      return (
+                        <div
+                          key={tab}
+                          onClick={() => selectItem(tab)}
+                          className={cn(
+                            'inline-flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors',
+                            active
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-transparent bg-background/70 text-muted-foreground hover:bg-accent',
+                          )}
+                        >
+                          {tabKind === 'sql' ? (
+                            <Table2 className="h-3 w-3 shrink-0" />
+                          ) : tabKind === 'nosql' ? (
+                            <Braces className="h-3 w-3 shrink-0 text-violet-500" />
+                          ) : (
+                            <ScrollText className="h-3 w-3 shrink-0 text-amber-500" />
+                          )}
+                          <span className="max-w-[140px] truncate">{tabName}</span>
+                          <button
+                            type="button"
+                            aria-label={`Close ${tabName}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeTab(tab);
+                            }}
+                            className="rounded p-0.5 hover:bg-muted"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadTables} title="Refresh">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                    {selKind === 'sql' && (
+                      <>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setImportOpen(true)}>
+                          <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
+                          Import Data
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setDedupeOpen(true)}
+                          disabled={!selected || tables.length === 0}
+                          title={
+                            !selected || tables.length === 0
+                              ? 'Select a table in the sidebar first'
+                              : 'Remove rows that match on chosen columns'
+                          }
+                        >
+                          <CopyMinus className="mr-1.5 h-3.5 w-3.5" />
+                          Clean duplicates
+                        </Button>
+                      </>
+                    )}
+                    <div className="relative">
+                      <Button size="sm" className="h-7 text-xs" onClick={() => setCreateOpen(true)}>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        New
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new Event('basefyio-open-help'))}
+                        className="absolute -right-1.5 -top-1.5 z-10 hidden lg:flex h-4 w-4 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                        title="Show help"
+                      >
+                        <CircleHelp className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {selKind === 'nosql' && selName ? (
+                  <CollectionDocumentsPanel projectId={projectId} collectionName={selName} />
+                ) : selKind === 'entity' && selName ? (
+                  <EntityDocumentsPanel projectId={projectId} entityName={selName} />
+                ) : !selected ? (
+                  <div className="flex flex-1 items-center justify-center text-muted-foreground">
+                    Select an item from the sidebar
+                  </div>
+                ) : (
+                <>
+                {/* Toolbar */}
+                <div className="flex items-center justify-between gap-3 border-b px-4 py-2 bg-card">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono text-sm font-semibold truncate">{selected}</span>
+                    <Badge variant="secondary" className="text-xs shrink-0">
+                      {formatCount(data?.total)}
+                      {data?.totalIsApprox ? '+' : ''} rows
+                      {appliedFilter ? ' match' : ''}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Input
+                      placeholder="Filter rows..."
+                      className="h-8 w-48 text-xs"
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAddColumnOpen(true)}
+                    >
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Column
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={startAddRow}
+                      disabled={addingRow}
+                    >
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Row
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={reloadTableData}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Data area + optional column panel */}
+                <div className="flex-1 flex min-h-0">
+                  {/* Table */}
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    {dataLoading ? (
+                      <div className="flex flex-1 items-center justify-center">
+                        <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-auto relative">
+                        {/* Bulk action bar */}
+                        {selectedRows.size > 0 && (
+                          <div className="sticky top-0 z-20 flex items-center gap-3 border-b bg-primary/10 px-4 py-2">
+                            <span className="text-sm font-medium">{selectedRows.size} row(s) selected</span>
+                            <Button size="sm" variant="destructive" onClick={handleDeleteSelectedRows}>
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              Delete selected
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setSelectedRows(new Set())}>
+                              Clear
+                            </Button>
+                          </div>
+                        )}
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 z-10" style={selectedRows.size > 0 ? { top: 41 } : undefined}>
+                            <tr className="border-b bg-muted/50">
+                              <th className="sticky left-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5 rounded"
+                                  checked={!!filteredRows && filteredRows.length > 0 && selectedRows.size === filteredRows.length}
+                                  onChange={toggleSelectAllRows}
+                                />
+                              </th>
+                              <th className="w-10 px-2 py-2 text-center text-xs font-medium text-muted-foreground">
+                                #
+                              </th>
+                              {data?.fields?.map((f) => {
+                                const col = columns.find((c) => c.name === f.name);
+                                return (
+                                  <th
+                                    key={f.name}
+                                    className="group/th whitespace-nowrap px-3 py-2 text-left text-xs font-medium"
+                                  >
+                                    <span className="flex items-center gap-1">
+                                      {pkColumns.includes(f.name) && (
+                                        <Key className="h-3 w-3 text-amber-500" />
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleSort(f.name)}
+                                        className={cn(
+                                          'inline-flex items-center gap-0.5 rounded px-0.5 hover:bg-accent transition-colors',
+                                          sortBy === f.name && 'text-primary',
+                                        )}
+                                        title={
+                                          sortBy === f.name
+                                            ? sortDir === 'asc'
+                                              ? `Sorted A→Z. Click to flip.`
+                                              : `Sorted Z→A. Click to clear.`
+                                            : 'Click to sort A→Z'
+                                        }
+                                      >
+                                        {f.name}
+                                        {sortBy === f.name && (
+                                          <span aria-hidden className="text-[10px] leading-none">
+                                            {sortDir === 'asc' ? '↑' : '↓'}
+                                          </span>
+                                        )}
+                                      </button>
+                                      <span className="text-[10px] text-muted-foreground font-normal ml-1">
+                                        {col?.type}
+                                      </span>
+                                      <button
+                                        onClick={() => setColumnPanelOpen(true)}
+                                        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/th:opacity-100 transition-opacity hover:bg-accent"
+                                        title={`Edit columns`}
+                                      >
+                                        <Pencil className="h-3 w-3 text-muted-foreground" />
+                                      </button>
+                                    </span>
+                                  </th>
+                                );
+                              })}
+                              <th className="sticky right-0 z-[11] w-10 bg-muted/50 px-2 py-2 text-xs font-medium" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* New row input */}
+                            {addingRow && (
+                              <tr className="border-b bg-green-50/50 dark:bg-green-950/20">
+                                <td className="sticky left-0 bg-green-50/50 dark:bg-green-950/20 px-2 py-1" />
+                                <td className="px-2 py-1 text-center">
+                                  <span className="text-xs text-green-600 font-medium">NEW</span>
+                                </td>
+                                {data?.fields?.map((f) => {
+                                  const col = columns.find((c) => c.name === f.name);
+                                  const hasDefault = !!col?.defaultValue;
+                                  return (
+                                    <td key={f.name} className="px-1 py-1">
+                                      <Input
+                                        value={newRow[f.name] ?? ''}
+                                        onChange={(e) =>
+                                          setNewRow((prev) => ({ ...prev, [f.name]: e.target.value }))
+                                        }
+                                        placeholder={hasDefault ? `(${col?.defaultValue})` : col?.nullable ? 'NULL' : ''}
+                                        className="h-7 text-xs font-mono"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') commitNewRow();
+                                          if (e.key === 'Escape') {
+                                            setAddingRow(false);
+                                            setNewRow({});
+                                          }
+                                        }}
+                                      />
+                                    </td>
+                                  );
+                                })}
+                                <td className="sticky right-0 bg-green-50/50 dark:bg-green-950/20 px-1 py-1">
+                                  <div className="flex gap-0.5">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-green-600"
+                                      onClick={commitNewRow}
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        setAddingRow(false);
+                                        setNewRow({});
+                                      }}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Existing rows */}
+                            {filteredRows && filteredRows.length > 0 ? (
+                              filteredRows.map((row, rowIdx) => {
+                                const actualIdx = data!.rows.indexOf(row);
+                                const isRowSelected = selectedRows.has(rowIdx);
+                                return (
+                                  <tr
+                                    key={rowIdx}
+                                    className={cn(
+                                      'group border-b last:border-0',
+                                      isRowSelected ? 'bg-primary/5' : 'hover:bg-muted/30',
+                                    )}
+                                  >
+                                    <td className={cn(
+                                      'sticky left-0 z-[1] px-2 py-1.5 text-center',
+                                      isRowSelected ? 'bg-primary/5' : 'bg-card group-hover:bg-muted/30',
+                                    )}>
+                                      <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 rounded"
+                                        checked={isRowSelected}
+                                        onChange={() => toggleRowSelect(rowIdx)}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
+                                      {(page - 1) * (data?.limit ?? 50) + actualIdx + 1}
+                                    </td>
+                                    {data?.fields?.map((f) => {
+                                      const isEditing =
+                                        editingCell?.rowIdx === actualIdx &&
+                                        editingCell?.field === f.name;
+                                      const isPk = pkColumns.includes(f.name);
+
+                                      if (isEditing) {
+                                        return (
+                                          <td key={f.name} className="px-1 py-0.5">
+                                            <Input
+                                              ref={editRef}
+                                              value={editValue}
+                                              onChange={(e) => setEditValue(e.target.value)}
+                                              onKeyDown={handleEditKeyDown}
+                                              onBlur={commitEdit}
+                                              className="h-7 text-xs font-mono"
+                                            />
+                                          </td>
+                                        );
+                                      }
+
+                                      return (
+                                        <td
+                                          key={f.name}
+                                          className={cn(
+                                            'max-w-[250px] truncate whitespace-nowrap px-3 py-1.5 font-mono text-xs',
+                                            !isPk && 'cursor-pointer hover:bg-primary/5',
+                                            isPk && 'text-muted-foreground',
+                                          )}
+                                          onDoubleClick={() => startEdit(actualIdx, f.name)}
+                                          title={isPk ? 'Primary key (read-only)' : 'Double-click to edit'}
+                                        >
+                                          {row[f.name] === null ? (
+                                            <span className="text-muted-foreground/40 italic">NULL</span>
+                                          ) : typeof row[f.name] === 'boolean' ? (
+                                            <Badge variant={row[f.name] ? 'default' : 'secondary'} className="text-[10px]">
+                                              {String(row[f.name])}
+                                            </Badge>
+                                          ) : (
+                                            String(row[f.name])
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className={cn(
+                                      'sticky right-0 z-[1] px-1 py-0.5 text-right',
+                                      isRowSelected ? 'bg-primary/5' : 'bg-card group-hover:bg-muted/30',
+                                    )}>
+                                      <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 text-destructive/70 hover:text-destructive"
+                                          onClick={() => handleDeleteRow(row)}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : !addingRow ? (
+                              <tr>
+                                <td
+                                  colSpan={(data?.fields?.length ?? 0) + 3}
+                                  className="py-16 text-center"
+                                >
+                                  {filterText ? (
+                                    <p className="text-sm text-muted-foreground">No rows match your filter</p>
+                                  ) : (
+                                    <div className="flex flex-col items-center gap-3">
+                                      <Table2 className="h-10 w-10 text-muted-foreground/30" />
+                                      <p className="font-medium">This table is empty</p>
+                                      <p className="text-sm text-muted-foreground">Import data from a CSV file or add rows manually</p>
+                                      <div className="flex items-center gap-2 mt-2">
+                                        <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                                          <ImportIcon className="mr-1.5 h-3.5 w-3.5" />
+                                          Import data from CSV
+                                        </Button>
+                                        <Button size="sm" variant="ghost" onClick={downloadCsvTemplate}>
+                                          Download template
+                                        </Button>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mt-1">or drag and drop a CSV file here</p>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Pagination */}
+                    {data && data.totalPages > 1 && (
+                      <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
+                        <span>
+                          {formatCount(data.total)}
+                          {data.totalIsApprox ? '+' : ''} rows
+                          {appliedFilter ? ` matching "${appliedFilter}"` : ''} — page{' '}
+                          {formatCount(data.page)}/{formatCount(data.totalPages)}
+                        </span>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page <= 1}
+                            onClick={() => loadPage(page - 1)}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page >= (data.totalPages || 1)}
+                            onClick={() => loadPage(page + 1)}
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Column side panel */}
+                  {columnPanelOpen && selected && (
+                    <ColumnSidePanel
+                      columns={columns}
+                      tables={tables}
+                      projectId={projectId}
+                      tableName={selected}
+                      onClose={() => setColumnPanelOpen(false)}
+                      onUpdated={reloadTableData}
+                      onAddColumn={() => setAddColumnOpen(true)}
+                    />
+                  )}
+                </div>
+                </>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <p>Select an item from the sidebar</p>
+                <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  New
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Dialogs */}
+      <CreateTableDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        projectId={projectId}
+        onCreated={(created) => {
+          loadTables();
+          if (created) {
+            // Open the new object inline so data can be added right away.
+            setTimeout(() => openItem(keyOf(created.kind, created.name)), 0);
+          }
+        }}
+        onCreateEntity={() => {
+          setCreateOpen(false);
+          setCreateEntityOpen(true);
+        }}
+      />
+      <CreateEntityDialog
+        open={createEntityOpen}
+        onOpenChange={setCreateEntityOpen}
+        projectId={projectId}
+        onCreated={(logicalName) => {
+          loadTables();
+          setTimeout(() => openItem(keyOf('entity', logicalName)), 0);
+        }}
+      />
+      <ImportDataDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        tables={tables}
+        defaultTargetTable={selected}
+        onCompleted={() => {
+          loadTables();
+          if (selected) reloadTableData();
+        }}
+        onDownloadTemplate={columns.length > 0 ? downloadCsvTemplate : undefined}
+      />
+      {selected && (
+        <DuplicateCleanerDialog
+          key={selected}
+          open={dedupeOpen}
+          onOpenChange={setDedupeOpen}
+          projectId={projectId}
+          tableName={selected}
+          schema={schemaFor(selected)}
+          columns={columns}
+          onCompleted={() => {
+            setDedupeOpen(false);
+            reloadTableData();
+          }}
+        />
+      )}
+
+      {selected && (
+        <AddColumnDialog
+          open={addColumnOpen}
+          onOpenChange={setAddColumnOpen}
+          projectId={projectId}
+          tableName={selected}
+          onAdded={reloadTableData}
+        />
+      )}
+    </div>
+  );
+}

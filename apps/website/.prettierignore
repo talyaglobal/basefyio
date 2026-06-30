@@ -1,0 +1,22 @@
+# Build outputs
+dist
+.astro
+
+# Dependencies
+node_modules
+package-lock.json
+
+# Generated files
+*.min.js
+*.min.css
+
+# Public assets
+public
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db

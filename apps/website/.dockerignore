@@ -1,0 +1,13 @@
+node_modules
+dist
+.astro
+.git
+.vscode
+*.md
+.env
+.env.*
+coverage
+npm-debug.log*
+# Keep Docker context small: local reference zips / extract trees
+*.zip
+reference-extract

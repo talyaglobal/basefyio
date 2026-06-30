@@ -1,0 +1,64 @@
+---
+title: "Self-Hosting Your Backend with Docker: What to Know"
+description: "Why and how teams self-host their backend with Docker Compose — data residency, cost control, and no vendor lock-in — plus the trade-offs to plan for."
+date: "2026-05-21"
+author: "basefyio Team"
+tags: ["self-hosting", "Docker", "PostgreSQL", "DevOps"]
+---
+
+Managed backends are convenient until a compliance requirement, a surprise bill,
+or a vendor limitation forces your hand. Self-hosting puts the stack on your own
+infrastructure — and with Docker Compose it's far less work than it used to be.
+
+## Why teams self-host
+
+- **Data residency & compliance.** Some data legally can't leave your
+  infrastructure or region.
+- **Cost control.** Usage-based pricing can spike; predictable hardware costs
+  don't.
+- **No lock-in.** Standard PostgreSQL means you own your data and can move it
+  with `pg_dump` at any time.
+- **Network isolation.** Keep the backend inside a private network with no public
+  database endpoint.
+
+## What a self-hosted backend stack looks like
+
+A complete backend is more than a database. Self-hosting one typically means
+running, at minimum:
+
+- **PostgreSQL** — your data.
+- **An auth service** — sessions, OAuth, password flows.
+- **Object storage** — S3-compatible (e.g. MinIO) for files.
+- **The API layer** — what turns the database into endpoints.
+
+Wiring those together by hand is the hard part. A platform that ships them as one
+Docker Compose stack removes most of the work:
+
+```bash
+docker compose up -d
+```
+
+That single command is how basefyio brings up PostgreSQL, authentication,
+storage, and the API together — the same components you'd otherwise assemble
+yourself.
+
+## Trade-offs to plan for
+
+Self-hosting isn't free of responsibility:
+
+- **Backups.** Schedule and test `pg_dump`/`pg_basebackup` restores.
+- **Upgrades.** You own version bumps and migrations.
+- **Monitoring.** Logs, metrics, disk, and uptime are now yours.
+- **Security.** Patch the host, restrict network access, rotate secrets.
+
+The rule of thumb: self-host when control and portability outweigh the
+operational overhead — and choose a stack that minimizes that overhead.
+
+## A portable middle ground
+
+Because basefyio is standard PostgreSQL, the decision isn't permanent. You can
+start self-hosted and stay portable, or move between environments without
+rewriting your app. That portability is the same reason it avoids
+[vendor lock-in compared to AWS Amplify](/compare/basefyio-vs-aws-amplify).
+
+Own your backend without owning a second full-time job.

@@ -1,0 +1,402 @@
+services:
+  # ── Reverse Proxy ───────────────────────────────────────
+
+  traefik:
+    image: traefik:v3.1
+    restart: always
+    command:
+      - --log.level=INFO
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt_data:/letsencrypt
+    networks:
+      - web
+      - internal
+    labels:
+      # Traefik dashboard at traefik.basefyio.com (optional, protect with basicauth)
+      - traefik.enable=true
+      - traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)
+      - traefik.http.routers.dashboard.entrypoints=websecure
+      - traefik.http.routers.dashboard.tls.certresolver=le
+      - traefik.http.routers.dashboard.service=api@internal
+      - traefik.http.routers.dashboard.middlewares=dashboard-auth
+      - traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}
+
+  # ── Infrastructure ───────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: kolaybase
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=200
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_buffers=16MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    restart: always
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: auth.${DOMAIN}
+      KC_HOSTNAME_STRICT: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      JAVA_OPTS_APPEND: "-Xms256m -Xmx512m"
+    command: start
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    networks:
+      - internal
+      - web
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.keycloak.rule=Host(`auth.${DOMAIN}`)
+      - traefik.http.routers.keycloak.entrypoints=websecure
+      - traefik.http.routers.keycloak.tls.certresolver=le
+      - traefik.http.services.keycloak.loadbalancer.server.port=8080
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio:latest
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER_REDIRECT_URL: https://minio-console.${DOMAIN}
+    command: server /data --console-address ":9001"
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+    volumes:
+      - minio_data:/data
+    networks:
+      - internal
+      - web
+    labels:
+      # MinIO S3 API — storage.basefyio.com
+      - traefik.enable=true
+      - traefik.http.routers.minio-api.rule=Host(`storage.${DOMAIN}`)
+      - traefik.http.routers.minio-api.entrypoints=websecure
+      - traefik.http.routers.minio-api.tls.certresolver=le
+      - traefik.http.routers.minio-api.service=minio-api
+      - traefik.http.services.minio-api.loadbalancer.server.port=9000
+      # MinIO Console — minio-console.basefyio.com
+      - traefik.http.routers.minio-console.rule=Host(`minio-console.${DOMAIN}`)
+      - traefik.http.routers.minio-console.entrypoints=websecure
+      - traefik.http.routers.minio-console.tls.certresolver=le
+      - traefik.http.routers.minio-console.service=minio-console
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: always
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
+    networks:
+      - internal
+      - web
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 || true"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── NoSQL Store (Data Engine) ─────────────────────────────
+
+  # MongoDB — the active Data Engine (DATA_ENGINE_PROVIDER=mongodb).
+  # CouchDB was retired 2026-06-12; its volume (couchdb_data) is preserved
+  # on disk in case the old test entities are ever needed.
+  mongodb:
+    image: mongo:7
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${NOSQL_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${NOSQL_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # ── Applications (pulled from GHCR) ────────────────────
+
+  platform-api:
+    image: ghcr.io/${GHCR_OWNER}/basefyio-api:latest
+    restart: always
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=1536
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase?connection_limit=20&pool_timeout=30
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: kolaybase
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: https://auth.${DOMAIN}
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_PUBLIC_ENDPOINT: storage.${DOMAIN}
+      MINIO_PUBLIC_PORT: 443
+      MINIO_PUBLIC_SSL: "true"
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
+      REDIS_URL: redis://redis:6379
+      APP_URL: https://app.${DOMAIN}
+      CORS_ORIGIN: "*"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}
+      PGBOUNCER_EXTERNAL_PORT: 6432
+      PUBLIC_API_URL: https://api.${DOMAIN}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_TEAMS_CLIENT_ID: ${GITHUB_TEAMS_CLIENT_ID:-}
+      GITHUB_TEAMS_CLIENT_SECRET: ${GITHUB_TEAMS_CLIENT_SECRET:-}
+      VERCEL_CLIENT_ID: ${VERCEL_CLIENT_ID:-}
+      VERCEL_CLIENT_SECRET: ${VERCEL_CLIENT_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # QuickBooks Online
+      QUICKBOOKS_CLIENT_ID: ${QUICKBOOKS_CLIENT_ID:-}
+      QUICKBOOKS_CLIENT_SECRET: ${QUICKBOOKS_CLIENT_SECRET:-}
+      QUICKBOOKS_REDIRECT_URI: ${QUICKBOOKS_REDIRECT_URI:-}
+      QUICKBOOKS_ENVIRONMENT: ${QUICKBOOKS_ENVIRONMENT:-production}
+      QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN: ${QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN:-}
+      WEBSITE_URL: https://${DOMAIN}
+      # Google Search Console + GA4
+      GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON: ${GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_MARKETING_SA_JSON_B64: ${GOOGLE_MARKETING_SA_JSON_B64:-}
+      GOOGLE_SEARCH_CONSOLE_SITE_URL: ${GOOGLE_SEARCH_CONSOLE_SITE_URL:-}
+      GOOGLE_SEARCH_CONSOLE_INSPECT_URL: ${GOOGLE_SEARCH_CONSOLE_INSPECT_URL:-}
+      GOOGLE_ANALYTICS_PROPERTY_ID: ${GOOGLE_ANALYTICS_PROPERTY_ID:-}
+      GOOGLE_MARKETING_IMPERSONATE_EMAIL: ${GOOGLE_MARKETING_IMPERSONATE_EMAIL:-}
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-kolaybase_default}
+      PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
+      # Data Engine
+      DATA_ENGINE_PROVIDER: ${DATA_ENGINE_PROVIDER:-disabled}
+      NOSQL_CONNSTR: ${NOSQL_CONNSTR:-couchbase://nosql}
+      NOSQL_USERNAME: ${NOSQL_USERNAME:-}
+      NOSQL_PASSWORD: ${NOSQL_PASSWORD:-}
+      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
+      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
+      DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
+      DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
+      DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - internal
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=4000
+      # Flush SSE frames immediately instead of buffering
+      - traefik.http.services.api.loadbalancer.responseforwarding.flushinterval=100ms
+      # Only route once the app answers — avoids deploy-time 502/503s
+      - traefik.http.services.api.loadbalancer.healthcheck.path=/api/health
+      - traefik.http.services.api.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.api.loadbalancer.healthcheck.timeout=5s
+
+  admin-ui:
+    image: ghcr.io/${GHCR_OWNER}/basefyio-ui:latest
+    restart: always
+    environment:
+      HOSTNAME: 0.0.0.0
+      API_INTERNAL_URL: http://platform-api:4000
+      NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    networks:
+      - internal
+      - web
+    depends_on:
+      - platform-api
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.ui.rule=Host(`app.${DOMAIN}`)
+      - traefik.http.routers.ui.entrypoints=websecure
+      - traefik.http.routers.ui.tls.certresolver=le
+      - traefik.http.services.ui.loadbalancer.server.port=3000
+      - traefik.http.services.ui.loadbalancer.server.scheme=http
+      # SSE streams need longer response timeouts (default 30s kills long-lived connections)
+      - traefik.http.services.ui.loadbalancer.responseforwarding.flushinterval=100ms
+      # Only route once Next.js is serving — kills the deploy-time RSC 503s
+      - traefik.http.services.ui.loadbalancer.healthcheck.path=/login
+      - traefik.http.services.ui.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.ui.loadbalancer.healthcheck.timeout=5s
+
+  website:
+    image: ghcr.io/${GHCR_OWNER}/basefyio-website:latest
+    restart: always
+    environment:
+      HOSTNAME: 0.0.0.0
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - web
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.website.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.website.entrypoints=websecure
+      - traefik.http.routers.website.tls.certresolver=le
+      - traefik.http.services.website.loadbalancer.server.port=3000
+      - traefik.http.services.website.loadbalancer.healthcheck.path=/
+      - traefik.http.services.website.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.website.loadbalancer.healthcheck.timeout=5s
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  couchdb_data:
+  mongodb_data:
+  pgbouncer_config:
+  letsencrypt_data:
+
+networks:
+  web:
+    driver: bridge
+  internal:
+    driver: bridge

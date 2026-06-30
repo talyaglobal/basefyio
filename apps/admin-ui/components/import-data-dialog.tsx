@@ -1,0 +1,1267 @@
+'use client';
+
+/**
+ * Multi-step Import Data wizard.
+ *
+ * Lifecycle:
+ *   1. upload   — user drops/selects a CSV/XLSX, we hit POST /inspect
+ *   2. configure — user reviews inferred schema, picks target (existing
+ *                  table OR create new), conflict strategy, column mapping
+ *   3. running  — SSE-driven progress bar; the dialog can be closed while
+ *                  the worker continues (job lives in BullMQ)
+ *   4. done     — summary with rowsRead / rowsInserted / rowsSkipped / rowsBad
+ *                  plus a link to download the bad-rows CSV when present
+ *
+ * Critical UX choices baked in:
+ *   * Source columns the user doesn't want imported can be "skipped" — they
+ *     just aren't included in the mapping array sent to /jobs.
+ *   * Type overrides are user-editable on the preview step; the validator on
+ *     the server respects whatever we send.
+ *   * Conflict columns are required for skip/update modes; we surface the
+ *     existing table's columns (fetched lazily) so the user picks from a real
+ *     list rather than guessing.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
+import { Upload, FileSpreadsheet, X, ArrowRight, Loader2, CheckCircle2, AlertTriangle, Download } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { api } from '@/lib/api';
+import type {
+  DataImportColumnType,
+  DataImportInspectResult,
+  DataImportInferredColumn,
+  DataImportProgress,
+  DataImportResult,
+  TableInfo,
+} from '@/lib/types';
+
+const TYPE_OPTIONS: DataImportColumnType[] = [
+  'text',
+  'integer',
+  'bigint',
+  'numeric',
+  'boolean',
+  'date',
+  'timestamptz',
+  'uuid',
+  'jsonb',
+];
+
+type WizardStep = 'upload' | 'configure' | 'running' | 'done';
+
+export interface ImportDataDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId: string;
+  /** Tables list from the Table Editor — used to populate the existing-table picker. */
+  tables: TableInfo[];
+  /** Suggested target table when the user clicked Import while a table was selected. */
+  defaultTargetTable?: string | null;
+  /** Called when the import completes successfully so the parent can refresh. */
+  onCompleted?: () => void;
+  /** Called to download a CSV template for the currently selected table. */
+  onDownloadTemplate?: () => void;
+}
+
+interface MappingRow {
+  source: string;
+  target: string;
+  type: DataImportColumnType;
+  nullable: boolean;
+  /** When false, the user has chosen to drop this column from the import. */
+  include: boolean;
+}
+
+export function ImportDataDialog(props: ImportDataDialogProps) {
+  const { open, onOpenChange, projectId, tables, defaultTargetTable, onCompleted } = props;
+
+  const [step, setStep] = useState<WizardStep>('upload');
+  const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [inspect, setInspect] = useState<DataImportInspectResult | null>(null);
+  const [targetMode, setTargetMode] = useState<'existing' | 'new'>('existing');
+  const [targetTable, setTargetTable] = useState<string>('');
+  const [newTableName, setNewTableName] = useState<string>('');
+  const [conflictMode, setConflictMode] = useState<'skip' | 'update' | 'fail'>('skip');
+  const [conflictColumns, setConflictColumns] = useState<string[]>([]);
+  const [mappings, setMappings] = useState<MappingRow[]>([]);
+  const [existingColumns, setExistingColumns] = useState<{ name: string; type: string; nullable: boolean }[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<DataImportProgress | null>(null);
+  const [result, setResult] = useState<DataImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** Drives the wizard's "First row is a header" checkbox. We keep it in sync
+   *  with the inspect result; toggling triggers a re-inspect of the same file
+   *  so the user doesn't have to re-upload after picking the wrong default. */
+  const [firstRowIsHeader, setFirstRowIsHeader] = useState<boolean>(true);
+  const [reinspecting, setReinspecting] = useState(false);
+  /**
+   * Multi-file batch state. When the user drops N files, the FIRST file's
+   * inspect drives the schema/preview/mapping; the rest are staged silently
+   * in MinIO and forwarded as `additionalSourceKeys` on Start. Per-file
+   * upload status keeps the UI honest while big batches are being staged.
+   */
+  const [batchFiles, setBatchFiles] = useState<
+    Array<{
+      name: string;
+      size: number;
+      status: 'pending' | 'uploading' | 'ready' | 'error';
+      sourceKey?: string;
+      error?: string;
+    }>
+  >([]);
+
+  // Reset state when dialog reopens.
+  useEffect(() => {
+    if (!open) return;
+    setStep('upload');
+    setBusy(false);
+    setFile(null);
+    setInspect(null);
+    setTargetMode(defaultTargetTable ? 'existing' : 'new');
+    setTargetTable(defaultTargetTable || '');
+    setNewTableName('');
+    setConflictMode('skip');
+    setConflictColumns([]);
+    setMappings([]);
+    setExistingColumns([]);
+    setJobId(null);
+    setProgress(null);
+    setResult(null);
+    setError(null);
+    setFirstRowIsHeader(true);
+    setReinspecting(false);
+    setBatchFiles([]);
+  }, [open, defaultTargetTable]);
+
+  // When the user picks an existing table, fetch its columns so the mapping
+  // selector knows what targets are available. We surface fetch errors via a
+  // toast (the previous silent `.catch(() => undefined)` left the user staring
+  // at empty target dropdowns with no clue why — the mapping is "use the
+  // existing table's columns" so the dropdowns being empty makes the wizard
+  // unusable). When the load truly fails the dialog falls back to free-text
+  // target column input below.
+  const [columnsLoadFailed, setColumnsLoadFailed] = useState(false);
+  useEffect(() => {
+    if (targetMode !== 'existing' || !targetTable) {
+      setExistingColumns([]);
+      setColumnsLoadFailed(false);
+      return;
+    }
+    let cancelled = false;
+    setColumnsLoadFailed(false);
+    api.projects
+      .columns(projectId, targetTable)
+      .then((cols) => {
+        if (cancelled) return;
+        // Carry through `nullable` from the DB so auto-map can flag NOT NULL
+        // columns. Without this the wizard would default each mapping to
+        // nullable=true and a single empty cell would crash the entire batch
+        // INSERT with "violates not-null constraint".
+        setExistingColumns(
+          cols.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable })),
+        );
+        if (cols.length === 0) {
+          // Endpoint succeeded but returned no columns — surface so user
+          // doesn't think the wizard is broken.
+          toast.error(
+            `"${targetTable}" reports 0 columns. Use free-text target column input.`,
+          );
+          setColumnsLoadFailed(true);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const msg = err?.message || 'Could not load table columns';
+        toast.error(`Columns lookup failed: ${msg}`);
+        setColumnsLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetMode, targetTable, projectId]);
+
+  // Build mapping rows whenever the inspect result, target mode, or fetched
+  // existingColumns change. We ALWAYS populate from inspect.inferredColumns so
+  // that the source list is visible even when:
+  //   * the user hasn't picked a target table yet (existing-mode, no columns loaded)
+  //   * the columns fetch is still in-flight
+  //   * the table exists but the columns endpoint returned an empty list
+  // The previous implementation silently rendered "0 of 0 included" in these
+  // cases — there was no way to even start mapping until columns arrived.
+  useEffect(() => {
+    if (!inspect) return;
+    const targetByName =
+      targetMode === 'existing' && existingColumns.length > 0
+        ? new Map(existingColumns.map((c) => [c.name.toLowerCase(), c]))
+        : null;
+    setMappings(
+      inspect.inferredColumns.map((c) => {
+        // Always seed the target field with SOMETHING the user can either
+        // accept or correct — never leave it blank just because we couldn't
+        // find a perfect match. Order of preference:
+        //   1. Exact DB column match (case-insensitive) → use DB's casing.
+        //   2. Sanitized source name (`c.name`) regardless of mode — it's the
+        //      file's first row turned into a Postgres-safe identifier. If
+        //      the user has a matching DB column they accept the default; if
+        //      not, they see what we'd send and can edit / uncheck the row.
+        //      The previous behaviour ("no DB match → blank") forced the user
+        //      to manually fill 23 rows when the source headers were already
+        //      perfectly valid identifiers — pointless friction.
+        const matched = targetByName?.get(c.name.toLowerCase()) ?? null;
+        const defaultTarget = matched?.name ?? c.name;
+        const row = buildMappingRow(c, defaultTarget);
+        // When we matched a DB column, the AUTHORITATIVE schema is the DB's,
+        // not what we inferred from the CSV. Override both type and nullable.
+        //
+        // Why this matters: a "true"/"false" CSV column makes inferSchema()
+        // pick `boolean`, but the same column on the DB side might be
+        // `integer` (e.g. dropship flag stored as 0/1). The previous code
+        // shipped the wizard's boolean type to the worker, castValue cast
+        // "false" → JS false, pg sent that to an integer column, Postgres
+        // rejected with "invalid input syntax for type integer: false".
+        // Inheriting the DB type makes castValue refuse the bad cell up
+        // front (bad-row report) instead of crashing the batch at insert time.
+        if (matched) {
+          row.type = pgTypeToImportType(matched.type);
+          row.nullable = matched.nullable;
+        }
+        return row;
+      }),
+    );
+  }, [inspect, targetMode, existingColumns]);
+
+  /**
+   * Multi-file upload. The first file's /inspect drives schema detection; all
+   * other files are staged via /inspect too (we need the sourceKey from
+   * MinIO) but their schema results are discarded. We process them
+   * sequentially rather than in parallel to keep memory + connection use
+   * predictable when the user drops 50 files at once.
+   */
+  async function handleFileUpload(files: File[]) {
+    if (files.length === 0) return;
+    setBusy(true);
+    setError(null);
+
+    type BatchEntry = {
+      name: string;
+      size: number;
+      status: 'pending' | 'uploading' | 'ready' | 'error';
+      sourceKey?: string;
+      error?: string;
+    };
+    const initial: BatchEntry[] = files.map((f) => ({
+      name: f.name,
+      size: f.size,
+      status: 'pending',
+    }));
+    setBatchFiles(initial);
+
+    const updateFile = (i: number, patch: Partial<BatchEntry>) =>
+      setBatchFiles((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+
+    /**
+     * Files above this size bypass the platform-api proxy entirely and go
+     * straight to MinIO via presigned PUT URL. Anything smaller takes the
+     * familiar multipart path because it's slightly less complex and the
+     * proxy can stream it without trouble. The threshold is intentionally
+     * generous — large enough to keep the wizard simple in normal usage,
+     * small enough to side-step CloudFlare's 100 MB free-plan cap.
+     */
+    const PRESIGN_THRESHOLD_BYTES = 50 * 1024 * 1024;
+
+    /**
+     * Upload one file, choosing the best transport for its size.
+     * Returns the InspectImportResultDto so the caller can drive the wizard.
+     */
+    const uploadOne = async (
+      f: File,
+      forFirstFile: boolean,
+    ): Promise<DataImportInspectResult> => {
+      if (f.size <= PRESIGN_THRESHOLD_BYTES) {
+        return api.projects.inspectDataImport(projectId, f, {
+          firstRowIsHeader: forFirstFile ? firstRowIsHeader : firstRowIsHeader,
+        });
+      }
+      // Large file: presign → direct PUT → inspect-staged.
+      const presign = await api.projects.presignDataImportUpload(projectId, f.name);
+      // The browser uploads directly to MinIO. This bypasses Cloudflare,
+      // the admin-ui Next route, and the platform-api Multer — none of
+      // which see the bytes. MinIO does, and that's exactly its job.
+      const putRes = await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        body: f,
+        headers: { 'Content-Type': f.type || 'application/octet-stream' },
+      });
+      if (!putRes.ok) {
+        throw new Error(`MinIO upload failed: ${putRes.status} ${putRes.statusText}`);
+      }
+      return api.projects.inspectStagedDataImport(projectId, {
+        sourceKey: presign.sourceKey,
+        filename: f.name,
+        firstRowIsHeader,
+      });
+    };
+
+    try {
+      // First file: drive the wizard.
+      updateFile(0, { status: 'uploading' });
+      const firstInspect = await uploadOne(files[0], true);
+      updateFile(0, { status: 'ready', sourceKey: firstInspect.sourceKey });
+      setFile(files[0]);
+      setInspect(firstInspect);
+      setFirstRowIsHeader(firstInspect.firstRowIsHeader);
+      setStep('configure');
+
+      // Remaining files: stage in the background so the wizard remains
+      // interactive while uploads continue. The Start button checks
+      // batchFiles for any remaining "uploading" entries and waits.
+      for (let i = 1; i < files.length; i++) {
+        updateFile(i, { status: 'uploading' });
+        try {
+          const r = await uploadOne(files[i], false);
+          updateFile(i, { status: 'ready', sourceKey: r.sourceKey });
+        } catch (err: any) {
+          updateFile(i, {
+            status: 'error',
+            error: err?.message || 'Upload failed',
+          });
+        }
+      }
+    } catch (e: any) {
+      updateFile(0, { status: 'error', error: e?.message || 'Upload failed' });
+      setError(e?.message || 'Upload failed');
+      toast.error(e?.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleHeaderToggle(next: boolean) {
+    if (!file) {
+      // No file in memory — just flip the flag; the user re-uploads anyway.
+      setFirstRowIsHeader(next);
+      return;
+    }
+    setReinspecting(true);
+    setError(null);
+    try {
+      const insp = await api.projects.inspectDataImport(projectId, file, {
+        firstRowIsHeader: next,
+      });
+      setInspect(insp);
+      setFirstRowIsHeader(insp.firstRowIsHeader);
+      setMappings([]); // clear mappings; auto-map effect will re-run
+    } catch (e: any) {
+      toast.error(e?.message || 'Re-inspect failed');
+    } finally {
+      setReinspecting(false);
+    }
+  }
+
+  async function handleStart() {
+    if (!inspect) return;
+    const active = mappings.filter((m) => m.include && m.target);
+    if (active.length === 0) {
+      toast.error('Map at least one column before starting the import.');
+      return;
+    }
+    if (targetMode === 'new' && !newTableName) {
+      toast.error('Choose a name for the new table.');
+      return;
+    }
+    if ((conflictMode === 'skip' || conflictMode === 'update') && conflictColumns.length === 0) {
+      toast.error('Pick at least one conflict column for skip/update modes.');
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const tableName = targetMode === 'new' ? newTableName : targetTable;
+      // Collect every successfully-staged file beyond the primary one.
+      // Files still uploading are awaited via the validation below; files
+      // that errored out are skipped (user already saw their toast).
+      const stillUploading = batchFiles.some((b) => b.status === 'uploading');
+      if (stillUploading) {
+        toast.error('Some files are still uploading; please wait a moment.');
+        setBusy(false);
+        return;
+      }
+      const additionalSourceKeys = batchFiles
+        .slice(1)
+        .filter((b) => b.status === 'ready' && b.sourceKey)
+        .map((b) => b.sourceKey as string);
+
+      const { jobId: id } = await api.projects.startDataImport(projectId, {
+        sourceKey: inspect.sourceKey,
+        additionalSourceKeys: additionalSourceKeys.length ? additionalSourceKeys : undefined,
+        filename: inspect.filename,
+        format: inspect.format,
+        firstRowIsHeader,
+        targetMode,
+        tableName,
+        conflictMode,
+        conflictColumns: conflictColumns.length ? conflictColumns : undefined,
+        columns: active.map((m) => ({
+          source: m.source,
+          target: m.target,
+          type: m.type,
+          nullable: m.nullable,
+        })),
+      });
+      setJobId(id);
+      setStep('running');
+    } catch (e: any) {
+      setError(e?.message || 'Start failed');
+      toast.error(e?.message || 'Start failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Subscribe to SSE once we have a jobId.
+  useEffect(() => {
+    if (step !== 'running' || !jobId) return;
+    const es = api.projects.streamDataImportEvents(projectId, jobId, {
+      onProgress: (p) => setProgress(p),
+      onState: () => undefined,
+      onCompleted: (r) => {
+        setResult(r);
+        setStep('done');
+        onCompleted?.();
+      },
+      onFailed: (msg) => {
+        setError(msg);
+        setStep('done');
+      },
+      onError: () => undefined,
+    });
+    return () => {
+      es.close();
+    };
+  }, [step, jobId, projectId, onCompleted]);
+
+  const percent = progress?.percent ?? 0;
+  const rowsRead = progress?.rowsRead ?? result?.rowsRead ?? 0;
+  const rowsInserted = progress?.rowsInserted ?? result?.rowsInserted ?? 0;
+  const rowsBad = progress?.rowsBad ?? result?.rowsBad ?? 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Import data</DialogTitle>
+          <DialogDescription>
+            Upload a CSV or XLSX file, map its columns to a table, and run the import in the background.
+          </DialogDescription>
+        </DialogHeader>
+
+        {step === 'upload' && (
+          <UploadStep busy={busy} onFile={handleFileUpload} error={error} batchFiles={batchFiles} onDownloadTemplate={props.onDownloadTemplate} />
+        )}
+
+        {step === 'configure' && inspect && (
+          <ConfigureStep
+            inspect={inspect}
+            tables={tables}
+            firstRowIsHeader={firstRowIsHeader}
+            onFirstRowIsHeaderChange={handleHeaderToggle}
+            reinspecting={reinspecting}
+            targetMode={targetMode}
+            setTargetMode={setTargetMode}
+            targetTable={targetTable}
+            setTargetTable={setTargetTable}
+            newTableName={newTableName}
+            setNewTableName={setNewTableName}
+            conflictMode={conflictMode}
+            setConflictMode={setConflictMode}
+            conflictColumns={conflictColumns}
+            setConflictColumns={setConflictColumns}
+            mappings={mappings}
+            setMappings={setMappings}
+            existingColumns={existingColumns}
+          />
+        )}
+
+        {step === 'running' && (
+          <RunningStep
+            percent={percent}
+            detail={progress?.detail || 'Starting…'}
+            rowsRead={rowsRead}
+            rowsInserted={rowsInserted}
+            rowsBad={rowsBad}
+          />
+        )}
+
+        {step === 'done' && (
+          <DoneStep
+            projectId={projectId}
+            jobId={jobId}
+            result={result}
+            rowsRead={rowsRead}
+            rowsInserted={rowsInserted}
+            rowsBad={rowsBad}
+            error={error}
+            targetTable={targetMode === 'new' ? newTableName : targetTable}
+            targetMode={targetMode}
+            conflictMode={conflictMode}
+            fileCount={batchFiles.length || 1}
+          />
+        )}
+
+        <DialogFooter className="flex flex-row items-center justify-between gap-2 sm:justify-between">
+          <div className="text-xs text-muted-foreground">
+            {inspect && (
+              <>
+                {/* Multi-file batch: surface the actual scope of the job
+                    (file count, aggregate size, approximate total rows)
+                    instead of just the first file's name. The first file's
+                    approximation is extrapolated to the rest assuming equal
+                    size — close enough for a status line. */}
+                {batchFiles.length > 1
+                  ? (() => {
+                      const totalBytes = batchFiles.reduce((sum, b) => sum + b.size, 0);
+                      const firstBytes = batchFiles[0]?.size || 1;
+                      const approxTotalRows = Math.round(
+                        inspect.totalRowsApprox * (totalBytes / firstBytes),
+                      );
+                      const sizeMb = (totalBytes / 1024 / 1024).toFixed(1);
+                      return (
+                        <>
+                          {batchFiles.length} files · {inspect.format.toUpperCase()} · ~
+                          {approxTotalRows.toLocaleString()} rows · {sizeMb} MB
+                        </>
+                      );
+                    })()
+                  : (
+                      <>
+                        {inspect.filename} · {inspect.format.toUpperCase()} ·{' '}
+                        {inspect.totalRowsApprox.toLocaleString()} rows
+                      </>
+                    )}
+              </>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {step === 'configure' && (
+              <Button variant="outline" onClick={() => setStep('upload')} disabled={busy}>
+                Back
+              </Button>
+            )}
+            {step === 'configure' && (
+              <Button onClick={handleStart} disabled={busy}>
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Start import <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+            {step === 'done' && error && (
+              // Failure path: let the user fix the plan (e.g. wrong conflict
+              // columns, missing UNIQUE constraint, wrong table) without
+              // re-uploading. Inspect result, mappings, staged sourceKeys,
+              // and target picks are all preserved in component state — the
+              // only thing the user needs to change is whatever caused the
+              // error. Once they hit Start again, a fresh job is enqueued
+              // against the same staged files.
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setJobId(null);
+                  setProgress(null);
+                  setResult(null);
+                  setStep('configure');
+                }}
+              >
+                Back to configure
+              </Button>
+            )}
+            {(step === 'running' || step === 'done') && (
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ──────────────────────── step components ──────────────────────── */
+
+function UploadStep(props: {
+  busy: boolean;
+  onFile: (files: File[]) => void;
+  error: string | null;
+  batchFiles: Array<{ name: string; size: number; status: string; error?: string }>;
+  onDownloadTemplate?: () => void;
+}) {
+  const [drag, setDrag] = useState(false);
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) props.onFile(files);
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDrag(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length > 0) props.onFile(files);
+  }
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDrag(true);
+      }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={onDrop}
+      className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-12 text-center transition-colors ${
+        drag ? 'border-primary bg-primary/5' : 'border-muted-foreground/30'
+      }`}
+    >
+      {props.busy ? (
+        <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+      ) : (
+        <Upload className="h-10 w-10 text-muted-foreground" />
+      )}
+      <div>
+        <div className="font-medium">Drop CSV or XLSX file(s) here</div>
+        <div className="text-sm text-muted-foreground">
+          Multiple files allowed when they share the same schema. The first
+          file drives column detection; the rest are queued under the same plan.
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="cursor-pointer">
+          <input
+            type="file"
+            multiple
+            className="sr-only"
+            accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm"
+            onChange={onPick}
+            disabled={props.busy}
+          />
+          <span className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted">
+            <FileSpreadsheet className="h-4 w-4" />
+            Choose file(s)
+          </span>
+        </label>
+        {props.onDownloadTemplate && (
+          <button
+            type="button"
+            onClick={props.onDownloadTemplate}
+            className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Download template
+          </button>
+        )}
+      </div>
+      {props.batchFiles.length > 0 && (
+        <div className="mt-2 w-full max-w-md space-y-1 text-left text-xs">
+          {props.batchFiles.map((b, i) => (
+            <div
+              key={`${b.name}-${i}`}
+              className="flex items-center justify-between gap-2 rounded border bg-muted/20 px-2 py-1"
+            >
+              <span className="truncate" title={b.name}>
+                {b.name} <span className="text-muted-foreground">({(b.size / 1024 / 1024).toFixed(1)} MB)</span>
+              </span>
+              <span
+                className={
+                  b.status === 'error'
+                    ? 'text-destructive'
+                    : b.status === 'ready'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-muted-foreground'
+                }
+              >
+                {b.status === 'uploading' ? 'uploading…' : b.status === 'ready' ? '✓ staged' : b.status === 'error' ? (b.error || 'error') : 'queued'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {props.error && (
+        <div className="mt-2 text-sm text-destructive">
+          <AlertTriangle className="mr-1 inline h-4 w-4" />
+          {props.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfigureStep(props: {
+  inspect: DataImportInspectResult;
+  tables: TableInfo[];
+  firstRowIsHeader: boolean;
+  onFirstRowIsHeaderChange: (next: boolean) => void;
+  reinspecting: boolean;
+  targetMode: 'existing' | 'new';
+  setTargetMode: (m: 'existing' | 'new') => void;
+  targetTable: string;
+  setTargetTable: (s: string) => void;
+  newTableName: string;
+  setNewTableName: (s: string) => void;
+  conflictMode: 'skip' | 'update' | 'fail';
+  setConflictMode: (m: 'skip' | 'update' | 'fail') => void;
+  conflictColumns: string[];
+  setConflictColumns: (c: string[]) => void;
+  mappings: MappingRow[];
+  setMappings: (rows: MappingRow[] | ((prev: MappingRow[]) => MappingRow[])) => void;
+  existingColumns: { name: string; type: string; nullable: boolean }[];
+}) {
+  const targetableColumns = useMemo(() => {
+    if (props.targetMode === 'existing') return props.existingColumns.map((c) => c.name);
+    return props.mappings.filter((m) => m.include).map((m) => m.target);
+  }, [props.targetMode, props.existingColumns, props.mappings]);
+
+  function updateMapping(idx: number, patch: Partial<MappingRow>) {
+    props.setMappings((prev) => {
+      const out = [...prev];
+      out[idx] = { ...out[idx], ...patch };
+      return out;
+    });
+  }
+
+  function toggleConflictColumn(name: string, checked: boolean) {
+    const next = checked
+      ? [...props.conflictColumns, name]
+      : props.conflictColumns.filter((n) => n !== name);
+    props.setConflictColumns(next);
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* CSV header toggle — surfaces here because legacy / dumped CSVs often
+          ship without a header row, and the user needs an obvious lever to
+          tell the wizard so. Toggling re-runs /inspect with the same file. */}
+      <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+        <Checkbox
+          checked={props.firstRowIsHeader}
+          onCheckedChange={(v: boolean) => props.onFirstRowIsHeaderChange(v)}
+          disabled={props.reinspecting}
+        />
+        <Label className="cursor-pointer select-none">
+          First row is a header
+        </Label>
+        {props.reinspecting && (
+          <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> re-detecting…
+          </span>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Uncheck if the file has no header row.
+        </span>
+      </div>
+
+      {/* Target picker */}
+      <div className="space-y-2">
+        <Label>Target table</Label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={props.targetMode === 'existing' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => props.setTargetMode('existing')}
+          >
+            Existing table
+          </Button>
+          <Button
+            type="button"
+            variant={props.targetMode === 'new' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => props.setTargetMode('new')}
+          >
+            Create new
+          </Button>
+        </div>
+        {props.targetMode === 'existing' ? (
+          <Select value={props.targetTable} onValueChange={props.setTargetTable}>
+            <SelectTrigger>
+              <SelectValue placeholder="Pick a table…" />
+            </SelectTrigger>
+            <SelectContent>
+              {props.tables.map((t) => (
+                <SelectItem key={`${t.schema}.${t.name}`} value={t.name}>
+                  {t.schema}.{t.name}{' '}
+                  <span className="text-muted-foreground">({t.rowCount.toLocaleString()})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            value={props.newTableName}
+            onChange={(e) => props.setNewTableName(sanitize(e.target.value))}
+            placeholder="new_table_name"
+          />
+        )}
+      </div>
+
+      {/* Strategy */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>On duplicate row</Label>
+          <Select value={props.conflictMode} onValueChange={(v) => props.setConflictMode(v as any)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="skip">Skip — keep existing row</SelectItem>
+              <SelectItem value="update">Update — overwrite existing row</SelectItem>
+              <SelectItem value="fail">Fail — error on conflict</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {props.conflictMode !== 'fail' && (
+          <div className="space-y-2">
+            <Label>Conflict columns (UNIQUE)</Label>
+            <div className="max-h-24 overflow-y-auto rounded-md border p-2 text-sm">
+              {targetableColumns.length === 0 ? (
+                <div className="text-muted-foreground">Pick a target first.</div>
+              ) : (
+                targetableColumns.map((c) => (
+                  <label key={c} className="flex items-center gap-2 py-0.5">
+                    <Checkbox
+                      checked={props.conflictColumns.includes(c)}
+                      onCheckedChange={(v: boolean) => toggleConflictColumn(c, v)}
+                    />
+                    <span>{c}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Column mapping */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>
+            Columns ({props.mappings.filter((m) => m.include).length} of{' '}
+            {props.mappings.length} included)
+          </Label>
+          {props.targetMode === 'existing' && props.existingColumns.length > 0 && (
+            // Quick action: align each source row with the existing column at
+            // the same index. Skips auto-incrementing primary key columns
+            // (anything starting with "id" that's serial/integer) because the
+            // file's row 0 is almost never an id column. Saves the user from
+            // clicking 23 dropdowns when source headers are garbled (e.g.
+            // header-less CSV imported with firstRowIsHeader=true) but the
+            // file's column order matches the table's column order.
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Build the candidate target list — existing columns minus
+                // the auto-PK if present.
+                const autoPkRe = /^id$/i;
+                const candidates = props.existingColumns.filter(
+                  (c) => !(autoPkRe.test(c.name) && /^(integer|bigint|uuid|serial)/i.test(c.type)),
+                );
+                props.setMappings((prev) =>
+                  prev.map((m, i) => ({
+                    ...m,
+                    target: candidates[i]?.name ?? m.target,
+                  })),
+                );
+              }}
+            >
+              Auto-map by position
+            </Button>
+          )}
+        </div>
+        <div className="rounded-md border">
+          <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+            <div className="col-span-1">Use</div>
+            <div className="col-span-3">Source</div>
+            <div className="col-span-3">Target column</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-1">Nullable</div>
+            <div className="col-span-2">Sample</div>
+          </div>
+          <div className="max-h-[260px] overflow-y-auto">
+            {props.mappings.map((m, i) => (
+              <div key={`${m.source}-${i}`} className="grid grid-cols-12 items-center gap-2 border-b px-3 py-2 text-sm">
+                <div className="col-span-1">
+                  <Checkbox
+                    checked={m.include}
+                    onCheckedChange={(v: boolean) => updateMapping(i, { include: v })}
+                  />
+                </div>
+                <div className="col-span-3 truncate" title={m.source}>{m.source}</div>
+                <div className="col-span-3">
+                  {props.targetMode === 'existing' && props.existingColumns.length > 0 ? (
+                    <Select
+                      value={m.target}
+                      onValueChange={(v) => updateMapping(i, { target: v })}
+                      disabled={!m.include}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {props.existingColumns.map((c) => (
+                          <SelectItem key={c.name} value={c.name}>
+                            {c.name} <span className="text-muted-foreground">({c.type})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    // Fallback to free-text input when:
+                    //   * targetMode === 'new' (no existing table)
+                    //   * existing columns lookup failed / returned empty / is
+                    //     still loading. Without this fallback the dropdown
+                    //     would be disabled and the user would have no way to
+                    //     advance — which is exactly the "Map at least one
+                    //     column" deadlock we're fixing.
+                    <Input
+                      value={m.target}
+                      onChange={(e) => updateMapping(i, { target: sanitize(e.target.value) })}
+                      disabled={!m.include}
+                      placeholder={
+                        props.targetMode === 'existing'
+                          ? 'type column name…'
+                          : 'new_column_name'
+                      }
+                    />
+                  )}
+                </div>
+                <div className="col-span-2">
+                  <Select
+                    value={m.type}
+                    onValueChange={(v) => updateMapping(i, { type: v as DataImportColumnType })}
+                    disabled={!m.include}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TYPE_OPTIONS.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <Checkbox
+                    checked={m.nullable}
+                    onCheckedChange={(v: boolean) => updateMapping(i, { nullable: v })}
+                    disabled={!m.include}
+                  />
+                </div>
+                <div
+                  className="col-span-2 truncate text-xs text-muted-foreground"
+                  title={(props.inspect.inferredColumns.find((c) => c.originalName === m.source)?.sampleValues || []).join(' · ')}
+                >
+                  {(props.inspect.inferredColumns.find((c) => c.originalName === m.source)?.sampleValues || []).slice(0, 2).join(' · ') || '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunningStep(props: {
+  percent: number;
+  detail: string;
+  rowsRead: number;
+  rowsInserted: number;
+  rowsBad: number;
+}) {
+  return (
+    <div className="space-y-4 py-8 text-center">
+      <Loader2 className="mx-auto h-10 w-10 animate-spin text-muted-foreground" />
+      <div className="font-medium">{props.detail}</div>
+      <div className="mx-auto w-full max-w-md">
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${Math.min(100, Math.max(0, props.percent))}%` }}
+          />
+        </div>
+        <div className="mt-1 text-right text-xs text-muted-foreground">
+          {Math.round(props.percent)}%
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center text-sm">
+        <Stat label="Read" value={props.rowsRead} />
+        <Stat label="Inserted" value={props.rowsInserted} />
+        <Stat label="Errors" value={props.rowsBad} tone={props.rowsBad > 0 ? 'warn' : 'ok'} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Safe to close this dialog — the import keeps running in the background.
+      </p>
+    </div>
+  );
+}
+
+function DoneStep(props: {
+  projectId: string;
+  jobId: string | null;
+  result: DataImportResult | null;
+  rowsRead: number;
+  rowsInserted: number;
+  rowsBad: number;
+  error: string | null;
+  targetTable: string;
+  targetMode: 'existing' | 'new';
+  conflictMode: 'skip' | 'update' | 'fail';
+  fileCount: number;
+}) {
+  const failed = !!props.error;
+  const r = props.result;
+  const rowsSkipped = r?.rowsSkippedConflict ?? 0;
+  const durationMs = r?.durationMs ?? 0;
+  // Throughput is a useful sanity check: imports that look fast in absolute
+  // numbers are sometimes choke-pointed on validation; rows/sec surfaces it.
+  const throughput = durationMs > 0
+    ? Math.round((props.rowsInserted / durationMs) * 1000)
+    : 0;
+  const successRate = props.rowsRead > 0
+    ? Math.round((props.rowsInserted / props.rowsRead) * 1000) / 10  // one decimal
+    : 0;
+
+  return (
+    <div className="space-y-5 py-4">
+      {/* Header */}
+      <div className="flex flex-col items-center gap-2 text-center">
+        {failed ? (
+          <AlertTriangle className="h-12 w-12 text-destructive" />
+        ) : (
+          <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+        )}
+        <div className="text-lg font-semibold">
+          {failed ? 'Import failed' : 'Import complete'}
+        </div>
+        {props.error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive max-w-md">
+            {props.error}
+          </div>
+        )}
+      </div>
+
+      {/* Target + plan summary — what the user just did, at a glance. */}
+      <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+          <div className="text-muted-foreground">Target table</div>
+          <div className="font-mono text-right">
+            {props.targetTable}
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({props.targetMode === 'new' ? 'created' : 'existing'})
+            </span>
+          </div>
+          <div className="text-muted-foreground">Source files</div>
+          <div className="text-right">{props.fileCount.toLocaleString('tr-TR')}</div>
+          <div className="text-muted-foreground">Conflict mode</div>
+          <div className="text-right">{conflictModeLabel(props.conflictMode)}</div>
+          <div className="text-muted-foreground">Duration</div>
+          <div className="text-right">{formatDuration(durationMs)}</div>
+          {throughput > 0 && (
+            <>
+              <div className="text-muted-foreground">Throughput</div>
+              <div className="text-right">
+                {throughput.toLocaleString('tr-TR')} rows/sec
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Counters — primary KPIs. */}
+      <div className="grid grid-cols-4 gap-2 text-center text-sm">
+        <Stat label="Read" value={props.rowsRead} />
+        <Stat
+          label="Inserted"
+          value={props.rowsInserted}
+          tone={!failed && props.rowsInserted > 0 ? 'ok' : undefined}
+        />
+        <Stat
+          label="Skipped (dup)"
+          value={rowsSkipped}
+          tone={rowsSkipped > 0 ? 'info' : undefined}
+        />
+        <Stat
+          label="Errors"
+          value={props.rowsBad}
+          tone={props.rowsBad > 0 ? 'warn' : 'ok'}
+        />
+      </div>
+
+      {/* Success rate bar — visual at a glance. */}
+      {props.rowsRead > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Inserted vs. read</span>
+            <span>{successRate.toLocaleString('tr-TR')}%</span>
+          </div>
+          <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${(props.rowsInserted / props.rowsRead) * 100}%` }}
+            />
+            {rowsSkipped > 0 && (
+              <div
+                className="h-full bg-amber-300/70"
+                style={{ width: `${(rowsSkipped / props.rowsRead) * 100}%` }}
+              />
+            )}
+            {props.rowsBad > 0 && (
+              <div
+                className="h-full bg-destructive/70"
+                style={{ width: `${(props.rowsBad / props.rowsRead) * 100}%` }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Error report download — only when the worker captured bad rows. */}
+      {r?.errorKey && props.jobId && props.rowsBad > 0 && (
+        <div className="flex items-center justify-center">
+          <a
+            href={api.projects.downloadDataImportErrors(props.projectId, props.jobId)}
+            download
+            className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            <Download className="h-4 w-4" />
+            Download error report ({props.rowsBad.toLocaleString('tr-TR')} rows)
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function conflictModeLabel(mode: 'skip' | 'update' | 'fail'): string {
+  switch (mode) {
+    case 'skip':
+      return 'Skip duplicates';
+    case 'update':
+      return 'Update on conflict';
+    case 'fail':
+      return 'Fail on conflict';
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
+}
+
+function Stat(props: { label: string; value: number; tone?: 'ok' | 'warn' | 'info' }) {
+  const toneClass =
+    props.tone === 'warn'
+      ? 'text-amber-600 dark:text-amber-400'
+      : props.tone === 'ok'
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : props.tone === 'info'
+          ? 'text-sky-600 dark:text-sky-400'
+          : '';
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2">
+      <div className={`text-base font-semibold ${toneClass}`}>
+        {props.value.toLocaleString('tr-TR')}
+      </div>
+      <div className="text-xs text-muted-foreground">{props.label}</div>
+    </div>
+  );
+}
+
+function buildMappingRow(
+  c: DataImportInferredColumn,
+  defaultTarget: string,
+): MappingRow {
+  return {
+    source: c.originalName,
+    target: defaultTarget,
+    type: c.type,
+    nullable: c.nullable,
+    include: true,
+  };
+}
+
+function sanitize(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function pgTypeToImportType(pgType: string): DataImportColumnType {
+  const t = pgType.toLowerCase();
+  if (t === 'boolean' || t === 'bool') return 'boolean';
+  if (t === 'smallint' || t === 'integer' || t === 'int' || t === 'int2' || t === 'int4')
+    return 'integer';
+  if (t === 'bigint' || t === 'int8') return 'bigint';
+  if (
+    t === 'numeric' ||
+    t === 'decimal' ||
+    t === 'real' ||
+    t === 'float4' ||
+    t === 'float8' ||
+    t === 'double precision'
+  )
+    return 'numeric';
+  if (t === 'uuid') return 'uuid';
+  if (t === 'date') return 'date';
+  if (
+    t === 'timestamptz' ||
+    t === 'timestamp with time zone' ||
+    t === 'timestamp' ||
+    t === 'timestamp without time zone'
+  )
+    return 'timestamptz';
+  if (t === 'json' || t === 'jsonb') return 'jsonb';
+  return 'text';
+}
+
+function Checkbox(props: {
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={props.checked}
+      onChange={(e) => props.onCheckedChange(e.target.checked)}
+      disabled={props.disabled}
+      className="h-4 w-4 rounded border-input accent-primary disabled:opacity-50"
+    />
+  );
+}
+
+void X;
+void useMemo;

@@ -1,0 +1,67 @@
+name: Build & Deploy (on server)
+
+on:
+  push:
+    branches: [production]
+
+jobs:
+  deploy:
+    name: Build & Deploy on Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build & Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        timeout-minutes: 30
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # ── Pull latest code ──
+            # This checkout is a deploy-only copy; force-sync to origin so a
+            # stray local edit can never block the deploy. .env.production is
+            # git-ignored and survives the reset.
+            echo "=== Pulling latest code ==="
+            git fetch origin production
+            git checkout -f production
+            git reset --hard origin/production
+
+            # ── Login to GHCR ──
+            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
+
+            # ── Build images on server ──
+            echo "=== Building Platform API ==="
+            docker build \
+              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest \
+              -f apps/platform-api/Dockerfile .
+
+            echo "=== Building Admin UI ==="
+            docker build \
+              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-ui:latest \
+              --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }} \
+              apps/admin-ui
+
+            echo "=== Building Website ==="
+            docker build \
+              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-website:latest \
+              --build-arg NEXT_PUBLIC_SITE_URL=https://basefyio.com \
+              -f apps/website/Dockerfile .
+
+            # ── Push to GHCR (backup) ──
+            echo "=== Pushing images ==="
+            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest &
+            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-ui:latest &
+            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-website:latest &
+            wait
+
+            # ── Deploy ──
+            echo "=== Deploying ==="
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
+
+            # ── Cleanup ──
+            docker image prune -f
+            echo "=== Deploy complete ==="

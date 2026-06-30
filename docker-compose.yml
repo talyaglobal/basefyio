@@ -1,0 +1,277 @@
+services:
+  # ── Infrastructure ───────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      POSTGRES_DB: kolaybase
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kolaybase}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-kolaybase}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    command: start-dev
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET / HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'HTTP/1.1'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kolaybase}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-kolaybase_secret}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 || true"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── NoSQL Store (Data Engine) ─────────────────────────────
+
+  # Alternative document store backend for the Data Engine. Opt-in:
+  #   docker compose --profile couchdb up -d couchdb
+  # then set DATA_ENGINE_PROVIDER=couchdb and NOSQL_CONNSTR=http://couchdb:5984
+  couchdb:
+    image: apache/couchdb:3
+    profiles: ["couchdb"]
+    restart: unless-stopped
+    ports:
+      - "${COUCHDB_PORT:-5984}:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    environment:
+      COUCHDB_USER: ${NOSQL_USERNAME:-basefyio}
+      COUCHDB_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5984/_up || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  nosql:
+    image: couchbase/server:community-7.6.2
+    restart: unless-stopped
+    ports:
+      - "${NOSQL_MGMT_PORT:-8091}:8091"
+      - "${NOSQL_N1QL_PORT:-8093}:8093"
+      - "${NOSQL_KV_PORT:-11210}:11210"
+    volumes:
+      - nosql_data:/opt/couchbase/var
+    environment:
+      COUCHBASE_ADMINISTRATOR_USERNAME: ${NOSQL_USERNAME:-basefyio}
+      COUCHBASE_ADMINISTRATOR_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u ${NOSQL_USERNAME:-basefyio}:${NOSQL_PASSWORD:-basefyio_secret} http://localhost:8091/pools || curl -sf http://localhost:8091/pools || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  nosql-init:
+    image: curlimages/curl:latest
+    depends_on:
+      nosql:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-nosql.sh:/init-nosql.sh:ro
+    environment:
+      CB_HOST: nosql
+      CB_PORT: 8091
+      CB_USER: ${NOSQL_USERNAME:-basefyio}
+      CB_PASS: ${NOSQL_PASSWORD:-basefyio_secret}
+      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
+      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
+      CB_BUCKET_RAM_MB: ${CB_BUCKET_RAM_MB:-256}
+    entrypoint: ["sh", "/init-nosql.sh"]
+    restart: "no"
+
+  # ── Applications ─────────────────────────────────────────
+
+  platform-api:
+    build:
+      context: .
+      dockerfile: apps/platform-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kolaybase}:${POSTGRES_PASSWORD:-kolaybase_secret}@postgres:5432/kolaybase
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kolaybase_secret}
+      POSTGRES_DB: kolaybase
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-kolaybase}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-kolaybase_secret}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost}
+      MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-9000}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
+      APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: "*"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_EXTERNAL_HOST: ${PGBOUNCER_EXTERNAL_HOST:-localhost}
+      PGBOUNCER_EXTERNAL_PORT: ${PGBOUNCER_PORT:-6432}
+      # Host/port your laptop uses for direct Postgres (migrations). Match host-mapped Postgres (default 5433).
+      POSTGRES_PUBLIC_HOST: ${POSTGRES_PUBLIC_HOST:-localhost}
+      POSTGRES_PUBLIC_PORT: ${POSTGRES_PUBLIC_PORT:-5433}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_TEAMS_CLIENT_ID: ${GITHUB_TEAMS_CLIENT_ID:-}
+      GITHUB_TEAMS_CLIENT_SECRET: ${GITHUB_TEAMS_CLIENT_SECRET:-}
+      VERCEL_CLIENT_ID: ${VERCEL_CLIENT_ID:-}
+      VERCEL_CLIENT_SECRET: ${VERCEL_CLIENT_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON: ${GOOGLE_MARKETING_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_MARKETING_SA_JSON_B64: ${GOOGLE_MARKETING_SA_JSON_B64:-}
+      GOOGLE_SEARCH_CONSOLE_SITE_URL: ${GOOGLE_SEARCH_CONSOLE_SITE_URL:-}
+      GOOGLE_SEARCH_CONSOLE_INSPECT_URL: ${GOOGLE_SEARCH_CONSOLE_INSPECT_URL:-}
+      GOOGLE_ANALYTICS_PROPERTY_ID: ${GOOGLE_ANALYTICS_PROPERTY_ID:-}
+      GOOGLE_MARKETING_IMPERSONATE_EMAIL: ${GOOGLE_MARKETING_IMPERSONATE_EMAIL:-}
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+      DOCKER_NETWORK: v0-kolaybase_default
+      PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
+      # Data Engine
+      DATA_ENGINE_PROVIDER: ${DATA_ENGINE_PROVIDER:-disabled}
+      NOSQL_CONNSTR: ${NOSQL_CONNSTR:-couchbase://nosql}
+      NOSQL_USERNAME: ${NOSQL_USERNAME:-basefyio}
+      NOSQL_PASSWORD: ${NOSQL_PASSWORD:-basefyio_secret}
+      DATA_ENGINE_CONTAINER: ${DATA_ENGINE_CONTAINER:-basefyio-apps}
+      DATA_ENGINE_NAMESPACE: ${DATA_ENGINE_NAMESPACE:-projects}
+      DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
+      DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
+      DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
+    ports:
+      - "${PLATFORM_API_PORT:-4000}:4000"
+    volumes:
+      - pgbouncer_config:/etc/pgbouncer
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  admin-ui:
+    build:
+      context: ./apps/admin-ui
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://platform-api:4000
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    ports:
+      - "${ADMIN_UI_PORT:-3000}:3000"
+    depends_on:
+      - platform-api
+
+  website:
+    build:
+      context: .
+      dockerfile: apps/website/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
+        # Leave unset in .env to use default; an empty value here removes the tag from the build.
+        NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-G-7Q90HE6Z02}
+    restart: unless-stopped
+    ports:
+      - "${WEBSITE_PORT:-3002}:3000"
+    environment:
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_BILLING_API_URL: http://platform-api:4000
+      # Canonical URL for sitemap, OG, robots (override in production)
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  nosql_data:
+  couchdb_data:
+  pgbouncer_config:

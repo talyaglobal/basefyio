@@ -1,0 +1,64 @@
+{
+  "name": "@basefyio/geo",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "2.0.0",
+  "description": "Generative Engine Optimization (GEO) toolkit — generate llms.txt, JSON-LD, AI-crawler policy, and audit any site for how well AI answer engines (ChatGPT, Perplexity, Claude, Gemini) can read and cite it.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "geo": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rimraf dist",
+    "audit": "node dist/cli.js audit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "rimraf": "^5.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fsipka/basefyio-new",
+    "directory": "packages/geo"
+  },
+  "homepage": "https://github.com/fsipka/basefyio-new/tree/main/packages/geo",
+  "bugs": {
+    "url": "https://github.com/fsipka/basefyio-new/issues"
+  },
+  "keywords": [
+    "geo",
+    "generative-engine-optimization",
+    "llms.txt",
+    "ai-seo",
+    "answer-engine-optimization",
+    "json-ld",
+    "schema.org",
+    "structured-data",
+    "chatgpt",
+    "perplexity",
+    "claude",
+    "gemini",
+    "basefyio"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}

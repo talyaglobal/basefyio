@@ -1,0 +1,494 @@
+'use client';
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import Cookies from 'js-cookie';
+import { toast } from 'sonner';
+import { CreditCard } from 'lucide-react';
+import { parseJwt, getAccessToken, getRefreshToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
+import { api } from '@/lib/api';
+import type { UserInfo, UserProfile, Team } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { Header } from '@/components/header';
+import { AiAssistant } from '@/components/ai-assistant';
+import { ChangelogPopup } from '@/components/changelog-popup';
+import { DashboardSidebar } from '@/components/dashboard-sidebar';
+import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
+import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
+
+interface DashboardContextValue {
+  activeTeamId: string;
+  setActiveTeamId: (id: string) => void;
+  /** 'all' or a specific teamId — controls which data is shown across pages */
+  viewTeamId: string;
+  setViewTeamId: (id: string) => void;
+  refreshUser: () => void;
+  refreshKey: number;
+  refreshTeams: () => void;
+  profile: UserProfile | null;
+  refreshProfile: () => void;
+  teams: Team[];
+  inviteCount: number;
+}
+
+export const DashboardContext = createContext<DashboardContextValue>({
+  activeTeamId: '',
+  setActiveTeamId: () => {},
+  viewTeamId: 'all',
+  setViewTeamId: () => {},
+  refreshUser: () => {},
+  refreshKey: 0,
+  refreshTeams: () => {},
+  profile: null,
+  refreshProfile: () => {},
+  teams: [],
+  inviteCount: 0,
+});
+
+export function useActiveTeam() {
+  return useContext(DashboardContext);
+}
+
+export function useDashboard() {
+  return useContext(DashboardContext);
+}
+
+export function useViewTeam() {
+  const ctx = useContext(DashboardContext);
+  return { viewTeamId: ctx.viewTeamId, setViewTeamId: ctx.setViewTeamId, teams: ctx.teams };
+}
+
+export function useTeams() {
+  return useContext(DashboardContext).teams;
+}
+
+export function useInviteCount() {
+  return useContext(DashboardContext).inviteCount;
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [viewTeamId, setViewTeamIdRaw] = useState<string>(() => {
+    if (typeof window !== 'undefined') return sessionStorage.getItem('basefyio_view_team') || 'all';
+    return 'all';
+  });
+  const setViewTeamId = useCallback((id: string) => {
+    setViewTeamIdRaw(id);
+    sessionStorage.setItem('basefyio_view_team', id);
+  }, []);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [inviteCount, setInviteCount] = useState(0);
+  // Set when the initial team load fails (e.g. backend 502/unreachable) so we
+  // can show a friendly error with Retry instead of an infinite spinner.
+  const [initError, setInitError] = useState(false);
+  const [accountStatusLoaded, setAccountStatusLoaded] = useState(false);
+  // Cached billing data — fetched once per team, not on every navigation
+  const [billingData, setBillingData] = useState<any>(null);
+  const [billingBanner, setBillingBanner] = useState<{
+    planName: string;
+    type: 'warning' | 'error';
+    message: string;
+    action: string;
+  } | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const frozenRedirectToastShown = useRef(false);
+  const pathname = usePathname();
+  const isProjectDetailRoute =
+    pathname.startsWith('/dashboard/projects/') &&
+    pathname !== '/dashboard/projects';
+
+  useEffect(() => {
+    const forcePasswordChange = Cookies.get('basefyio_force_password_change') === '1';
+    if (forcePasswordChange) {
+      router.replace('/set-new-password');
+      return;
+    }
+    // Only treat the user as logged out when BOTH tokens are gone. The access
+    // token can be briefly absent (refresh in flight, large-token cookie drop),
+    // and the user demanded the session never end on its own — only an explicit
+    // Logout clears both tokens. A genuinely logged-out visitor has neither.
+    if (!getAccessToken() && !getRefreshToken()) {
+      router.replace('/login');
+      return;
+    }
+
+    const token = getAccessToken();
+    if (token) {
+      setUser(parseJwt(token));
+      startProactiveRefresh();
+    }
+
+    let cancelled = false;
+
+    async function init() {
+      setInitError(false);
+      await api.auth.me().catch(() => {});
+
+      if (cancelled) return;
+
+      api.auth
+        .getProfile()
+        .then((p) => {
+          if (cancelled) return;
+          setProfile(p);
+          if (p.forcePasswordChange) {
+            Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
+            router.replace('/set-new-password');
+          }
+        })
+        .catch(() => {});
+
+      const cachedTeam = Cookies.get('basefyio_active_team');
+      let resolved = false;
+
+      if (cachedTeam) {
+        try {
+          const teams = await api.teams.list();
+          if (cancelled) return;
+          if (teams.some((t) => t.id === cachedTeam)) {
+            setActiveTeamId(cachedTeam);
+            resolved = true;
+          } else {
+            // List loaded but the cached team is gone — drop it and re-resolve.
+            Cookies.remove('basefyio_active_team');
+          }
+        } catch {
+          // Backend unreachable — keep the cached cookie and try getActive below.
+        }
+      }
+
+      if (resolved || cancelled) return;
+
+      try {
+        const { teamId } = await api.teams.getActive();
+        if (!cancelled) {
+          setActiveTeamId(teamId);
+          Cookies.set('basefyio_active_team', teamId, { expires: 365, path: '/' });
+        }
+      } catch {
+        // Could not determine a team after all attempts → surface a retryable
+        // error instead of spinning forever.
+        if (!cancelled) setInitError(true);
+      }
+    }
+
+    init();
+
+    return () => {
+      cancelled = true;
+      stopProactiveRefresh();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
+
+  // Fetch billing data once per team — no pathname dependency so navigation doesn't re-trigger this
+  useEffect(() => {
+    if (!activeTeamId) return;
+    let isMounted = true;
+
+    api.billing.subscription(activeTeamId).then((sub: any) => {
+      if (!isMounted) return;
+      setBillingData(sub ?? null);
+      if (!sub?.plan) setAccountStatusLoaded(true);
+    }).catch((err) => {
+      console.error('Failed to load billing subscription:', err);
+      setBillingData(null);
+      setAccountStatusLoaded(true);
+    });
+
+    return () => { isMounted = false; };
+  }, [activeTeamId, refreshKey]);
+
+  // Derive banner + frozen-redirect from cached billingData whenever pathname changes
+  useEffect(() => {
+    if (billingData === null) return;
+    const sub = billingData;
+    if (!sub?.plan) {
+      setAccountStatusLoaded(true);
+      return;
+    }
+
+    const isPaidPlan = sub.plan.priceMonthly > 0 && sub.plan.name !== 'legacy';
+    const hasPaymentMethod = sub.hasPaymentMethod === true;
+    const accountStatus = sub.accountStatus || 'ACTIVE';
+    const subscriptionStatus = sub.status || 'ACTIVE';
+
+    const allowedPaths = ['/dashboard/billing'];
+    const isAllowedPath = allowedPaths.some(path => pathname === path || pathname.startsWith(path));
+
+    if (accountStatus !== 'FROZEN') {
+      frozenRedirectToastShown.current = false;
+    }
+
+    if (accountStatus === 'FROZEN' && !isAllowedPath) {
+      router.replace('/dashboard/billing');
+      if (!frozenRedirectToastShown.current) {
+        frozenRedirectToastShown.current = true;
+        toast.error('Your account is suspended. Please update your payment method to access this page.');
+      }
+    }
+
+    setAccountStatusLoaded(true);
+
+    if (accountStatus === 'FROZEN') {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'error',
+        message: 'Account suspended due to payment failure. Please update your payment method.',
+        action: 'Retry Payment',
+      });
+    } else if (subscriptionStatus === 'PAST_DUE' && isPaidPlan) {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'warning',
+        message: 'Payment failed. Please update your payment method to avoid service interruption.',
+        action: 'Update Card',
+      });
+    } else if (isPaidPlan && !hasPaymentMethod) {
+      setBillingBanner({
+        planName: sub.plan.displayName,
+        type: 'warning',
+        message: 'Add a payment method to keep your subscription active.',
+        action: 'Add Payment Method',
+      });
+    } else {
+      setBillingBanner(null);
+    }
+  }, [billingData, pathname, router]);
+
+  const handleTeamChange = useCallback((id: string) => {
+    setActiveTeamId(id);
+    Cookies.set('basefyio_active_team', id, { expires: 365, path: '/' });
+  }, []);
+
+  const handleHeaderTeamChange = useCallback(
+    (id: string, opts?: { source?: 'user-switch' | 'route-sync' }) => {
+      handleTeamChange(id);
+      const source = opts?.source ?? 'user-switch';
+      const isProjectDetailPage =
+        pathname.startsWith('/dashboard/projects/') && pathname !== '/dashboard/projects';
+      if (source === 'user-switch' && isProjectDetailPage) {
+        router.push('/dashboard/projects');
+      }
+    },
+    [handleTeamChange, pathname, router],
+  );
+
+  const refreshUser = useCallback(() => {
+    api.auth.getProfile().then((p) => {
+      setProfile(p);
+      if (p.forcePasswordChange) {
+        Cookies.set('basefyio_force_password_change', '1', { expires: 7, path: '/' });
+        router.replace('/set-new-password');
+      } else {
+        Cookies.remove('basefyio_force_password_change', { path: '/' });
+      }
+      setUser((prev) =>
+        prev ? { ...prev, email: p.email } : prev,
+      );
+    }).catch(() => {});
+  }, [router]);
+
+  const refreshProfile = useCallback(() => {
+    api.auth.getProfile().then(setProfile).catch(() => {});
+  }, []);
+
+  const refreshTeams = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  // Single source-of-truth for teams + invites — Header and Sidebar read from context
+  useEffect(() => {
+    if (!activeTeamId) return;
+    // Keep the same array reference when the team list is unchanged, so the
+    // memoized context value (and every effect that depends on `teams`) does
+    // not churn and re-fire on each refetch.
+    api.teams
+      .list()
+      .then((next) =>
+        setTeams((prev) =>
+          prev.length === next.length &&
+          prev.every((t, i) => t.id === next[i]?.id && t.name === next[i]?.name)
+            ? prev
+            : next,
+        ),
+      )
+      .catch(() => {});
+    api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
+  }, [activeTeamId, refreshKey]);
+
+  useEffect(() => {
+    if (!activeTeamId) return;
+    if (!isRealtimePhase1Enabled()) return;
+    let debounceTimer: ReturnType<typeof setTimeout>;
+    const unsubscribe = subscribebasefyioRealtime(`team:${activeTeamId}`, (event: RealtimeEventEnvelope) => {
+      if (event.teamId !== activeTeamId) return;
+      // Only refresh the dashboard for events that change the team's project or
+      // member LIST. Per-project data activity is published to the team channel
+      // as `project_activity` on every row write / table change / AI-agent query
+      // — bumping refreshKey on those flooded the dashboard with full refetches
+      // (the "constantly refreshing" loop). Ignore them here; project pages have
+      // their own project-channel live refresh.
+      if (event.entityType === 'project_activity') return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => setRefreshKey((k) => k + 1), 800);
+    });
+    return () => {
+      clearTimeout(debounceTimer);
+      unsubscribe?.();
+    };
+  }, [activeTeamId]);
+
+  // NOTE: every hook must run before any early return — keep this useMemo
+  // above the loading guard below (React error #310 otherwise).
+  const contextValue = useMemo(
+    () => ({
+      // Non-null in practice: the Provider only renders its children after the
+      // `!activeTeamId` guard below, so consumers never see a null here.
+      activeTeamId: (activeTeamId ?? '') as string,
+      setActiveTeamId: handleTeamChange,
+      viewTeamId,
+      setViewTeamId,
+      refreshKey,
+      refreshTeams,
+      refreshUser,
+      profile,
+      refreshProfile,
+      teams,
+      inviteCount,
+    }),
+    [
+      activeTeamId,
+      handleTeamChange,
+      viewTeamId,
+      setViewTeamId,
+      refreshKey,
+      refreshTeams,
+      refreshUser,
+      profile,
+      refreshProfile,
+      teams,
+      inviteCount,
+    ],
+  );
+
+  if (initError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+          <svg className="h-6 w-6 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 9v4M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">Can&apos;t reach the server</h2>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            We couldn&apos;t load your workspace. This is usually temporary — please try again
+            in a moment. Your session is still active.
+          </p>
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (!user || !activeTeamId) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  return (
+    <DashboardContext.Provider value={contextValue}>
+      <div className="flex h-screen flex-col overflow-hidden">
+        <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <DashboardSidebar
+            activeTeamId={activeTeamId}
+            refreshKey={refreshKey}
+            isRoot={profile?.role === 'ROOT'}
+            onTeamChange={handleHeaderTeamChange}
+          />
+          <main className={cn(
+            'flex min-h-0 min-w-0 flex-1 flex-col',
+            isProjectDetailRoute ? 'overflow-hidden' : 'overflow-y-auto',
+          )}>
+            {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (
+              <div className={`flex items-center justify-between gap-4 border-b px-6 py-3 ${
+                billingBanner.type === 'error'
+                  ? 'bg-red-950/40 border-red-800/50'
+                  : 'bg-amber-950/40 border-amber-800/50'
+              }`}>
+                <div className={`flex items-center gap-3 text-sm ${
+                  billingBanner.type === 'error' ? 'text-red-200' : 'text-amber-200'
+                }`}>
+                  <CreditCard className="h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>{billingBanner.planName}</strong> plan: {billingBanner.message}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Link
+                    href="/dashboard/billing"
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors ${
+                      billingBanner.type === 'error'
+                        ? 'bg-red-600 hover:bg-red-500'
+                        : 'bg-amber-600 hover:bg-amber-500'
+                    }`}
+                  >
+                    {billingBanner.action}
+                  </Link>
+                  <button
+                    onClick={() => setBannerDismissed(true)}
+                    className={`text-xs ${
+                      billingBanner.type === 'error'
+                        ? 'text-red-400 hover:text-red-200'
+                        : 'text-amber-400 hover:text-amber-200'
+                    }`}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+            <div
+              className={
+                isProjectDetailRoute
+                  ? 'relative flex h-full min-h-0 flex-1'
+                  : 'flex-1 p-3 sm:p-4 md:p-6'
+              }
+            >
+              {/* Gate children until account status is resolved to prevent frozen-user flash */}
+              {!accountStatusLoaded && activeTeamId ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+                </div>
+              ) : (
+                children
+              )}
+            </div>
+          </main>
+          <AiAssistant />
+        </div>
+        <ChangelogPopup />
+      </div>
+    </DashboardContext.Provider>
+  );
+}

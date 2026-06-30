@@ -1,0 +1,901 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import Cookies from 'js-cookie';
+import { toast } from 'sonner';
+import { clearTokens, stopProactiveRefresh, getRefreshToken, getIdToken } from '@/lib/auth';
+import { api } from '@/lib/api';
+import type { Project, ProjectListItem, Team, UserInfo } from '@/lib/types';
+import { useViewTeam } from '@/app/dashboard/layout';
+import { Button } from '@/components/ui/button';
+import {
+  Bell,
+  Book,
+  ChevronDown,
+  Code,
+  Database,
+  ExternalLink,
+  FolderOpen,
+  KeyRound,
+  LayoutDashboard,
+  Link2,
+  List,
+  Radio,
+  Cloud,
+  HardDrive,
+  LogOut,
+  MessageSquarePlus,
+  Plus,
+  Search,
+  Server,
+  Settings,
+  Shield,
+  Terminal,
+  User,
+  Users,
+  Menu,
+  X,
+} from 'lucide-react';
+import { FeedbackModal } from '@/components/feedback-modal';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { NotificationsBell } from '@/components/notifications-bell';
+import { ChangelogWidget } from '@/components/changelog-widget';
+import type { UserProfile } from '@/lib/types';
+import { useDashboard } from '@/app/dashboard/layout';
+import { useProject } from '@/contexts/project-context';
+import { cn } from '@/lib/utils';
+
+interface HeaderProps {
+  user: UserInfo;
+  activeTeamId: string | null;
+  onTeamChange: (teamId: string, opts?: { source?: 'user-switch' | 'route-sync' }) => void;
+  refreshKey?: number;
+  profile?: UserProfile | null;
+}
+
+function projectToListItem(p: Project): ProjectListItem {
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    description: p.description,
+    status: p.status,
+    folderId: null,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
+export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profile }: HeaderProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const activeTeamIdRef = useRef(activeTeamId);
+  activeTeamIdRef.current = activeTeamId;
+  const { viewTeamId, setViewTeamId } = useViewTeam();
+  const headerRef = useRef<HTMLElement | null>(null);
+
+  const { teams, inviteCount } = useDashboard();
+  // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
+  const { project: contextProject } = useProject();
+  const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [projectsMenuOpen, setProjectsMenuOpen] = useState(false);
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
+
+  // Open the feedback composer when arriving with ?feedback=compose (e.g. from
+  // the marketing site's Feedback button, which routes here once signed in).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('feedback') === 'compose') {
+      setFeedbackOpen(true);
+      params.delete('feedback');
+      const qs = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
+
+  useEffect(() => {
+    const onGlobalPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-nav-dropdown-root="true"]')) return;
+      setDropdownOpen(false);
+      setProjectsMenuOpen(false);
+      setDocsMenuOpen(false);
+      setUserMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onGlobalPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onGlobalPointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    // When "All Teams" is selected, the project switcher must search across
+    // every team's projects — not just the active team's.
+    if (viewTeamId === 'all') {
+      if (!teams.length) {
+        setTeamProjects([]);
+        return;
+      }
+      let cancelled = false;
+      setProjectsLoading(true);
+      Promise.all(teams.map((t) => api.projects.list(t.id).catch(() => [])))
+        .then((lists) => {
+          if (cancelled) return;
+          const seen = new Set<string>();
+          const flat = lists
+            .flat()
+            .filter((p) => p.status === 'ACTIVE')
+            .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+          setTeamProjects(flat);
+        })
+        .finally(() => {
+          if (!cancelled) setProjectsLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!activeTeamId) {
+      setTeamProjects([]);
+      return;
+    }
+    setProjectsLoading(true);
+    api.projects
+      .list(activeTeamId)
+      .then((list) =>
+        setTeamProjects(list.filter((p) => p.status === 'ACTIVE')),
+      )
+      .catch(() => setTeamProjects([]))
+      .finally(() => setProjectsLoading(false));
+  }, [activeTeamId, viewTeamId, teams, refreshKey]);
+
+  const currentProjectIdFromPath = pathname.startsWith('/dashboard/projects/')
+    ? pathname.slice('/dashboard/projects/'.length).split('/')[0] || null
+    : null;
+
+  // Derive routeProject from context — ProjectLayout already fetched it, no second request needed
+  const routeProject = contextProject?.id === currentProjectIdFromPath ? contextProject : null;
+
+  // Sync active team when the route project belongs to a different team
+  useEffect(() => {
+    if (!routeProject) return;
+    if (routeProject.teamId === activeTeamIdRef.current) return;
+    (async () => {
+      try {
+        await api.teams.setActive(routeProject.teamId);
+        Cookies.set('basefyio_active_team', routeProject.teamId, { expires: 365 });
+        onTeamChange(routeProject.teamId, { source: 'route-sync' });
+      } catch {
+        /* keep header label even if team switch fails */
+      }
+    })();
+  }, [routeProject, onTeamChange]);
+
+  const activeTeam = teams.find((t) => t.id === activeTeamId);
+
+  const currentProjectInTeam = currentProjectIdFromPath
+    ? teamProjects.find((p) => p.id === currentProjectIdFromPath)
+    : null;
+
+  const projectsMenuLabel =
+    routeProject?.id === currentProjectIdFromPath
+      ? routeProject.name
+      : currentProjectInTeam
+        ? currentProjectInTeam.name
+        : 'Projects';
+
+  const menuProjects = useMemo(() => {
+    const list = [...teamProjects];
+    if (
+      routeProject?.id === currentProjectIdFromPath &&
+      !list.some((x) => x.id === routeProject.id)
+    ) {
+      list.unshift(projectToListItem(routeProject));
+    }
+    return list;
+  }, [teamProjects, routeProject, currentProjectIdFromPath]);
+
+  const filteredTeams = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    if (!q) return teams;
+    return teams.filter((team) => team.name.toLowerCase().includes(q));
+  }, [teams, teamSearch]);
+
+  const filteredProjects = useMemo(() => {
+    const q = projectSearch.trim().toLowerCase();
+    if (!q) return menuProjects;
+    return menuProjects.filter((project) => {
+      const name = project.name.toLowerCase();
+      const slug = project.slug.toLowerCase();
+      return name.includes(q) || slug.includes(q);
+    });
+  }, [menuProjects, projectSearch]);
+
+  async function switchTeam(teamId: string) {
+    try {
+      await api.teams.setActive(teamId);
+      Cookies.set('basefyio_active_team', teamId, { expires: 365 });
+      onTeamChange(teamId, { source: 'user-switch' });
+      setDropdownOpen(false);
+      setProjectsMenuOpen(false);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleCreateTeam() {
+    if (!newTeamName.trim()) return;
+    setCreatingTeam(true);
+    try {
+      const team = await api.teams.create(newTeamName.trim());
+      await api.teams.setActive(team.id);
+      import('js-cookie').then(({ default: Cookies }) => {
+        Cookies.set('basefyio_active_team', team.id, { expires: 365 });
+      });
+      onTeamChange(team.id, { source: 'user-switch' });
+      setNewTeamName('');
+      setNewTeamOpen(false);
+      setDropdownOpen(false);
+      toast.success(`Team "${team.name}" created`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create team');
+    } finally {
+      setCreatingTeam(false);
+    }
+  }
+
+  async function handleLogout() {
+    // Stop the proactive refresh timer FIRST to prevent it from
+    // restoring tokens after we clear them (race condition).
+    stopProactiveRefresh();
+
+    const refreshToken = getRefreshToken();
+    const idToken = getIdToken();
+
+    // Clear local tokens and cookies before any async work so the UI
+    // reflects the signed-out state immediately.
+    clearTokens();
+    Cookies.remove('basefyio_active_team');
+
+    // Revoke tokens server-side (fire-and-forget) then redirect to login.
+    // We intentionally do NOT follow the Keycloak logout URL to avoid
+    // showing Keycloak's "Do you want to log out?" confirmation page.
+    if (refreshToken) {
+      api.auth.logout(refreshToken, undefined, idToken).catch(() => {});
+    }
+
+    window.location.href = '/login';
+  }
+
+  return (
+    <header ref={headerRef} className="sticky top-0 z-50 shrink-0 bg-card/95 backdrop-blur-sm border-b border-border shadow-sm">
+      <div className="flex h-14 items-center gap-2 px-3 sm:px-4 md:px-6">
+      {/* ── Left: logo + nav ─────────────────────────────────────── */}
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
+            <Database className="h-4 w-4" />
+          </div>
+          <span className="hidden text-lg font-bold gradient-text sm:inline">basefyio</span>
+        </Link>
+
+        {/* Primary nav links */}
+        <nav className="hidden md:flex items-center gap-1">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            Dashboard
+          </Link>
+          <Link
+            href="/dashboard/projects"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            Projects
+          </Link>
+        </nav>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden h-8 gap-1.5 text-muted-foreground hover:text-foreground sm:inline-flex"
+          onClick={() => { setFeedbackOpen(true); }}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Feedback</span>
+        </Button>
+        <div className="hidden md:block">
+          <DocsMenu
+            open={docsMenuOpen}
+            onOpenChange={(next) => {
+              setDocsMenuOpen(next);
+              if (next) {
+                setDropdownOpen(false);
+                setProjectsMenuOpen(false);
+                setUserMenuOpen(false);
+                              }
+            }}
+          />
+        </div>
+      </div>
+
+      {/* spacer pushes right section to end */}
+      <div className="flex-1" />
+
+      {/* ── Right: team switcher + invites + user ────────────────── */}
+      <div className="flex shrink-0 items-center gap-2 md:gap-3">
+        <button
+          onClick={() => { setMobileMenuOpen(!mobileMenuOpen); }}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground md:hidden"
+          aria-label="Open menu"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        {/* Team Switcher */}
+        <div className="relative hidden md:block" data-nav-dropdown-root="true">
+          <button
+            onClick={() => {
+                            setProjectsMenuOpen(false);
+              setDocsMenuOpen(false);
+              setUserMenuOpen(false);
+              setDropdownOpen(!dropdownOpen);
+              if (dropdownOpen) {
+                setTeamSearch('');
+              }
+            }}
+            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50"
+          >
+            <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="max-w-[140px] truncate">
+              {viewTeamId === 'all' ? 'All Teams' : (activeTeam?.name || 'Select team')}
+            </span>
+            {viewTeamId !== 'all' && activeTeam?.role === 'OWNER' && (
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                Owner
+              </span>
+            )}
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+
+          {dropdownOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+                <div className="border-b p-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={teamSearch}
+                      onChange={(e) => setTeamSearch(e.target.value)}
+                      placeholder="Search teams..."
+                      className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+                <div className="p-1">
+                  {/* All Teams option */}
+                  <button
+                    onClick={() => {
+                      setViewTeamId('all');
+                      setDropdownOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                      viewTeamId === 'all'
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'hover:bg-accent'
+                    }`}
+                  >
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground text-xs font-bold shrink-0">*</div>
+                    <div className="min-w-0 text-left flex-1">
+                      <p className="font-medium">All Teams</p>
+                      <p className="text-xs text-muted-foreground">View all projects across teams</p>
+                    </div>
+                  </button>
+                  <div className="mx-2 my-1 border-t border-border" />
+                  {filteredTeams.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                      No teams found.
+                    </div>
+                  ) : filteredTeams.map((team) => (
+                    <button
+                      key={team.id}
+                      onClick={() => {
+                        setViewTeamId(team.id);
+                        switchTeam(team.id);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                        viewTeamId === team.id
+                          ? 'bg-primary/10 text-primary font-medium'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm shrink-0">
+                        {team.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 text-left flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate font-medium">{team.name}</p>
+                          {team.role === 'OWNER' && (
+                            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1 rounded">Owner</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {team.memberCount} member{team.memberCount !== 1 ? 's' : ''} · {team.projectCount} project{team.projectCount !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t p-1 space-y-0.5">
+                  <button
+                    onClick={() => { setDropdownOpen(false); router.push('/dashboard/team'); }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                    Team Settings
+                  </button>
+                  {newTeamOpen ? (
+                    <div className="px-2 pb-1 pt-0.5 space-y-1.5">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Team name..."
+                        value={newTeamName}
+                        onChange={(e) => setNewTeamName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCreateTeam();
+                          if (e.key === 'Escape') { setNewTeamOpen(false); setNewTeamName(''); }
+                        }}
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={handleCreateTeam}
+                          disabled={creatingTeam || !newTeamName.trim()}
+                          className="flex-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {creatingTeam ? 'Creating...' : 'Create'}
+                        </button>
+                        <button
+                          onClick={() => { setNewTeamOpen(false); setNewTeamName(''); }}
+                          className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setNewTeamOpen(true)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-muted-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      New Team
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Projects (active team) */}
+        <div className="relative hidden md:block" data-nav-dropdown-root="true">
+          <button
+            type="button"
+            onClick={() => {
+                            setDropdownOpen(false);
+              setDocsMenuOpen(false);
+              setUserMenuOpen(false);
+              setProjectsMenuOpen(!projectsMenuOpen);
+              if (projectsMenuOpen) {
+                setProjectSearch('');
+              }
+            }}
+            disabled={!activeTeamId && !routeProject && viewTeamId !== 'all'}
+            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 dark:hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="max-w-[160px] truncate" title={projectsMenuLabel}>
+              {projectsMenuLabel}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          </button>
+
+          {projectsMenuOpen && (activeTeamId || routeProject || viewTeamId === 'all') && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setProjectsMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
+                <div className="border-b px-3 py-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {viewTeamId === 'all'
+                      ? 'Projects across all teams'
+                      : `Projects in ${activeTeam?.name ?? 'team'}`}
+                  </p>
+                  <div className="relative mt-2">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Search projects..."
+                      className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                  {projectsLoading && filteredProjects.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      Loading…
+                    </div>
+                  ) : filteredProjects.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                      No projects found.
+                    </div>
+                  ) : (
+                    filteredProjects.map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => {
+                          setProjectsMenuOpen(false);
+                          router.push(`/dashboard/projects/${project.id}`);
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-left transition-colors ${
+                          project.id === currentProjectIdFromPath
+                            ? 'bg-primary/10 font-medium text-primary'
+                            : 'hover:bg-accent'
+                        }`}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                          {project.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium" title={project.name}>
+                            {project.name}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {project.slug}
+                          </p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="border-t p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProjectsMenuOpen(false);
+                      router.push('/dashboard/projects');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    All projects
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {inviteCount > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="relative hidden h-9 md:inline-flex"
+            onClick={() => router.push('/dashboard/team')}
+          >
+            <Bell className="mr-1.5 h-3.5 w-3.5" />
+            {inviteCount} invite{inviteCount > 1 ? 's' : ''}
+          </Button>
+        )}
+
+        <div className="hidden md:block">
+          <ChangelogWidget />
+        </div>
+        <div className="hidden md:block">
+          <ThemeToggle />
+        </div>
+        <div className="hidden md:block">
+          <NotificationsBell />
+        </div>
+
+        <UserMenu
+          user={user}
+          profile={profile ?? null}
+          open={userMenuOpen}
+          onOpenChange={(next) => {
+            setUserMenuOpen(next);
+            if (next) {
+                            setDropdownOpen(false);
+              setProjectsMenuOpen(false);
+              setDocsMenuOpen(false);
+            }
+          }}
+          onLogout={handleLogout}
+        />
+      </div>
+
+      </div>
+
+      <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      {mobileMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
+          <div className="absolute right-3 z-50 w-64 rounded-lg border bg-card p-2 shadow-lg md:hidden" style={{ top: 'var(--header-h, 3.5rem)' }}>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Dashboard
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/projects'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <FolderOpen className="h-4 w-4" />
+              Projects
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/team'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Users className="h-4 w-4" />
+              Team
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/account'); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Settings className="h-4 w-4" />
+              Account
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); setFeedbackOpen(true); }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              Feedback
+            </button>
+            <div className="my-1 border-t" />
+            <div className="px-3 py-1 text-xs text-muted-foreground">
+              Team: {activeTeam?.name || 'Not selected'}
+            </div>
+            <div className="px-3 py-1 text-xs text-muted-foreground truncate">
+              User:{' '}
+              {user.email?.trim() || user.preferred_username?.trim() || user.sub || '—'}
+            </div>
+            <button
+              onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </header>
+  );
+}
+
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
+
+// Map the docs nav's stable icon keys (from the website's /api/docs-nav) to icons.
+const DOC_ICONS: Record<string, typeof Book> = {
+  book: Book,
+  database: Database,
+  link: Link2,
+  radio: Radio,
+  key: KeyRound,
+  harddrive: HardDrive,
+  server: Server,
+  code: Code,
+  terminal: Terminal,
+  shield: Shield,
+  cloud: Cloud,
+};
+
+interface DocsLink { label: string; href: string; icon: string }
+
+// Fallback list — used only if the live docs nav can't be fetched. The live
+// list comes from the website's /api/docs-nav so the menu mirrors the docs
+// sidebar automatically (add a page there → it appears here).
+const FALLBACK_DOCS_LINKS: DocsLink[] = [
+  { label: 'Overview', href: '/docs', icon: 'book' },
+  { label: 'Data Engine', href: '/docs/data-engine', icon: 'database' },
+  { label: 'Connect', href: '/docs/connect', icon: 'link' },
+  { label: 'Realtime', href: '/docs/realtime', icon: 'radio' },
+  { label: 'Authentication', href: '/docs/auth', icon: 'key' },
+  { label: 'Storage', href: '/docs/storage', icon: 'harddrive' },
+  { label: 'API Reference', href: '/docs/api', icon: 'server' },
+  { label: 'SDK', href: '/docs/sdk', icon: 'code' },
+  { label: 'CLI', href: '/docs/cli', icon: 'terminal' },
+  { label: 'Security & RLS', href: '/docs/security', icon: 'shield' },
+  { label: 'Self-Hosting', href: '/docs/self-hosting', icon: 'cloud' },
+];
+
+function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [docsLinks, setDocsLinks] = useState<DocsLink[]>(FALLBACK_DOCS_LINKS);
+
+  // Fetch the canonical docs nav once so this menu stays in sync with the docs
+  // sidebar. Falls back silently to the static list on any failure.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${docsBaseUrl}/api/docs-nav`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const items = data?.items;
+        if (!cancelled && Array.isArray(items) && items.length) {
+          setDocsLinks(
+            items.filter((i: any) => i && typeof i.href === 'string' && typeof i.label === 'string'),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="relative" data-nav-dropdown-root="true">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+        onClick={() => onOpenChange(!open)}
+      >
+        <Book className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Docs</span>
+        <ChevronDown className="h-3 w-3" />
+      </Button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
+            <div className="p-1">
+              {docsLinks.map((item) => {
+                const Icon = DOC_ICONS[item.icon] ?? Book;
+                return (
+                  <a
+                    key={item.href}
+                    href={`${docsBaseUrl}${item.href}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => onOpenChange(false)}
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                  >
+                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                    {item.label}
+                    <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/50" />
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserMenu({
+  user,
+  profile,
+  open,
+  onOpenChange,
+  onLogout,
+}: {
+  user: UserInfo;
+  profile: UserProfile | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onLogout: () => void;
+}) {
+  const router = useRouter();
+
+  const loginLabel =
+    user.email?.trim() ||
+    user.preferred_username?.trim() ||
+    user.sub?.trim() ||
+    'User';
+  const firstName = profile?.firstName ?? '';
+  const lastName = profile?.lastName ?? '';
+  const displayName = [firstName, lastName].filter(Boolean).join(' ') || loginLabel;
+  const initialsSource = firstName || loginLabel || user.sub || 'U';
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+    : initialsSource.slice(0, 2).toUpperCase();
+  const avatarUrl = profile?.avatarUrl;
+
+  return (
+    <div className="relative" data-nav-dropdown-root="true">
+      <button
+        onClick={() => onOpenChange(!open)}
+        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+      >
+        {/* Avatar */}
+        <div className="h-8 w-8 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
+              {initials}
+            </div>
+          )}
+        </div>
+        <span className="hidden max-w-[140px] truncate font-medium sm:inline">
+          {displayName}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
+            <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                    {initials}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+              </div>
+            </div>
+            <div className="p-1">
+              <button
+                onClick={() => { onOpenChange(false); router.push('/dashboard/account'); }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Account Settings
+              </button>
+            </div>
+            <div className="border-t p-1">
+              <button
+                onClick={() => { onOpenChange(false); onLogout(); }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
