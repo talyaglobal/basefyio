@@ -13,6 +13,8 @@ export const DATA_IMPORT_QUEUE = 'data-import';
 export const EMBEDDING_QUEUE = 'embedding';
 /** RAG document ingest/index jobs (chunk → embed → store). */
 export const RAG_INDEX_QUEUE = 'rag-index';
+/** Project automation flows (trigger → actions), executed asynchronously. */
+export const FLOW_QUEUE = 'flow';
 
 @Global()
 @Module({
@@ -53,6 +55,7 @@ export const RAG_INDEX_QUEUE = 'rag-index';
       { name: DATA_IMPORT_QUEUE },
       { name: EMBEDDING_QUEUE },
       { name: RAG_INDEX_QUEUE },
+      { name: FLOW_QUEUE },
     ),
   ],
   exports: [BullModule],

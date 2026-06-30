@@ -27,6 +27,7 @@ import {
   Key,
   Link2,
   Plug,
+  Workflow,
   Settings,
   Shield,
   ScrollText,
@@ -119,6 +120,7 @@ const navItems = [
   { label: 'Connection', href: '/connect', icon: Link2 },
   { label: 'Backup & Export', href: '/backup', icon: Download },
   { label: 'Integrations', href: '/integrations', icon: Plug },
+  { label: 'Flows', href: '/flows', icon: Workflow },
   { label: 'AI / Embeddings', href: '/embeddings', icon: BrainCircuit },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];

@@ -64,6 +64,9 @@ import type {
   VercelDeployment,
   VercelIntegration,
   VercelProject,
+  Flow,
+  FlowInput,
+  FlowRun,
 } from './types';
 
 /** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
@@ -1401,6 +1404,46 @@ export const api = {
     /** URL for the bad-rows CSV; hand it to <a download>. */
     downloadDataImportErrors(projectId: string, jobId: string): string {
       return `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`;
+    },
+  },
+
+  flows: {
+    list(projectId: string) {
+      return request<Flow[]>(`/projects/${projectId}/flows`);
+    },
+    get(projectId: string, id: string) {
+      return request<Flow>(`/projects/${projectId}/flows/${id}`);
+    },
+    create(projectId: string, data: FlowInput) {
+      return request<Flow>(`/projects/${projectId}/flows`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    update(projectId: string, id: string, data: FlowInput) {
+      return request<Flow>(`/projects/${projectId}/flows/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    remove(projectId: string, id: string) {
+      return request<{ deleted: boolean }>(`/projects/${projectId}/flows/${id}`, {
+        method: 'DELETE',
+      });
+    },
+    setEnabled(projectId: string, id: string, enabled: boolean) {
+      return request<Flow>(`/projects/${projectId}/flows/${id}/${enabled ? 'enable' : 'disable'}`, {
+        method: 'POST',
+      });
+    },
+    trigger(projectId: string, id: string, input?: unknown) {
+      return request<{ runId: string; status: string }>(`/projects/${projectId}/flows/${id}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ input }),
+      });
+    },
+    runs(projectId: string, id: string) {
+      return request<FlowRun[]>(`/projects/${projectId}/flows/${id}/runs`);
     },
   },
 

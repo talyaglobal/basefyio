@@ -559,6 +559,7 @@ model Plan {
   stripePriceId     String?  @map("stripe_price_id")
   stripeProductId   String?  @map("stripe_product_id")
   isPublic          Boolean  @default(true) @map("is_public")
+  /// Optional per-plan feature flags: { "<EntitlementKey>": true|false }. Absent/true = allowed.
   features          Json?
   createdAt         DateTime @default(now()) @map("created_at")
 
@@ -1528,4 +1529,41 @@ model ManagementDoc {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("management_doc")
+}
+
+/// Project automation flow: a trigger + an ordered list of actions.
+model Flow {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  name      String
+  enabled   Boolean  @default(true)
+  trigger   Json
+  actions   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  runs FlowRun[]
+
+  @@index([projectId])
+  @@map("flow")
+}
+
+/// One execution of a Flow.
+model FlowRun {
+  id         String    @id @default(uuid())
+  flowId     String    @map("flow_id")
+  projectId  String    @map("project_id")
+  status     String    @default("queued")
+  input      Json?
+  result     Json?
+  error      String?
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  flow Flow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@index([flowId])
+  @@index([projectId])
+  @@map("flow_run")
 }

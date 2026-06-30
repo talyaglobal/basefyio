@@ -989,3 +989,54 @@ export interface DataImportJobStatus {
   failedReason?: string;
 }
 
+
+// ── Flows (project automation) ───────────────────────────────────────────────
+export type FlowTriggerType = 'manual' | 'webhook' | 'schedule';
+export type FlowActionType = 'log' | 'http.request';
+
+export interface FlowTrigger {
+  type: FlowTriggerType;
+  webhookPath?: string;
+  cron?: string;
+}
+
+export interface FlowAction {
+  type: FlowActionType;
+  message?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  continueOnError?: boolean;
+}
+
+export interface FlowInput {
+  name: string;
+  trigger: FlowTrigger;
+  actions: FlowAction[];
+  enabled?: boolean;
+}
+
+export interface Flow {
+  id: string;
+  projectId: string;
+  name: string;
+  enabled: boolean;
+  trigger: FlowTrigger;
+  actions: FlowAction[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlowRun {
+  id: string;
+  flowId: string;
+  projectId: string;
+  status: 'queued' | 'running' | 'success' | 'failed';
+  input?: unknown;
+  result?: unknown;
+  error?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+}
