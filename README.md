@@ -1,7 +1,19 @@
 # basefyio
 
-**Production-grade, self-hosted backend platform.**  
-Deploy your own multi-tenant backend in minutes. Each project gets a dedicated database, isolated authentication, and a secure API — all running on your own infrastructure.
+> **The open-source, self-hosted backend platform — a Supabase / Firebase alternative you fully own.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
+[![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)
+[![Stars](https://img.shields.io/github/stars/talyaglobal/basefyio?style=social)](https://github.com/talyaglobal/basefyio/stargazers)
+
+Deploy your own **multi-tenant backend-as-a-service** in minutes. Every project gets a dedicated
+**PostgreSQL** database, isolated authentication, object storage, and an auto-generated **REST API** —
+all running on **your own infrastructure**, with no vendor lock-in and no data leaving your servers.
+
+basefyio is a self-hosted alternative to Supabase and Firebase for teams who want full ownership of
+their backend: per-project database isolation, JWT-secured APIs, audit logging, an admin dashboard,
+a CLI, and a TypeScript SDK — open source under the MIT license.
 
 ---
 
