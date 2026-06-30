@@ -12,9 +12,14 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PublicApiService, RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 
+// High-volume anonymous data API (server-to-server from the website + SDK
+// clients): exempt from the global IP rate limiter so legitimate traffic from a
+// single origin IP isn't throttled. Access is still gated by the API-key guard.
+@SkipThrottle()
 @Controller('rest/v1')
 @UseGuards(ApiKeyGuard)
 export class PublicApiController {

@@ -1,5 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ProxyThrottlerGuard } from './common/guards/proxy-throttler.guard';
 import { UsageTrackingMiddleware } from './common/middleware/usage-tracking.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -55,6 +57,10 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
       load: [configuration],
     }),
     ScheduleModule.forRoot(),
+    // App-level IP rate limiting (defense in depth against brute-force / DoS).
+    // Generous default so legit dashboard/API use is unaffected; the high-volume
+    // anonymous data API (rest/v1) is exempt via @SkipThrottle on its controllers.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     GuardsModule,
     QueueModule,
@@ -99,6 +105,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
   controllers: [HealthController],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+    { provide: APP_GUARD, useClass: ProxyThrottlerGuard },
   ],
 })
 export class AppModule implements NestModule {
