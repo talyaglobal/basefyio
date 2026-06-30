@@ -112,6 +112,15 @@ export default () => ({
     impersonateEmail: process.env.GOOGLE_MARKETING_IMPERSONATE_EMAIL || '',
     /** Optional full URL for URL Inspection when property is sc-domain:… */
     inspectUrlOverride: process.env.GOOGLE_SEARCH_CONSOLE_INSPECT_URL || '',
+    /** Distribution analytics: GitHub repo traffic + npm downloads. */
+    githubRepo: process.env.GITHUB_INSIGHTS_REPO || 'talyaglobal/basefyio',
+    /** PAT with repo scope — required for clones/views (traffic API); stars/forks work without it. */
+    githubToken: process.env.GITHUB_INSIGHTS_TOKEN || '',
+    /** Comma-separated npm package names to report downloads for. */
+    npmPackages: (process.env.NPM_INSIGHTS_PACKAGES || 'basefyio-cli')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
 
   docker: {

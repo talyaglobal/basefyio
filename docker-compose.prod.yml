@@ -232,6 +232,11 @@ services:
       # At-rest encryption key for project DB credentials (base64/hex 32 bytes).
       # Empty = passthrough (no encryption). Set in .env.production.
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
+      # Distribution analytics (Management → Analytics). Stars/forks + npm work
+      # without a token; clones/views/referrers need a GitHub PAT (repo scope).
+      GITHUB_INSIGHTS_TOKEN: ${GITHUB_INSIGHTS_TOKEN:-}
+      GITHUB_INSIGHTS_REPO: ${GITHUB_INSIGHTS_REPO:-talyaglobal/basefyio}
+      NPM_INSIGHTS_PACKAGES: ${NPM_INSIGHTS_PACKAGES:-basefyio-cli}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase?connection_limit=20&pool_timeout=30
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

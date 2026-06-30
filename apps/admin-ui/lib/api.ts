@@ -56,6 +56,7 @@ import type {
   ManagementUserPackage,
   ManagementSearchConsoleSummary,
   ManagementAnalyticsTrafficSummary,
+  ManagementDistributionStats,
   RolePermissionMatrix,
   UserProfile,
   RootAlert,
@@ -457,6 +458,9 @@ export const api = {
     },
     managementAnalyticsTraffic() {
       return request<ManagementAnalyticsTrafficSummary>('/auth/management/marketing/analytics/traffic');
+    },
+    managementDistribution() {
+      return request<ManagementDistributionStats>('/auth/management/marketing/distribution');
     },
   },
 

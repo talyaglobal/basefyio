@@ -1157,3 +1157,43 @@ export interface MigrationRun {
   createdAt: string;
   appliedAt?: string | null;
 }
+
+// ── Distribution analytics (GitHub repo + npm downloads) ─────────────────────
+export interface GithubTrafficSeries {
+  count?: number;
+  uniques?: number;
+  daily?: Array<{ day: string; count: number; uniques: number }>;
+  error?: string;
+}
+export interface GithubReferrer { referrer: string; count: number; uniques: number }
+export interface GithubPath { path: string; title?: string; count: number; uniques: number }
+export interface GithubDistribution {
+  repo: string;
+  cloneStatsAvailable: boolean;
+  stars?: number;
+  forks?: number;
+  watchers?: number;
+  openIssues?: number;
+  lastPush?: string;
+  clones?: GithubTrafficSeries;
+  views?: GithubTrafficSeries;
+  referrers?: GithubReferrer[];
+  paths?: GithubPath[];
+  clonesHint?: string;
+  error?: string;
+}
+export interface NpmPackageStats {
+  package: string;
+  lastDay?: number | null;
+  lastWeek?: number | null;
+  lastMonth?: number | null;
+  daily?: Array<{ day: string; downloads: number }>;
+  error?: string;
+}
+export interface ManagementDistributionStats {
+  configured?: boolean;
+  github?: GithubDistribution;
+  npm?: NpmPackageStats[];
+  note?: string;
+  error?: string;
+}

@@ -489,4 +489,153 @@ export class MarketingInsightsService {
       };
     }
   }
+
+  /* ───────────── Distribution analytics: GitHub repo + npm downloads ───────────── */
+
+  async getDistributionStats(): Promise<Record<string, unknown>> {
+    const repo = (this.config.get<string>('marketing.githubRepo') || 'talyaglobal/basefyio').trim();
+    const token = (this.config.get<string>('marketing.githubToken') || '').trim();
+    const npmPackages = this.config.get<string[]>('marketing.npmPackages') || ['basefyio-cli'];
+    const [github, npm] = await Promise.all([
+      this.getGithubStats(repo, token),
+      this.getNpmStats(npmPackages),
+    ]);
+    return {
+      configured: true,
+      github,
+      npm,
+      // Be explicit: neither GitHub's traffic API nor npm's public download API
+      // exposes a per-country / geographic breakdown.
+      note: 'GitHub traffic and npm public APIs do not provide per-country/geographic data.',
+    };
+  }
+
+  private ghHeaders(token: string): Record<string, string> {
+    const h: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'basefyio-insights',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    if (token) h.Authorization = `Bearer ${token}`;
+    return h;
+  }
+
+  private async getGithubStats(repo: string, token: string): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = { repo, cloneStatsAvailable: !!token };
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}`, { headers: this.ghHeaders(token) });
+      if (r.ok) {
+        const j: any = await r.json();
+        out.stars = j.stargazers_count;
+        out.forks = j.forks_count;
+        out.watchers = j.subscribers_count;
+        out.openIssues = j.open_issues_count;
+        out.lastPush = j.pushed_at;
+      } else {
+        out.error = `repo HTTP ${r.status}`;
+      }
+    } catch (e) {
+      out.error = (e as Error).message;
+    }
+    if (token) {
+      out.clones = await this.ghTraffic(repo, token, 'clones');
+      out.views = await this.ghTraffic(repo, token, 'views');
+      out.referrers = await this.ghPopular(repo, token, 'referrers');
+      out.paths = await this.ghPopular(repo, token, 'paths');
+    } else {
+      out.clonesHint =
+        'Set GITHUB_INSIGHTS_TOKEN (a PAT with repo scope) to enable clones, views and referrers.';
+    }
+    return out;
+  }
+
+  private async ghTraffic(
+    repo: string,
+    token: string,
+    kind: 'clones' | 'views',
+  ): Promise<Record<string, unknown>> {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/traffic/${kind}`, {
+        headers: this.ghHeaders(token),
+      });
+      if (!r.ok) return { error: `HTTP ${r.status}` };
+      const j: any = await r.json();
+      return {
+        count: j.count,
+        uniques: j.uniques,
+        daily: (j[kind] || []).map((d: any) => ({
+          day: typeof d.timestamp === 'string' ? d.timestamp.slice(0, 10) : d.timestamp,
+          count: d.count,
+          uniques: d.uniques,
+        })),
+      };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  }
+
+  private async ghPopular(
+    repo: string,
+    token: string,
+    kind: 'referrers' | 'paths',
+  ): Promise<unknown[]> {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/traffic/popular/${kind}`, {
+        headers: this.ghHeaders(token),
+      });
+      if (!r.ok) return [];
+      const j: any = await r.json();
+      return (j || []).slice(0, 10).map((x: any) =>
+        kind === 'referrers'
+          ? { referrer: x.referrer, count: x.count, uniques: x.uniques }
+          : { path: x.path, title: x.title, count: x.count, uniques: x.uniques },
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private async getNpmStats(packages: string[]): Promise<unknown[]> {
+    const results: unknown[] = [];
+    for (const pkg of packages) {
+      const item: Record<string, unknown> = { package: pkg };
+      try {
+        const [day, week, month] = await Promise.all([
+          this.npmPoint('last-day', pkg),
+          this.npmPoint('last-week', pkg),
+          this.npmPoint('last-month', pkg),
+        ]);
+        item.lastDay = day;
+        item.lastWeek = week;
+        item.lastMonth = month;
+        const r = await fetch(
+          `https://api.npmjs.org/downloads/range/last-month/${encodeURIComponent(pkg)}`,
+        );
+        if (r.ok) {
+          const j: any = await r.json();
+          item.daily = (j.downloads || []).map((d: any) => ({
+            day: d.day,
+            downloads: d.downloads,
+          }));
+        }
+      } catch (e) {
+        item.error = (e as Error).message;
+      }
+      results.push(item);
+    }
+    return results;
+  }
+
+  private async npmPoint(period: string, pkg: string): Promise<number | null> {
+    try {
+      const r = await fetch(
+        `https://api.npmjs.org/downloads/point/${period}/${encodeURIComponent(pkg)}`,
+      );
+      if (!r.ok) return null;
+      const j: any = await r.json();
+      return typeof j.downloads === 'number' ? j.downloads : null;
+    } catch {
+      return null;
+    }
+  }
 }

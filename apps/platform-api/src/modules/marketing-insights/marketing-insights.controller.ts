@@ -33,4 +33,16 @@ export class MarketingInsightsController {
       return { configured: true, error: err.message };
     }
   }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canAccessManagement')
+  @Get('distribution')
+  async distribution() {
+    try {
+      return await this.marketing.getDistributionStats();
+    } catch (err: any) {
+      this.logger.error(`Distribution stats fetch failed: ${err.message}`, err.stack);
+      return { configured: true, error: err.message };
+    }
+  }
 }

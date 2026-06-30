@@ -35,6 +35,7 @@ import type {
   AuditLogEntry,
   GscSearchPerformance,
   ManagementAnalyticsTrafficSummary,
+  ManagementDistributionStats,
   ManagementPlan,
   ManagementSearchConsoleSummary,
   ManagementTeam,
@@ -174,6 +175,7 @@ export default function ManagementPage() {
   );
   const [gscData, setGscData] = useState<ManagementSearchConsoleSummary | null>(null);
   const [gaData, setGaData] = useState<ManagementAnalyticsTrafficSummary | null>(null);
+  const [distData, setDistData] = useState<ManagementDistributionStats | null>(null);
   const [stripeData, setStripeData] = useState<any>(null);
   const [emailReportsConfig, setEmailReportsConfig] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
@@ -327,6 +329,11 @@ export default function ManagementPage() {
           setGaData(data);
         } catch (e: any) {
           setGaData({ configured: true, error: e.message || 'Failed to fetch Analytics data' } as any);
+        }
+        try {
+          setDistData(await api.auth.managementDistribution());
+        } catch (e: any) {
+          setDistData({ error: e.message || 'Failed to fetch distribution data' } as any);
         }
       } else if (tab === 'stripe' && (managementPermissions?.canManagePlans || isRoot)) {
         try {
@@ -1249,6 +1256,120 @@ export default function ManagementPage() {
             </div>
             );
           })() : null}
+        </section>
+      )}
+
+      {activeTab === 'analytics' && canAccessManagement && distData && (
+        <section className="space-y-5 rounded-xl border bg-card p-4">
+          <div>
+            <h2 className="text-base font-semibold">Open-source distribution</h2>
+            <p className="text-sm text-muted-foreground">
+              GitHub repository traffic and npm downloads.
+            </p>
+          </div>
+
+          {distData.error ? (
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-200">
+              {distData.error}
+            </div>
+          ) : (
+            <>
+              {distData.github && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium">
+                    GitHub · <span className="font-mono">{distData.github.repo}</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {[
+                      { label: 'Stars', value: distData.github.stars },
+                      { label: 'Forks', value: distData.github.forks },
+                      { label: 'Watchers', value: distData.github.watchers },
+                      { label: 'Open issues', value: distData.github.openIssues },
+                    ].map((s) => (
+                      <div key={s.label} className="rounded-lg border p-3">
+                        <div className="text-xl font-semibold">{(s.value ?? 0).toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {distData.github.cloneStatsAvailable ? (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="rounded-lg border p-3">
+                        <div className="text-xl font-semibold">
+                          {(distData.github.clones?.count ?? 0).toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Clones (14d) · {distData.github.clones?.uniques ?? 0} unique
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <div className="text-xl font-semibold">
+                          {(distData.github.views?.count ?? 0).toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Views (14d) · {distData.github.views?.uniques ?? 0} unique
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-100">
+                      {distData.github.clonesHint}
+                    </p>
+                  )}
+                  {(distData.github.referrers?.length ?? 0) > 0 && (
+                    <div className="rounded-lg border p-3">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">
+                        Top referrers (14d)
+                      </div>
+                      <div className="space-y-1">
+                        {distData.github.referrers!.map((r) => (
+                          <div key={r.referrer} className="flex justify-between text-sm">
+                            <span className="truncate">{r.referrer}</span>
+                            <span className="text-muted-foreground">
+                              {r.count} ({r.uniques} uniq)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(distData.npm?.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">npm downloads</h3>
+                  {distData.npm!.map((p) => (
+                    <div key={p.package} className="rounded-lg border p-3">
+                      <div className="font-mono text-sm">{p.package}</div>
+                      {p.error ? (
+                        <div className="mt-1 text-xs text-muted-foreground">{p.error}</div>
+                      ) : (
+                        <div className="mt-2 grid grid-cols-3 gap-3">
+                          {[
+                            { label: 'Today', value: p.lastDay },
+                            { label: 'Last 7 days', value: p.lastWeek },
+                            { label: 'Last 30 days', value: p.lastMonth },
+                          ].map((s) => (
+                            <div key={s.label}>
+                              <div className="text-lg font-semibold">
+                                {(s.value ?? 0).toLocaleString()}
+                              </div>
+                              <div className="text-xs text-muted-foreground">{s.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {distData.note && (
+                <p className="text-xs text-muted-foreground">ℹ️ {distData.note}</p>
+              )}
+            </>
+          )}
         </section>
       )}
 
