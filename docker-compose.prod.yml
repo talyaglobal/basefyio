@@ -7,7 +7,6 @@ services:
     command:
       - --log.level=INFO
       - --api.dashboard=true
-      - --api.insecure=true
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
