@@ -29,8 +29,15 @@ type SupportedIdpProvider =
 export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
   private client!: KcAdminClient;
+  /** True once the admin client has authenticated and finished bootstrap. */
+  private initialized = false;
 
   constructor(private readonly config: ConfigService) {}
+
+  /** Whether the Keycloak admin client has successfully initialized. */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
 
   /**
    * Retry an async operation with exponential backoff.
@@ -70,12 +77,30 @@ export class KeycloakAdminService implements OnModuleInit {
     this.client = new KcAdminClient({
       baseUrl: this.config.get<string>('keycloak.url'),
     });
-    await this.authenticate();
-    this.logger.log('Keycloak admin client initialized');
-    await this.ensureRealmTokenLifespan();
-    await this.ensureAutoLinkFlow('master');
-    await this.ensurePlatformOAuthClient();
-    await this.ensurePlatformIdentityProviders();
+    // Keycloak may be unavailable when the platform boots. Initialization must
+    // NOT abort application startup — /health and Postgres-backed routes have to
+    // come up regardless. Bootstrap in the background and retry until Keycloak is
+    // reachable; admin features stay degraded until then.
+    void this.bootstrapWithRetry();
+  }
+
+  /** One-time admin bootstrap; non-fatal, retries in the background on failure. */
+  private async bootstrapWithRetry(attempt = 1): Promise<void> {
+    try {
+      await this.authenticate();
+      await this.ensureRealmTokenLifespan();
+      await this.ensureAutoLinkFlow('master');
+      await this.ensurePlatformOAuthClient();
+      await this.ensurePlatformIdentityProviders();
+      this.initialized = true;
+      this.logger.log('Keycloak admin client initialized');
+    } catch (err: any) {
+      const delay = Math.min(30_000, 2_000 * 2 ** (attempt - 1));
+      this.logger.warn(
+        `Keycloak admin init failed (${err?.message ?? err}); continuing without Keycloak, retrying in ${delay}ms…`,
+      );
+      setTimeout(() => void this.bootstrapWithRetry(attempt + 1), delay).unref();
+    }
   }
 
   private async ensureRealmTokenLifespan() {

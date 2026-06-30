@@ -1,0 +1,33 @@
+# Never copy host dependencies/build output into the Docker build context.
+# (This is what caused `COPY ... cannot copy over an existing non-directory
+# under apps/platform-api/node_modules/globals` — host pnpm symlinks collided
+# with the image's installed node_modules.)
+**/node_modules
+.pnp
+.pnp.*
+
+# Build outputs — the image rebuilds these.
+**/dist
+**/.next
+**/out
+**/build
+**/*.tsbuildinfo
+
+# VCS / CI / editor metadata
+.git
+.github
+.gitignore
+.gitattributes
+**/.DS_Store
+.vscode
+.idea
+
+# Local env / secrets (keep the example so images can self-document).
+.env
+.env.*
+!.env.example
+
+# Logs, coverage, scratch
+**/*.log
+**/coverage
+graphify-out/

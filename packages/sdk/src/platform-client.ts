@@ -1,6 +1,8 @@
 import { HttpClient } from './http';
 import { AuthResource } from './resources/auth';
 import { ProjectsResource } from './resources/projects';
+import { SqlResource } from './resources/sql';
+import { StorageResource } from './resources/storage';
 import type { HealthResult } from './types';
 
 export interface PlatformClientOptions {
@@ -15,6 +17,8 @@ export interface PlatformClientOptions {
 export interface PlatformClient {
   readonly auth: AuthResource;
   readonly projects: ProjectsResource;
+  /** Returns sql + storage resources scoped to a project, using the platform JWT. */
+  withProject(projectId: string): { sql: SqlResource; storage: StorageResource };
   setToken(token: string | null): void;
   getToken(): string | null;
   health(): Promise<HealthResult>;
@@ -38,6 +42,13 @@ export function createPlatformClient(options: PlatformClientOptions): PlatformCl
   return {
     auth: new AuthResource(http),
     projects: new ProjectsResource(http),
+
+    withProject(projectId: string) {
+      return {
+        sql: new SqlResource(http, projectId),
+        storage: new StorageResource(http, projectId),
+      };
+    },
 
     setToken(token: string | null): void {
       http.setToken(token);

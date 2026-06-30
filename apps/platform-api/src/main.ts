@@ -52,7 +52,9 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  app.setGlobalPrefix('api');
+  // `health` is intentionally excluded from the global prefix so liveness/
+  // readiness probes (Traefik, Docker, CI smoke) hit /health, not /api/health.
+  app.setGlobalPrefix('api', { exclude: ['health'] });
 
   app.useGlobalPipes(
     new ValidationPipe({

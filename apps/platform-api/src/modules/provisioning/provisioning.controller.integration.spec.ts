@@ -187,7 +187,11 @@ async function buildApp(prisma: any, registry: any): Promise<INestApplication> {
   const app = moduleRef.createNestApplication();
   // Activate class-validator DTO pipes so request body validation runs
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  await app.init();
+  // Bind explicitly to loopback. supertest(app.getHttpServer()) otherwise
+  // ephemeral-listens on 0.0.0.0, which is denied (EPERM) in hardened/
+  // sandboxed CI runners. Pre-listening on 127.0.0.1 keeps the HTTP-level
+  // tests portable; the random port (0) avoids collisions across suites.
+  await app.listen(0, '127.0.0.1');
   return app;
 }
 

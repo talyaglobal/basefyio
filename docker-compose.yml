@@ -184,17 +184,25 @@ services:
       redis:
         condition: service_healthy
 
-  admin-ui:
-    build:
-      context: ./apps/admin-ui
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      API_INTERNAL_URL: http://platform-api:4000
-    ports:
-      - "${ADMIN_UI_PORT:-3000}:3000"
-    depends_on:
-      - platform-api
+  # ── Admin UI (NOT YET SHIPPED in v0.1) ───────────────────
+  # The dashboard app under apps/admin-ui has not been implemented yet, so
+  # there is no Dockerfile to build. This service is intentionally commented
+  # out rather than left active: an active service pointing at a non-existent
+  # build context makes `docker compose build` fail and the release gate lie.
+  # Uncomment once apps/admin-ui ships a Dockerfile, and re-add the section to
+  # README / docs/architecture at the same time.
+  #
+  # admin-ui:
+  #   build:
+  #     context: ./apps/admin-ui
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   environment:
+  #     API_INTERNAL_URL: http://platform-api:4000
+  #   ports:
+  #     - "${ADMIN_UI_PORT:-3000}:3000"
+  #   depends_on:
+  #     - platform-api
 
 volumes:
   postgres_data:

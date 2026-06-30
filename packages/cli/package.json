@@ -3,6 +3,13 @@
   "version": "0.0.0",
   "description": "Terminal-first project management for basefyio",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/myfyio/basefyio.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/myfyio/basefyio/tree/main/packages/cli#readme",
+  "bugs": "https://github.com/myfyio/basefyio/issues",
   "type": "commonjs",
   "main": "dist/index.js",
   "bin": {

@@ -324,10 +324,10 @@ export class AuthController {
       await this.observability.captureRootAction({
         traceId: req.traceId || 'unknown',
         actorUserId: user.sub,
-        action: !!isActive ? 'AUTH_USER_ACTIVATED' : 'AUTH_USER_DEACTIVATED',
+        action: isActive ? 'AUTH_USER_ACTIVATED' : 'AUTH_USER_DEACTIVATED',
         resourceType: 'user',
         resourceId: id,
-        severity: !!isActive ? 'MEDIUM' : 'CRITICAL',
+        severity: isActive ? 'MEDIUM' : 'CRITICAL',
         success: true,
         latencyMs: Date.now() - startedAt,
         metadataJson: { isActive: !!isActive },

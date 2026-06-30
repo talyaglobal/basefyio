@@ -1834,7 +1834,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     progress: ImportProgress,
     projectName: string,
   ) {
-    let allUsers: SupabaseUser[] = [];
+    const allUsers: SupabaseUser[] = [];
     let page = 1;
     const perPage = 500;
 

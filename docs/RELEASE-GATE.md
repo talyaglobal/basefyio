@@ -18,12 +18,12 @@ checked; the rest are gated on the platform-api stabilization pass.
 
 ## Platform API
 
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm build` passes
-- [ ] `/health` returns 200
-- [ ] Prisma client generates
-- [ ] Database migrations apply
-- [ ] No Drizzle references
+- [x] `pnpm typecheck` passes
+- [x] `pnpm build` passes
+- [x] `/api/health` returns 200 *(global prefix `api`; verified `{"status":"ok"}`)*
+- [x] Prisma client generates
+- [x] Database migrations apply *(initial migration `..._init` applied; `migrate deploy` clean)*
+- [x] No Drizzle references
 
 ## Packages
 
@@ -33,11 +33,15 @@ checked; the rest are gated on the platform-api stabilization pass.
 
 ## CI
 
-- [ ] Full CI green (including platform-api)
-- [ ] PostgreSQL service container
-- [ ] Redis service container
-- [ ] Integration tests
-- [ ] `--frozen-lockfile` install
+> The `platform-api` job below is **configured and locally validated** (all
+> steps run green on the dev machine). "Full CI green" stays unchecked until a
+> real run executes on the GitHub runner after the stabilization commit lands.
+
+- [ ] Full CI green (including platform-api) *(awaits push — config validated locally)*
+- [x] PostgreSQL service container *(pgvector/pgvector:pg16, `platform-api` job)*
+- [x] Redis service container *(redis:7-alpine, `platform-api` job)*
+- [x] Integration tests *(health e2e — boots HealthController over HTTP)*
+- [x] `--frozen-lockfile` install
 
 ## Security
 
@@ -70,9 +74,27 @@ Run before the repository goes public:
 - [x] Roadmap
 - [x] Contributing
 
+## Pre-Launch Dry Run
+
+When every box above is green, **do not flip the repo public yet.** First validate
+the most important OSS journey on a **clean machine**, as a first-time contributor —
+using *only* the README, running the documented commands exactly as written:
+
+- [ ] Clone the repository
+- [ ] Follow only the README (no hidden knowledge required)
+- [ ] Run the documented commands exactly as written
+- [ ] `/api/health` endpoint reachable
+- [ ] CLI works (`basefyio --version`, `basefyio doctor`)
+- [ ] SDK example works
+- [ ] Docs never require undocumented steps
+
 ## Release
 
 Release name: **basefyio v0.1.0-alpha — Foundation Release**
+
+> **Branching:** cut a `release/v0.1` branch before launch. `release/v0.1` accepts
+> only bug fixes, doc corrections, and release-gate items; new features continue on
+> `main` / `feature/*` after the alpha is tagged.
 
 - [ ] Tag `v0.1.0-alpha`
 - [ ] GitHub Release notes (state Included vs Deferred explicitly)

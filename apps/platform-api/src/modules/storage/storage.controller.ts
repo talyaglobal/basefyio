@@ -245,7 +245,7 @@ export class StorageController {
   ) {
     const MAX_EXPIRY = 7 * 24 * 60 * 60; // 7 days
     const MIN_EXPIRY = 60; // 1 minute
-    let expirySeconds = expiry ? parseInt(expiry, 10) : 3600;
+    const expirySeconds = expiry ? parseInt(expiry, 10) : 3600;
     if (isNaN(expirySeconds) || expirySeconds < MIN_EXPIRY || expirySeconds > MAX_EXPIRY) {
       throw new BadRequestException(
         `Expiry must be between ${MIN_EXPIRY} and ${MAX_EXPIRY} seconds`,

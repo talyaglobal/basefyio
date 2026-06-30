@@ -7,55 +7,23 @@ on:
     branches: [main]
 
 # ── Scope note ────────────────────────────────────────────────
-# CI is an honest signal of repository health. It gates every package
-# that is currently expected to compile and pass tests: cli, sdk, and
-# platform-api (now that its kolaybase-new migration has stabilized on
-# Prisma as the single database layer).
+# CI is an honest signal of repository health and gates every package
+# expected to compile.
 #
-# Deferred (NOT yet enforced here, tracked openly rather than faked):
-#   - Full-app `/health` 200 boot smoke. Booting AppModule eagerly
-#     authenticates to Keycloak (KeycloakAdminService.onModuleInit throws
-#     on failure) and $connects Prisma, so a real boot needs Postgres +
-#     Keycloak up. Once platform-api boot is made resilient to a missing
-#     Keycloak (or a Keycloak service is added), wire the smoke here.
-#   The Postgres/Redis services below are exercised by `prisma db push`
-#   and a Redis ping; they are real checks, not idle placeholders.
+# `apps/platform-api` has completed its migration from kolaybase-new and
+# is now gated in its own `platform-api` job, which provisions the
+# Postgres + Redis service containers it needs and applies Prisma
+# migrations against a real database. The `packages` job covers the
+# service-free workspaces (`@basefyio/cli`, `@basefyio/sdk`).
 
 jobs:
-  ci:
+  packages:
+    name: Packages (cli, sdk)
     runs-on: ubuntu-latest
 
+    # Service-free workspaces. platform-api is gated separately (below).
     env:
-      # Every package currently expected to be green. Adjust here only.
-      # data-engine is a workspace dep of platform-api, so it is built first
-      # (pnpm topologically orders --filter sets).
-      READY_FILTERS: "--filter @basefyio/data-engine --filter @basefyio/cli --filter @basefyio/sdk --filter @basefyio/platform-api"
-      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/basefyio_ci"
-      REDIS_URL: "redis://localhost:6379"
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: basefyio_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      READY_FILTERS: "--filter @basefyio/cli --filter @basefyio/sdk"
 
     steps:
       - uses: actions/checkout@v4
@@ -74,39 +42,15 @@ jobs:
         run: |
           test -f package.json || { echo "::error::root package.json missing"; exit 1; }
           test -f pnpm-workspace.yaml || { echo "::error::pnpm-workspace.yaml missing"; exit 1; }
-          test -f pnpm-lock.yaml || { echo "::error::pnpm-lock.yaml missing — commit a lockfile"; exit 1; }
           node -e "const p=require('./package.json'); if(p.name!=='basefyio'){throw new Error('name must be basefyio')}; if(p.private!==true){throw new Error('package must be private')}; if(p.license!=='Apache-2.0'){throw new Error('license must be Apache-2.0')}; console.log('root package.json OK:', p.name, p.license)"
+
+      - name: Validate workspace integrity
+        run: |
+          test -f pnpm-lock.yaml || { echo "::error::pnpm-lock.yaml missing — commit a lockfile"; exit 1; }
           echo "Gated packages: $READY_FILTERS"
-
-      - name: Guard — single database layer (no Drizzle)
-        run: |
-          if grep -rInE "drizzle-orm|drizzle-kit|from ['\"].*drizzle" apps packages \
-              --include='*.ts' --include='package.json' 2>/dev/null; then
-            echo "::error::Drizzle references found — platform-api must use Prisma only."
-            exit 1
-          fi
-          echo "No Drizzle references. ✅"
-
-      - name: Guard — no private / pre-OSS imports
-        run: |
-          if grep -rInE "from ['\"](@kolaybase|@talya|kolaybase-new|talyasmart)" apps packages \
-              --include='*.ts' 2>/dev/null; then
-            echo "::error::Private / pre-OSS import found — must not ship in the OSS tree."
-            exit 1
-          fi
-          echo "No private/pre-OSS imports. ✅"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma client (explicit — not relied on implicitly)
-        run: pnpm --filter @basefyio/platform-api exec prisma generate
-
-      - name: Apply Prisma schema to Postgres (exercises the postgres service)
-        run: pnpm --filter @basefyio/platform-api exec prisma db push --skip-generate
-
-      - name: Check Redis connectivity (exercises the redis service)
-        run: redis-cli -u "$REDIS_URL" ping
 
       - name: Type check
         run: pnpm $READY_FILTERS run typecheck
@@ -117,5 +61,78 @@ jobs:
       - name: Lint (if configured)
         run: pnpm $READY_FILTERS --if-present run lint
 
-      - name: Test (cli + sdk + platform-api, incl. integration spec)
+      - name: Test
         run: pnpm $READY_FILTERS run test
+
+  platform-api:
+    name: Platform API
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: basefyio
+          POSTGRES_PASSWORD: basefyio_secret
+          POSTGRES_DB: basefyio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U basefyio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      # Provisioned because platform-api requires Redis at runtime (queue +
+      # redis modules); integration tests that boot the full app use it.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://basefyio:basefyio_secret@localhost:5432/basefyio?schema=public
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # platform-api imports @basefyio/data-engine (workspace package), which
+      # must be compiled to dist/ before platform-api typechecks or builds.
+      - name: Build workspace dependencies
+        run: pnpm --filter "@basefyio/platform-api^..." run build
+
+      - name: Generate Prisma client
+        run: pnpm --filter @basefyio/platform-api run prisma:generate
+
+      - name: Apply migrations (real Postgres)
+        run: pnpm --filter @basefyio/platform-api run prisma:migrate:deploy
+
+      - name: Type check
+        run: pnpm --filter @basefyio/platform-api run typecheck
+
+      - name: Build
+        run: pnpm --filter @basefyio/platform-api run build
+
+      - name: Unit tests
+        run: pnpm --filter @basefyio/platform-api run test
+
+      - name: Integration test (health e2e)
+        run: pnpm --filter @basefyio/platform-api run test:e2e

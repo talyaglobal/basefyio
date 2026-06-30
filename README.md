@@ -38,9 +38,9 @@ Philosophically similar to [Supabase](https://supabase.com), [PocketBase](https:
 | **Storage** | Per-project object storage via MinIO |
 | **Realtime** | Server-sent events for live data subscriptions |
 | **Data Engine** | Structured data layer with type-safe query builder |
-| **AI-Ready** | Built-in vector embedding support (pgvector), RAG pipeline, agent scaffolding |
+| **pgvector Available** | PostgreSQL ships with pgvector for vector workloads; AI features (agents, RAG, embeddings) live in the separate `agentfyio` project, not basefyio core |
 | **Queue** | Background job processing with BullMQ + Redis |
-| **Admin UI** | Project management dashboard, SQL editor, and audit log viewer |
+| **Admin UI** *(planned)* | Project management dashboard, SQL editor, and audit log viewer — not yet shipped in v0.1 |
 | **CLI** | Terminal-first project management and deployment |
 | **Docker-first** | Full local stack via Docker Compose with PgBouncer connection pooling |
 | **Observable** | Health checks, audit logging, trace IDs, and structured logs |
@@ -85,12 +85,13 @@ Philosophically similar to [Supabase](https://supabase.com), [PocketBase](https:
 | `storage` | Object storage with per-project namespacing |
 | `realtime` | SSE-based live subscriptions |
 | `queue` | BullMQ-powered background jobs |
-| `agent` | AI agent scaffolding with tool adapters |
-| `rag` | Retrieval-augmented generation pipeline |
-| `embedding` | Vector embedding management (pgvector) |
-| `search` | Full-text and semantic search |
+| `teams` | Teams and membership management |
 | `observability` | Structured logging, trace IDs, audit log |
 | `health` | Readiness and liveness probes |
+
+> AI modules (`agent`, `rag`, `embedding`) and `search` are **not** part of
+> basefyio core. They are deferred to the future `agentfyio` project — see
+> [`_deferred/`](_deferred/) and [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -175,8 +176,11 @@ redis          — Queue and cache (port 6379)
 minio          — Object storage (port 9000 / 9001)
 pgbouncer      — Connection pooler (port 5432)
 platform-api   — Core API (port 4000)
-admin-ui       — Dashboard (port 3000)
 ```
+
+> `admin-ui` (dashboard, port 3000) is planned but **not yet shipped in v0.1**,
+> so it is not part of the Compose stack. The `apps/admin-ui` directory is a
+> placeholder until it lands.
 
 The compose stack includes health checks, volume mounts, and service dependencies. Harden it for your environment before any production use.
 
@@ -197,11 +201,11 @@ basefyio/
 │   │       ├── storage/       # Object storage
 │   │       ├── realtime/      # SSE subscriptions
 │   │       ├── queue/         # Background jobs
-│   │       ├── agent/         # AI agent scaffolding
-│   │       ├── rag/           # RAG pipeline
-│   │       ├── embedding/     # Vector embeddings
+│   │       ├── teams/         # Teams & membership
 │   │       └── observability/ # Logging & tracing
-│   └── admin-ui/              # Next.js dashboard
+│   │       # AI modules (agent / RAG / embedding) are NOT part of core v0.1.
+│   │       # They are deferred to the future `agentfyio` project — see _deferred/.
+│   └── admin-ui/              # Next.js dashboard (planned — not yet in v0.1)
 ├── packages/
 │   ├── cli/                   # @basefyio/cli
 │   ├── sdk/                   # @basefyio/sdk client SDK
@@ -222,17 +226,19 @@ basefyio/
 
 ### Packages
 
-Published under the `@basefyio` npm scope. All packages are early-stage scaffolds — not yet released.
+Published under the `@basefyio` npm scope — none are released yet. Only `cli`
+and `sdk` contain code today; the rest are reserved placeholders (empty
+directories) marked *(planned)* below.
 
-| Package | Path | Purpose |
-|---|---|---|
-| `@basefyio/cli` | `packages/cli` | Terminal-first project management |
-| `@basefyio/sdk` | `packages/sdk` | Type-safe client SDK |
-| `@basefyio/auth` | `packages/auth` | Auth helpers and token handling |
-| `@basefyio/storage` | `packages/storage` | Object storage client |
-| `@basefyio/runtime` | `packages/runtime` | Shared runtime internals |
-| `@basefyio/react` | `packages/react` | React hooks and components |
-| `@basefyio/next` | `packages/next` | Next.js integration |
+| Package | Path | Purpose | Status |
+|---|---|---|---|
+| `@basefyio/cli` | `packages/cli` | Terminal-first project management | scaffold |
+| `@basefyio/sdk` | `packages/sdk` | Type-safe client SDK | scaffold |
+| `@basefyio/auth` | `packages/auth` | Auth helpers and token handling | planned |
+| `@basefyio/storage` | `packages/storage` | Object storage client | planned |
+| `@basefyio/runtime` | `packages/runtime` | Shared runtime internals | planned |
+| `@basefyio/react` | `packages/react` | React hooks and components | planned |
+| `@basefyio/next` | `packages/next` | Next.js integration | planned |
 
 ---
 

@@ -99,7 +99,11 @@ NestJS application — the central runtime. All client and dashboard interaction
 
 When the `search` module lands, keep its full-text/SQL/metadata paths in core and move any embedding/semantic/vector paths to `_deferred/`.
 
-### Admin UI (`apps/admin-ui`)
+### Admin UI (`apps/admin-ui`) — planned, not yet shipped
+
+> **Status:** not implemented in v0.1. `apps/admin-ui` is an empty placeholder
+> and is not part of the Compose stack. The description below is the intended
+> target, not current behavior.
 
 Next.js 14 dashboard. Communicates with the Platform API over REST + JWT. Features: project list, SQL editor, storage browser, audit log viewer.
 
@@ -123,7 +127,6 @@ BullMQ on Redis. Used for:
 - Background provisioning jobs
 - Email delivery
 - Scheduled tasks
-- Agent execution
 
 ### Storage
 
