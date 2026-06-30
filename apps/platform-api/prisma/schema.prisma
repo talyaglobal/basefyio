@@ -1,0 +1,1521 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  ROOT
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+/// How the project stores application data: relational tables in the
+/// project's PostgreSQL database, or schema-flexible document collections
+/// served by the Data Engine.
+enum ProjectDatabaseType {
+  RELATIONAL
+  NOSQL
+}
+
+enum TeamMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CANCELLED
+}
+
+enum InfraStatus {
+  PROVISIONING
+  ACTIVE
+  MIGRATING
+  FAILED
+  DEPROVISIONING
+  STOPPED
+}
+
+model User {
+  id              String   @id
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  email           String   @unique
+  role            UserRole @default(USER)
+  activeTeamId    String?  @map("active_team_id")
+  avatarUrl       String?  @map("avatar_url")
+  githubUsername  String?  @map("github_username")
+  notifySignIn    Boolean  @default(true) @map("notify_sign_in")
+  notifySignInNewDevice Boolean @default(false) @map("notify_sign_in_new_device")
+  notifyTeamInvite Boolean @default(true) @map("notify_team_invite")
+  notifyBrowserPush Boolean @default(false) @map("notify_browser_push")
+  lastLoginFingerprint String? @map("last_login_fingerprint")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  activeTeam       Team?             @relation("ActiveTeam", fields: [activeTeamId], references: [id])
+  personalTeam     Team?             @relation("PersonalTeam")
+  teamMembers      TeamMember[]
+  receivedInvites  TeamInvite[]      @relation("ReceivedInvites")
+  sentInvites      TeamInvite[]      @relation("SentInvites")
+  feedbacks        Feedback[]
+  feedbackComments FeedbackComment[]
+  feedbackEvents   FeedbackEvent[]
+
+  @@map("users")
+}
+
+model RolePermission {
+  id                     String   @id @default(uuid())
+  role                   UserRole @unique
+  canAccessManagement    Boolean  @default(false) @map("can_access_management")
+  canManageUsers         Boolean  @default(false) @map("can_manage_users")
+  canManageTeams         Boolean  @default(false) @map("can_manage_teams")
+  canManagePlans         Boolean  @default(false) @map("can_manage_plans")
+  canManageUserPackages  Boolean  @default(false) @map("can_manage_user_packages")
+  canModerateFeedback    Boolean  @default(false) @map("can_moderate_feedback")
+  canViewAuditLogs       Boolean  @default(false) @map("can_view_audit_logs")
+  canViewRootAlerts      Boolean  @default(false) @map("can_view_root_alerts")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("role_permissions")
+}
+
+model Team {
+  id                String        @id @default(uuid())
+  name              String
+  slug              String        @unique
+  personalForUserId String?       @unique @map("personal_for_user_id")
+  accountStatus     AccountStatus @default(ACTIVE) @map("account_status")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  // GitHub OAuth (team-level)
+  githubOAuthToken  String?  @map("github_oauth_token")
+  githubOAuthLogin  String?  @map("github_oauth_login")
+  githubOAuthAvatar String?  @map("github_oauth_avatar")
+
+  // Vercel OAuth (team-level)
+  vercelOAuthToken  String?  @map("vercel_oauth_token")
+  vercelOAuthTeamId String?  @map("vercel_oauth_team_id")
+  vercelOAuthUser   String?  @map("vercel_oauth_user")
+
+  personalForUser    User?        @relation("PersonalTeam", fields: [personalForUserId], references: [id])
+  activeForUsers     User[]       @relation("ActiveTeam")
+  members            TeamMember[]
+  invites            TeamInvite[]
+  projects           Project[]
+  folders            ProjectFolder[]
+  tags               ProjectTag[]
+  subscription       Subscription?
+  invoices           Invoice[]
+  usage              TeamUsage?
+  infrastructure     TeamInfrastructure?
+  billingAccount             BillingAccount?
+  rolePermissions            TeamRolePermission[]
+  provisioningCredentialRefs ProvisioningCredentialRef[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String         @id @default(uuid())
+  teamId    String         @map("team_id")
+  userId    String         @map("user_id")
+  role      TeamMemberRole @default(MEMBER)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model TeamRolePermission {
+  id                        String         @id @default(uuid())
+  teamId                    String         @map("team_id")
+  role                      TeamMemberRole
+  // Team settings
+  canRenameTeam             Boolean        @default(false) @map("can_rename_team")
+  canInviteMembers          Boolean        @default(false) @map("can_invite_members")
+  canRemoveMembers          Boolean        @default(false) @map("can_remove_members")
+  canManageIntegrations     Boolean        @default(false) @map("can_manage_integrations")
+  // Project operations
+  canCreateProjects         Boolean        @default(false) @map("can_create_projects")
+  canDeleteProjects         Boolean        @default(false) @map("can_delete_projects")
+  canRestoreProjects        Boolean        @default(false) @map("can_restore_projects")
+  canMoveProjects           Boolean        @default(false) @map("can_move_projects")
+  // Database
+  canResetDbPassword        Boolean        @default(false) @map("can_reset_db_password")
+  // Billing
+  canViewBilling            Boolean        @default(false) @map("can_view_billing")
+  canManageBilling          Boolean        @default(false) @map("can_manage_billing")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, role])
+  @@map("team_role_permissions")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model TeamInvite {
+  id            String       @id @default(uuid())
+  teamId        String       @map("team_id")
+  invitedUserId String?      @map("invited_user_id")
+  invitedEmail  String?      @map("invited_email")
+  invitedById   String       @map("invited_by_id")
+  status        InviteStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  team        Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedUser User? @relation("ReceivedInvites", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy   User  @relation("SentInvites", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, invitedUserId])
+  @@unique([teamId, invitedEmail])
+  @@map("team_invites")
+}
+
+model Project {
+  id            String        @id @default(uuid())
+  name          String
+  slug          String        @unique
+  description   String?
+  dbName        String        @map("db_name")
+  dbHost        String        @default("localhost") @map("db_host")
+  dbPort        Int           @default(5432) @map("db_port")
+  dbUser        String        @map("db_user")
+  dbPassword    String        @map("db_password")
+  keycloakRealm String        @map("keycloak_realm")
+  anonKey       String        @map("anon_key")
+  serviceKey    String        @map("service_key")
+  teamId        String        @map("team_id")
+  createdBy     String?       @map("created_by")
+  importSource  String        @default("MANUAL") @map("import_source")
+  /// Developer's choice in the New Project wizard. NOSQL projects use the
+  /// Data Engine document store for app data; a PostgreSQL database is still
+  /// provisioned for auth/system features either way.
+  databaseType  ProjectDatabaseType @default(RELATIONAL) @map("database_type")
+  /// Last successful Supabase import summary (tables, auth, storage, warnings).
+  supabaseImportLog Json?     @map("supabase_import_log")
+  status        ProjectStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  /// When the project was moved to trash; used for 24h retention (not `updatedAt`).
+  deletedAt     DateTime?     @map("deleted_at")
+  /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
+  /// were installed into the project DB. Null = not yet bootstrapped.
+  rlsBootstrappedAt DateTime? @map("rls_bootstrapped_at")
+
+  // Folder
+  folderId      String?  @map("folder_id")
+
+  // GitHub Integration
+  githubToken   String? @map("github_token")
+  githubOwner   String? @map("github_owner")
+  githubRepo    String? @map("github_repo")
+  githubBranch  String? @default("main") @map("github_branch")
+
+  // Vercel Integration
+  vercelToken     String? @map("vercel_token")
+  vercelProjectId String? @map("vercel_project_id")
+  vercelTeamId    String? @map("vercel_team_id")
+
+  // Tenant Embedding / pgvector
+  /// Whether pgvector extension + embedding tables have been provisioned in this project's DB.
+  pgvectorEnabled     Boolean   @default(false) @map("pgvector_enabled")
+  /// When pgvector was enabled on this project's DB. Null = never.
+  pgvectorEnabledAt   DateTime? @map("pgvector_enabled_at")
+  /// Per-project OpenAI API key for embeddings. Falls back to platform-level key if null.
+  embeddingApiKey     String?   @map("embedding_api_key")
+
+  /// Optional module feature flags. Key = module name (e.g. "provisioning"), value = boolean.
+  /// Absent key or empty object defaults to enabled. Set key to false to disable the module.
+  modules             Json      @default("{}") @map("modules")
+
+  team         Team          @relation(fields: [teamId], references: [id])
+  folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags          ProjectTagAssignment[]
+  sqlAuditLogs  SqlAuditLog[]
+  authConfig    ProjectAuthConfig?
+  activityLogs    ProjectActivityLog[]
+  infrastructure  ProjectInfrastructure?
+  dataPlane       DataPlaneProvisioning?
+  applicationModels ApplicationModel[]
+  entityDefinitions EntityDefinition[]
+  migrationArchives   MigrationArchive[]
+  dataStructures      DataStructure[]
+  engineEndpoints     ProjectEngineEndpoint[]
+  provisioningProject ProvisioningProject?
+  /// Frozen MinIO prefix seed. Slug may change on rename; this never does.
+  storagePrefix String? @map("storage_prefix")
+  /// Max rows the Data grid loads per table. Default 1000; higher tiers (pro 10k,
+  /// business 100k) can raise it. Plan-gated when changed.
+  maxRowsPerTable Int @default(1000) @map("max_rows_per_table")
+
+  realtimeBindings    RealtimeBinding[]
+
+  @@map("projects")
+}
+
+/// Per-table/collection opt-in for public realtime change events
+/// (Supabase publication model: nothing broadcasts unless enabled here).
+model RealtimeBinding {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  /// 'table' (relational) or 'collection' (NoSQL documents)
+  kind      String
+  entity    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, kind, entity])
+  @@map("realtime_bindings")
+}
+
+model ProjectActivityLog {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String?  @map("user_id")
+  kind      String   @db.VarChar(80)
+  title     String   @db.VarChar(512)
+  detail    String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("project_activity_logs")
+}
+
+model ProjectFolder {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("#6366f1")
+  teamId    String   @map("team_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team     Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@map("project_folders")
+}
+
+model ProjectTag {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("#8b5cf6")
+  teamId    String   @map("team_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team        Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignments ProjectTagAssignment[]
+
+  @@unique([teamId, name])
+  @@map("project_tags")
+}
+
+model ProjectTagAssignment {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  tagId     String @map("tag_id")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag     ProjectTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tagId])
+  @@map("project_tag_assignments")
+}
+
+model ProjectAuthConfig {
+  id                    String  @id @default(uuid())
+  projectId             String  @unique @map("project_id")
+  allowSignup           Boolean @default(true) @map("allow_signup")
+  requireEmailVerify    Boolean @default(true) @map("require_email_verify")
+  minPasswordLength     Int     @default(6) @map("min_password_length")
+  tokenExpirySeconds    Int     @default(1800) @map("token_expiry_seconds")
+  emailProvider         String? @map("email_provider")
+  smtpHost              String? @map("smtp_host")
+  smtpPort              Int?    @map("smtp_port")
+  smtpUser              String? @map("smtp_user")
+  smtpPass              String? @map("smtp_pass")
+  senderEmail           String? @map("sender_email")
+  senderName            String? @map("sender_name")
+  resendApiKey          String? @map("resend_api_key")
+  sendgridApiKey        String? @map("sendgrid_api_key")
+  sesAccessKey          String? @map("ses_access_key")
+  sesSecretKey          String? @map("ses_secret_key")
+  sesRegion             String? @map("ses_region")
+  verifyEmailSubject    String? @map("verify_email_subject")
+  verifyEmailBody       String? @map("verify_email_body") @db.Text
+  resetPasswordSubject  String? @map("reset_password_subject")
+  resetPasswordBody     String? @map("reset_password_body") @db.Text
+  welcomeSubject        String? @map("welcome_subject")
+  welcomeBody           String? @map("welcome_body") @db.Text
+  inviteUserSubject     String? @map("invite_user_subject")
+  inviteUserBody        String? @map("invite_user_body") @db.Text
+  magicLinkSubject      String? @map("magic_link_subject")
+  magicLinkBody         String? @map("magic_link_body") @db.Text
+  changeEmailSubject    String? @map("change_email_subject")
+  changeEmailBody       String? @map("change_email_body") @db.Text
+  reauthSubject         String? @map("reauth_subject")
+  reauthBody            String? @map("reauth_body") @db.Text
+  googleEnabled         Boolean @default(false) @map("google_enabled")
+  googleClientId        String? @map("google_client_id")
+  googleClientSecret    String? @map("google_client_secret")
+  githubEnabled         Boolean @default(false) @map("github_enabled")
+  githubClientId        String? @map("github_client_id")
+  githubClientSecret    String? @map("github_client_secret")
+  microsoftEnabled      Boolean @default(false) @map("microsoft_enabled")
+  microsoftClientId     String? @map("microsoft_client_id")
+  microsoftClientSecret String? @map("microsoft_client_secret")
+  appleEnabled          Boolean @default(false) @map("apple_enabled")
+  appleClientId         String? @map("apple_client_id")
+  appleClientSecret     String? @map("apple_client_secret")
+  gitlabEnabled         Boolean @default(false) @map("gitlab_enabled")
+  gitlabClientId        String? @map("gitlab_client_id")
+  gitlabClientSecret    String? @map("gitlab_client_secret")
+  linkedinEnabled       Boolean @default(false) @map("linkedin_enabled")
+  linkedinClientId      String? @map("linkedin_client_id")
+  linkedinClientSecret  String? @map("linkedin_client_secret")
+  facebookEnabled       Boolean @default(false) @map("facebook_enabled")
+  facebookClientId      String? @map("facebook_client_id")
+  facebookClientSecret  String? @map("facebook_client_secret")
+  twitterEnabled        Boolean @default(false) @map("twitter_enabled")
+  twitterClientId       String? @map("twitter_client_id")
+  twitterClientSecret   String? @map("twitter_client_secret")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_auth_configs")
+}
+
+model SqlAuditLog {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  query     String
+  rowCount  Int?     @map("row_count")
+  duration  Int?
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("sql_audit_logs")
+}
+
+enum FeedbackType {
+  BUG
+  FEATURE
+  GENERAL
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CLOSED
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  realm     String?
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([token])
+  @@map("password_reset_tokens")
+}
+
+model LoginSecurityState {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  failedAttempts    Int       @default(0) @map("failed_attempts")
+  consecutiveFailed Int       @default(0) @map("consecutive_failed")
+  lockedUntil       DateTime? @map("locked_until")
+  captchaQuestion   String?   @map("captcha_question")
+  captchaAnswer     String?   @map("captcha_answer")
+  captchaExpiresAt  DateTime? @map("captcha_expires_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@map("login_security_states")
+}
+
+model Feedback {
+  id          String         @id @default(uuid())
+  userId      String         @map("user_id")
+  email       String
+  url         String
+  title       String
+  description String?
+  /// JSON array: { url, mimeType, kind: "image" | "video" }[]
+  attachments Json?        @map("attachments")
+  type        FeedbackType   @default(GENERAL)
+  status      FeedbackStatus @default(OPEN)
+  appVersion  String?        @map("app_version")
+  deletedAt   DateTime?      @map("deleted_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments    FeedbackComment[]
+  events      FeedbackEvent[]
+
+  @@index([userId])
+  @@index([deletedAt])
+  @@map("feedbacks")
+}
+
+model FeedbackEvent {
+  id        String   @id @default(uuid())
+  feedbackId String  @map("feedback_id")
+  userId    String   @map("user_id")
+  action    String
+  detail    String?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackId, createdAt])
+  @@map("feedback_events")
+}
+
+model FeedbackComment {
+  id              String   @id @default(uuid())
+  feedbackId      String   @map("feedback_id")
+  userId          String   @map("user_id")
+  comment         String
+  attachments     Json?    @map("attachments")
+  parentCommentId String?  @map("parent_comment_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  editedAt        DateTime? @map("edited_at")
+
+  feedback      Feedback         @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentComment FeedbackComment? @relation("FeedbackCommentReplies", fields: [parentCommentId], references: [id], onDelete: SetNull)
+  replies       FeedbackComment[] @relation("FeedbackCommentReplies")
+
+  @@index([feedbackId, createdAt])
+  @@index([feedbackId, parentCommentId, createdAt])
+  @@map("feedback_comments")
+}
+
+// ── Billing ──────────────────────────────────────────────
+
+model Plan {
+  id                String   @id @default(uuid())
+  name              String   @unique
+  displayName       String   @map("display_name")
+  maxProjects       Int?     @map("max_projects")
+  maxStorageBytes   BigInt?  @map("max_storage_bytes")
+  maxTeamMembers    Int?     @map("max_team_members")
+  maxDbSizeBytes    BigInt?  @map("max_db_size_bytes")
+  maxApiRequests    Int?     @map("max_api_requests")
+  maxBandwidthBytes BigInt?  @map("max_bandwidth_bytes")
+  maxMau            Int?     @map("max_mau")
+  dedicatedDb       Boolean  @default(false) @map("dedicated_db")
+  dedicatedStorage  Boolean  @default(false) @map("dedicated_storage")
+  dbMemoryMb        Int      @default(0) @map("db_memory_mb")
+  dbCpuMillis       Int      @default(0) @map("db_cpu_millis")
+  priceMonthly      Int      @default(0) @map("price_monthly")
+  stripePriceId     String?  @map("stripe_price_id")
+  stripeProductId   String?  @map("stripe_product_id")
+  isPublic          Boolean  @default(true) @map("is_public")
+  features          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  teamId               String             @unique @map("team_id")
+  planId               String             @map("plan_id")
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @map("stripe_customer_id")
+  stripeSubscriptionId String?            @map("stripe_subscription_id")
+  currentPeriodStart   DateTime?          @map("current_period_start")
+  currentPeriodEnd     DateTime?          @map("current_period_end")
+  nextBillingDate      DateTime?          @map("next_billing_date")
+  billingDayOfMonth    Int?               @map("billing_day_of_month")
+  retryCount           Int                @default(0) @map("retry_count")
+  lastRetryDate        DateTime?          @map("last_retry_date")
+  firstFailureAt       DateTime?          @map("first_failure_at")
+  /// When a plan upgrade payment fails, target plan and amount are stored until paid or window lapses.
+  pendingPlanId        String?            @map("pending_plan_id")
+  pendingAmountDue     Int?               @map("pending_amount_due")
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  /// Student/education discount (0–100). Applied to every charge once verified.
+  studentDiscountPercent Int              @default(0) @map("student_discount_percent")
+  studentVerifiedEmail   String?          @map("student_verified_email")
+  studentVerifiedAt      DateTime?        @map("student_verified_at")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id              String    @id @default(uuid())
+  teamId          String    @map("team_id")
+  stripeInvoiceId String?   @unique @map("stripe_invoice_id")
+  amountDue       Int       @map("amount_due")
+  amountPaid      Int       @default(0) @map("amount_paid")
+  currency        String    @default("usd")
+  status          String
+  invoiceUrl      String?   @map("invoice_url")
+  invoicePdf      String?   @map("invoice_pdf")
+  periodStart     DateTime? @map("period_start")
+  periodEnd       DateTime? @map("period_end")
+  retryCount      Int       @default(0) @map("retry_count")
+  lastRetryDate   DateTime? @map("last_retry_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  team      Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  lineItems InvoiceLineItem[]
+
+  @@map("invoices")
+}
+
+model BillingAccount {
+  id           String   @id @default(uuid())
+  teamId       String   @unique @map("team_id")
+  companyName  String?  @map("company_name")
+  taxId        String?  @map("tax_id")
+  vatNumber    String?  @map("vat_number")
+  addressLine1 String?  @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  city         String?
+  state        String?
+  postalCode   String?  @map("postal_code")
+  country      String?
+  billingEmail String?  @map("billing_email")
+  phone        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("billing_accounts")
+}
+
+// ── Usage Tracking ───────────────────────────────────────
+
+model TeamUsage {
+  id               String   @id @default(uuid())
+  teamId           String   @unique @map("team_id")
+  projectCount     Int      @default(0) @map("project_count")
+  storageBytes     BigInt   @default(0) @map("storage_bytes")
+  memberCount      Int      @default(0) @map("member_count")
+  dbSizeBytes      BigInt   @default(0) @map("db_size_bytes")
+  apiRequestsMonth Int      @default(0) @map("api_requests_month")
+  bandwidthMonth   BigInt   @default(0) @map("bandwidth_month")
+  mauCount         Int      @default(0) @map("mau_count")
+  periodStart      DateTime @default(now()) @map("period_start")
+  lastCalculatedAt DateTime @default(now()) @map("last_calculated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_usage")
+}
+
+model UsageRecord {
+  id          String   @id @default(uuid())
+  teamId      String   @map("team_id")
+  projectId   String?  @map("project_id")
+  metric      String
+  value       BigInt
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+
+  @@index([teamId, metric, recordedAt])
+  @@index([projectId, metric, recordedAt])
+  @@map("usage_records")
+}
+
+// ── Dedicated Infrastructure ─────────────────────────────
+
+model ProjectInfrastructure {
+  id              String      @id @default(uuid())
+  projectId       String      @unique @map("project_id")
+  pgContainerName String?     @map("pg_container_name")
+  pgContainerHost String?     @map("pg_container_host")
+  pgContainerPort Int?        @map("pg_container_port")
+  pgAdminUser     String?     @map("pg_admin_user")
+  pgAdminPassword String?     @map("pg_admin_password")
+  pgMemoryMb      Int         @default(1024) @map("pg_memory_mb")
+  pgCpuMillis     Int         @default(1000) @map("pg_cpu_millis")
+  pgVolumeId      String?     @map("pg_volume_id")
+  status          InfraStatus @default(PROVISIONING)
+  provisionedAt   DateTime?   @map("provisioned_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_infrastructure")
+}
+
+model TeamInfrastructure {
+  id                 String      @id @default(uuid())
+  teamId             String      @unique @map("team_id")
+  minioContainerName String?     @map("minio_container_name")
+  minioContainerHost String?     @map("minio_container_host")
+  minioContainerPort Int?        @map("minio_container_port")
+  minioAccessKey     String?     @map("minio_access_key")
+  minioSecretKey     String?     @map("minio_secret_key")
+  minioVolumeId      String?     @map("minio_volume_id")
+  status             InfraStatus @default(PROVISIONING)
+  provisionedAt      DateTime?   @map("provisioned_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_infrastructure")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  traceId      String   @map("trace_id")
+  actorUserId  String   @map("actor_user_id")
+  actorRole    String   @map("actor_role")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  severity     String
+  success      Boolean  @default(true)
+  beforeJson   Json?    @map("before_json")
+  afterJson    Json?    @map("after_json")
+  metadataJson Json?    @map("metadata_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([traceId])
+  @@map("audit_logs")
+}
+
+model RootAlert {
+  id                String   @id @default(uuid())
+  kind              String
+  severity          String
+  title             String
+  message           String
+  relatedAuditLogId String?  @map("related_audit_log_id")
+  isRead            Boolean  @default(false) @map("is_read")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([isRead, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
+  @@map("root_alerts")
+}
+
+// ── Embeddings (pgvector) ─────────────────────────────────
+// Metadata twin for embeddings. The actual vector(1536) lives in the raw-SQL
+// table `embeddings_store` because Prisma 5 does not support the vector type.
+// All vector reads/writes go through VectorStoreService via $queryRawUnsafe.
+/// Key-value store for system-wide settings (e.g. scheduled email preferences).
+model SystemSetting {
+  key       String   @id @db.VarChar(128)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model EmbeddingRecord {
+  id             String   @id @default(uuid())
+  /// SHA-256 hex of the embedded text — used as a dedup/cache key.
+  contentHash    String   @unique @map("content_hash") @db.VarChar(64)
+  /// e.g. "sql_audit_log" | "project_schema" | "project_activity" | ...
+  entityType     String   @map("entity_type") @db.VarChar(64)
+  entityId       String   @map("entity_id")
+  projectId      String?  @map("project_id")
+  teamId         String?  @map("team_id")
+  /// Token count for cost tracking.
+  tokenCount     Int?     @map("token_count")
+  embeddingModel String   @default("text-embedding-3-small") @map("embedding_model") @db.VarChar(80)
+  /// Stores the original chunk text (and any display fields) so RAG hydration
+  /// is a single scan on this table instead of fan-out joins.
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@index([projectId, entityType])
+  @@index([teamId, entityType])
+  @@map("embedding_records")
+}
+
+// ══════════════════════════════════════════════════════════════
+// DATA ENGINE MODELS
+// ══════════════════════════════════════════════════════════════
+
+enum DataPlaneStatus {
+  PENDING
+  PROVISIONING
+  READY
+  FAILED
+  DELETING
+  DELETED
+}
+
+model DataPlaneProvisioning {
+  id            String          @id @default(uuid())
+  projectId     String          @unique @map("project_id")
+  status        DataPlaneStatus @default(PENDING)
+  provider      String          @default("nosql") @db.VarChar(20)
+  namespace     String          @default("projects")
+  tier          String          @default("shared") @db.VarChar(20)
+  retryCount    Int             @default(0) @map("retry_count")
+  lastError     String?         @map("last_error")
+  provisionedAt DateTime?       @map("provisioned_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("data_plane_provisioning")
+}
+
+model ApplicationModel {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  description String?
+  definition  Json     @default("{}")
+  version     Int      @default(1)
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project  Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entities EntityDefinition[]
+
+  @@unique([projectId, name])
+  @@map("application_models")
+}
+
+model EntityDefinition {
+  id                  String   @id @default(uuid())
+  projectId           String   @map("project_id")
+  applicationModelId  String?  @map("application_model_id")
+  logicalName         String   @map("logical_name")
+  displayName         String   @map("display_name")
+  physicalCollection  String   @map("physical_collection")
+  storageStrategy     String   @default("shared-records") @map("storage_strategy") @db.VarChar(30)
+  provider            String   @default("nosql") @db.VarChar(20)
+  storageClass        String   @default("standard") @map("storage_class") @db.VarChar(20)
+  schemaVersion       Int      @default(1) @map("schema_version")
+  fields              Json     @default("[]")
+  rules               Json     @default("[]")
+  // AI builder provenance
+  generatedByAI       Boolean  @default(false) @map("generated_by_ai")
+  description         String?
+  icon                String?  @db.VarChar(50)
+  aiPrompt            String?  @map("ai_prompt")
+  aiReasoning         Json?    @map("ai_reasoning")
+  confidenceScore     Float?   @map("confidence_score")
+  sourceWorkbook      String?  @map("source_workbook")
+  sourceSheet         String?  @map("source_sheet")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  applicationModel ApplicationModel?  @relation(fields: [applicationModelId], references: [id], onDelete: SetNull)
+  schemaVersions   EntitySchemaVersion[]
+
+  @@unique([projectId, logicalName])
+  @@index([projectId])
+  @@map("entity_definitions")
+}
+
+model EntitySchemaVersion {
+  id                  String   @id @default(uuid())
+  entityDefinitionId  String   @map("entity_definition_id")
+  version             Int
+  snapshot            Json
+  migrationScript     String?  @map("migration_script")
+  createdBy           String   @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  entityDefinition EntityDefinition @relation(fields: [entityDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([entityDefinitionId, version])
+  @@map("entity_schema_versions")
+}
+
+model EntityNameMapping {
+  id                String   @id @default(uuid())
+  projectId         String   @map("project_id")
+  logicalName       String   @map("logical_name")
+  physicalName      String   @map("physical_name")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([projectId, logicalName])
+  @@map("entity_name_mappings")
+}
+
+model DataEngineOutbox {
+  id            String   @id @default(uuid())
+  type          String   @db.VarChar(50)
+  projectId     String   @map("project_id")
+  entity        String
+  documentId    String?  @map("document_id")
+  schemaVersion Int      @default(1) @map("schema_version")
+  payload       Json?
+  status        String   @default("PENDING") @db.VarChar(20)
+  retryCount    Int      @default(0) @map("retry_count")
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([projectId])
+  @@map("data_engine_outbox")
+}
+
+model SavedDataQuery {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  mode        String   @db.VarChar(20)
+  entity      String?
+  sql         String?
+  pipeline    Json?
+  paramsSchema Json?   @map("params_schema")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, name])
+  @@map("saved_data_queries")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 0 — MIGRATION ARCHIVE + ASSESSMENT
+// New ProjectActivityKind values (used in ProjectActivityLog.kind):
+//   MIGRATION_ARCHIVE_CREATED, MIGRATION_ARCHIVE_DELETED,
+//   MIGRATION_FILE_UPLOADED, MIGRATION_CONSENT_RECORDED,
+//   MIGRATION_ASSESSMENT_CREATED, MIGRATION_RESTORE_STARTED,
+//   MIGRATION_RESTORE_COMPLETED, MIGRATION_RESTORE_FAILED
+// ══════════════════════════════════════════════════════════════
+
+enum MigrationArchiveStatus {
+  CREATING
+  ACTIVE
+  DELETING
+  DELETED
+}
+
+enum MigrationFileUploadStatus {
+  PENDING
+  UPLOADING
+  COMPLETE
+  FAILED
+}
+
+enum MigrationSource {
+  USER_UPLOAD
+  WE_IMPORT
+}
+
+enum MigrationRetention {
+  TEMPORARY_30D
+  STANDARD_1Y
+  LONG_TERM
+}
+
+enum MigrationRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MigrationRestoreMode {
+  SAME_PROJECT
+  NEW_PROJECT
+  EXPORT_BUNDLE
+}
+
+enum MigrationJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum InvoiceLineItemType {
+  PLAN
+  AI_TOKENS
+  MIGRATION_ARCHIVE_STORAGE
+}
+
+// Archive-first migration bucket — created before any upload begins.
+// Content is immutable at the API level; only metadata (status, retention) is mutable.
+// Migration cannot start until consentCompletedAt is set and status = ACTIVE.
+model MigrationArchive {
+  id                 String                 @id @default(uuid())
+  projectId          String                 @map("project_id")
+  bucketName         String                 @map("bucket_name")
+  status             MigrationArchiveStatus @default(CREATING)
+  source             MigrationSource
+  retention          MigrationRetention     @default(STANDARD_1Y)
+  // Data-residency gate: assessment region must equal archive region (US | EU | TR).
+  region             String                 @db.VarChar(10)
+  encryptedAtRest    Boolean                @default(true) @map("encrypted_at_rest")
+  consentCompletedAt DateTime?              @map("consent_completed_at")
+  totalBytes         BigInt                 @default(0) @map("total_bytes")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  deletedAt          DateTime?              @map("deleted_at")
+
+  project     Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  files       MigrationArchiveFile[]
+  assessments MigrationAssessment[]
+  restoreJobs MigrationRestoreJob[]
+  consents    MigrationConsent[]
+  importCred  MigrationImportCredential?
+  ledger      MigrationArchiveLedger?
+  lineItems   InvoiceLineItem[]
+
+  @@index([projectId, status])
+  @@map("migration_archives")
+}
+
+model MigrationArchiveFile {
+  id            String                    @id @default(uuid())
+  archiveId     String                    @map("archive_id")
+  filename      String
+  objectKey     String                    @map("object_key")
+  sizeBytes     BigInt                    @map("size_bytes")
+  contentType   String?                   @map("content_type") @db.VarChar(80)
+  uploadStatus  MigrationFileUploadStatus @default(PENDING) @map("upload_status")
+  uploadedBytes BigInt                    @default(0) @map("uploaded_bytes")
+  chunkSize     Int?                      @map("chunk_size")
+  checksum      String?                   @db.VarChar(128)
+  // Opaque token persisting chunked-upload state for browser-refresh / reconnect recovery.
+  resumeToken   String?                   @map("resume_token") @db.VarChar(512)
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, uploadStatus])
+  @@map("migration_archive_files")
+}
+
+// One assessment per analysis run; re-running creates a new version (never overwrites).
+// supersededById chains versions; the latest active version has supersededById = null.
+model MigrationAssessment {
+  id                               String             @id @default(uuid())
+  archiveId                        String             @map("archive_id")
+  projectId                        String             @map("project_id")
+  tablesFound                      Int                @map("tables_found")
+  recordsFound                     BigInt             @map("records_found")
+  sizeBytes                        BigInt             @map("size_bytes")
+  relationships                    Int
+  nestedJsonStructures             Int                @map("nested_json_structures")
+  legacyFiles                      Json               @map("legacy_files")
+  shape                            String             @db.VarChar(20)
+  detectedEntities                 Json               @map("detected_entities")
+  recommendation                   Json
+  complexity                       String             @db.VarChar(20)
+  confidencePct                    Float              @map("confidence_pct")
+  fullyAutomatable                 Boolean            @map("fully_automatable")
+  humanInvolvementPct              Float              @map("human_involvement_pct")
+  estimatedPeopleHours             Float              @map("estimated_people_hours")
+  estimatedManualReviewHours       Float              @map("estimated_manual_review_hours")
+  estimatedEngineeringHours        Float              @map("estimated_engineering_hours")
+  estimatedDurationDays            Float              @map("estimated_duration_days")
+  // Plan-specific rate — not a hard-coded constant.
+  hourlyRateCents                  Int                @map("hourly_rate_cents")
+  estimatedCostCents               Int                @map("estimated_cost_cents")
+  dataLossRiskPct                  Float              @map("data_loss_risk_pct")
+  riskLevel                        MigrationRiskLevel @map("risk_level")
+  riskDrivers                      Json               @map("risk_drivers")
+  mitigations                      Json
+  businessImpact                   String
+  finalRecommendation              Json               @map("final_recommendation")
+  estimatedArchiveSizeBytes        BigInt             @map("estimated_archive_size_bytes")
+  // Shown before purchase so the customer knows the recurring monthly cost upfront.
+  estimatedMonthlyArchiveCostCents Int                @map("estimated_monthly_archive_cost_cents")
+  // App Generation Preview — modules, entities, screens, APIs, roles, workflows,
+  // automations, AI agents, build minutes. Extract to GeneratedApplicationPreview later.
+  appPreview                       Json?              @map("app_preview")
+  assessmentVersion                Int                @default(1) @map("assessment_version")
+  modelVersion                     String             @map("model_version") @db.VarChar(80)
+  supersededById                   String?            @map("superseded_by_id")
+  reportPdfObjectKey               String?            @map("report_pdf_object_key")
+  createdAt                        DateTime           @default(now()) @map("created_at")
+
+  archive      MigrationArchive     @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  supersededBy MigrationAssessment?  @relation("AssessmentVersionChain", fields: [supersededById], references: [id])
+  supersedes   MigrationAssessment[] @relation("AssessmentVersionChain")
+
+  @@index([archiveId, assessmentVersion])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("migration_assessments")
+}
+
+// First-class audited restore job (Backup product surface).
+model MigrationRestoreJob {
+  id              String               @id @default(uuid())
+  archiveId       String               @map("archive_id")
+  sourceProjectId String               @map("source_project_id")
+  targetProjectId String?              @map("target_project_id")
+  mode            MigrationRestoreMode
+  status          MigrationJobStatus   @default(PENDING)
+  requestedBy     String               @map("requested_by")
+  startedAt       DateTime?            @map("started_at")
+  completedAt     DateTime?            @map("completed_at")
+  resultObjectKey String?              @map("result_object_key")
+  error           String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, status])
+  @@index([sourceProjectId, createdAt(sort: Desc)])
+  @@map("migration_restore_jobs")
+}
+
+// "We import" source credentials — connection string lives in OpenBao; Prisma holds the path reference only.
+// Credentials must be revoked after migration completion.
+model MigrationImportCredential {
+  id                String    @id @default(uuid())
+  archiveId         String    @unique @map("archive_id")
+  projectId         String    @map("project_id")
+  openbaoPath       String    @map("openbao_path")
+  engineKind        String    @map("engine_kind") @db.VarChar(30)
+  metadataScannedAt DateTime? @map("metadata_scanned_at")
+  // Second explicit consent gate required before any real data is read.
+  dataReadConsentAt DateTime? @map("data_read_consent_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@map("migration_import_credentials")
+}
+
+// Versioned + immutable consent record.
+// Re-consent creates a new row — never update. Mirrored into AuditLog.
+// MigrationArchive.consentCompletedAt is the gate flag checked before migration starts.
+model MigrationConsent {
+  id                      String   @id @default(uuid())
+  archiveId               String   @map("archive_id")
+  projectId               String   @map("project_id")
+  userId                  String   @map("user_id")
+  teamId                  String   @map("team_id")
+  acceptedAt              DateTime @map("accepted_at")
+  ipAddress               String   @map("ip_address") @db.VarChar(45)
+  privacyStatementVersion String   @map("privacy_statement_version") @db.VarChar(20)
+  riskStatementVersion    String   @map("risk_statement_version") @db.VarChar(20)
+  archivePolicyVersion    String   @map("archive_policy_version") @db.VarChar(20)
+  acceptedItems           Json     @map("accepted_items")
+  sensitiveDataFlags      Json     @map("sensitive_data_flags")
+  // True only for WE_IMPORT flows — authorizes basefyio to read the source database.
+  dbAccessAuthorized      Boolean  @default(false) @map("db_access_authorized")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@index([archiveId, createdAt])
+  @@map("migration_consents")
+}
+
+// Ledger projection backing monthly archive billing statements.
+// NOT a second billing source of truth — the platform Invoice + InvoiceLineItem is authoritative.
+model MigrationArchiveLedger {
+  id               String   @id @default(uuid())
+  archiveId        String   @unique @map("archive_id")
+  storedBytes      BigInt   @default(0) @map("stored_bytes")
+  growthBytes      BigInt   @default(0) @map("growth_bytes")
+  accumulatedCents Int      @default(0) @map("accumulated_cents")
+  lastUpdatedAt    DateTime @default(now()) @map("last_updated_at")
+
+  archive MigrationArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+
+  @@map("migration_archive_ledgers")
+}
+
+// Invoice line items — archive storage billed as MIGRATION_ARCHIVE_STORAGE on the single platform Invoice.
+model InvoiceLineItem {
+  id             String              @id @default(uuid())
+  invoiceId      String              @map("invoice_id")
+  type           InvoiceLineItemType
+  description    String
+  quantity       Int                 @default(1)
+  unitPriceCents Int                 @map("unit_price_cents")
+  amountCents    Int                 @map("amount_cents")
+  archiveId      String?             @map("archive_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  invoice Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  archive MigrationArchive? @relation(fields: [archiveId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([archiveId])
+  @@map("invoice_line_items")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 1 — DATA STRUCTURE + UNIFIED EXPLORER
+// ══════════════════════════════════════════════════════════════
+
+enum DataStructureKind {
+  RELATIONAL
+  JSON
+}
+
+// Per-structure storage model. kind is immutable once set.
+// jsonBackend is an internal field — never returned to clients.
+model DataStructure {
+  id            String            @id @default(uuid())
+  projectId     String            @map("project_id")
+  name          String
+  kind          DataStructureKind
+  // Internal engine hint for JSON structures: "mongodb" | "couchbase".
+  // Never exposed in API responses or UI. Set by service logic only.
+  jsonBackend   String?           @map("json_backend") @db.VarChar(20)
+  aiRecommended Boolean           @default(false) @map("ai_recommended")
+  aiReasons     Json?             @map("ai_reasons")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  storages DataStructureStorage[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("data_structures")
+}
+
+// Decouples logical structure from physical storage so a JSON collection
+// can migrate Mongo→Couchbase or split hot/cold without touching DataStructure.
+model DataStructureStorage {
+  id              String   @id @default(uuid())
+  dataStructureId String   @map("data_structure_id")
+  // "relational" | "mongodb" | "couchbase" — internal routing key.
+  engineType      String   @map("engine_type") @db.VarChar(20)
+  endpointId      String?  @map("endpoint_id")
+  version         Int      @default(1)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  dataStructure DataStructure          @relation(fields: [dataStructureId], references: [id], onDelete: Cascade)
+  endpoint      ProjectEngineEndpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+
+  @@index([dataStructureId, active])
+  @@map("data_structure_storages")
+}
+
+// One row per (project, engineType) — the secure external connection endpoint.
+// host is a per-engine subdomain: sql.slug.basefyio.com vs json.slug.basefyio.com.
+// Never path-based routing. credentialRef is an OpenBao reference — no secret bytes here.
+model ProjectEngineEndpoint {
+  id                 String   @id @default(uuid())
+  projectId          String   @map("project_id")
+  engineType         String   @map("engine_type") @db.VarChar(20)
+  host               String   @db.VarChar(255)
+  port               Int
+  username           String
+  credentialRef      String   @map("credential_ref")
+  requiresClientCert Boolean  @default(true) @map("requires_client_cert")
+  // "READ" | "READ_WRITE"
+  accessLevel        String   @default("READ_WRITE") @map("access_level") @db.VarChar(20)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  storages DataStructureStorage[]
+
+  @@unique([projectId, engineType])
+  @@index([projectId, active])
+  @@map("project_engine_endpoints")
+}
+
+// ══════════════════════════════════════════════════════════════
+// PHASE 2 — PROVISIONING SCHEMA SKELETON
+// No SDK/API calls in this phase. State machines only.
+// Drizzle tables untouched. No provider credential bytes in DB.
+// ══════════════════════════════════════════════════════════════
+
+enum ProvisioningProjectStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  UPDATING
+  DESTROYING
+  DESTROYED
+  FAILED
+  ROLLBACK_IN_PROGRESS
+  ROLLED_BACK
+}
+
+enum ProvisioningResourceStatus {
+  PENDING
+  CREATING
+  ACTIVE
+  UPDATING
+  DESTROYING
+  DESTROYED
+  FAILED
+  ROLLING_BACK
+  ROLLED_BACK
+}
+
+enum ProvisioningOperationStatus {
+  PENDING
+  // Terminal dry-run state: plan completed, no real resources were created/changed.
+  DRY_RUN
+  RUNNING
+  COMPLETED
+  FAILED
+  // Some actions succeeded, some failed. Partial resource mutations may have occurred.
+  PARTIAL_FAILED
+  ROLLED_BACK
+}
+
+enum ProvisioningOperationType {
+  CREATE
+  UPDATE
+  DELETE
+  ROLLBACK
+}
+
+enum ProvisioningResourceKind {
+  SERVER
+  VOLUME
+  NETWORK
+  FIREWALL
+  LOAD_BALANCER
+  FLOATING_IP
+  SSH_KEY
+}
+
+enum ProvisioningEventKind {
+  STATUS_CHANGED
+  OPERATION_STARTED
+  OPERATION_COMPLETED
+  OPERATION_FAILED
+  DRY_RUN_COMPLETED
+  ROLLBACK_INITIATED
+  ROLLBACK_COMPLETED
+  CREDENTIAL_ROTATED
+  RESOURCE_CREATED
+  RESOURCE_UPDATED
+  RESOURCE_DESTROYED
+}
+
+// Desired + actual state of the infrastructure for one project.
+// Exactly one per project (unique). credentialRefId points to OpenBao — no secrets here.
+model ProvisioningProject {
+  id              String                    @id @default(uuid())
+  projectId       String                    @unique @map("project_id")
+  status          ProvisioningProjectStatus @default(PENDING)
+  provider        String                    @default("hetzner") @db.VarChar(30)
+  region          String                    @db.VarChar(30)
+  datacenter      String?                   @db.VarChar(60)
+  credentialRefId String                    @map("credential_ref_id")
+  desiredState    Json?                     @map("desired_state")
+  actualState     Json?                     @map("actual_state")
+  lastSyncedAt    DateTime?                 @map("last_synced_at")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+
+  project       Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  credentialRef ProvisioningCredentialRef @relation(fields: [credentialRefId], references: [id])
+  resources     ProvisioningResource[]
+  operations    ProvisioningOperation[]
+  auditEvents   ProvisioningAuditEvent[]
+
+  @@index([status])
+  @@map("provisioning_projects")
+}
+
+// An individual infrastructure resource (server, volume, network, …).
+// externalId is the provider-assigned ID — null until the resource is created.
+// rollbackSpec holds the last-known-good spec for use during ROLLBACK operations.
+model ProvisioningResource {
+  id                    String                     @id @default(uuid())
+  provisioningProjectId String                     @map("provisioning_project_id")
+  kind                  ProvisioningResourceKind
+  name                  String                     @db.VarChar(255)
+  status                ProvisioningResourceStatus @default(PENDING)
+  region                String                     @db.VarChar(30)
+  datacenter            String?                    @db.VarChar(60)
+  externalId            String?                    @map("external_id") @db.VarChar(128)
+  desiredSpec           Json                       @map("desired_spec")
+  actualSpec            Json?                      @map("actual_spec")
+  rollbackSpec          Json?                      @map("rollback_spec")
+  lastSyncedAt          DateTime?                  @map("last_synced_at")
+  destroyedAt           DateTime?                  @map("destroyed_at")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+
+  provisioningProject ProvisioningProject      @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  operations          ProvisioningOperation[]
+  auditEvents         ProvisioningAuditEvent[]
+
+  @@index([provisioningProjectId, status])
+  @@index([provisioningProjectId, kind])
+  @@map("provisioning_resources")
+}
+
+// One row per provisioning operation. idempotencyKey prevents duplicate execution on retry.
+// dryRun=true: status moves to DRY_RUN (terminal) — no real infra is touched.
+// resourceId is null for project-level operations (e.g. full-stack provision/destroy).
+model ProvisioningOperation {
+  id                    String                      @id @default(uuid())
+  provisioningProjectId String                      @map("provisioning_project_id")
+  resourceId            String?                     @map("resource_id")
+  type                  ProvisioningOperationType
+  status                ProvisioningOperationStatus @default(PENDING)
+  dryRun                Boolean                     @default(false) @map("dry_run")
+  idempotencyKey        String                      @map("idempotency_key") @db.VarChar(128)
+  requestedBy           String                      @map("requested_by")
+  input                 Json?
+  result                Json?
+  errorMessage          String?                     @map("error_message")
+  startedAt             DateTime?                   @map("started_at")
+  completedAt           DateTime?                   @map("completed_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+
+  provisioningProject ProvisioningProject      @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  resource            ProvisioningResource?    @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  auditEvents         ProvisioningAuditEvent[]
+
+  @@unique([provisioningProjectId, idempotencyKey])
+  @@index([provisioningProjectId, status])
+  @@index([resourceId, createdAt(sort: Desc)])
+  @@map("provisioning_operations")
+}
+
+// Provider credential reference — OpenBao path only; no API key bytes stored.
+// Scoped to team so one credential can cover multiple projects.
+model ProvisioningCredentialRef {
+  id          String    @id @default(uuid())
+  teamId      String    @map("team_id")
+  provider    String    @default("hetzner") @db.VarChar(30)
+  label       String    @db.VarChar(100)
+  openbaoPath String    @map("openbao_path")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  team                 Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  provisioningProjects ProvisioningProject[]
+
+  @@index([teamId, provider])
+  @@map("provisioning_credential_refs")
+}
+
+// Immutable audit trail — one row per state transition or notable event.
+// Never updated; rollbacks add new rows.
+model ProvisioningAuditEvent {
+  id                    String                @id @default(uuid())
+  provisioningProjectId String                @map("provisioning_project_id")
+  resourceId            String?               @map("resource_id")
+  operationId           String?               @map("operation_id")
+  kind                  ProvisioningEventKind
+  actorUserId           String?               @map("actor_user_id")
+  fromStatus            String?               @map("from_status") @db.VarChar(40)
+  toStatus              String?               @map("to_status") @db.VarChar(40)
+  detail                Json?
+  createdAt             DateTime              @default(now()) @map("created_at")
+
+  provisioningProject ProvisioningProject    @relation(fields: [provisioningProjectId], references: [id], onDelete: Cascade)
+  resource            ProvisioningResource?  @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  operation           ProvisioningOperation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
+
+  @@index([provisioningProjectId, createdAt(sort: Desc)])
+  @@index([resourceId, createdAt(sort: Desc)])
+  @@map("provisioning_audit_events")
+}
+
+/// Platform-wide QuickBooks Online connection (single row). Tokens are stored
+/// AES-256-GCM encrypted. Used to push a Sales Receipt to QuickBooks for every
+/// successful sale.
+model QuickbooksConnection {
+  id               String    @id @default("singleton")
+  realmId          String    @map("realm_id")
+  accessToken      String    @map("access_token")
+  refreshToken     String    @map("refresh_token")
+  expiresAt        DateTime  @map("expires_at")
+  refreshExpiresAt DateTime? @map("refresh_expires_at")
+  companyName      String?   @map("company_name")
+  environment      String    @default("production")
+  autoCreate       Boolean   @default(true) @map("auto_create")
+  connectedByUserId String?  @map("connected_by_user_id")
+  connectedAt      DateTime  @default(now()) @map("connected_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("quickbooks_connection")
+}
+
+/// One row per attempt to push a paid sale to QuickBooks as a Sales Receipt.
+/// Powers the QuickBooks dashboard (recent receipts + success/failure summary).
+model QuickbooksSyncLog {
+  id             String   @id @default(uuid())
+  invoiceId      String   @map("invoice_id")
+  teamId         String?  @map("team_id")
+  salesReceiptId String?  @map("sales_receipt_id")
+  amountCents    Int      @default(0) @map("amount_cents")
+  currency       String   @default("usd")
+  customerName   String?  @map("customer_name")
+  status         String   @default("success")
+  error          String?
+  intuitTid      String?  @map("intuit_tid")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("quickbooks_sync_log")
+}

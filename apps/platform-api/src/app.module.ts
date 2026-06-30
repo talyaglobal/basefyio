@@ -24,7 +24,6 @@ import { DataEngineModule } from './modules/data-engine/data-engine.module';
 import { DataQueryModule } from './modules/data-query/data-query.module';
 import { DataStructuresModule } from './modules/data-structures/data-structures.module';
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
-import { DrizzleModule } from './db/drizzle/drizzle.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
@@ -54,7 +53,6 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DataQueryModule,
     DataStructuresModule,
     ProvisioningModule,
-    DrizzleModule,
   ],
   controllers: [HealthController],
   providers: [

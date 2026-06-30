@@ -2,7 +2,6 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
-import { SchemaIndexerService } from '../embedding/schema-indexer.service';
 
 /** Stored in DB `kind` — keep lowercase dot notation for API stability */
 export const ProjectActivityKind = {
@@ -76,7 +75,6 @@ export class ProjectActivityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeEventsService,
-    private readonly schemaIndexer: SchemaIndexerService,
   ) {}
 
   async append(
@@ -102,22 +100,6 @@ export class ProjectActivityService {
             : {}),
         },
       });
-      // Re-index project schema when tables are created or dropped so RAG
-      // and semantic search always reflect the current table structure.
-      const schemaChangingKinds: ProjectActivityKindValue[] = [
-        ProjectActivityKind.TABLE_CREATED,
-        ProjectActivityKind.TABLE_DROPPED,
-        ProjectActivityKind.PROJECT_CREATED,
-        ProjectActivityKind.COLLECTION_CREATED,
-        ProjectActivityKind.COLLECTION_DROPPED,
-      ];
-      if (schemaChangingKinds.includes(params.kind)) {
-        // 5s delay: let the DDL transaction fully commit before we connect
-        setTimeout(() => {
-          this.schemaIndexer.indexProjectSchema(projectId).catch(() => {});
-        }, 5000);
-      }
-
       try {
         const project = await this.prisma.project.findUnique({
           where: { id: projectId },

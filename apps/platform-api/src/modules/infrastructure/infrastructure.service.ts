@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import * as Docker from 'dockerode';
+import Docker from 'dockerode';
 import { randomBytes } from 'crypto';
 
 interface ProvisionPgOptions {

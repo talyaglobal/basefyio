@@ -1,10 +1,15 @@
 # basefyio
 
+> ⚠️ **Status: Early Alpha (`v0.1.0-alpha`)**
+>
+> basefyio is under active development. APIs and internal modules may change
+> before v1.0. The platform architecture and Docker stack are defined; the
+> `apps/*` and `packages/*` are still being built out. Not yet recommended for
+> production.
+
 **The open-source backend platform. Self-hosted. PostgreSQL-first.**
 
 basefyio is an open-source infrastructure platform that gives every project its own dedicated PostgreSQL database, isolated authentication, secure API, and developer tooling — all running on your infrastructure.
-
-> **Project status:** Early development. The platform architecture and Docker stack are defined; the `apps/*` and `packages/*` are being built out. Not yet recommended for production.
 
 ---
 
@@ -270,16 +275,14 @@ The SQL module provides safe, audited query execution:
 
 ## Roadmap
 
-- [ ] `@basefyio/cli` — full project lifecycle management
-- [ ] `@basefyio/sdk` — type-safe client SDK with realtime support
-- [ ] GraphQL API layer
-- [ ] WASM-powered SQL validation (client-side)
-- [ ] Kubernetes Helm chart
-- [ ] Plugin system for custom modules
-- [ ] UI-based schema editor
-- [ ] Webhooks
-- [ ] Scheduled jobs (cron)
-- [ ] Log streaming via SSE
+See the full [Roadmap](docs/ROADMAP.md). In short:
+
+- **v0.1 Alpha** *(in progress)* — core runtime, CLI, SDK, auth, projects, provisioning, SQL, storage
+- **v0.2** — Admin UI, Storage API, realtime improvements, docs
+- **v0.3** — Kubernetes/Helm, multi-node, backup/restore
+- **Future (MYFYIO ecosystem)** — agentfyio (AI/RAG/vector), mcpfyio, deployfyio, codefyio
+
+AI capabilities (agents, RAG, embeddings, semantic/vector search) are deferred to **agentfyio** by design — basefyio core stays focused and AI-free. See [architecture.md](docs/architecture.md).
 
 ---
 
