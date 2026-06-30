@@ -79,7 +79,6 @@ export interface TenantDataPlane {
 // ── Provider Capabilities ──────────────────────────────────
 
 export interface VectorCapabilities {
-  embeddings: boolean;
   hybridSearch: boolean;
 }
 

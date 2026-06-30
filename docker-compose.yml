@@ -146,6 +146,8 @@ services:
       PGBOUNCER_EXTERNAL_HOST: ${PGBOUNCER_EXTERNAL_HOST:-localhost}
       PGBOUNCER_EXTERNAL_PORT: ${PGBOUNCER_PORT:-6432}
       PGBOUNCER_CONFIG_DIR: /etc/pgbouncer
+      PGBOUNCER_ADMIN_USER: ${PGBOUNCER_ADMIN_USER:-pgbouncer_admin}
+      PGBOUNCER_ADMIN_PASSWORD: ${PGBOUNCER_ADMIN_PASSWORD:-pgbouncer_admin_pass}
       CORS_ORIGIN: "*"
       APP_URL: ${APP_URL:-http://localhost:3000}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
@@ -161,8 +163,6 @@ services:
       DATA_ENGINE_MAX_DOC_KB: ${DATA_ENGINE_MAX_DOC_KB:-1024}
       DATA_ENGINE_MAX_NESTING_DEPTH: ${DATA_ENGINE_MAX_NESTING_DEPTH:-8}
       DATA_ENGINE_MAX_ARRAY_ITEMS: ${DATA_ENGINE_MAX_ARRAY_ITEMS:-1000}
-      # Optional: AI features (leave empty to disable)
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Optional: Email (leave empty to disable email features)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -184,25 +184,19 @@ services:
       redis:
         condition: service_healthy
 
-  # ── Admin UI (NOT YET SHIPPED in v0.1) ───────────────────
-  # The dashboard app under apps/admin-ui has not been implemented yet, so
-  # there is no Dockerfile to build. This service is intentionally commented
-  # out rather than left active: an active service pointing at a non-existent
-  # build context makes `docker compose build` fail and the release gate lie.
-  # Uncomment once apps/admin-ui ships a Dockerfile, and re-add the section to
-  # README / docs/architecture at the same time.
-  #
-  # admin-ui:
-  #   build:
-  #     context: ./apps/admin-ui
-  #     dockerfile: Dockerfile
-  #   restart: unless-stopped
-  #   environment:
-  #     API_INTERNAL_URL: http://platform-api:4000
-  #   ports:
-  #     - "${ADMIN_UI_PORT:-3000}:3000"
-  #   depends_on:
-  #     - platform-api
+  admin-ui:
+    build:
+      # Repo root context so the build can resolve the @basefyio/sdk workspace
+      # dependency (mirrors the platform-api service above).
+      context: .
+      dockerfile: apps/admin-ui/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://platform-api:4000
+    ports:
+      - "${ADMIN_UI_PORT:-3000}:3000"
+    depends_on:
+      - platform-api
 
 volumes:
   postgres_data:

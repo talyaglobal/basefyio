@@ -55,14 +55,6 @@ export const ProjectActivityKind = {
   COLLECTION_DOCUMENT_UPDATED: 'collection.document_updated',
   COLLECTION_DOCUMENT_REPLACED: 'collection.document_replaced',
   COLLECTION_DOCUMENT_DELETED: 'collection.document_deleted',
-  RAG_DOCUMENT_REGISTERED: 'rag.document_registered',
-  RAG_REINDEX_REQUESTED: 'rag.reindex_requested',
-  RAG_INDEX_COMPLETED: 'rag.index_completed',
-  AGENT_THREAD_CREATED: 'agent.thread_created',
-  AGENT_MESSAGE_ADDED: 'agent.message_added',
-  AGENT_TOOL_DENIED: 'agent.tool_denied',
-  AGENT_CREATED: 'agent.created',
-  AGENT_RUN_EXECUTED: 'agent.run_executed',
 } as const;
 
 export type ProjectActivityKindValue =

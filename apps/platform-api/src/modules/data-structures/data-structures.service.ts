@@ -16,8 +16,6 @@ export interface DataStructureView {
   badge: 'SQL' | 'JSON';
   editorMode: 'sql' | 'js-query';
   dataEditorMode: 'row' | 'document';
-  aiRecommended: boolean;
-  aiReasons: unknown | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,8 +45,6 @@ export class DataStructuresService {
         projectId: true,
         name: true,
         kind: true,
-        aiRecommended: true,
-        aiReasons: true,
         createdAt: true,
         updatedAt: true,
         // jsonBackend intentionally excluded
@@ -83,8 +79,6 @@ export class DataStructuresService {
         projectId: true,
         name: true,
         kind: true,
-        aiRecommended: true,
-        aiReasons: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -99,8 +93,6 @@ function toView(row: {
   projectId: string;
   name: string;
   kind: string;
-  aiRecommended: boolean;
-  aiReasons: unknown;
   createdAt: Date;
   updatedAt: Date;
 }): DataStructureView {
@@ -113,8 +105,6 @@ function toView(row: {
     badge: isRelational ? 'SQL' : 'JSON',
     editorMode: isRelational ? 'sql' : 'js-query',
     dataEditorMode: isRelational ? 'row' : 'document',
-    aiRecommended: row.aiRecommended,
-    aiReasons: row.aiReasons ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

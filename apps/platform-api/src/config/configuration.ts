@@ -37,6 +37,11 @@ export default () => ({
     externalHost: process.env.PGBOUNCER_EXTERNAL_HOST || 'localhost',
     externalPort: parseInt(process.env.PGBOUNCER_EXTERNAL_PORT || '6432', 10),
     configDir: process.env.PGBOUNCER_CONFIG_DIR || '/etc/pgbouncer',
+    // Admin-console credentials. Written into the generated userlist AND used to
+    // send RELOAD, so both sides must read this same value. Override in any real
+    // deployment; the default is a local-dev convenience only.
+    adminUser: process.env.PGBOUNCER_ADMIN_USER || 'pgbouncer_admin',
+    adminPassword: process.env.PGBOUNCER_ADMIN_PASSWORD || 'pgbouncer_admin_pass',
   },
 
   /**
@@ -68,19 +73,6 @@ export default () => ({
     pass: process.env.SMTP_PASS || '',
     fromEmail: process.env.EMAIL_FROM || 'basefyio <noreply@example.com>',
     replyTo: process.env.EMAIL_REPLY_TO || '',
-  },
-
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-  },
-
-  embedding: {
-    /** Set to "false" to disable all embedding / vector search without removing the module. */
-    enabled: process.env.EMBEDDING_ENABLED !== 'false',
-    /** OpenAI embedding model. text-embedding-3-small is cost-effective and high quality. */
-    model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
-    /** Hard cap on daily OpenAI token usage to prevent runaway costs (default 1M). */
-    maxDailyTokens: parseInt(process.env.EMBEDDING_MAX_DAILY_TOKENS || '1000000', 10),
   },
 
   oauth: {

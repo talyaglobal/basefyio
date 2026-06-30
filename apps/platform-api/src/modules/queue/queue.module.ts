@@ -8,10 +8,6 @@ export const EXPORT_QUEUE = 'export';
 /** Generic CSV/XLSX → table import (distinct from supabase-import, which is a
  *  whole-project Supabase migration). */
 export const DATA_IMPORT_QUEUE = 'data-import';
-/** Async pgvector embedding generation (semantic search, RAG, recommendations). */
-export const EMBEDDING_QUEUE = 'embedding';
-/** RAG document ingest/index jobs (chunk → embed → store). */
-export const RAG_INDEX_QUEUE = 'rag-index';
 
 @Global()
 @Module({
@@ -49,8 +45,6 @@ export const RAG_INDEX_QUEUE = 'rag-index';
       { name: EMAIL_QUEUE },
       { name: EXPORT_QUEUE },
       { name: DATA_IMPORT_QUEUE },
-      { name: EMBEDDING_QUEUE },
-      { name: RAG_INDEX_QUEUE },
     ),
   ],
   exports: [BullModule],

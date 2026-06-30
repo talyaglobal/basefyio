@@ -10,8 +10,8 @@ on:
 # CI is an honest signal of repository health and gates every package
 # expected to compile.
 #
-# `apps/platform-api` has completed its migration from kolaybase-new and
-# is now gated in its own `platform-api` job, which provisions the
+# `apps/platform-api` has completed its migration and is now gated in
+# its own `platform-api` job, which provisions the
 # Postgres + Redis service containers it needs and applies Prisma
 # migrations against a real database. The `packages` job covers the
 # service-free workspaces (`@basefyio/cli`, `@basefyio/sdk`).

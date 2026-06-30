@@ -148,7 +148,11 @@ ${tlsLines}`;
   ): string {
     const lines = projects.map((p) => `"${p.dbUser}" "${p.dbPassword}"`);
 
-    lines.push(`"pgbouncer_admin" "pgbouncer_admin_pass"`);
+    const adminUser =
+      this.config.get<string>('pgbouncer.adminUser') || 'pgbouncer_admin';
+    const adminPassword =
+      this.config.get<string>('pgbouncer.adminPassword') || 'pgbouncer_admin_pass';
+    lines.push(`"${adminUser}" "${adminPassword}"`);
 
     return lines.join('\n') + '\n';
   }
@@ -161,8 +165,10 @@ ${tlsLines}`;
       host,
       port,
       database: 'pgbouncer',
-      user: 'pgbouncer_admin',
-      password: 'pgbouncer_admin_pass',
+      user: this.config.get<string>('pgbouncer.adminUser') || 'pgbouncer_admin',
+      password:
+        this.config.get<string>('pgbouncer.adminPassword') ||
+        'pgbouncer_admin_pass',
       connectionTimeoutMillis: 5000,
     });
 

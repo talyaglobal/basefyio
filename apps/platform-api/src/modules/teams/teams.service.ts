@@ -695,19 +695,16 @@ export class TeamsService {
   private static PERM_KEYS = [
     'canRenameTeam', 'canInviteMembers', 'canRemoveMembers', 'canManageIntegrations',
     'canCreateProjects', 'canDeleteProjects', 'canRestoreProjects', 'canMoveProjects',
-    'canViewBilling', 'canManageBilling',
   ] as const;
 
   private static ADMIN_DEFAULTS: Record<string, boolean> = {
     canRenameTeam: true, canInviteMembers: true, canRemoveMembers: true, canManageIntegrations: true,
     canCreateProjects: true, canDeleteProjects: true, canRestoreProjects: true, canMoveProjects: true,
-    canViewBilling: true, canManageBilling: false,
   };
 
   private static MEMBER_DEFAULTS: Record<string, boolean> = {
     canRenameTeam: false, canInviteMembers: false, canRemoveMembers: false, canManageIntegrations: false,
     canCreateProjects: true, canDeleteProjects: false, canRestoreProjects: false, canMoveProjects: false,
-    canViewBilling: false, canManageBilling: false,
   };
 
   private pickPerms(row: Record<string, unknown>) {
