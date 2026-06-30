@@ -6,7 +6,7 @@ import { getPublicApiUrl } from "@/lib/site-url";
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/data-engine", {
     title: "Data Engine",
-    description: "Basefyio Data Engine: schema-driven NoSQL document storage with nested queries, versioning, and multi-tenant isolation.",
+    description: "basefyio Data Engine: schema-driven NoSQL document storage with nested queries, versioning, and multi-tenant isolation.",
   });
 }
 
@@ -14,9 +14,9 @@ export default function DataEngineDocs() {
   const apiUrl = getPublicApiUrl();
   return (
     <div>
-      <h1>Basefyio Data Engine</h1>
+      <h1>basefyio Data Engine</h1>
       <p>
-        The <strong>Basefyio Data Engine</strong> is a document data plane that runs alongside your existing
+        The <strong>basefyio Data Engine</strong> is a document data plane that runs alongside your existing
         dedicated databases. Store flexible, schema-driven documents with nested objects, arrays, versioning,
         soft-delete, and automatic multi-tenant isolation.
       </p>
@@ -255,7 +255,7 @@ const { data: health } = await bf.data.health()
         <li><strong>JSON filter</strong> — Filter documents with JSON syntax, e.g. <code>{`{"status":"active"}`}</code></li>
         <li><strong>Insert / Edit / Delete</strong> — Full CRUD with JSON editors</li>
         <li><strong>Pagination</strong> — Server-side, 50 documents per page</li>
-        <li><strong>Engine label</strong> — Read-only &quot;Basefyio Data Engine&quot; badge</li>
+        <li><strong>Engine label</strong> — Read-only &quot;basefyio Data Engine&quot; badge</li>
       </ul>
     </div>
   );

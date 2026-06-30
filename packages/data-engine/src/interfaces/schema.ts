@@ -1,5 +1,5 @@
 /**
- * Basefyio Data Engine — Schema & Validation Types
+ * basefyio Data Engine — Schema & Validation Types
  *
  * The metadata hierarchy:
  *   ApplicationModel → EntityDefinition → EntityField → ValidationRule → Document Store

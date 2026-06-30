@@ -52,7 +52,7 @@ export class HttpCallerAdapter implements ToolAdapter {
     ).toUpperCase();
 
     const headers: Record<string, string> = {
-      'User-Agent': 'Basefyio-Agent/1.0',
+      'User-Agent': 'basefyio-Agent/1.0',
       ...(typeof input.headers === 'object' && input.headers !== null
         ? (input.headers as Record<string, string>)
         : {}),

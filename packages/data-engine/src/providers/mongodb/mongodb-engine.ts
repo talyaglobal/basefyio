@@ -2,7 +2,7 @@
  * MongoDB Data Engine Provider
  *
  * Shared-tenant layout: one database (config.container), one collection
- * (config.namespace, default "records"). Every document carries the Basefyio
+ * (config.namespace, default "records"). Every document carries the basefyio
  * envelope under `envelope` and user data under `data` — the same layout the
  * CouchDB provider uses, so DocResult mapping is identical:
  *   { _id: <uuid string>, envelope: {...}, data: {...} }

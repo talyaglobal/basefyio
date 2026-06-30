@@ -1,5 +1,5 @@
 /**
- * Basefyio Data Engine — Schema Compiler & Validator
+ * basefyio Data Engine — Schema Compiler & Validator
  *
  * Compiles EntityField[] definitions into JSON Schema.
  * The JSON Schema is the compiled output, never hand-edited.

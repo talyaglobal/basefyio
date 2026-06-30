@@ -469,7 +469,7 @@ export function DataBrowser({ projectId }: DataBrowserProps) {
         <div className="border-t px-3 py-2">
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <Database className="h-3 w-3" />
-            <span>Basefyio Data Engine</span>
+            <span>basefyio Data Engine</span>
           </div>
         </div>
       </div>

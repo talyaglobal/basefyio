@@ -1,5 +1,5 @@
 /**
- * Basefyio Data Engine — Core Type Definitions
+ * basefyio Data Engine — Core Type Definitions
  *
  * These types form the contract that all providers must implement.
  * No vendor-specific types may appear here.

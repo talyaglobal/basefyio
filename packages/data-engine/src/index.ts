@@ -1,7 +1,7 @@
 /**
  * @basefyio/data-engine
  *
- * Provider-agnostic document data plane for the Basefyio platform.
+ * Provider-agnostic document data plane for the basefyio platform.
  *
  * Usage:
  *   const engine = createDataEngine(config);

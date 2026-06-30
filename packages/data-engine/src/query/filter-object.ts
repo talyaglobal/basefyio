@@ -29,7 +29,7 @@ const MAX_LOGICAL_CONDITIONS = 50;
 const MAX_IN_ITEMS = 1000;
 const MAX_REGEX_LENGTH = 512;
 
-/** Mongo-style operator → Basefyio FilterOperator. Closed allowlist. */
+/** Mongo-style operator → basefyio FilterOperator. Closed allowlist. */
 const OPERATOR_MAP: Record<string, FilterOperator> = {
   $eq: 'eq',
   $ne: 'neq',

@@ -63,7 +63,7 @@ function newBlogPost(title) {
 title: "${title.replace(/"/g, '\\"')}"
 description: "TODO: 140–160 char meta description targeting the keyword for this post."
 date: "${today()}"
-author: "Basefyio Team"
+author: "basefyio Team"
 tags: ["TODO"]
 draft: true
 ---
@@ -96,13 +96,13 @@ function newComparison(competitor) {
   const snippet = `  {
     slug: "${slug}",
     competitor: "${competitor}",
-    title: "Basefyio vs. ${competitor}: TODO headline",
+    title: "basefyio vs. ${competitor}: TODO headline",
     description:
-      "TODO 140–160 char meta description comparing Basefyio and ${competitor}.",
+      "TODO 140–160 char meta description comparing basefyio and ${competitor}.",
     intro:
       "TODO one-paragraph framing of how the two platforms differ.",
     positioning:
-      "TODO honest, specific statement of what Basefyio does differently.",
+      "TODO honest, specific statement of what basefyio does differently.",
     rows: [
       { feature: "Database model", basefyio: "TODO", competitor: "TODO" },
       { feature: "Self-hosting", basefyio: "TODO", competitor: "TODO" },
@@ -112,11 +112,11 @@ function newComparison(competitor) {
     ],
     faqs: [
       {
-        question: "Is Basefyio a ${competitor} alternative?",
+        question: "Is basefyio a ${competitor} alternative?",
         answer: "TODO",
       },
       {
-        question: "Can I migrate from ${competitor} to Basefyio?",
+        question: "Can I migrate from ${competitor} to basefyio?",
         answer: "TODO",
       },
     ],
@@ -173,7 +173,7 @@ function newTerm(term) {
     body: [
       "TODO paragraph 1 — what it is and why it matters.",
       "TODO paragraph 2 — how it works / common patterns.",
-      "TODO paragraph 3 — practical note or how it relates to Basefyio.",
+      "TODO paragraph 3 — practical note or how it relates to basefyio.",
     ],
     related: ["TODO-slug", "TODO-slug"],
   },`;

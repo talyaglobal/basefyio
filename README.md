@@ -251,4 +251,4 @@ Found a vulnerability? Please **do not** open a public issue — see [SECURITY.m
 
 ## License
 
-[MIT](./LICENSE) © Basefy
+[MIT](./LICENSE) © basefyio

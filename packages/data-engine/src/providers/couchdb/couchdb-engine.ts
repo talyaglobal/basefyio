@@ -5,7 +5,7 @@
  *   {container}--{projectId}   (sanitized to CouchDB database-name rules)
  *
  * Document layout — CouchDB rejects custom top-level underscore fields, so
- * the Basefyio envelope lives under `envelope` and user data under `data`:
+ * the basefyio envelope lives under `envelope` and user data under `data`:
  *   { _id, _rev, type: 'basefy_record', envelope: {...}, data: {...} }
  *
  * Transport is plain HTTP/JSON via the global fetch (Node 18+) — no SDK

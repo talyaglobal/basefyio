@@ -1,5 +1,5 @@
 /**
- * Basefyio Data Engine — Query & Filter AST
+ * basefyio Data Engine — Query & Filter AST
  *
  * Both query modes (SQL-like and Aggregation DSL) compile to these types.
  * No provider-specific query syntax appears here.

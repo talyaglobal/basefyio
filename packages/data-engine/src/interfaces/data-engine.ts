@@ -1,5 +1,5 @@
 /**
- * Basefyio Data Engine — Provider Interface
+ * basefyio Data Engine — Provider Interface
  *
  * This is the contract that every provider (NoSQL store, PostgreSQL) must implement.
  * No vendor-specific types, SDKs, or naming may appear in this file.
