@@ -40,7 +40,7 @@ Philosophically similar to [Supabase](https://supabase.com), [PocketBase](https:
 | **Data Engine** | Structured data layer with type-safe query builder |
 | **pgvector Available** | PostgreSQL ships with pgvector for vector workloads; AI features (agents, RAG, embeddings) live in the separate `agentfyio` project, not basefyio core |
 | **Queue** | Background job processing with BullMQ + Redis |
-| **Admin UI** *(planned)* | Project management dashboard, SQL editor, and audit log viewer — not yet shipped in v0.1 |
+| **Admin UI** | Project management dashboard, SQL editor, and audit log viewer |
 | **CLI** | Terminal-first project management and deployment |
 | **Docker-first** | Full local stack via Docker Compose with PgBouncer connection pooling |
 | **Observable** | Health checks, audit logging, trace IDs, and structured logs |
@@ -139,7 +139,7 @@ docker compose up -d
 npx @basefyio/cli project create my-app
 
 # Via API
-curl -X POST http://localhost:4000/projects \
+curl -X POST http://localhost:4000/api/projects \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-app", "slug": "my-app"}'
@@ -176,11 +176,8 @@ redis          — Queue and cache (port 6379)
 minio          — Object storage (port 9000 / 9001)
 pgbouncer      — Connection pooler (port 5432)
 platform-api   — Core API (port 4000)
+admin-ui       — Dashboard (port 3000)
 ```
-
-> `admin-ui` (dashboard, port 3000) is planned but **not yet shipped in v0.1**,
-> so it is not part of the Compose stack. The `apps/admin-ui` directory is a
-> placeholder until it lands.
 
 The compose stack includes health checks, volume mounts, and service dependencies. Harden it for your environment before any production use.
 
@@ -205,7 +202,7 @@ basefyio/
 │   │       └── observability/ # Logging & tracing
 │   │       # AI modules (agent / RAG / embedding) are NOT part of core v0.1.
 │   │       # They are deferred to the future `agentfyio` project — see _deferred/.
-│   └── admin-ui/              # Next.js dashboard (planned — not yet in v0.1)
+│   └── admin-ui/              # Next.js dashboard
 ├── packages/
 │   ├── cli/                   # @basefyio/cli
 │   ├── sdk/                   # @basefyio/sdk client SDK

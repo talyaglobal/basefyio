@@ -1,0 +1,79 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const title = 'basefyio — Open-Source, Self-Hosted Backend Platform';
+const description =
+  'basefyio is an open-source, self-hosted, PostgreSQL-first backend platform for multi-tenant SaaS. Dedicated database, auth realm, and storage per project. Apache 2.0.';
+---
+
+<BaseLayout title={title} description={description}>
+  <section class="hero container">
+    <span class="badge">Early Alpha · Apache 2.0</span>
+    <h1>The open-source backend platform.<br />Self-hosted. PostgreSQL-first.</h1>
+    <p class="lead">
+      basefyio gives every project its own dedicated PostgreSQL database, isolated
+      authentication, secure API, and developer tooling — all running on your
+      infrastructure.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">
+        Star on GitHub
+      </a>
+      <a class="btn btn-secondary" href="/supabase-alternative">
+        Compare to Supabase
+      </a>
+    </div>
+  </section>
+
+  <section class="container">
+    <h2>Why basefyio</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Project isolation by design</h3>
+        <p>Each project gets its own database, auth realm, and storage bucket.</p>
+      </div>
+      <div class="card">
+        <h3>Multi-tenant from day one</h3>
+        <p>Manage hundreds of isolated projects from a single platform.</p>
+      </div>
+      <div class="card">
+        <h3>Full data ownership</h3>
+        <p>Self-hostable in minutes — nothing leaves your servers.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <h2>Compare basefyio</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      How basefyio stacks up against the backends you already know — and what it
+      is, in plain terms.
+    </p>
+    <div class="grid">
+      <a class="card" href="/supabase-alternative">
+        <h3>vs Supabase →</h3>
+        <p>Open-source Supabase alternative with per-project isolation.</p>
+      </a>
+      <a class="card" href="/self-hosted-firebase-alternative">
+        <h3>vs Firebase →</h3>
+        <p>Self-hosted Firebase alternative on PostgreSQL, not NoSQL.</p>
+      </a>
+      <a class="card" href="/pocketbase-alternative">
+        <h3>vs PocketBase →</h3>
+        <p>For when one SQLite file is no longer enough.</p>
+      </a>
+      <a class="card" href="/appwrite-alternative">
+        <h3>vs Appwrite →</h3>
+        <p>An Appwrite alternative built on PostgreSQL.</p>
+      </a>
+      <a class="card" href="/open-source-backend-platform">
+        <h3>Open-source backend platform →</h3>
+        <p>What basefyio is, and where it sits in the category.</p>
+      </a>
+      <a class="card" href="/self-hosted-backend-platform">
+        <h3>Self-hosted backend platform →</h3>
+        <p>The full stack, running entirely on your infrastructure.</p>
+      </a>
+    </div>
+  </section>
+</BaseLayout>

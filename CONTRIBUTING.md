@@ -30,8 +30,9 @@ pnpm install
 cd apps/platform-api
 pnpm dev
 
-# Note: the admin UI (apps/admin-ui) is planned but not yet implemented in
-# v0.1, so there is no dev server to start there yet.
+# In another terminal, start the admin UI
+cd apps/admin-ui
+pnpm dev
 ```
 
 ---

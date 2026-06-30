@@ -1,0 +1,161 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ComparisonTable from '../components/ComparisonTable.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — A PocketBase Alternative for Multi-Tenant Postgres';
+const description =
+  'basefyio is an open-source PocketBase alternative for teams that have outgrown a single SQLite file: PostgreSQL per project, infrastructure-level tenant isolation, and a multi-service self-hosted stack. Apache 2.0.';
+
+const rows = [
+  {
+    feature: 'Database',
+    us: 'PostgreSQL — a dedicated database per project',
+    them: 'SQLite — a single embedded database file',
+  },
+  {
+    feature: 'Architecture',
+    us: 'Multi-service stack (Postgres, Keycloak, MinIO, Redis, PgBouncer)',
+    them: 'A single self-contained Go binary',
+  },
+  {
+    feature: 'Best suited for',
+    us: 'Multi-tenant platforms provisioning many isolated projects',
+    them: 'Single-app, solo, and small-to-mid projects',
+  },
+  {
+    feature: 'Tenant isolation',
+    us: 'Dedicated database + auth realm + storage bucket per project',
+    them: 'One embedded database; isolation handled in application logic',
+  },
+  {
+    feature: 'Authentication',
+    us: 'OIDC-agnostic — Keycloak by default, swappable',
+    them: 'Built-in auth (email/password, OAuth providers)',
+  },
+  {
+    feature: 'Operational simplicity',
+    us: 'Heavier — a Docker Compose stack to run and operate',
+    them: 'Minimal — download one binary and run it',
+  },
+  {
+    feature: 'Maturity',
+    us: 'Early alpha (v0.1.0-alpha)',
+    them: 'Stable and widely used in production',
+  },
+];
+
+const cards = [
+  {
+    title: 'You provision many tenants',
+    body: 'Each customer needs a real, separate database — not rows in one shared SQLite file. basefyio is built around per-project provisioning.',
+  },
+  {
+    title: 'You need PostgreSQL',
+    body: 'Concurrency, extensions, replication, and the broader Postgres ecosystem — beyond what an embedded SQLite file is meant for.',
+  },
+  {
+    title: 'You want infra-level isolation',
+    body: 'Separate database, auth realm, and storage bucket per project, so tenants are isolated at the infrastructure layer.',
+  },
+  {
+    title: 'You expect to scale out',
+    body: 'PgBouncer pooling and a service-oriented stack are designed for many projects and horizontal growth.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'Is basefyio as simple as PocketBase?',
+    a: 'No — and that is an honest trade-off. PocketBase is a single Go binary you can run in seconds, which is exactly why it is great for solo and small projects. basefyio is a multi-service stack (Postgres, Keycloak, MinIO, Redis, PgBouncer) aimed at multi-tenant platforms. If simplicity for one app is your priority, PocketBase is hard to beat.',
+  },
+  {
+    q: 'Does basefyio use SQLite like PocketBase?',
+    a: 'No. basefyio is PostgreSQL-first and provisions a dedicated PostgreSQL database per project, rather than a single embedded SQLite file. That is the core architectural difference between the two.',
+  },
+  {
+    q: 'When should I pick PocketBase instead?',
+    a: 'For a single application, a side project, or anything where one embedded database and a single binary are a feature rather than a limitation, PocketBase is an excellent, mature choice. basefyio earns its extra moving parts only when you need many isolated tenants on PostgreSQL.',
+  },
+  {
+    q: 'Is basefyio production-ready?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha), while PocketBase is stable and production-proven. Choose basefyio for its multi-tenant Postgres model, knowing it is still early.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Open Source · Self-Hosted · Apache 2.0</span>
+    <h1>A PocketBase Alternative for Multi-Tenant PostgreSQL</h1>
+    <p class="lead">
+      PocketBase is a brilliant single-binary, single-SQLite-file backend. When
+      you outgrow that — many tenants, real PostgreSQL, infrastructure-level
+      isolation — basefyio picks up where it leaves off.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="#compare">See the comparison</a>
+    </div>
+  </section>
+
+  <section id="compare" class="container">
+    <h2>basefyio vs PocketBase</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      These tools optimize for different things. PocketBase wins on simplicity for
+      a single app; basefyio targets multi-tenant PostgreSQL platforms. An honest
+      side-by-side:
+    </p>
+    <ComparisonTable
+      themName="PocketBase"
+      rows={rows}
+      note="PocketBase is an independent open-source project. basefyio is not affiliated with or endorsed by it. Comparison reflects publicly documented behavior at the time of writing."
+    />
+  </section>
+
+  <section class="container">
+    <h2>When basefyio is the better fit</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section class="container">
+    <h2>Get started in minutes</h2>
+    <pre><code>{`# Bring up the full self-hosted stack
+git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+# Provision an isolated, Postgres-backed project
+basefy projects create my-app`}</code></pre>
+    <p class="muted">
+      Each project gets its own PostgreSQL database, auth realm, and storage
+      bucket — isolation a single embedded file cannot provide.
+    </p>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong> and intentionally
+        heavier than PocketBase. PocketBase is mature and perfect for single apps;
+        basefyio trades simplicity for multi-tenant PostgreSQL provisioning and
+        infrastructure-level isolation. Pick the one that matches your scale.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

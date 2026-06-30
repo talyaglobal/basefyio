@@ -1,0 +1,144 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — A Self-Hosted Backend Platform You Fully Own';
+const description =
+  'basefyio is a self-hosted backend platform: bring up the whole stack — PostgreSQL, Keycloak, MinIO, Redis, PgBouncer — with one docker compose up. Full data ownership, no hosted dependencies. Apache 2.0.';
+
+const cards = [
+  {
+    title: 'One command to run it all',
+    body: 'docker compose up brings the entire platform online locally or on your own servers — no external accounts required.',
+  },
+  {
+    title: 'Full data ownership',
+    body: 'Nothing leaves your infrastructure. Every project database, auth realm, and storage bucket lives on hardware you control.',
+  },
+  {
+    title: 'No hosted dependency in core',
+    body: 'By design, the core has no dependency on commercial or hosted services — a deliberate rule, not an accident.',
+  },
+  {
+    title: 'Built to operate',
+    body: 'PgBouncer pooling, health and readiness probes, structured logs, and trace IDs are part of the stack from day one.',
+  },
+];
+
+const stack = [
+  ['PostgreSQL', 'Platform metadata plus one dedicated database per project'],
+  ['Keycloak', 'Auth provider — a dedicated realm per project (OIDC, swappable)'],
+  ['MinIO', 'Per-project object storage with project-scoped buckets'],
+  ['Redis', 'Backing store for the BullMQ background job queue'],
+  ['PgBouncer', 'Connection pooling in front of all project databases'],
+];
+
+const faqs = [
+  {
+    q: 'What does "self-hosted" actually mean here?',
+    a: 'Every component runs on infrastructure you control. The Docker Compose stack includes PostgreSQL, Keycloak, MinIO, Redis, and PgBouncer. There is no required hosted service and no phone-home — you own the data and the uptime.',
+  },
+  {
+    q: 'What do I need to run it?',
+    a: 'A host with Docker and Docker Compose. One docker compose up brings the full stack online. For production you would run the same services on your own servers or orchestration platform.',
+  },
+  {
+    q: 'Are there any cloud dependencies in the core?',
+    a: 'No. A core design rule is that a module belongs in basefyio core only if it has no dependency on commercial or hosted services. Anything that needs a hosted service lives in a separate MYFYIO product instead.',
+  },
+  {
+    q: 'Is it production-ready?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha). The architecture and the self-hosted Docker stack are defined, but the platform is still being built out. Use it to evaluate and self-host for testing, not for production workloads today.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Self-Hosted · Apache 2.0</span>
+    <h1>A Self-Hosted Backend Platform You Fully Own</h1>
+    <p class="lead">
+      Run the entire backend on your own infrastructure. basefyio brings up
+      PostgreSQL, auth, storage, and pooling with a single docker compose up — no
+      hosted dependencies, no data leaving your servers.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="#stack">See the stack</a>
+    </div>
+  </section>
+
+  <section class="container">
+    <h2>Why self-host basefyio</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section id="stack" class="container">
+    <h2>The whole stack, on your infrastructure</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      One Docker Compose file brings up every moving part. Nothing here depends on
+      a hosted service.
+    </p>
+    <div class="table-wrap">
+      <table class="compare">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Role in the self-hosted stack</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            stack.map(([name, role]) => (
+              <tr>
+                <td>{name}</td>
+                <td class="muted">{role}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="container">
+    <h2>Up and running</h2>
+    <pre><code>{`# Bring the entire self-hosted stack online
+git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+# Provision your first fully isolated project
+basefy projects create my-app`}</code></pre>
+    <p class="muted">
+      Each project is provisioned with its own PostgreSQL database, Keycloak auth
+      realm, and MinIO storage bucket — all on your hardware.
+    </p>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong>. The self-hosted
+        Docker stack and architecture are defined; the platform API, SDK, and CLI
+        are still being built out. Self-host it to evaluate and contribute — not
+        for production workloads yet.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

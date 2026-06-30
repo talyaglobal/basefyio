@@ -1,0 +1,169 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ComparisonTable from '../components/ComparisonTable.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — The Open Source Supabase Alternative (Self-Hosted)';
+const description =
+  'basefyio is an open-source, self-hosted Supabase alternative built for multi-tenant SaaS: every project gets its own dedicated PostgreSQL database, isolated auth realm, and storage namespace. Apache 2.0.';
+
+const rows = [
+  {
+    feature: 'Core primitive',
+    us: 'Multi-tenant project provisioning — manage hundreds of isolated projects',
+    them: 'Single-project Backend-as-a-Service',
+  },
+  {
+    feature: 'Tenant isolation',
+    us: 'Dedicated PostgreSQL database + auth realm + storage bucket per project',
+    them: 'Shared Postgres, row-level security (RLS) within one database',
+  },
+  {
+    feature: 'Authentication',
+    us: 'Pluggable, OIDC-agnostic — Keycloak by default, swappable for any OIDC provider',
+    them: 'Built-in GoTrue auth',
+  },
+  {
+    feature: 'Storage',
+    us: 'Per-project MinIO bucket with project-scoped credentials',
+    them: 'S3-compatible storage with access policies',
+  },
+  {
+    feature: 'Realtime',
+    us: 'Server-Sent Events (SSE) for live data subscriptions',
+    them: 'WebSocket realtime (Postgres changes, presence, broadcast)',
+  },
+  {
+    feature: 'Self-hosting',
+    us: 'Designed self-host-first — one docker compose up, everything on your infra',
+    them: 'Hosted-first; self-hosting supported',
+  },
+  {
+    feature: 'Vector / AI',
+    us: 'pgvector available; AI (agents, RAG, embeddings) lives in the separate agentfyio project',
+    them: 'pgvector + AI/embedding features built into the platform',
+  },
+  { feature: 'License', us: 'Apache 2.0', them: 'Apache 2.0 (open core)' },
+];
+
+const cards = [
+  {
+    title: 'Multi-tenant platforms',
+    body: 'You provision and operate many customer projects from one control plane, each with hard data isolation — not many rows in one database.',
+  },
+  {
+    title: 'Strict data isolation',
+    body: 'Compliance, residency, or contractual requirements demand a separate database, auth realm, and storage bucket per tenant.',
+  },
+  {
+    title: 'Full data ownership',
+    body: 'Everything runs on your infrastructure. One docker compose up and the whole stack — Postgres, Keycloak, MinIO, Redis, PgBouncer — is yours.',
+  },
+  {
+    title: 'Bring your own identity',
+    body: 'OIDC-agnostic auth. Keycloak by default, but swap in any OIDC provider without rewriting your app.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'Is basefyio a drop-in Supabase replacement?',
+    a: 'No — and it does not try to be. basefyio shares the open-source, PostgreSQL-first, self-hosted philosophy, but its core primitive is multi-tenant project provisioning rather than a single-project BaaS. If you are building a platform that spins up many isolated tenants, basefyio is purpose-built for that. If you need one project with a polished hosted dashboard today, Supabase is more mature.',
+  },
+  {
+    q: 'How is tenant isolation different from Supabase RLS?',
+    a: 'Supabase isolates tenants with row-level security inside a single shared PostgreSQL database. basefyio isolates at the infrastructure level: every project gets its own PostgreSQL database, its own Keycloak realm, and its own MinIO storage bucket. There is no shared schema between projects — useful when data residency or hard isolation is a requirement.',
+  },
+  {
+    q: 'Is basefyio production-ready?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha). The architecture and Docker stack are defined and the platform API is being built out. We recommend it for evaluation and contribution, not production workloads, today.',
+  },
+  {
+    q: 'Does basefyio have a dashboard like Supabase Studio?',
+    a: 'An Admin UI (project management, SQL editor, audit log viewer) is on the roadmap and currently in progress — it is not shipped in v0.1. The platform is API-first: REST API, CLI, and SDK are the primary interfaces today.',
+  },
+  {
+    q: 'Can I use my own auth provider instead of Keycloak?',
+    a: 'Yes. The auth layer is OIDC-agnostic. Keycloak is the default and provisions a realm per project, but any OIDC-compliant provider can be used in its place.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Open Source · Self-Hosted · Apache 2.0</span>
+    <h1>The Open Source Supabase Alternative</h1>
+    <p class="lead">
+      basefyio is a self-hosted, PostgreSQL-first backend platform built for
+      multi-tenant SaaS. Every project gets its own dedicated database, isolated
+      auth realm, and storage namespace — all running on your own infrastructure.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="#compare">See the comparison</a>
+    </div>
+  </section>
+
+  <section id="compare" class="container">
+    <h2>basefyio vs Supabase</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      Both are open-source and PostgreSQL-first. The real difference is the
+      isolation model and the core use case. Here is an honest, side-by-side look.
+    </p>
+    <ComparisonTable
+      themName="Supabase"
+      rows={rows}
+      note="Supabase is a registered trademark of Supabase, Inc. basefyio is an independent project and is not affiliated with or endorsed by Supabase. Comparison reflects publicly documented behavior at the time of writing."
+    />
+  </section>
+
+  <section class="container">
+    <h2>When basefyio is the better fit</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section class="container">
+    <h2>Get started in minutes</h2>
+    <pre><code>{`# Clone and bring up the full self-hosted stack
+git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+# Create your first isolated project
+basefy projects create my-app`}</code></pre>
+    <p class="muted">
+      Each project provisions a dedicated PostgreSQL database, a Keycloak auth
+      realm, and a MinIO storage bucket — isolated at the infrastructure level.
+    </p>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong>. The architecture
+        and Docker stack are defined; the platform API, SDK, and CLI are being
+        built out. The Admin UI and the AI stack (agents, RAG, embeddings — which
+        live in the separate <em>agentfyio</em> project) are on the roadmap, not
+        shipped today. If you need a mature, production-grade BaaS with a polished
+        hosted dashboard right now, Supabase is the safer choice. If you want to
+        build on — or contribute to — a self-host-first, multi-tenant platform
+        early, you are in the right place.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

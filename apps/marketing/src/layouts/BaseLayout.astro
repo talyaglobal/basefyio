@@ -1,0 +1,87 @@
+---
+export interface Props {
+  title: string;
+  description: string;
+  ogType?: string;
+  /** Site-root-relative path to the social share image. */
+  ogImage?: string;
+  noindex?: boolean;
+}
+
+const {
+  title,
+  description,
+  ogType = 'website',
+  ogImage = '/og/basefyio-og.png',
+  noindex = false,
+} = Astro.props;
+
+const base = Astro.site ?? Astro.url;
+const canonical = new URL(Astro.url.pathname, base).href;
+const ogImageUrl = new URL(ogImage, base).href;
+const siteName = 'basefyio';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex,nofollow" />}
+
+    <!-- OpenGraph -->
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="basefyio — open-source, self-hosted backend platform. Dedicated Postgres, Auth, Storage, SQL." />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    <link rel="stylesheet" href="/styles/global.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="container nav">
+        <a href="/" class="brand">basefy<span>io</span></a>
+        <div class="nav-links">
+          <a href="/supabase-alternative">Supabase Alternative</a>
+          <a href="https://github.com/myfyio/basefyio" rel="noopener">GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>
+          basefyio — the open-source, self-hosted, PostgreSQL-first backend platform.
+          Apache 2.0. Currently <strong>early alpha</strong> (v0.1.0-alpha).
+        </p>
+        <p class="muted">
+          <a href="https://github.com/myfyio/basefyio" rel="noopener">GitHub</a> ·
+          <a href="https://github.com/myfyio/basefyio/blob/main/docs/architecture.md" rel="noopener">Architecture</a> ·
+          <a href="https://myfyio.com" rel="noopener">MYFYIO ecosystem</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

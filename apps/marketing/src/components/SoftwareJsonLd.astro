@@ -1,0 +1,18 @@
+---
+// Emits a single SoftwareApplication JSON-LD block. Shared across pages so the
+// product is described consistently for rich results.
+const appJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'basefyio',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, Docker',
+  description:
+    'Open-source, self-hosted backend platform. Multi-tenant project provisioning with a dedicated PostgreSQL database, auth realm, and storage per project.',
+  license: 'https://www.apache.org/licenses/LICENSE-2.0',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  url: 'https://github.com/myfyio/basefyio',
+};
+---
+
+<script type="application/ld+json" is:inline set:html={JSON.stringify(appJsonLd)} />

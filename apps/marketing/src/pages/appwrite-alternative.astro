@@ -1,0 +1,162 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ComparisonTable from '../components/ComparisonTable.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — An Open-Source Appwrite Alternative on PostgreSQL';
+const description =
+  'basefyio is an open-source, self-hosted Appwrite alternative built on PostgreSQL, with multi-tenant project provisioning and a dedicated database, auth realm, and storage bucket per project. Apache 2.0.';
+
+const rows = [
+  {
+    feature: 'Core primitive',
+    us: 'Multi-tenant project provisioning as the central abstraction',
+    them: 'Single-project Backend-as-a-Service with collections',
+  },
+  {
+    feature: 'Database',
+    us: 'PostgreSQL — relational, full SQL, a dedicated DB per project',
+    them: 'Backed by MariaDB internally',
+  },
+  {
+    feature: 'Tenant isolation',
+    us: 'Dedicated database + auth realm + storage bucket per project',
+    them: 'Collections and teams within a shared project',
+  },
+  {
+    feature: 'Authentication',
+    us: 'OIDC-agnostic — Keycloak by default, swappable for any OIDC provider',
+    them: 'Built-in Appwrite Auth with many providers',
+  },
+  {
+    feature: 'Client SDKs',
+    us: 'REST API, CLI, and a TypeScript SDK (growing)',
+    them: 'Many mature official SDKs across web and mobile',
+  },
+  {
+    feature: 'License',
+    us: 'Apache 2.0',
+    them: 'BSD-3-Clause (open source)',
+  },
+  {
+    feature: 'Maturity',
+    us: 'Early alpha (v0.1.0-alpha)',
+    them: 'Production-ready and widely adopted',
+  },
+];
+
+const cards = [
+  {
+    title: 'You are PostgreSQL-native',
+    body: 'You want SQL, Postgres extensions, and the relational ecosystem as the foundation — not a MariaDB-backed abstraction.',
+  },
+  {
+    title: 'You need hard tenant isolation',
+    body: 'A separate database, auth realm, and storage bucket per project, rather than collections inside one shared project.',
+  },
+  {
+    title: 'You run a control plane',
+    body: 'Your product provisions and manages many customer projects — multi-tenancy is the primitive, not an add-on.',
+  },
+  {
+    title: 'You want pluggable identity',
+    body: 'OIDC-agnostic auth lets you standardize on Keycloak or bring any OIDC provider your organization already uses.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'Does basefyio have feature parity with Appwrite?',
+    a: 'No. Appwrite is a mature, broad BaaS with many official SDKs and built-in features; basefyio is early alpha and API-first. basefyio differentiates on PostgreSQL as the foundation and on infrastructure-level multi-tenant isolation — not on matching Appwrite feature for feature today.',
+  },
+  {
+    q: 'Does basefyio have serverless functions like Appwrite Functions?',
+    a: 'Not as a serverless-functions product. basefyio core ships a background job queue (BullMQ on Redis) for asynchronous work such as provisioning and email delivery, rather than an Appwrite-style functions runtime.',
+  },
+  {
+    q: 'Why PostgreSQL instead of MariaDB?',
+    a: 'basefyio is built around PostgreSQL per project — relational SQL, Postgres extensions (including pgvector availability), and per-project database isolation. If your team standardizes on Postgres, that alignment is the main reason to choose basefyio.',
+  },
+  {
+    q: 'Is basefyio production-ready?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha), while Appwrite is production-ready and widely adopted. Choose basefyio for its Postgres-first, multi-tenant model, understanding it is still early.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Open Source · Self-Hosted · Apache 2.0</span>
+    <h1>An Open-Source Appwrite Alternative on PostgreSQL</h1>
+    <p class="lead">
+      basefyio takes the open-source, self-hosted BaaS idea and rebuilds it
+      around PostgreSQL and multi-tenant provisioning — a dedicated database,
+      auth realm, and storage bucket for every project.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="#compare">See the comparison</a>
+    </div>
+  </section>
+
+  <section id="compare" class="container">
+    <h2>basefyio vs Appwrite</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      Both are open-source, self-hostable backends. Appwrite is broader and more
+      mature; basefyio is Postgres-first with infrastructure-level multi-tenancy.
+      An honest side-by-side:
+    </p>
+    <ComparisonTable
+      themName="Appwrite"
+      rows={rows}
+      note="Appwrite is a trademark of Appwrite, Inc. basefyio is an independent project and is not affiliated with or endorsed by Appwrite. Comparison reflects publicly documented behavior at the time of writing."
+    />
+  </section>
+
+  <section class="container">
+    <h2>When basefyio is the better fit</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section class="container">
+    <h2>Get started in minutes</h2>
+    <pre><code>{`# Bring up the full self-hosted stack
+git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+# Provision an isolated, Postgres-backed project
+basefy projects create my-app`}</code></pre>
+    <p class="muted">
+      Every project is provisioned with its own PostgreSQL database, Keycloak
+      auth realm, and MinIO storage bucket.
+    </p>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong>. Appwrite is a
+        mature platform with a broad feature set and many official SDKs; basefyio
+        is early and focused. Choose basefyio when PostgreSQL and hard tenant
+        isolation are the deciding factors — and when you are comfortable building
+        on an early-stage project.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

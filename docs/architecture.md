@@ -99,13 +99,58 @@ NestJS application — the central runtime. All client and dashboard interaction
 
 When the `search` module lands, keep its full-text/SQL/metadata paths in core and move any embedding/semantic/vector paths to `_deferred/`.
 
-### Admin UI (`apps/admin-ui`) — planned, not yet shipped
+### Admin UI (`apps/admin-ui`) — early v0.1 dashboard
 
-> **Status:** not implemented in v0.1. `apps/admin-ui` is an empty placeholder
-> and is not part of the Compose stack. The description below is the intended
-> target, not current behavior.
+> **Status:** implemented in v0.1, but early. The dashboard ships in `apps/admin-ui`
+> and is part of the Compose stack. Core flows work today; several areas listed
+> below are still planned.
 
-Next.js 14 dashboard. Communicates with the Platform API over REST + JWT. Features: project list, SQL editor, storage browser, audit log viewer.
+Next.js dashboard, implemented in `apps/admin-ui`. Communicates with the Platform
+API over REST + JWT, using the `@basefyio/sdk` TypeScript client.
+
+**Implemented in v0.1:**
+- Login (JWT auth)
+- Project list, project create, and project detail
+- SQL editor
+- Storage bucket management
+- Health / status views
+- Public no-signup **Playground** at `/playground`
+
+**Planned (not yet shipped):**
+- Advanced auth / user management
+- Table editor
+- Realtime UI
+- Full project settings
+
+This is an early dashboard: the CLI and SDK remain the primary interfaces for v0.1.
+
+#### Playground (`/playground`)
+
+A public, no-signup sandbox that lets a visitor experience basefyio in the
+browser — run SQL, browse tables, create/insert/delete rows, and inspect the
+equivalent REST + SDK calls — without an account, install, or backend.
+
+It runs entirely client-side on **PGlite** (PostgreSQL compiled to WebAssembly),
+seeded with a sample dataset on load. Crucially, **the Playground creates no
+backend demo infrastructure**: there is no public demo project, no shared demo
+database, and no unauthenticated platform-api endpoint. Nothing the visitor
+types leaves their browser tab, and "reset" simply re-seeds the in-memory
+database. The REST Explorer *shows* the real authenticated
+`POST /api/sql/execute` request and `@basefyio/sdk` snippet for each operation,
+but does not issue it — so the feature adds zero public attack surface or
+hosting cost to the core platform. The SQL editor uses Monaco; the in-browser
+guard mirrors the platform-api forbidden-operation denylist.
+
+### Marketing Site (`apps/marketing`)
+
+The public marketing site at **basefyio.com** is a separate, static **Astro**
+build in `apps/marketing` — intentionally decoupled from the dashboard. It has
+no runtime dependency on the Platform API and is not part of the Compose stack;
+it deploys as static assets. The admin dashboard (`apps/admin-ui`) serves the
+application only — its `/` route redirects to `/dashboard`, and the public
+in-browser Playground lives at `apps/admin-ui` `/playground`. Keeping the
+marketing surface in one place (Astro) avoids landing-page drift between the
+two apps.
 
 ### Auth Provider (Keycloak)
 

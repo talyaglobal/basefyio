@@ -1,0 +1,39 @@
+---
+export interface CompareRow {
+  feature: string;
+  us: string;
+  them: string;
+}
+export interface Props {
+  /** Column header for the competitor, e.g. "Supabase". */
+  themName: string;
+  rows: CompareRow[];
+  /** Optional trademark / accuracy note rendered under the table. */
+  note?: string;
+}
+const { themName, rows, note } = Astro.props;
+---
+
+<div class="table-wrap">
+  <table class="compare">
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th class="col-us">basefyio</th>
+        <th>{themName}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr>
+            <td>{row.feature}</td>
+            <td class="col-us">{row.us}</td>
+            <td class="muted">{row.them}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+{note && <p class="muted" style="font-size: 0.85rem; margin-top: 0.75rem;">{note}</p>}

@@ -1,0 +1,34 @@
+---
+export interface QA {
+  q: string;
+  a: string;
+}
+export interface Props {
+  faqs: QA[];
+  heading?: string;
+}
+const { faqs, heading = 'Frequently asked questions' } = Astro.props;
+
+const faqJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+};
+---
+
+<section class="container faq">
+  <h2>{heading}</h2>
+  {
+    faqs.map((f) => (
+      <details>
+        <summary>{f.q}</summary>
+        <p>{f.a}</p>
+      </details>
+    ))
+  }
+  <script type="application/ld+json" is:inline set:html={JSON.stringify(faqJsonLd)} />
+</section>

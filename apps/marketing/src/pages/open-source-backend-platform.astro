@@ -1,0 +1,146 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ComparisonTable from '../components/ComparisonTable.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — An Open-Source Backend Platform (Apache 2.0)';
+const description =
+  'basefyio is an open-source backend platform under Apache 2.0: PostgreSQL-first, self-hostable, and built around multi-tenant project provisioning with a dedicated database, auth realm, and storage per project.';
+
+// "The field at a glance" — orient readers shopping the category.
+const rows = [
+  {
+    feature: 'Primary data store',
+    us: 'PostgreSQL (a dedicated database per project)',
+    them: 'Varies — Postgres, MariaDB, SQLite, or NoSQL depending on the tool',
+  },
+  {
+    feature: 'Core focus',
+    us: 'Multi-tenant project provisioning with infra-level isolation',
+    them: 'Most are single-project Backend-as-a-Service',
+  },
+  {
+    feature: 'License',
+    us: 'Apache 2.0',
+    them: 'Mixed — open source, open core, or proprietary',
+  },
+  {
+    feature: 'Auth',
+    us: 'OIDC-agnostic (Keycloak default, swappable)',
+    them: 'Usually a single built-in auth system',
+  },
+];
+
+const cards = [
+  {
+    title: 'Truly open source',
+    body: 'Apache 2.0, developed in the open at github.com/myfyio/basefyio. Read it, fork it, run it — no hidden hosted-only core.',
+  },
+  {
+    title: 'PostgreSQL-first',
+    body: 'Built on standard PostgreSQL, with pgvector available for vector workloads. Portable and familiar, with no proprietary data API.',
+  },
+  {
+    title: 'Multi-tenant by design',
+    body: 'The core primitive is the project: a dedicated database, auth realm, and storage bucket, isolated at the infrastructure level.',
+  },
+  {
+    title: 'Part of the MYFYIO ecosystem',
+    body: 'basefyio is the core backend. AI capabilities live in a separate product, agentfyio, which builds on basefyio — the core never depends on them.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'What makes basefyio different from other open-source backends?',
+    a: 'Most open-source backends are single-project Backend-as-a-Service tools. basefyio treats the project as the core primitive: it provisions a dedicated PostgreSQL database, a Keycloak auth realm, and a MinIO storage bucket per project, isolated at the infrastructure level. That makes it a fit for multi-tenant platforms rather than just a single app.',
+  },
+  {
+    q: 'What license is basefyio released under?',
+    a: 'Apache 2.0. The public contract for v0.1 — the REST API, CLI, SDK, configuration, and Prisma schema — is what consumers build against, and it is intended to stay stable once published.',
+  },
+  {
+    q: 'Does the open-source core include AI features?',
+    a: 'No. By design, AI capabilities (agents, RAG, embeddings, recommendations) are not part of basefyio core; they are deferred to a separate MYFYIO product, agentfyio, which builds on basefyio. The core still ships pgvector availability so vector workloads can be layered on top without the core depending on them.',
+  },
+  {
+    q: 'Is it ready for production?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha). The architecture and Docker stack are defined and the platform API is being built out. It is a great time to evaluate or contribute, but not to run production workloads.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Open Source · Apache 2.0</span>
+    <h1>An Open-Source Backend Platform</h1>
+    <p class="lead">
+      basefyio is an open-source, PostgreSQL-first backend platform built around
+      one idea: every project is fully isolated, with its own database, auth
+      realm, and storage. Developed in the open under Apache 2.0.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="/supabase-alternative">Compare alternatives</a>
+    </div>
+  </section>
+
+  <section class="container">
+    <h2>What you get</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section class="container">
+    <h2>The category at a glance</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      Open-source backend platforms differ mostly in their data store and whether
+      they are single-project or multi-tenant. Where basefyio sits:
+    </p>
+    <ComparisonTable
+      themName="Typical OSS backend"
+      rows={rows}
+      note="Generalized comparison across the open-source backend category. Individual tools vary; see the dedicated comparison pages for specifics."
+    />
+    <p class="muted" style="margin-top: 1rem;">
+      See detailed comparisons:
+      <a href="/supabase-alternative">vs Supabase</a> ·
+      <a href="/self-hosted-firebase-alternative">vs Firebase</a> ·
+      <a href="/pocketbase-alternative">vs PocketBase</a> ·
+      <a href="/appwrite-alternative">vs Appwrite</a>
+    </p>
+  </section>
+
+  <section class="container">
+    <h2>Get started in minutes</h2>
+    <pre><code>{`git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+basefy projects create my-app`}</code></pre>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong>. It is open source
+        and being built in the open; APIs and modules may still change before
+        v1.0. Not yet recommended for production.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

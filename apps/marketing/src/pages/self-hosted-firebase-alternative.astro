@@ -1,0 +1,161 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ComparisonTable from '../components/ComparisonTable.astro';
+import CardGrid from '../components/CardGrid.astro';
+import Faq from '../components/Faq.astro';
+import SoftwareJsonLd from '../components/SoftwareJsonLd.astro';
+
+const title = 'basefyio — A Self-Hosted, Open-Source Firebase Alternative';
+const description =
+  'basefyio is an open-source, self-hosted Firebase alternative — PostgreSQL instead of Firestore, full data ownership, no vendor lock-in, and a dedicated database, auth realm, and storage bucket per project. Apache 2.0.';
+
+const rows = [
+  {
+    feature: 'Source & license',
+    us: 'Open source, Apache 2.0',
+    them: 'Proprietary, owned by Google',
+  },
+  {
+    feature: 'Hosting',
+    us: 'Self-hosted on your own infrastructure (docker compose up)',
+    them: 'Google Cloud only — no first-party self-hosting',
+  },
+  {
+    feature: 'Data model',
+    us: 'PostgreSQL — relational, full SQL',
+    them: 'Firestore / Realtime Database — NoSQL document store',
+  },
+  {
+    feature: 'Vendor lock-in',
+    us: 'Standard PostgreSQL — portable, no proprietary APIs to escape',
+    them: 'Tightly coupled to the Google Cloud ecosystem',
+  },
+  {
+    feature: 'Authentication',
+    us: 'OIDC-agnostic — Keycloak by default, swappable for any OIDC provider',
+    them: 'Firebase Authentication',
+  },
+  {
+    feature: 'Multi-tenancy',
+    us: 'Dedicated database + auth realm + storage bucket per project',
+    them: 'Security rules within a shared project',
+  },
+  {
+    feature: 'Cost model',
+    us: 'Self-host — you pay only for your own infrastructure',
+    them: 'Usage-based cloud billing that can scale unpredictably',
+  },
+];
+
+const cards = [
+  {
+    title: 'You want SQL, not NoSQL',
+    body: 'Relational data, joins, constraints, and the full PostgreSQL ecosystem — instead of modelling everything as documents.',
+  },
+  {
+    title: 'You need data ownership',
+    body: 'Everything runs on your servers. No data leaves your infrastructure, which matters for residency and compliance.',
+  },
+  {
+    title: 'You want to avoid lock-in',
+    body: 'Build on standard, portable PostgreSQL rather than proprietary cloud APIs you would later have to migrate off.',
+  },
+  {
+    title: 'You run a multi-tenant platform',
+    body: 'Provision many isolated projects, each with its own database and auth realm — not many tenants inside one shared project.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'Is basefyio a drop-in Firebase replacement?',
+    a: 'No. Firebase is NoSQL (Firestore / Realtime Database) and ships mature client SDKs for web and mobile; basefyio is PostgreSQL-first and API-first (REST, CLI, SDK). It is a different data model and a different philosophy — full data ownership and SQL rather than a managed NoSQL cloud. It is also early alpha, so it is not a like-for-like swap today.',
+  },
+  {
+    q: 'Does basefyio do realtime like the Firebase Realtime Database?',
+    a: 'basefyio provides realtime via Server-Sent Events (SSE) for live data subscriptions. It is not the same protocol or feature surface as the Firebase Realtime Database, but it covers live updates over a standard, self-hosted channel.',
+  },
+  {
+    q: 'I like Firestore documents — is there a document model?',
+    a: 'The optional Data Engine offers a document-oriented layer on top of relational PostgreSQL, with a type-safe query builder. It gives you document-style storage without leaving Postgres — but it is not a Firestore-compatible API.',
+  },
+  {
+    q: 'Is it production-ready?',
+    a: 'Not yet. basefyio is in early alpha (v0.1.0-alpha). If you need a battle-tested managed backend today, Firebase is the safer choice. basefyio suits teams that want to self-host and own their stack, and are comfortable building on an early platform.',
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <SoftwareJsonLd />
+
+  <section class="hero container">
+    <span class="badge">Open Source · Self-Hosted · Apache 2.0</span>
+    <h1>A Self-Hosted, Open-Source Firebase Alternative</h1>
+    <p class="lead">
+      Own your backend instead of renting it. basefyio gives you PostgreSQL —
+      not proprietary NoSQL — with a dedicated database, auth realm, and storage
+      bucket per project, all running on your own infrastructure.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Star on GitHub</a>
+      <a class="btn btn-secondary" href="#compare">See the comparison</a>
+    </div>
+  </section>
+
+  <section id="compare" class="container">
+    <h2>basefyio vs Firebase</h2>
+    <p class="muted" style="max-width: 720px; margin-top: -0.5rem;">
+      Firebase is a mature, managed, NoSQL cloud backend. basefyio is the
+      opposite trade-off: open-source, self-hosted, and PostgreSQL-first. Here is
+      an honest comparison of where each one lands.
+    </p>
+    <ComparisonTable
+      themName="Firebase"
+      rows={rows}
+      note="Firebase is a trademark of Google LLC. basefyio is an independent project and is not affiliated with or endorsed by Google. Comparison reflects publicly documented behavior at the time of writing."
+    />
+  </section>
+
+  <section class="container">
+    <h2>When basefyio is the better fit</h2>
+    <CardGrid cards={cards} />
+  </section>
+
+  <section class="container">
+    <h2>Get started in minutes</h2>
+    <pre><code>{`# Bring up the full self-hosted stack
+git clone https://github.com/myfyio/basefyio
+cd basefyio
+docker compose up
+
+# Create your first isolated project
+basefy projects create my-app`}</code></pre>
+    <p class="muted">
+      No cloud account, no usage-based billing — the entire stack runs on your
+      infrastructure.
+    </p>
+  </section>
+
+  <section class="container">
+    <div class="callout">
+      <h3>An honest status note</h3>
+      <p>
+        basefyio is <strong>early alpha (v0.1.0-alpha)</strong>. Firebase is a
+        mature product with deep client SDKs and a managed cloud; basefyio is
+        early and API-first. Choose basefyio if self-hosting, SQL, and data
+        ownership matter more to you than a turnkey managed service today.
+      </p>
+    </div>
+  </section>
+
+  <Faq faqs={faqs} />
+
+  <section class="container center">
+    <h2>Own your backend.</h2>
+    <p class="lead">Open source. Self-hosted. PostgreSQL-first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/myfyio/basefyio" rel="noopener">Explore on GitHub</a>
+    </div>
+  </section>
+</BaseLayout>

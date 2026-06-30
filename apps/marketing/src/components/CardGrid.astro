@@ -1,0 +1,21 @@
+---
+export interface Card {
+  title: string;
+  body: string;
+}
+export interface Props {
+  cards: Card[];
+}
+const { cards } = Astro.props;
+---
+
+<div class="grid">
+  {
+    cards.map((card) => (
+      <div class="card">
+        <h3>{card.title}</h3>
+        <p>{card.body}</p>
+      </div>
+    ))
+  }
+</div>
