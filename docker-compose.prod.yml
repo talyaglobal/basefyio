@@ -229,6 +229,9 @@ services:
       PORT: 4000
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=1536
+      # At-rest encryption key for project DB credentials (base64/hex 32 bytes).
+      # Empty = passthrough (no encryption). Set in .env.production.
+      DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase?connection_limit=20&pool_timeout=30
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
