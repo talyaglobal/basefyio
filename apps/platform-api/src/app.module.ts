@@ -9,6 +9,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
 import { QueueModule } from './modules/queue/queue.module';
 import { EntitlementModule } from './modules/entitlement/entitlement.module';
 import { FlowsModule } from './modules/flows/flows.module';
+import { BlueprintModule } from './modules/blueprint/blueprint.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
@@ -58,6 +59,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     QueueModule,
     EntitlementModule,
     FlowsModule,
+    BlueprintModule,
     EmailModule,
     AuthModule,
     TeamsModule,

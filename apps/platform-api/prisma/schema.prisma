@@ -1567,3 +1567,50 @@ model FlowRun {
   @@index([projectId])
   @@map("flow_run")
 }
+
+enum BlueprintStatus {
+  DRAFT
+  APPROVED
+  GENERATING
+  GENERATED
+  FAILED
+}
+
+/// An Excel/CSV-derived application definition: inferred data model + a
+/// heuristic business/application model. Generation (DDL/runtime) is layered on
+/// later; this stage covers analyze -> draft -> approve.
+model Blueprint {
+  id               String          @id @default(uuid())
+  teamId           String          @map("team_id")
+  projectId        String?         @map("project_id")
+  name             String
+  status           BlueprintStatus @default(DRAFT)
+  domain           String?
+  dataModel        Json            @map("data_model")
+  businessModel    Json?           @map("business_model")
+  applicationModel Json?           @map("application_model")
+  createdBy        String?         @map("created_by")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  versions ApplicationVersion[]
+
+  @@index([teamId])
+  @@map("blueprint")
+}
+
+/// Append-only history of approved ApplicationModel edits for a Blueprint.
+model ApplicationVersion {
+  id               String   @id @default(uuid())
+  blueprintId      String   @map("blueprint_id")
+  version          Int
+  applicationModel Json     @map("application_model")
+  changeSummary    String?  @map("change_summary")
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@unique([blueprintId, version])
+  @@map("application_version")
+}
