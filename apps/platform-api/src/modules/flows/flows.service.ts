@@ -210,7 +210,9 @@ export class FlowsService {
           headers: action.headers,
           data: action.body,
           timeout: 10_000,
-          maxRedirects: 2,
+          // Do NOT follow redirects: a 3xx to a private/loopback host would
+          // bypass the SSRF guard that only validated the original URL.
+          maxRedirects: 0,
           validateStatus: () => true,
         });
         return { type: 'http.request', ok: res.status < 400, status: res.status };

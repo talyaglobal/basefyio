@@ -31,10 +31,15 @@ const DOMAIN_KPIS: Record<BlueprintDomain, string[]> = {
 /** Build the inferred DataModel from raw sheets (reuses data-import inference). */
 export function buildDataModel(input: AnalyzeBlueprintInput): DataModel {
   const exclude = new Set((input.excludeSheets ?? []).map((s) => s.toLowerCase()));
+  // These are added automatically to every generated table, so drop any inferred
+  // columns that would collide with them.
+  const RESERVED = new Set(['id', 'created_at', 'updated_at']);
   const tables: DataModelTable[] = [];
   for (const sheet of input.sheets ?? []) {
     if (!sheet?.name || exclude.has(sheet.name.toLowerCase())) continue;
-    const columns = inferSchema(sheet.headers ?? [], sheet.rows ?? []);
+    const columns = inferSchema(sheet.headers ?? [], sheet.rows ?? []).filter(
+      (c) => !RESERVED.has(c.name.toLowerCase()),
+    );
     if (columns.length === 0) continue;
     tables.push({
       name: sanitizeColumnName(sheet.name, 0),
