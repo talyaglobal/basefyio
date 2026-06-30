@@ -1589,6 +1589,9 @@ model Blueprint {
   dataModel        Json            @map("data_model")
   businessModel    Json?           @map("business_model")
   applicationModel Json?           @map("application_model")
+  /// Snapshot of the data model as last generated into the project DB; the
+  /// "from" side when planning schema migrations.
+  generatedDataModel Json?         @map("generated_data_model")
   createdBy        String?         @map("created_by")
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
@@ -1613,4 +1616,29 @@ model ApplicationVersion {
 
   @@unique([blueprintId, version])
   @@map("application_version")
+}
+
+enum MigrationStatus {
+  PENDING
+  APPLIED
+  FAILED
+}
+
+/// A planned (and optionally applied) schema migration for a Blueprint's
+/// generated tables: the diff between the last-generated data model and the
+/// current one, compiled into ALTER/CREATE statements with a safety class.
+model MigrationRun {
+  id           String          @id @default(uuid())
+  blueprintId  String          @map("blueprint_id")
+  projectId    String          @map("project_id")
+  status       MigrationStatus @default(PENDING)
+  plan         Json
+  appliedCount Int             @default(0) @map("applied_count")
+  error        String?
+  createdAt    DateTime        @default(now()) @map("created_at")
+  appliedAt    DateTime?       @map("applied_at")
+
+  @@index([blueprintId])
+  @@index([projectId])
+  @@map("migration_run")
 }

@@ -10,6 +10,7 @@ import type {
   BlueprintDetail,
   BlueprintSheet,
   ProjectListItem,
+  MigrationRun,
 } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,32 @@ import {
 } from 'lucide-react';
 
 const MAX_SAMPLE_ROWS = 200;
+
+async function parseSheets(file: File): Promise<BlueprintSheet[]> {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheets: BlueprintSheet[] = [];
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
+    if (rows.length < 2) continue;
+    const headers = (rows[0] as unknown[]).map((h) => String(h ?? ''));
+    const dataRows = rows.slice(1, 1 + MAX_SAMPLE_ROWS) as unknown[][];
+    sheets.push({ name, headers, rows: dataRows });
+  }
+  return sheets;
+}
+
+function safetyColor(safety: string) {
+  switch (safety) {
+    case 'destructive':
+      return 'text-red-600 dark:text-red-400';
+    case 'review':
+      return 'text-amber-600 dark:text-amber-400';
+    default:
+      return 'text-green-600 dark:text-green-400';
+  }
+}
 
 function statusVariant(status: string) {
   switch (status) {
@@ -76,17 +103,7 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
     if (!file || !teamId) return;
     setAnalyzing(true);
     try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const sheets: BlueprintSheet[] = [];
-      for (const name of wb.SheetNames) {
-        const ws = wb.Sheets[name];
-        const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
-        if (rows.length < 2) continue;
-        const headers = (rows[0] as unknown[]).map((h) => String(h ?? ''));
-        const dataRows = rows.slice(1, 1 + MAX_SAMPLE_ROWS) as unknown[][];
-        sheets.push({ name, headers, rows: dataRows });
-      }
+      const sheets = await parseSheets(file);
       if (sheets.length === 0) {
         toast.error('No usable sheets found (need a header row + data)');
         return;
@@ -194,6 +211,8 @@ function BlueprintDetailView({
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [targetProject, setTargetProject] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState<MigrationRun | null>(null);
+  const resyncRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -209,6 +228,66 @@ function BlueprintDetailView({
     load();
     if (teamId) api.projects.list(teamId).then(setProjects).catch(() => {});
   }, [load, teamId]);
+
+  const onResync = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const sheets = await parseSheets(file);
+      if (sheets.length === 0) {
+        toast.error('No usable sheets found');
+        return;
+      }
+      await api.blueprints.resync(id, sheets);
+      setPlan(null);
+      toast.success('Data model updated — you can now plan a migration');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to sync');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const planMigration = async () => {
+    setBusy(true);
+    try {
+      const run = await api.migrations.plan(id);
+      setPlan(run);
+      if (run.plan.changes.length === 0) toast.info('No schema changes detected');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to plan migration');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyMigration = async () => {
+    if (!plan) return;
+    const destructive = plan.plan.hasDestructive;
+    if (destructive) {
+      const ok = await confirmDialog({
+        title: 'Apply destructive migration',
+        description: 'This plan contains destructive changes (dropped tables/columns or type changes) that may lose data. Apply anyway?',
+        confirmText: 'Apply (force)',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.migrations.apply(plan.id, destructive);
+      toast.success(`Migration applied (${res.appliedCount} change(s))`);
+      setPlan(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to apply migration');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const approve = async () => {
     if (!bp?.applicationModel) return;
@@ -287,9 +366,21 @@ function BlueprintDetailView({
             <span>{bp.domain ?? 'generic'}</span>
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={remove}>
-          <Trash2 className="h-4 w-4 text-red-500" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={resyncRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={onResync}
+          />
+          <Button variant="outline" size="sm" onClick={() => resyncRef.current?.click()} disabled={busy}>
+            <Upload className="mr-1 h-3.5 w-3.5" /> Sync from Excel
+          </Button>
+          <Button variant="ghost" size="sm" onClick={remove}>
+            <Trash2 className="h-4 w-4 text-red-500" />
+          </Button>
+        </div>
       </div>
 
       {/* Tables */}
@@ -346,6 +437,50 @@ function BlueprintDetailView({
           </>
         )}
       </div>
+
+      {/* Migrations — available once the blueprint has been generated */}
+      {bp.status === 'GENERATED' && (
+        <div className="space-y-3 rounded-lg border bg-card p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">Schema migrations</h2>
+            <Button size="sm" variant="outline" onClick={planMigration} disabled={busy}>
+              {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Plan changes
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use “Sync from Excel” to update the model, then plan a migration to apply the diff to the
+            generated tables.
+          </p>
+
+          {plan && (
+            <div className="space-y-2">
+              {plan.plan.changes.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  No changes — generated tables match the current model.
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    {plan.plan.changes.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <span className={`font-mono text-xs ${safetyColor(c.safety)}`}>
+                          {c.safety}
+                        </span>
+                        <span>{c.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button onClick={applyMigration} disabled={busy} size="sm">
+                    {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                    Apply migration
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

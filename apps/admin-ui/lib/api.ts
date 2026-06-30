@@ -72,6 +72,8 @@ import type {
   BlueprintSummary,
   BlueprintDetail,
   BlueprintGenerateResult,
+  BlueprintSheet,
+  MigrationRun,
 } from './types';
 
 /** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
@@ -1477,8 +1479,34 @@ export const api = {
         body: JSON.stringify({ projectId }),
       });
     },
+    resync(id: string, sheets: BlueprintSheet[], name?: string) {
+      return request<BlueprintDetail>(`/blueprints/${id}/resync`, {
+        method: 'POST',
+        body: JSON.stringify({ sheets, name }),
+      });
+    },
     remove(id: string) {
       return request<{ deleted: boolean }>(`/blueprints/${id}`, { method: 'DELETE' });
+    },
+  },
+
+  migrations: {
+    plan(blueprintId: string) {
+      return request<MigrationRun>(`/blueprints/${blueprintId}/migrations/plan`, {
+        method: 'POST',
+      });
+    },
+    list(blueprintId: string) {
+      return request<MigrationRun[]>(`/blueprints/${blueprintId}/migrations`);
+    },
+    get(runId: string) {
+      return request<MigrationRun>(`/migrations/${runId}`);
+    },
+    apply(runId: string, force = false) {
+      return request<MigrationRun>(`/migrations/${runId}/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ force }),
+      });
     },
   },
 

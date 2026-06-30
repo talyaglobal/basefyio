@@ -189,7 +189,10 @@ export class BlueprintService {
       }
       await this.prisma.blueprint.update({
         where: { id: blueprint.id },
-        data: { status: 'GENERATED' },
+        data: {
+          status: 'GENERATED',
+          generatedDataModel: dataModel as unknown as Prisma.InputJsonValue,
+        },
       });
       return {
         status: 'GENERATED',
@@ -205,6 +208,40 @@ export class BlueprintService {
       });
       throw e;
     }
+  }
+
+  /**
+   * Re-analyze new sheets into an existing blueprint, updating its data model
+   * (so a schema migration can be planned against the generated snapshot).
+   */
+  async resync(
+    id: string,
+    input: { sheets: AnalyzeBlueprintInput['sheets']; name?: string },
+    userId?: string,
+  ) {
+    const blueprint = await this.get(id, userId);
+    if (!Array.isArray(input?.sheets) || input.sheets.length === 0) {
+      throw new BadRequestException('at least one sheet is required');
+    }
+    const dataModel = buildDataModel({ teamId: blueprint.teamId, sheets: input.sheets });
+    if (dataModel.tables.length === 0) {
+      throw new BadRequestException('no usable tables found in the provided sheets');
+    }
+    const domain = detectDomain(dataModel);
+    const businessModel = buildBusinessModel(dataModel, domain);
+    const applicationModel = buildApplicationModel(dataModel, domain, input.name || blueprint.name);
+
+    return this.prisma.blueprint.update({
+      where: { id: blueprint.id },
+      data: {
+        domain,
+        dataModel: dataModel as unknown as Prisma.InputJsonValue,
+        businessModel: businessModel as unknown as Prisma.InputJsonValue,
+        applicationModel: applicationModel as unknown as Prisma.InputJsonValue,
+        // Keep it actionable: if already generated, it stays migratable.
+        status: blueprint.generatedDataModel ? 'APPROVED' : 'DRAFT',
+      },
+    });
   }
 
   async remove(id: string, userId?: string) {

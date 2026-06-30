@@ -1120,3 +1120,40 @@ export interface BlueprintGenerateResult {
   skipped: number;
   tables: Array<{ table: string; created: boolean; reason?: string }>;
 }
+
+// ── Schema migrations ────────────────────────────────────────────────────────
+export type MigrationChangeKind =
+  | 'create_table'
+  | 'drop_table'
+  | 'add_column'
+  | 'drop_column'
+  | 'alter_column_type';
+
+export type MigrationSafety = 'safe' | 'review' | 'destructive';
+
+export interface MigrationChange {
+  kind: MigrationChangeKind;
+  table: string;
+  column?: string;
+  detail: string;
+  safety: MigrationSafety;
+}
+
+export interface MigrationPlan {
+  changes: MigrationChange[];
+  statements: string[];
+  newTables: unknown[];
+  hasDestructive: boolean;
+}
+
+export interface MigrationRun {
+  id: string;
+  blueprintId: string;
+  projectId: string;
+  status: 'PENDING' | 'APPLIED' | 'FAILED';
+  plan: MigrationPlan;
+  appliedCount: number;
+  error?: string | null;
+  createdAt: string;
+  appliedAt?: string | null;
+}

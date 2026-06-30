@@ -55,6 +55,15 @@ export class BlueprintController {
     return this.blueprint.generate(id, body?.projectId, user?.sub);
   }
 
+  @Post(':id/resync')
+  resync(
+    @Param('id') id: string,
+    @Body() body: { sheets: AnalyzeBlueprintInput['sheets']; name?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.resync(id, body, user?.sub);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.blueprint.remove(id, user?.sub);
