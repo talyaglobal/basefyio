@@ -22,6 +22,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
+import { ManagementModule } from './modules/management/management.module';
 import { HealthController } from './modules/health/health.controller';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
@@ -68,6 +69,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     StripeModule,
     BillingModule,
     QuickbooksModule,
+    ManagementModule,
     InfrastructureModule,
     ObservabilityModule,
     RealtimeModule,

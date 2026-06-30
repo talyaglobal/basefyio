@@ -1519,3 +1519,22 @@ model QuickbooksSyncLog {
   @@index([createdAt])
   @@map("quickbooks_sync_log")
 }
+
+/// Root-only internal checklists (Gamification roadmap, Go-To-Market plan).
+/// Content lives only in the DB (never in the public repo) and is rendered by
+/// the ROOT-only Management tabs.
+model ManagementChecklistItem {
+  id        String   @id @default(uuid())
+  board     String
+  section   String   @default("General")
+  position  Int      @default(0)
+  title     String
+  detail    String?
+  status    String   @default("todo")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([board, position])
+  @@map("management_checklist_item")
+}
