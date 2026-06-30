@@ -1,4 +1,4 @@
-import { getAccessToken, getRefreshToken, setTokens } from './auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type {
   AuthTokens,
   ColumnInfo,
@@ -171,17 +171,20 @@ async function request<T>(
           });
           if (retry.ok) return parseOkJsonBody<T>(retry);
         }
-        // Refresh endpoint reached but rejected the credentials.
-        //
-        // By design we DO NOT auto-logout here. The user explicitly asked
-        // to stay logged in until they manually press Logout. Surface a
-        // typed error so callers can decide whether to show a banner or
-        // re-prompt, but keep both tokens in localStorage so the user can
-        // refresh the page and try the request again. If their refresh
-        // token really is invalid, they'll see auth errors on subsequent
-        // requests too — that's their cue to log out manually.
+        // Refresh endpoint reached but rejected the credentials (400/401) — the
+        // refresh token is genuinely invalid (e.g. the Keycloak SSO session was
+        // dropped). Per product rule, force a clean re-login: clear tokens and
+        // redirect to /login instead of leaving the user stuck on an error
+        // screen. (Transient 5xx/network failures below do NOT log out.)
         if (refreshRes.status === 400 || refreshRes.status === 401) {
-          throw new Error('Session refresh rejected. Please log out and back in if errors persist.');
+          clearTokens();
+          if (
+            typeof window !== 'undefined' &&
+            !window.location.pathname.startsWith('/login')
+          ) {
+            window.location.assign('/login');
+          }
+          throw new Error('Session expired');
         }
         // Transient server-side refresh failures should not force logout.
         throw new Error('Session refresh temporarily unavailable. Please retry.');
