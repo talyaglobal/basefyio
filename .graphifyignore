@@ -1,7 +1,0 @@
-node_modules/
-dist/
-.next/
-coverage/
-build/
-.graphify-cache/
-*.generated.*

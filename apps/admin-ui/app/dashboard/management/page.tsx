@@ -48,7 +48,6 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
 import { QuickbooksTab } from '@/components/quickbooks-tab';
-import { ManagementChecklist } from '@/components/management-checklist';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
@@ -189,8 +188,6 @@ export default function ManagementPage() {
     | 'analytics'
     | 'stripe'
     | 'quickbooks'
-    | 'gamification'
-    | 'goToMarket'
     | 'emailReports'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
@@ -288,8 +285,6 @@ export default function ManagementPage() {
       | 'analytics'
       | 'stripe'
       | 'quickbooks'
-      | 'gamification'
-      | 'goToMarket'
       | 'emailReports',
     force = false,
   ) {
@@ -752,32 +747,6 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('quickbooks')}
         >
           QuickBooks
-        </button>
-        )}
-        {isRoot && (
-        <button
-          type="button"
-          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-            activeTab === 'gamification'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('gamification')}
-        >
-          Gamification
-        </button>
-        )}
-        {isRoot && (
-        <button
-          type="button"
-          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-            activeTab === 'goToMarket'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('goToMarket')}
-        >
-          Go-To-Market
         </button>
         )}
         {(managementPermissions?.canManagePlans || isRoot) && (
@@ -1281,22 +1250,6 @@ export default function ManagementPage() {
             );
           })() : null}
         </section>
-      )}
-
-      {activeTab === 'gamification' && isRoot && (
-        <ManagementChecklist
-          board="gamification"
-          title="Gamification"
-          description="Internal roadmap for points, levels, streaks, badges, leaderboards and referral rewards. Root-only."
-        />
-      )}
-
-      {activeTab === 'goToMarket' && isRoot && (
-        <ManagementChecklist
-          board="gtm"
-          title="Go-To-Market"
-          description="Our GTM playbook and execution tracker — strategies and the first-90-days focus. Root-only."
-        />
       )}
 
       {activeTab === 'quickbooks' && isRoot && (

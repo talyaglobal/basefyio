@@ -49,3 +49,4 @@ graphify-out/
 /md/
 .claude/
 /CLAUDE.md
+/.graphifyignore

@@ -14,6 +14,8 @@ import {
   CreditCard,
   LayoutDashboard,
   MessageSquareText,
+  Rocket,
+  Trophy,
   UserCircle,
   Users,
 } from 'lucide-react';
@@ -79,12 +81,26 @@ const ALL_NAV_ITEMS: NavItem[] = [
   },
 ];
 
-const ROOT_NAV_ITEM: NavItem = {
-  href: '/dashboard/management',
-  label: 'Management',
-  icon: ShieldCheck,
-  isActive: (p) => p.startsWith('/dashboard/management'),
-};
+const ROOT_NAV_ITEMS: NavItem[] = [
+  {
+    href: '/dashboard/management',
+    label: 'Management',
+    icon: ShieldCheck,
+    isActive: (p) => p === '/dashboard/management',
+  },
+  {
+    href: '/dashboard/management/gamification',
+    label: 'Gamification',
+    icon: Trophy,
+    isActive: (p) => p.startsWith('/dashboard/management/gamification'),
+  },
+  {
+    href: '/dashboard/management/go-to-market',
+    label: 'Go-To-Market',
+    icon: Rocket,
+    isActive: (p) => p.startsWith('/dashboard/management/go-to-market'),
+  },
+];
 
 export function DashboardSidebar({
   activeTeamId,
@@ -160,7 +176,7 @@ export function DashboardSidebar({
 
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
-  const items = isRoot ? [...ALL_NAV_ITEMS, ROOT_NAV_ITEM] : ALL_NAV_ITEMS;
+  const items = isRoot ? [...ALL_NAV_ITEMS, ...ROOT_NAV_ITEMS] : ALL_NAV_ITEMS;
 
   async function switchTeam(teamId: string) {
     try {

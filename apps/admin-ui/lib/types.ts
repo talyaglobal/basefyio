@@ -989,21 +989,3 @@ export interface DataImportJobStatus {
   failedReason?: string;
 }
 
-export interface ChecklistItem {
-  id: string;
-  board: string;
-  section: string;
-  position: number;
-  title: string;
-  detail: string | null;
-  status: 'todo' | 'in_progress' | 'done';
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ChecklistBoardData {
-  board: string;
-  items: ChecklistItem[];
-  summary: { total: number; done: number; inProgress: number; todo: number; progressPct: number };
-}

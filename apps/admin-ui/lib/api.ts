@@ -53,8 +53,6 @@ import type {
   ManagementUser,
   ManagementUsersPageResponse,
   ManagementPlan,
-  ChecklistItem,
-  ChecklistBoardData,
   ManagementUserPackage,
   ManagementSearchConsoleSummary,
   ManagementAnalyticsTrafficSummary,
@@ -1998,29 +1996,10 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ teamId, email, code }) },
       );
     },
-    managementChecklist(board: string) {
-      return request<ChecklistBoardData>(`/admin/management/checklist/${board}`);
-    },
-    addManagementChecklistItem(board: string, data: { section?: string; title: string; detail?: string }) {
-      return request<ChecklistItem>(`/admin/management/checklist/${board}`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    },
-    updateManagementChecklistItem(
-      board: string,
-      id: string,
-      data: { status?: string; notes?: string; title?: string; detail?: string; section?: string },
-    ) {
-      return request<ChecklistItem>(`/admin/management/checklist/${board}/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
-    },
-    deleteManagementChecklistItem(board: string, id: string) {
-      return request<{ message: string }>(`/admin/management/checklist/${board}/${id}`, {
-        method: 'DELETE',
-      });
+    managementDoc(slug: string) {
+      return request<{ slug: string; title: string; content: string; updatedAt: string | null }>(
+        `/admin/management/doc/${slug}`,
+      );
     },
     managementPlans() {
       return request<ManagementPlan[]>('/billing/management/plans');
