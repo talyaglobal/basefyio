@@ -6,13 +6,32 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CollectionService } from '../projects/collection.service';
+import { InferredType } from '../data-import/lib/type-inferrer';
 import {
   buildApplicationModel,
   buildBusinessModel,
   buildDataModel,
   detectDomain,
 } from './blueprint-builder';
-import { AnalyzeBlueprintInput, ApplicationModel } from './blueprint.types';
+import {
+  AnalyzeBlueprintInput,
+  ApplicationModel,
+  DataModel,
+} from './blueprint.types';
+
+/** Map inferred logical types to Postgres column types. */
+const PG_TYPE: Record<InferredType, string> = {
+  boolean: 'BOOLEAN',
+  integer: 'INTEGER',
+  bigint: 'BIGINT',
+  numeric: 'NUMERIC',
+  uuid: 'UUID',
+  date: 'DATE',
+  timestamptz: 'TIMESTAMPTZ',
+  jsonb: 'JSONB',
+  text: 'TEXT',
+};
 
 /**
  * Excel/CSV → application blueprint. This slice covers the analyze → draft →
@@ -22,7 +41,10 @@ import { AnalyzeBlueprintInput, ApplicationModel } from './blueprint.types';
  */
 @Injectable()
 export class BlueprintService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly collections: CollectionService,
+  ) {}
 
   private async assertTeam(teamId: string, userId?: string): Promise<void> {
     if (!userId) throw new ForbiddenException('Authentication required');
@@ -123,6 +145,66 @@ export class BlueprintService {
       }),
     ]);
     return updated;
+  }
+
+  /**
+   * Generate real relational tables in the target project's database from the
+   * approved data model. Idempotent per table (skips ones that already exist).
+   * The created tables appear in the project's existing Data/Tables views.
+   */
+  async generate(id: string, projectId: string | undefined, userId?: string) {
+    const blueprint = await this.get(id, userId);
+    const targetProjectId = projectId || blueprint.projectId || undefined;
+    if (!targetProjectId) {
+      throw new BadRequestException('A target projectId is required to generate');
+    }
+    if (blueprint.status !== 'APPROVED' && blueprint.status !== 'GENERATED') {
+      throw new BadRequestException('Blueprint must be approved before generation');
+    }
+    const dataModel = blueprint.dataModel as unknown as DataModel;
+    if (!dataModel?.tables?.length) {
+      throw new BadRequestException('Blueprint has no tables to generate');
+    }
+
+    await this.prisma.blueprint.update({
+      where: { id: blueprint.id },
+      data: { status: 'GENERATING', projectId: targetProjectId },
+    });
+
+    const results: Array<{ table: string; created: boolean; reason?: string }> = [];
+    try {
+      for (const table of dataModel.tables) {
+        const columns = table.columns.map((c) => ({
+          name: c.name,
+          type: PG_TYPE[c.type] ?? 'TEXT',
+          nullable: c.nullable,
+        }));
+        const res = await this.collections.createRelationalTable(
+          targetProjectId,
+          table.name,
+          columns,
+          userId,
+        );
+        results.push({ table: table.name, ...res });
+      }
+      await this.prisma.blueprint.update({
+        where: { id: blueprint.id },
+        data: { status: 'GENERATED' },
+      });
+      return {
+        status: 'GENERATED',
+        projectId: targetProjectId,
+        tables: results,
+        created: results.filter((r) => r.created).length,
+        skipped: results.filter((r) => !r.created).length,
+      };
+    } catch (e) {
+      await this.prisma.blueprint.update({
+        where: { id: blueprint.id },
+        data: { status: 'FAILED' },
+      });
+      throw e;
+    }
   }
 
   async remove(id: string, userId?: string) {

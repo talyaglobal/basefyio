@@ -46,6 +46,15 @@ export class BlueprintController {
     return this.blueprint.approve(id, body?.applicationModel, user?.sub);
   }
 
+  @Post(':id/generate')
+  generate(
+    @Param('id') id: string,
+    @Body() body: { projectId?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.generate(id, body?.projectId, user?.sub);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.blueprint.remove(id, user?.sub);

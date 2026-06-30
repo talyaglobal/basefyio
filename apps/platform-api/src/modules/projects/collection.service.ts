@@ -155,6 +155,54 @@ export class CollectionService {
     }
   }
 
+  /**
+   * Create a relational table in the project's `public` schema from a typed
+   * column spec (used by Blueprint generation). Mirrors createCollection's
+   * grants + RLS. Returns {created:false} if the table already exists.
+   */
+  async createRelationalTable(
+    projectId: string,
+    tableName: string,
+    columns: Array<{ name: string; type: string; nullable: boolean }>,
+    userId?: string,
+  ): Promise<{ created: boolean; reason?: string }> {
+    this.validateCollectionName(tableName);
+    for (const c of columns) this.validateCollectionName(c.name);
+
+    const { pool } = await this.getProjectPool(projectId, userId);
+    const client = await pool.connect();
+    try {
+      const qualified = `"public"."${tableName}"`;
+      const colDefs = columns
+        .map((c) => `"${c.name}" ${c.type}${c.nullable ? '' : ' NOT NULL'}`)
+        .join(',\n          ');
+      await client.query(`
+        CREATE TABLE ${qualified} (
+          id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+          ${colDefs ? colDefs + ',' : ''}
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `);
+      await client.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON ${qualified} TO anon, authenticated, service_role`,
+      );
+      await client.query(`ALTER TABLE ${qualified} ENABLE ROW LEVEL SECURITY`);
+      await client.query(
+        `CREATE POLICY "service_role_all" ON ${qualified} FOR ALL TO service_role USING (true) WITH CHECK (true)`,
+      );
+      return { created: true };
+    } catch (err: any) {
+      if (err.code === '42P07') return { created: false, reason: 'exists' };
+      throw new BadRequestException(
+        `Failed to create table "${tableName}": ${err.message}`,
+      );
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
   async dropCollection(
     projectId: string,
     collectionName: string,

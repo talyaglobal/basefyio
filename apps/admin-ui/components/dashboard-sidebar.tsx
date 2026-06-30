@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Rocket,
+  Sparkles,
   Trophy,
   UserCircle,
   Users,
@@ -72,6 +73,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
     icon: UserCircle,
     isActive: (p) =>
       p.startsWith('/dashboard/profile') || p.startsWith('/dashboard/account'),
+  },
+  {
+    href: '/dashboard/blueprints',
+    label: 'App Builder',
+    icon: Sparkles,
+    isActive: (p) => p.startsWith('/dashboard/blueprints'),
   },
   {
     href: '/dashboard/feedbacks',

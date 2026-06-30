@@ -67,6 +67,11 @@ import type {
   Flow,
   FlowInput,
   FlowRun,
+  AnalyzeBlueprintInput,
+  ApplicationModel,
+  BlueprintSummary,
+  BlueprintDetail,
+  BlueprintGenerateResult,
 } from './types';
 
 /** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
@@ -1444,6 +1449,36 @@ export const api = {
     },
     runs(projectId: string, id: string) {
       return request<FlowRun[]>(`/projects/${projectId}/flows/${id}/runs`);
+    },
+  },
+
+  blueprints: {
+    analyze(input: AnalyzeBlueprintInput) {
+      return request<BlueprintDetail>(`/blueprints/analyze`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+    },
+    list(teamId: string) {
+      return request<BlueprintSummary[]>(`/blueprints?teamId=${encodeURIComponent(teamId)}`);
+    },
+    get(id: string) {
+      return request<BlueprintDetail>(`/blueprints/${id}`);
+    },
+    approve(id: string, applicationModel: ApplicationModel) {
+      return request<BlueprintDetail>(`/blueprints/${id}/approve`, {
+        method: 'PATCH',
+        body: JSON.stringify({ applicationModel }),
+      });
+    },
+    generate(id: string, projectId?: string) {
+      return request<BlueprintGenerateResult>(`/blueprints/${id}/generate`, {
+        method: 'POST',
+        body: JSON.stringify({ projectId }),
+      });
+    },
+    remove(id: string) {
+      return request<{ deleted: boolean }>(`/blueprints/${id}`, { method: 'DELETE' });
     },
   },
 

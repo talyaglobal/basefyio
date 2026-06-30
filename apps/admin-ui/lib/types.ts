@@ -1040,3 +1040,83 @@ export interface FlowRun {
   finishedAt?: string | null;
   createdAt: string;
 }
+
+// ── Blueprint (Excel → App) ──────────────────────────────────────────────────
+export interface BlueprintSheet {
+  name: string;
+  headers: string[];
+  rows: unknown[][];
+}
+
+export interface AnalyzeBlueprintInput {
+  teamId: string;
+  name?: string;
+  projectId?: string;
+  sheets: BlueprintSheet[];
+  excludeSheets?: string[];
+}
+
+export interface InferredColumn {
+  name: string;
+  originalName: string;
+  type: string;
+  nullable: boolean;
+  sampleValues: string[];
+}
+
+export interface DataModelTable {
+  name: string;
+  label: string;
+  columns: InferredColumn[];
+}
+
+export interface DataModel {
+  tables: DataModelTable[];
+}
+
+export interface AppRole {
+  name: string;
+  permissions: Record<string, string[]>;
+}
+
+export interface ApplicationModel {
+  name: string;
+  roles: AppRole[];
+  navigation: Array<{ label: string; table: string }>;
+  tables: string[];
+}
+
+export type BlueprintStatus = 'DRAFT' | 'APPROVED' | 'GENERATING' | 'GENERATED' | 'FAILED';
+
+export interface BlueprintSummary {
+  id: string;
+  name: string;
+  status: BlueprintStatus;
+  domain: string | null;
+  projectId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApplicationVersion {
+  id: string;
+  version: number;
+  changeSummary: string | null;
+  createdAt: string;
+}
+
+export interface BlueprintDetail extends BlueprintSummary {
+  teamId: string;
+  dataModel: DataModel;
+  businessModel: { domain: string; actors: string[]; objects: string[]; kpis: string[] } | null;
+  applicationModel: ApplicationModel | null;
+  versions?: ApplicationVersion[];
+}
+
+export interface BlueprintGenerateResult {
+  status: string;
+  projectId: string;
+  created: number;
+  skipped: number;
+  tables: Array<{ table: string; created: boolean; reason?: string }>;
+}
