@@ -61,7 +61,7 @@ describe('createClient', () => {
     expect(result.rowCount).toBe(1);
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/sql/execute');
+    expect(url).toBe('http://localhost:4000/api/sql/execute');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toMatchObject({ projectId: 'proj-uuid', query: 'SELECT 1 AS n' });
   });
@@ -116,7 +116,7 @@ describe('createClient', () => {
     expect(buckets[0].name).toBe('uploads');
 
     const [url] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/projects/proj-uuid/storage/buckets');
+    expect(url).toBe('http://localhost:4000/api/projects/proj-uuid/storage/buckets');
   });
 
   it('storage.createBucket() posts to /projects/:id/storage/buckets', async () => {
@@ -132,7 +132,7 @@ describe('createClient', () => {
     expect(bucket.name).toBe('images');
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/projects/proj-uuid/storage/buckets');
+    expect(url).toBe('http://localhost:4000/api/projects/proj-uuid/storage/buckets');
     expect(init.method).toBe('POST');
   });
 
@@ -189,7 +189,7 @@ describe('createPlatformClient', () => {
     expect(platform.getToken()).toBe('tok123');
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/auth/login');
+    expect(url).toBe('http://localhost:4000/api/auth/login');
     expect(JSON.parse(init.body as string)).toMatchObject({ email: 'u@example.com', password: 'pass' });
   });
 
@@ -218,7 +218,7 @@ describe('createPlatformClient', () => {
     expect(projects[0].name).toBe('demo');
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
-    expect(url).toBe('http://localhost:4000/projects');
+    expect(url).toBe('http://localhost:4000/api/projects');
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer jwt-token');
   });
 
@@ -234,7 +234,7 @@ describe('createPlatformClient', () => {
     expect(project.id).toBe('new-id');
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/projects');
+    expect(url).toBe('http://localhost:4000/api/projects');
     expect(init.method).toBe('POST');
   });
 
@@ -249,7 +249,7 @@ describe('createPlatformClient', () => {
     await platform.projects.delete('proj-id');
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:4000/projects/proj-id');
+    expect(url).toBe('http://localhost:4000/api/projects/proj-id');
     expect(init.method).toBe('DELETE');
   });
 

@@ -12,10 +12,24 @@ export class HttpClient {
   private token: string | null = null;
   private apiKey: string | null = null;
 
+  // The platform API mounts every route under the `api` global prefix except
+  // the unauthenticated liveness probe — mirroring the server's
+  // `setGlobalPrefix('api', { exclude: ['health'] })`. Callers pass clean paths
+  // (`/projects`, `/health`); the prefix is applied centrally in resolvePath().
+  private static readonly API_PREFIX = '/api';
+  private static readonly UNPREFIXED = ['/health'];
+
   constructor(
     readonly baseUrl: string,
     private readonly fetchFn: FetchFn,
   ) {}
+
+  private resolvePath(path: string): string {
+    const unprefixed = HttpClient.UNPREFIXED.some(
+      (p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`),
+    );
+    return unprefixed ? path : `${HttpClient.API_PREFIX}${path}`;
+  }
 
   setToken(token: string | null): void {
     this.token = token;
@@ -50,7 +64,7 @@ export class HttpClient {
 
     let response: Response;
     try {
-      response = await this.fetchFn(`${this.baseUrl}${path}`, init as RequestInit);
+      response = await this.fetchFn(`${this.baseUrl}${this.resolvePath(path)}`, init as RequestInit);
     } catch (err) {
       throw new NetworkError(`Network error on ${method} ${path}: ${(err as Error).message}`, err);
     }
