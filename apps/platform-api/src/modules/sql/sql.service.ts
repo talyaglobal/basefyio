@@ -3,8 +3,10 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { Pool, QueryResult } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -38,11 +40,78 @@ const FORBIDDEN_PATTERNS = [
   'DROP USER',
   'CREATE TABLESPACE',
   'ALTER SYSTEM',
+  // Server-side file/program/foreign-data access (defense in depth — the
+  // project DB user is non-privileged and each project has its own database,
+  // but block these explicitly anyway).
+  'PG_READ_SERVER_FILES',
+  'PG_WRITE_SERVER_FILES',
+  'PG_EXECUTE_SERVER_PROGRAM',
+  'DBLINK',
+  'CREATE FOREIGN',
+  'CREATE SERVER',
+  'CREATE PUBLICATION',
+  'CREATE SUBSCRIPTION',
 ];
 
 @Injectable()
-export class SqlService {
+export class SqlService implements OnModuleDestroy {
   private readonly logger = new Logger(SqlService.name);
+
+  /**
+   * One connection pool per project, reused across queries (previously a new
+   * Pool was opened and closed on every execute — which defeated pooling and
+   * risked connection exhaustion under load). Keyed by projectId; if the
+   * project's connection params change (e.g. password reset), the stale pool is
+   * closed and replaced.
+   */
+  private readonly pools = new Map<string, { pool: Pool; hash: string }>();
+
+  private getPool(project: {
+    id: string;
+    dbHost: string;
+    dbPort: number;
+    dbUser: string;
+    dbPassword: string;
+    dbName: string;
+  }): Pool {
+    const hash = createHash('sha1')
+      .update(
+        `${project.dbHost}:${project.dbPort}:${project.dbUser}:${project.dbPassword}:${project.dbName}`,
+      )
+      .digest('hex');
+    const existing = this.pools.get(project.id);
+    if (existing && existing.hash === hash) return existing.pool;
+    if (existing) {
+      // Connection params changed — drop the stale pool.
+      existing.pool.end().catch(() => undefined);
+      this.pools.delete(project.id);
+    }
+    const pool = new Pool({
+      host: project.dbHost,
+      port: project.dbPort,
+      user: project.dbUser,
+      password: project.dbPassword,
+      database: project.dbName,
+      statement_timeout: 30_000,
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      allowExitOnIdle: true,
+    });
+    pool.on('error', (e) => {
+      this.logger.warn(`Project DB pool error (${project.id}): ${e.message}`);
+      this.pools.delete(project.id);
+      pool.end().catch(() => undefined);
+    });
+    this.pools.set(project.id, { pool, hash });
+    return pool;
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.all(
+      [...this.pools.values()].map(({ pool }) => pool.end().catch(() => undefined)),
+    );
+    this.pools.clear();
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -97,14 +166,7 @@ export class SqlService {
       runQuery = query;
     }
 
-    const pool = new Pool({
-      host: project.dbHost,
-      port: project.dbPort,
-      user: project.dbUser,
-      password: project.dbPassword,
-      database: project.dbName,
-      statement_timeout: 30_000,
-    });
+    const pool = this.getPool(project);
 
     const startTime = Date.now();
     const client = await pool.connect();
@@ -232,8 +294,8 @@ export class SqlService {
 
       throw new BadRequestException(`SQL error: ${err.message}`);
     } finally {
+      // Return the connection to the cached pool; do NOT end the pool.
       client.release();
-      await pool.end();
     }
   }
 
