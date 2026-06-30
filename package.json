@@ -1,0 +1,26 @@
+{
+  "name": "basefyio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The open-source, self-hosted backend platform. PostgreSQL-first.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/myfyio/basefyio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/myfyio/basefyio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/myfyio/basefyio/issues"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

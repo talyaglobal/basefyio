@@ -1,0 +1,289 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
+import { Transporter } from 'nodemailer';
+import { welcomeTemplate } from './templates/welcome.template';
+import { signInTemplate } from './templates/signin.template';
+import { inviteTemplate } from './templates/invite.template';
+import { feedbackTemplate } from './templates/feedback.template';
+import { passwordResetTemplate } from './templates/password-reset.template';
+import { forgotPasswordTemplate } from './templates/forgot-password.template';
+import { projectVerifyEmailTemplate } from './templates/project-verify-email.template';
+import { projectResetPasswordTemplate } from './templates/project-reset-password.template';
+import { projectWelcomeTemplate } from './templates/project-welcome.template';
+import { projectInviteUserTemplate } from './templates/project-invite-user.template';
+import { projectMagicLinkTemplate } from './templates/project-magic-link.template';
+import { projectChangeEmailTemplate } from './templates/project-change-email.template';
+import { projectReauthTemplate } from './templates/project-reauth.template';
+import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
+
+@Injectable()
+export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
+  private transporter: Transporter | null = null;
+  private readonly fromEmail: string;
+  private readonly replyTo: string;
+  private readonly appUrl: string;
+
+  constructor(private readonly config: ConfigService) {
+    const smtpHost = this.config.get<string>('smtp.host');
+    this.fromEmail = this.config.get<string>('smtp.fromEmail') || 'basefyio <noreply@example.com>';
+    this.replyTo = this.config.get<string>('smtp.replyTo') || '';
+    this.appUrl = this.config.get<string>('appUrl')!;
+
+    if (smtpHost) {
+      this.transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: this.config.get<number>('smtp.port') || 587,
+        secure: this.config.get<boolean>('smtp.secure') || false,
+        auth: {
+          user: this.config.get<string>('smtp.user') || '',
+          pass: this.config.get<string>('smtp.pass') || '',
+        },
+      });
+    } else {
+      this.logger.warn('SMTP_HOST is not set — emails will not be sent');
+    }
+  }
+
+  async sendSignupVerifyEmail(to: string, otp: string, firstName?: string) {
+    const html = signupVerifyEmailTemplate({ email: to, otp, firstName });
+    return this.send({ to, subject: 'Verify your email to join basefyio', html });
+  }
+
+  async sendStudentVerifyEmail(to: string, otp: string) {
+    const html = signupVerifyEmailTemplate({ email: to, otp });
+    return this.send({
+      to,
+      subject: 'Your basefyio student verification code',
+      html,
+    });
+  }
+
+  async sendWelcome(to: string, displayName: string) {
+    const html = welcomeTemplate({
+      displayName,
+      email: to,
+      loginUrl: `${this.appUrl}/login`,
+      dashboardUrl: `${this.appUrl}/dashboard`,
+    });
+
+    return this.send({
+      to,
+      subject: `Welcome to basefyio, ${displayName}! 🚀`,
+      html,
+    });
+  }
+
+  async sendSignInNotification(
+    to: string,
+    displayName: string,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ) {
+    const html = signInTemplate({
+      displayName,
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+      timestamp: new Date().toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }),
+      dashboardUrl: `${this.appUrl}/dashboard`,
+    });
+
+    return this.send({
+      to,
+      subject: 'New sign-in to your basefyio account',
+      html,
+    });
+  }
+
+  async sendTeamInvite(
+    to: string,
+    invitedDisplay: string,
+    inviterDisplay: string,
+    teamName: string,
+    isNewUser = false,
+  ) {
+    const acceptUrl = isNewUser
+      ? `${this.appUrl}/signup?email=${encodeURIComponent(to)}`
+      : `${this.appUrl}/dashboard/team`;
+
+    const html = inviteTemplate({
+      invitedUsername: invitedDisplay,
+      inviterUsername: inviterDisplay,
+      teamName,
+      acceptUrl,
+      dashboardUrl: `${this.appUrl}/dashboard/team`,
+      isNewUser,
+    });
+
+    return this.send({
+      to,
+      subject: `${inviterDisplay} invited you to join ${teamName} on basefyio`,
+      html,
+    });
+  }
+
+  async sendFeedbackNotification(
+    to: string,
+    data: {
+      displayName: string;
+      email: string;
+      url: string;
+      title: string;
+      description?: string;
+      type: string;
+      createdAt: string;
+      attachments?: { url: string; mimeType: string; kind: string }[];
+    },
+  ) {
+    const html = feedbackTemplate(data);
+    return this.send({
+      to,
+      subject: `[Feedback] ${data.title} — by ${data.displayName}`,
+      html,
+    });
+  }
+
+  async sendPasswordResetLink(
+    to: string,
+    displayName: string,
+    resetToken: string,
+    expiresInMinutes: number,
+  ) {
+    const resetUrl = `${this.appUrl}/reset-password?token=${resetToken}`;
+    const html = forgotPasswordTemplate({
+      displayName,
+      resetUrl,
+      expiresInMinutes,
+    });
+
+    return this.send({
+      to,
+      subject: 'Reset your basefyio password',
+      html,
+    });
+  }
+
+  async sendImportedUserCredentials(
+    to: string,
+    username: string,
+    tempPassword: string,
+    projectName: string,
+    resetToken?: string,
+  ) {
+    const setPasswordUrl = resetToken
+      ? `${this.appUrl}/reset-password?token=${resetToken}`
+      : `${this.appUrl}/forgot-password`;
+
+    const html = passwordResetTemplate({
+      username,
+      tempPassword,
+      projectName,
+      loginUrl: `${this.appUrl}/login`,
+      setPasswordUrl,
+    });
+
+    return this.send({
+      to,
+      subject: `Your ${projectName} account has been migrated to basefyio`,
+      html,
+    });
+  }
+
+  async sendProjectVerifyEmail(
+    to: string,
+    projectName: string,
+    otp: string,
+    verifyUrl: string,
+  ) {
+    const html = projectVerifyEmailTemplate({
+      email: to,
+      projectName,
+      otp,
+      verifyUrl,
+    });
+
+    return this.send({
+      to,
+      subject: `[${projectName}] Verify your email`,
+      html,
+    });
+  }
+
+  async sendProjectResetPassword(
+    to: string,
+    projectName: string,
+    otp: string,
+  ) {
+    const html = projectResetPasswordTemplate({
+      email: to,
+      projectName,
+      otp,
+    });
+
+    return this.send({
+      to,
+      subject: `[${projectName}] Reset your password`,
+      html,
+    });
+  }
+
+  async sendProjectWelcome(to: string, projectName: string) {
+    const html = projectWelcomeTemplate({ email: to, projectName });
+    return this.send({ to, subject: `Welcome to ${projectName}!`, html });
+  }
+
+  async sendProjectInviteUser(to: string, projectName: string, inviteUrl: string) {
+    const html = projectInviteUserTemplate({ email: to, projectName, inviteUrl });
+    return this.send({ to, subject: `You've been invited to ${projectName}`, html });
+  }
+
+  async sendProjectMagicLink(to: string, projectName: string, magicLinkUrl: string, otp: string) {
+    const html = projectMagicLinkTemplate({ email: to, projectName, magicLinkUrl, otp });
+    return this.send({ to, subject: `Sign in to ${projectName}`, html });
+  }
+
+  async sendProjectChangeEmail(to: string, newEmail: string, projectName: string, otp: string, confirmUrl: string) {
+    const html = projectChangeEmailTemplate({ email: to, newEmail, projectName, otp, confirmUrl });
+    return this.send({ to, subject: `[${projectName}] Confirm your new email`, html });
+  }
+
+  async sendProjectReauth(to: string, projectName: string, otp: string) {
+    const html = projectReauthTemplate({ email: to, projectName, otp });
+    return this.send({ to, subject: `[${projectName}] Confirm your identity`, html });
+  }
+
+  async sendRawHtml(to: string, subject: string, html: string) {
+    return this.send({ to, subject, html });
+  }
+
+  private async send(params: { to: string; subject: string; html: string }) {
+    if (!this.transporter) {
+      this.logger.warn(`[EMAIL] Skipped (no SMTP config): "${params.subject}" → ${params.to}`);
+      return null;
+    }
+
+    try {
+      this.logger.debug(`[EMAIL] Sending: "${params.subject}" → ${params.to}`);
+
+      const result = await this.transporter.sendMail({
+        from: this.fromEmail,
+        to: params.to,
+        replyTo: this.replyTo || undefined,
+        subject: params.subject,
+        html: params.html,
+      });
+
+      this.logger.log(`[EMAIL] ✓ Sent: "${params.subject}" → ${params.to} (messageId: ${result.messageId})`);
+      return result;
+    } catch (error: any) {
+      this.logger.error(
+        `[EMAIL] ✗ Failed: "${params.subject}" → ${params.to} — ${error.message}`,
+        error.stack,
+      );
+      return null;
+    }
+  }
+}
