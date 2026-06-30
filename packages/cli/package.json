@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Terminal-first project management for basefyio",
   "license": "Apache-2.0",
   "repository": {

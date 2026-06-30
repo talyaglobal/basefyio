@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/marketing",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "basefyio marketing site (Astro) — landing pages and SEO content",
   "license": "Apache-2.0",
