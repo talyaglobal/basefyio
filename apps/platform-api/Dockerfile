@@ -29,6 +29,10 @@ RUN pnpm --filter @basefyio/platform-api... run build
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
+# pnpm's isolated linker resolves platform-api's direct deps (e.g. @nestjs/core)
+# through this per-package symlink tree into the root .pnpm store — without it,
+# `node dist/main.js` throws MODULE_NOT_FOUND despite the store being present.
+COPY --from=build /app/apps/platform-api/node_modules ./apps/platform-api/node_modules
 COPY --from=build /app/apps/platform-api/dist ./apps/platform-api/dist
 COPY --from=build /app/apps/platform-api/package.json ./apps/platform-api/
 # data-engine's compiled output backs the workspace symlink in node_modules.
