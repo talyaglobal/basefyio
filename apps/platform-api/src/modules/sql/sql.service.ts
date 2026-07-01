@@ -14,44 +14,7 @@ import {
   ProjectActivityService,
 } from '../projects/project-activity.service';
 import { EmbeddingService } from '../embedding/embedding.service';
-
-const FORBIDDEN_PATTERNS = [
-  'DROP DATABASE',
-  'DROP ROLE',
-  'CREATE ROLE',
-  'ALTER ROLE',
-  'CREATE DATABASE',
-  'COPY ',
-  'pg_read_file',
-  'pg_write_file',
-  'pg_read_binary_file',
-  'pg_ls_dir',
-  'pg_stat_file',
-  'lo_import',
-  'lo_export',
-  'CREATE EXTENSION',
-  'LOAD ',
-  'SET ROLE',
-  'SET SESSION AUTHORIZATION',
-  'GRANT ',
-  'REVOKE ',
-  'CREATE USER',
-  'ALTER USER',
-  'DROP USER',
-  'CREATE TABLESPACE',
-  'ALTER SYSTEM',
-  // Server-side file/program/foreign-data access (defense in depth — the
-  // project DB user is non-privileged and each project has its own database,
-  // but block these explicitly anyway).
-  'PG_READ_SERVER_FILES',
-  'PG_WRITE_SERVER_FILES',
-  'PG_EXECUTE_SERVER_PROGRAM',
-  'DBLINK',
-  'CREATE FOREIGN',
-  'CREATE SERVER',
-  'CREATE PUBLICATION',
-  'CREATE SUBSCRIPTION',
-];
+import { findForbiddenSqlPattern } from './sql-guard';
 
 @Injectable()
 export class SqlService implements OnModuleDestroy {
@@ -315,20 +278,9 @@ export class SqlService implements OnModuleDestroy {
   }
 
   private validateQuery(query: string) {
-    // Strip comments to prevent pattern bypass via /* DROP DATABASE */
-    const stripped = query
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')  // block comments
-      .replace(/--[^\n]*/g, ' ')            // line comments
-      .replace(/\s+/g, ' ')                 // normalize whitespace
-      .toUpperCase()
-      .trim();
-
-    for (const pattern of FORBIDDEN_PATTERNS) {
-      if (stripped.includes(pattern)) {
-        throw new BadRequestException(
-          `Forbidden SQL operation: ${pattern}`,
-        );
-      }
+    const pattern = findForbiddenSqlPattern(query);
+    if (pattern) {
+      throw new BadRequestException(`Forbidden SQL operation: ${pattern}`);
     }
   }
 }
