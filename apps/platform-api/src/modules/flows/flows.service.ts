@@ -18,6 +18,7 @@ import {
   FlowDefinitionInput,
   FlowStepResult,
 } from './flow.types';
+import { assertSafeUrl } from './flow-url-guard';
 
 const TRIGGER_TYPES = ['manual', 'webhook', 'schedule'];
 const ACTION_TYPES = ['log', 'http.request'];
@@ -57,7 +58,7 @@ export class FlowsService {
       }
       if (a.type === 'http.request') {
         if (!a.url) throw new BadRequestException('http.request action requires a url');
-        this.assertSafeUrl(a.url);
+        assertSafeUrl(a.url);
       }
     }
   }
@@ -202,7 +203,7 @@ export class FlowsService {
     }
     if (action.type === 'http.request') {
       if (!action.url) return { type: 'http.request', ok: false, detail: 'missing url' };
-      this.assertSafeUrl(action.url);
+      assertSafeUrl(action.url);
       try {
         const res = await axios.request({
           method: action.method || 'POST',
@@ -225,31 +226,5 @@ export class FlowsService {
       }
     }
     return { type: action.type, ok: false, detail: 'unknown action type' };
-  }
-
-  /** Blocks obvious SSRF targets (loopback, link-local, RFC1918, non-http). */
-  private assertSafeUrl(url: string): void {
-    let u: URL;
-    try {
-      u = new URL(url);
-    } catch {
-      throw new BadRequestException('invalid url');
-    }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      throw new BadRequestException('only http(s) urls are allowed');
-    }
-    const host = u.hostname.toLowerCase();
-    const blocked =
-      host === 'localhost' ||
-      host === '0.0.0.0' ||
-      host === '::1' ||
-      host.endsWith('.local') ||
-      host.endsWith('.internal') ||
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-    if (blocked) throw new BadRequestException('url host is not allowed');
   }
 }
