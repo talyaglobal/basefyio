@@ -13,6 +13,7 @@ import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
+import { mapPgError } from './pg-error.util';
 
 interface ParsedFilter {
   clause: string;
@@ -327,7 +328,7 @@ export class PublicApiService {
       // RLS policy denial) or any other Postgres error is mapped to a proper
       // HTTP status instead of bubbling up as a generic 500.
       if (!(e?.code === PG_INSUFFICIENT_PRIVILEGE && e.__setRoleFailed)) {
-        throw this.mapPgError(e);
+        throw mapPgError(e);
       }
 
       const lastAttempt = this.autoHealLastAttemptMs.get(projectId) ?? 0;
@@ -384,42 +385,11 @@ export class PublicApiService {
       try {
         return await this.runRlsTransaction(projectId, ctx, fn);
       } catch (retryErr: any) {
-        throw this.mapPgError(retryErr);
+        throw mapPgError(retryErr);
       }
     }
   }
 
-  /**
-   * Translate a raw Postgres / data-layer error into a proper HTTP status.
-   * Already-mapped HttpExceptions (validation errors, etc.) pass through; only
-   * unknown errors become a 500.
-   */
-  private mapPgError(e: any): unknown {
-    if (e instanceof HttpException) return e;
-    switch (e?.code) {
-      case '42501': // insufficient_privilege — RLS policy denied the operation
-        return new ForbiddenException('Permission denied by row-level security policy');
-      case '23505': // unique_violation
-        return new ConflictException(e.detail || 'A record with these values already exists');
-      case '23503': // foreign_key_violation
-        return new ConflictException(e.detail || 'Foreign key constraint violation');
-      case '23502': // not_null_violation
-        return new BadRequestException(e.column ? `Column "${e.column}" cannot be null` : 'Not-null constraint violation');
-      case '23514': // check_violation
-        return new BadRequestException('Check constraint violation');
-      case '22P02': // invalid_text_representation
-      case '22007': // invalid_datetime_format
-        return new BadRequestException('Invalid input value');
-      case '42703': // undefined_column
-        return new BadRequestException('Unknown column in request');
-      case '42P01': // undefined_table
-        return new NotFoundException(
-          'Table not found. Document (NoSQL) projects expose data at /rest/v1/collections/:name',
-        );
-      default:
-        return e; // unknown → NestJS renders a 500
-    }
-  }
 
   /** Inner transaction body — extracted so withRls can retry it after auto-heal. */
   private async runRlsTransaction<T>(
