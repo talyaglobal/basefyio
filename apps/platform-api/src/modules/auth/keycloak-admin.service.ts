@@ -1016,6 +1016,29 @@ export class KeycloakAdminService implements OnModuleInit {
     }
   }
 
+  /**
+   * We sync username to the new email on email change (so email-based signin keeps
+   * working). If the realm has `editUsernameAllowed=false` (Keycloak's default),
+   * that update is rejected with `error-user-attribute-read-only`. Enable it
+   * (idempotent) so the sync succeeds.
+   */
+  private async ensureEditUsername(realmName: string): Promise<void> {
+    try {
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      const url = `${baseUrl}/admin/realms/${realmName}`;
+      const { data: realm } = await axios.get(url, { headers });
+      if (realm?.editUsernameAllowed) return; // already enabled
+      await axios.put(url, { ...realm, editUsernameAllowed: true }, { headers });
+      this.logger.log(`Enabled editUsernameAllowed for realm "${realmName}"`);
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not enable editUsernameAllowed for "${realmName}": ${err?.response?.status ?? err?.message}`,
+      );
+    }
+  }
+
   async updateRealmUser(
     realmName: string,
     userId: string,
@@ -1029,6 +1052,8 @@ export class KeycloakAdminService implements OnModuleInit {
     },
   ) {
     await this.ensureAuth();
+    // Changing email syncs username → needs editUsernameAllowed on the realm.
+    if (data.email !== undefined) await this.ensureEditUsername(realmName);
     const update: Record<string, any> = {};
     if (data.firstName !== undefined) update.firstName = data.firstName;
     if (data.lastName !== undefined) update.lastName = data.lastName;
