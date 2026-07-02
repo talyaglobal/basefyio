@@ -3,6 +3,8 @@ import {
   Logger,
   OnModuleInit,
   InternalServerErrorException,
+  ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import KcAdminClient from '@keycloak/keycloak-admin-client';
@@ -990,6 +992,30 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Password reset for user ${keycloakUserId} in realm "${realm}"`);
   }
 
+  /**
+   * Keycloak 24's declarative User Profile rejects attributes that aren't
+   * declared, unless the realm opts in to unmanaged attributes. Phone is stored
+   * as a custom attribute, so enable `unmanagedAttributePolicy=ADMIN_EDIT`
+   * (idempotent) before writing it — otherwise the user update fails with a 400.
+   */
+  private async ensureUnmanagedAttributes(realmName: string): Promise<void> {
+    try {
+      const baseUrl = this.config.get<string>('keycloak.url');
+      const adminToken = await this.getAdminAccessToken();
+      const headers = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      const url = `${baseUrl}/admin/realms/${realmName}/users/profile`;
+      const { data: profile } = await axios.get(url, { headers });
+      if (profile?.unmanagedAttributePolicy) return; // already enabled
+      await axios.put(url, { ...profile, unmanagedAttributePolicy: 'ADMIN_EDIT' }, { headers });
+      this.logger.log(`Enabled unmanaged attributes (ADMIN_EDIT) for realm "${realmName}"`);
+    } catch (err: any) {
+      // Non-fatal: the update below will surface a clear error if attributes are rejected.
+      this.logger.warn(
+        `Could not ensure unmanaged attributes for "${realmName}": ${err?.response?.status ?? err?.message}`,
+      );
+    }
+  }
+
   async updateRealmUser(
     realmName: string,
     userId: string,
@@ -1012,13 +1038,33 @@ export class KeycloakAdminService implements OnModuleInit {
     if (data.enabled !== undefined) update.enabled = data.enabled;
     // Phone is stored as a user attribute (Keycloak has no native phone field).
     if (data.phoneNumber !== undefined || data.phoneVerified !== undefined) {
+      await this.ensureUnmanagedAttributes(realmName);
       const current = await this.client.users.findOne({ realm: realmName, id: userId });
       const attrs: Record<string, any> = { ...(current?.attributes || {}) };
       if (data.phoneNumber !== undefined) attrs.phoneNumber = data.phoneNumber ? [data.phoneNumber] : [];
       if (data.phoneVerified !== undefined) attrs.phoneVerified = [String(!!data.phoneVerified)];
       update.attributes = attrs;
     }
-    await this.client.users.update({ realm: realmName, id: userId }, update);
+    try {
+      await this.client.users.update({ realm: realmName, id: userId }, update);
+    } catch (err: any) {
+      const status = err?.response?.status ?? err?.responseData?.status ?? err?.status;
+      const body = err?.response?.data;
+      const message =
+        body?.errorMessage || body?.error || err?.message || 'Failed to update user';
+      this.logger.error(
+        `updateRealmUser failed (realm="${realmName}", user=${userId}, status=${status}): ${
+          body ? JSON.stringify(body) : message
+        }`,
+      );
+      if (status === 409) {
+        throw new ConflictException('That email or username is already in use');
+      }
+      if (status === 400) {
+        throw new BadRequestException(message);
+      }
+      throw err;
+    }
     this.logger.log(`User ${userId} updated in realm "${realmName}"`);
   }
 
