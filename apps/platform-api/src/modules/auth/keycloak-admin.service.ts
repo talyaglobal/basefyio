@@ -1030,7 +1030,9 @@ export class KeycloakAdminService implements OnModuleInit {
       const url = `${baseUrl}/admin/realms/${realmName}`;
       const { data: realm } = await axios.get(url, { headers });
       if (realm?.editUsernameAllowed) return; // already enabled
-      await axios.put(url, { ...realm, editUsernameAllowed: true }, { headers });
+      // Partial update only — round-tripping the full realm representation is
+      // rejected by Keycloak (400). Keycloak merges the provided fields.
+      await axios.put(url, { realm: realmName, editUsernameAllowed: true }, { headers });
       this.logger.log(`Enabled editUsernameAllowed for realm "${realmName}"`);
     } catch (err: any) {
       this.logger.warn(
