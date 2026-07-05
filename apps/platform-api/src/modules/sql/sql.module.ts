@@ -8,5 +8,6 @@ import { ProjectActivityModule } from '../projects/project-activity.module';
   imports: [ProjectsModule, ProjectActivityModule],
   controllers: [SqlController],
   providers: [SqlService],
+  exports: [SqlService],
 })
 export class SqlModule {}

@@ -154,4 +154,19 @@ export default () => ({
     maxNestingDepth: parseInt(process.env.DATA_ENGINE_MAX_NESTING_DEPTH || '8', 10),
     maxArrayItems: parseInt(process.env.DATA_ENGINE_MAX_ARRAY_ITEMS || '1000', 10),
   },
+
+  /**
+   * Codefyio IDE marketplace adapter. Inert until configured: the authenticated
+   * routes return 503 unless a Codefyio token verifier (HS256 secret or RS256
+   * JWKS) is set, so shipping this never changes existing behaviour.
+   */
+  codefyio: {
+    origin: process.env.CODEFYIO_ORIGIN || '',
+    audience: process.env.CODEFYIO_AUDIENCE || 'codefyio',
+    jwtSecret: process.env.CODEFYIO_JWT_SECRET || '',
+    jwksUrl: process.env.CODEFYIO_JWKS_URL || '',
+    sessionSecret:
+      process.env.CODEFYIO_SESSION_SECRET || process.env.CODEFYIO_JWT_SECRET || '',
+    sessionTtlSeconds: parseInt(process.env.CODEFYIO_SESSION_TTL || '3600', 10),
+  },
 });

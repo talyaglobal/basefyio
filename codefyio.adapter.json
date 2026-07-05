@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "id": "basefyio",
+  "label": "basefyio",
+  "category": "database",
+  "summary": "Open-source Supabase/Firebase-alternative BaaS — Postgres database, auth, storage and REST/SQL, per project.",
+  "baseUrl": "https://api.basefyio.com",
+  "auth": { "type": "oauth2-token-exchange", "scopes": ["read", "write"] },
+  "capabilities": ["status", "list", "action", "events"],
+  "endpoints": {
+    "health": "/_codefyio/health",
+    "manifest": "/_codefyio/manifest",
+    "exchange": "/_codefyio/auth/exchange",
+    "resources": "/_codefyio/resources",
+    "action": "/_codefyio/action",
+    "events": "/_codefyio/events"
+  },
+  "actions": [
+    { "action": "project.status", "description": "Health/status of a project (resourceId = project id).", "params": {} },
+    { "action": "project.tables", "description": "List the tables/collections in a project.", "params": {} },
+    { "action": "sql.run", "description": "Run a read/query SQL statement against a project.", "params": { "query": "string" } }
+  ],
+  "embed": null
+}

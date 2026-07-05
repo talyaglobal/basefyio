@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
@@ -52,7 +52,11 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  app.setGlobalPrefix('api');
+  // The Codefyio marketplace adapter is served at the root `/_codefyio/*`
+  // (per its spec), so it is excluded from the global `/api` prefix.
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: '_codefyio/(.*)', method: RequestMethod.ALL }],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
