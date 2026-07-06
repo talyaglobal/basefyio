@@ -18,7 +18,9 @@
   "actions": [
     { "action": "project.status", "description": "Health/status of a project (resourceId = project id).", "params": {} },
     { "action": "project.tables", "description": "List the tables/collections in a project.", "params": {} },
-    { "action": "sql.run", "description": "Run a read/query SQL statement against a project.", "params": { "query": "string" } }
+    { "action": "sql.run", "description": "Run a read/query SQL statement against a project.", "params": { "query": "string" } },
+    { "action": "realtime.list", "description": "List a project's realtime bindings.", "params": {} },
+    { "action": "realtime.set", "description": "Enable/disable realtime broadcast for a table or collection.", "params": { "kind": "'table' | 'collection'", "entity": "string", "enabled": "boolean" } }
   ],
   "embed": null
 }

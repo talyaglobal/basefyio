@@ -25,6 +25,16 @@ export const CODEFYIO_ACTIONS = [
     description: 'Run a read/query SQL statement against a project.',
     params: { query: 'string' },
   },
+  {
+    action: 'realtime.list',
+    description: 'List a project\'s realtime bindings (which tables/collections broadcast).',
+    params: {},
+  },
+  {
+    action: 'realtime.set',
+    description: 'Enable/disable realtime broadcast for a table or collection.',
+    params: { kind: "'table' | 'collection'", entity: 'string', enabled: 'boolean' },
+  },
 ] as const;
 
 export const ALLOWED_ACTIONS = new Set<string>(CODEFYIO_ACTIONS.map((a) => a.action));

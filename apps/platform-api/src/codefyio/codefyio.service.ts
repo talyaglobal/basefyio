@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../modules/projects/projects.service';
 import { CollectionService } from '../modules/projects/collection.service';
 import { SqlService } from '../modules/sql/sql.service';
+import { RealtimeDataService } from '../modules/realtime-data/realtime-data.service';
 import { CodefyioJwtService } from './codefyio-jwt.service';
 import { ALLOWED_ACTIONS } from './codefyio.constants';
 import {
@@ -36,6 +37,7 @@ export class CodefyioService {
     private readonly projects: ProjectsService,
     private readonly collections: CollectionService,
     private readonly sql: SqlService,
+    private readonly realtime: RealtimeDataService,
   ) {}
 
   /**
@@ -144,6 +146,28 @@ export class CodefyioService {
           }
           const res = await this.sql.execute(projectId, query, session.userId);
           return { ok: true, result: res };
+        }
+        case 'realtime.list': {
+          // findOne enforces the project belongs to the session's user/team.
+          await this.projects.findOne(projectId, session.userId);
+          return { ok: true, result: await this.realtime.listBindings(projectId) };
+        }
+        case 'realtime.set': {
+          await this.projects.findOne(projectId, session.userId);
+          const p = (req.params ?? {}) as { kind?: unknown; entity?: unknown; enabled?: unknown };
+          if (p.kind !== 'table' && p.kind !== 'collection') {
+            return { ok: false, error: "params.kind must be 'table' or 'collection'" };
+          }
+          if (typeof p.entity !== 'string' || !p.entity.trim()) {
+            return { ok: false, error: 'params.entity (string) is required' };
+          }
+          const result = await this.realtime.setBinding(
+            projectId,
+            p.kind,
+            p.entity,
+            p.enabled === true,
+          );
+          return { ok: true, result };
         }
         default:
           throw new ForbiddenException(`Action not allowed: ${req.action}`);

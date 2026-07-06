@@ -20,6 +20,7 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { RealtimeDataService, RealtimeKind } from './realtime-data.service';
+import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 
 const ENTITY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -120,5 +121,46 @@ export class RealtimeBindingsController {
       throw new BadRequestException('Invalid entity name');
     }
     return this.realtime.setBinding(projectId, body.kind, body.entity, body.enabled === true);
+  }
+}
+
+/**
+ * Programmatic realtime binding management for SDK clients and agents that only
+ * hold a project API key (not a dashboard login). Reading is allowed with any
+ * key; changing bindings requires the **service_role** key. The API key (sent as
+ * the `apikey` header) identifies the project, so no project id is in the path.
+ */
+@Controller('rest/v1/realtime/bindings')
+@UseGuards(ApiKeyGuard)
+export class RealtimeApiController {
+  constructor(private readonly realtime: RealtimeDataService) {}
+
+  private payload(req: Request): ApiKeyPayload {
+    const p = (req as any).apiKeyPayload as ApiKeyPayload | undefined;
+    if (!p) throw new UnauthorizedException('Invalid API key');
+    return p;
+  }
+
+  @Get()
+  async list(@Req() req: Request) {
+    return this.realtime.listBindings(this.payload(req).projectId);
+  }
+
+  @Put()
+  async set(
+    @Body() body: { kind: RealtimeKind; entity: string; enabled: boolean },
+    @Req() req: Request,
+  ) {
+    const p = this.payload(req);
+    if (p.role !== 'service') {
+      throw new ForbiddenException('A service_role API key is required to change realtime bindings');
+    }
+    if (body.kind !== 'table' && body.kind !== 'collection') {
+      throw new BadRequestException('kind must be "table" or "collection"');
+    }
+    if (!body.entity || !ENTITY_RE.test(body.entity)) {
+      throw new BadRequestException('Invalid entity name');
+    }
+    return this.realtime.setBinding(p.projectId, body.kind, body.entity, body.enabled === true);
   }
 }

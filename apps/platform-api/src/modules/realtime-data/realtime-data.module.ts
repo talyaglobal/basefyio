@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { RealtimeDataService } from './realtime-data.service';
 import {
+  RealtimeApiController,
   RealtimeBindingsController,
   RealtimeDataStreamController,
 } from './realtime-data.controller';
@@ -11,7 +12,11 @@ import {
  */
 @Global()
 @Module({
-  controllers: [RealtimeDataStreamController, RealtimeBindingsController],
+  controllers: [
+    RealtimeDataStreamController,
+    RealtimeBindingsController,
+    RealtimeApiController,
+  ],
   providers: [RealtimeDataService],
   exports: [RealtimeDataService],
 })

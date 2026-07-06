@@ -4,6 +4,7 @@
 jest.mock('../modules/projects/projects.service', () => ({ ProjectsService: class {} }));
 jest.mock('../modules/projects/collection.service', () => ({ CollectionService: class {} }));
 jest.mock('../modules/sql/sql.service', () => ({ SqlService: class {} }));
+jest.mock('../modules/realtime-data/realtime-data.service', () => ({ RealtimeDataService: class {} }));
 
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
@@ -38,9 +39,13 @@ function makeService() {
   } as any;
   const collections = { listCollections: jest.fn().mockResolvedValue([{ name: 'users', documentCount: 3 }]) } as any;
   const sql = { execute: jest.fn().mockResolvedValue({ rows: [{ n: 1 }], rowCount: 1 }) } as any;
+  const realtime = {
+    listBindings: jest.fn().mockResolvedValue([{ kind: 'table', entity: 'orders' }]),
+    setBinding: jest.fn().mockResolvedValue({ kind: 'table', entity: 'orders', enabled: true }),
+  } as any;
   const jwtSvc = new CodefyioJwtService(config);
-  const service = new CodefyioService(prisma, jwtSvc, projects, collections, sql);
-  return { service, jwtSvc, prisma, projects, collections, sql };
+  const service = new CodefyioService(prisma, jwtSvc, projects, collections, sql, realtime);
+  return { service, jwtSvc, prisma, projects, collections, sql, realtime };
 }
 
 const SESSION = { userId: 'u1', teamId: 't1', email: 'user@example.com' };
@@ -82,6 +87,28 @@ describe('CodefyioService', () => {
     });
     expect(r.ok).toBe(true);
     expect(sql.execute).toHaveBeenCalledWith('p1', 'select 1', 'u1');
+  });
+
+  it('toggles a realtime binding (realtime.set) after verifying project ownership', async () => {
+    const { service, realtime, projects } = makeService();
+    const r = await service.executeAction(SESSION, {
+      action: 'realtime.set',
+      resourceId: 'p1',
+      params: { kind: 'table', entity: 'orders', enabled: true },
+    });
+    expect(r.ok).toBe(true);
+    expect(projects.findOne).toHaveBeenCalledWith('p1', 'u1');
+    expect(realtime.setBinding).toHaveBeenCalledWith('p1', 'table', 'orders', true);
+  });
+
+  it('validates realtime.set params (bad kind → not ok)', async () => {
+    const { service } = makeService();
+    const r = await service.executeAction(SESSION, {
+      action: 'realtime.set',
+      resourceId: 'p1',
+      params: { kind: 'bogus', entity: 'orders', enabled: true },
+    });
+    expect(r.ok).toBe(false);
   });
 
   it('rejects an action not on the manifest allow-list', async () => {

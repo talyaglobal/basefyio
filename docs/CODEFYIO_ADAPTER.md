@@ -53,6 +53,8 @@ All JSON. CORS/`frame-ancestors` allow only `CODEFYIO_ORIGIN`. Tokens are never 
 | `project.status` | — | project status (`ProjectsService.findOne`) |
 | `project.tables` | — | list tables/collections (`CollectionService.listCollections`) |
 | `sql.run` | `{ query: string }` | run SQL (`SqlService.execute`) |
+| `realtime.list` | — | list realtime bindings |
+| `realtime.set` | `{ kind, entity, enabled }` | enable/disable realtime for a table/collection |
 
 `resourceId` is the project id; every action is scoped to a project owned by the
 session's team (enforced by the underlying services), so tenants stay isolated.
