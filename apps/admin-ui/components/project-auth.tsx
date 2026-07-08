@@ -65,6 +65,8 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
   const [users, setUsers] = useState<RealmUser[]>([]);
   const [config, setConfig] = useState<ProjectAuthConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [repairing, setRepairing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const loadAll = useCallback(async () => {
@@ -78,12 +80,26 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
       setRealm(r);
       setUsers(u);
       setConfig(c);
+      setLoadError(null);
     } catch (err: any) {
-      toast.error(err.message);
+      setLoadError(err?.message || 'Failed to load authentication');
     } finally {
       setLoading(false);
     }
   }, [projectId]);
+
+  const repairRealm = useCallback(async () => {
+    setRepairing(true);
+    try {
+      const res = await api.projects.repairRealm(projectId);
+      toast.success(res.message || 'Authentication repaired');
+      await loadAll();
+    } catch (err: any) {
+      toast.error(err?.message || 'Repair failed');
+    } finally {
+      setRepairing(false);
+    }
+  }, [projectId, loadAll]);
 
   useLiveProjectRefresh(projectId, ['auth.'], loadAll);
 
@@ -95,6 +111,31 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (loadError && !realm) {
+    return (
+      <div className="mx-auto max-w-lg p-6">
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-6 text-center">
+          <ShieldCheck className="mx-auto mb-3 h-8 w-8 text-red-500" />
+          <h2 className="text-base font-semibold">Authentication service unavailable</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This project&apos;s authentication realm could not be loaded — it may be
+            unhealthy and need to be re-provisioned. Re-provisioning creates a fresh
+            realm; your project API keys are unchanged, but existing Keycloak users
+            (SDK sign-in identities) will be reset.
+          </p>
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <Button variant="outline" onClick={() => loadAll()} disabled={repairing}>
+              Retry
+            </Button>
+            <Button onClick={repairRealm} disabled={repairing}>
+              {repairing ? 'Repairing…' : 'Repair authentication'}
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

@@ -582,6 +582,14 @@ export class ProjectsService {
     };
   }
 
+  /** Repoint a project at a freshly-provisioned Keycloak realm (auth repair). */
+  async updateKeycloakRealm(projectId: string, realmName: string): Promise<void> {
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { keycloakRealm: realmName },
+    });
+  }
+
   async findOne(id: string, userId?: string) {
     const project = await this.prisma.project.findFirst({
       where: { id, status: { not: 'DELETED' } },

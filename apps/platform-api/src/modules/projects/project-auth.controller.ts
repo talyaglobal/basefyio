@@ -523,21 +523,38 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const realmName = project.keycloakRealm;
-    const exists = await this.keycloak.realmExists(realmName);
-    if (exists) {
+
+    // Is the current realm actually healthy? A realm can EXIST but be corrupt
+    // (every Keycloak admin op returns 500) — realmExists() alone isn't enough.
+    let healthy = false;
+    try {
+      await this.keycloak.getRealmInfo(realmName);
+      healthy = true;
+    } catch {
+      healthy = false;
+    }
+    if (healthy) {
       return { message: 'Realm is healthy, no repair needed', realm: realmName };
     }
 
-    await this.keycloak.createRealm(realmName);
-    await this.keycloak.createClients(realmName);
+    // Provision a FRESH realm under a new name and repoint the project at it. We
+    // don't try to delete the old realm — a corrupt one can be undeletable via
+    // the API; it's left orphaned and unused. The project's API keys are
+    // unchanged, so the REST/apikey surface keeps working; only Keycloak users
+    // (SDK signup/signin identities) are reset.
+    const base = realmName.replace(/-r[a-z0-9]+$/, '');
+    const newRealm = `${base}-r${Date.now().toString(36)}`;
+    await this.keycloak.createRealm(newRealm);
+    await this.keycloak.createClients(newRealm);
+    await this.projectsService.updateKeycloakRealm(projectId, newRealm);
 
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_CONFIG_UPDATED,
-      title: 'Authentication realm repaired',
-      detail: `Realm "${realmName}" was re-provisioned`,
+      title: 'Authentication realm re-provisioned',
+      detail: `Realm "${realmName}" was unhealthy; project repointed to fresh realm "${newRealm}"`,
     });
 
-    return { message: 'Realm repaired successfully', realm: realmName };
+    return { message: 'Realm re-provisioned', realm: newRealm, previousRealm: realmName };
   }
 }

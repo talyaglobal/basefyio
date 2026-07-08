@@ -1206,6 +1206,12 @@ export const api = {
     realmInfo(projectId: string) {
       return request<RealmInfo>(`/projects/${projectId}/auth`);
     },
+    repairRealm(projectId: string) {
+      return request<{ message: string; realm: string; previousRealm?: string }>(
+        `/projects/${projectId}/auth/repair`,
+        { method: 'POST' },
+      );
+    },
     realmUsers(projectId: string) {
       return request<RealmUser[]>(`/projects/${projectId}/auth/users`);
     },
