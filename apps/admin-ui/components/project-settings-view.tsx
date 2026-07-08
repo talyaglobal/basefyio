@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { Project, ProjectFolder, ProjectTag } from '@/lib/types';
+import type { Project, ProjectFolder, ProjectTag, Team } from '@/lib/types';
 import { useProject } from '@/contexts/project-context';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Check, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, Check, Loader2, Power, Trash2, TriangleAlert } from 'lucide-react';
 
 const settingsFormSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200, 'Name is too long'),
@@ -122,7 +122,8 @@ export function ProjectSettingsView() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Project settings</h1>
           <p className="text-sm text-muted-foreground">
-            Name, description, folder, and tags. Database connection strings stay on the
+            Everything about this project — details, organization, data limits, the team it
+            belongs to, and its lifecycle. Connection strings and API keys stay on the
             Connection page.
           </p>
         </div>
@@ -259,13 +260,186 @@ export function ProjectSettingsView() {
         onSaved={() => { void refreshProject?.(); }}
       />
 
-      <Separator />
+      <TransferTeamCard
+        projectId={project.id}
+        currentTeamId={project.teamId}
+        onMoved={() => { void refreshProject?.(); }}
+      />
 
-      <p className="text-center text-xs text-muted-foreground">
-        To move this project to another team, use <strong>Overview</strong> (danger zone) or
-        team settings.
-      </p>
+      <DangerZone
+        projectId={project.id}
+        projectName={project.name}
+        onDone={() => router.push('/dashboard/projects')}
+      />
     </div>
+  );
+}
+
+function TransferTeamCard({
+  projectId,
+  currentTeamId,
+  onMoved,
+}: {
+  projectId: string;
+  currentTeamId: string;
+  onMoved: () => void;
+}) {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [target, setTarget] = useState('');
+  const [moving, setMoving] = useState(false);
+
+  useEffect(() => {
+    api.teams.list().then(setTeams).catch(() => setTeams([]));
+  }, []);
+
+  const others = teams.filter((t) => t.id !== currentTeamId);
+
+  async function move() {
+    if (!target) return;
+    const dest = teams.find((t) => t.id === target);
+    const ok = await confirmDialog({
+      title: 'Move project to another team',
+      description: `Move this project to "${dest?.name ?? 'the selected team'}"? Team members there will get access; only the current team owner can do this.`,
+      confirmText: 'Move project',
+    });
+    if (!ok) return;
+    setMoving(true);
+    try {
+      await api.projects.moveToTeam(projectId, target);
+      toast.success('Project moved to the new team');
+      setTarget('');
+      onMoved();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to move project');
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border bg-card p-6">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" /> Team
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Move this project to another team you own. Its data, auth and storage move with it.
+        </p>
+      </div>
+      {others.length === 0 ? (
+        <p className="text-sm text-muted-foreground">You have no other team to move this project to.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={target} onValueChange={setTarget} disabled={moving}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="Select a team…" />
+            </SelectTrigger>
+            <SelectContent>
+              {others.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="button" variant="outline" onClick={move} disabled={!target || moving}>
+            {moving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Move
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DangerZone({
+  projectId,
+  projectName,
+  onDone,
+}: {
+  projectId: string;
+  projectName: string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState<null | 'deactivate' | 'delete'>(null);
+
+  async function deactivate() {
+    const ok = await confirmDialog({
+      title: 'Deactivate project',
+      description:
+        'The project is frozen — closed to use, but its data is kept. It frees a slot on your plan so you can create another project. You can reactivate it anytime (a free slot is required). If left deactivated, it is permanently deleted after 14 days.',
+      confirmText: 'Deactivate',
+    });
+    if (!ok) return;
+    setBusy('deactivate');
+    try {
+      await api.projects.deactivate(projectId);
+      toast.success('Project deactivated');
+      onDone();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to deactivate project');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove() {
+    const ok = await confirmDialog({
+      title: 'Move project to trash',
+      description: `Delete "${projectName}"? It stays in trash for 24 hours — the team owner can restore it during that window. After 24 hours it is permanently deleted.`,
+      confirmText: 'Move to trash',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy('delete');
+    try {
+      await api.projects.delete(projectId);
+      toast.success('Project moved to trash');
+      onDone();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete project');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/[0.03] p-6">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+          <TriangleAlert className="h-4 w-4" /> Danger zone
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Freeze this project to free a plan slot, or delete it.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border bg-background p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Deactivate project</p>
+          <p className="text-xs text-muted-foreground">
+            Freeze it and free a plan slot. Reactivate anytime within 14 days.
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={deactivate} disabled={busy !== null} className="shrink-0">
+          {busy === 'deactivate' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Power className="mr-2 h-4 w-4" />}
+          Deactivate
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-destructive/40 bg-background p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Delete project</p>
+          <p className="text-xs text-muted-foreground">
+            Move to trash. Permanently removed after 24 hours.
+          </p>
+        </div>
+        <Button type="button" variant="destructive" onClick={remove} disabled={busy !== null} className="shrink-0">
+          {busy === 'delete' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+          Delete
+        </Button>
+      </div>
+    </section>
   );
 }
 
