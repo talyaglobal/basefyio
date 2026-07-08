@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  BadGatewayException,
   ConflictException,
   Controller,
   Get,
@@ -87,13 +88,32 @@ export class ProjectAuthController {
     private readonly activity: ProjectActivityService,
   ) {}
 
+  /**
+   * Wrap a Keycloak admin call so a broken/unhealthy realm surfaces as a clean
+   * 502 (not a raw 500). A corrupt realm — every admin op returning 500 — must
+   * not melt the dashboard's auth page with an uncaught error.
+   */
+  private async kc<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const status = e?.response?.status ?? e?.responseData?.status ?? e?.status;
+      if (status >= 500 || /Network response was not OK/i.test(e?.message || '')) {
+        throw new BadGatewayException(
+          "This project's authentication service is currently unavailable (realm error). The realm may need to be repaired or recreated.",
+        );
+      }
+      throw e;
+    }
+  }
+
   @Get()
   async getRealmInfo(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.getRealmInfo(project.keycloakRealm);
+    return this.kc(() => this.keycloak.getRealmInfo(project.keycloakRealm));
   }
 
   @Get('users')
@@ -102,7 +122,7 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.listUsers(project.keycloakRealm);
+    return this.kc(() => this.keycloak.listUsers(project.keycloakRealm));
   }
 
   @Get('users/:userId')
