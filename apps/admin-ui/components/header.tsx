@@ -188,6 +188,19 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
 
+  // On a project route, the switcher shows that project's team — even when the
+  // user arrived from "All Teams" — without changing viewTeamId, so returning to
+  // the projects list resumes the All Teams view.
+  const routeTeam = routeProject
+    ? teams.find((t) => t.id === routeProject.teamId) ?? null
+    : null;
+  const headerTeamLabel = routeTeam
+    ? routeTeam.name
+    : viewTeamId === 'all'
+      ? 'All Teams'
+      : activeTeam?.name || 'Select team';
+  const headerOwnerTeam = routeTeam ?? (viewTeamId === 'all' ? null : activeTeam);
+
   const currentProjectInTeam = currentProjectIdFromPath
     ? teamProjects.find((p) => p.id === currentProjectIdFromPath)
     : null;
@@ -364,9 +377,9 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="max-w-[140px] truncate">
-              {viewTeamId === 'all' ? 'All Teams' : (activeTeam?.name || 'Select team')}
+              {headerTeamLabel}
             </span>
-            {viewTeamId !== 'all' && activeTeam?.role === 'OWNER' && (
+            {headerOwnerTeam?.role === 'OWNER' && (
               <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                 Owner
               </span>

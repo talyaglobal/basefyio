@@ -55,14 +55,20 @@ function buildMonthlyData(projects: ProjectListItem[], months = 6) {
   });
 }
 
-function buildStatusData(projects: ProjectListItem[]) {
+function buildStatusData(
+  projects: ProjectListItem[],
+  deactivatedCount: number,
+  deletedCount: number,
+) {
   const active = projects.filter((p) => p.status === 'ACTIVE').length;
   const paused = projects.filter((p) => p.status === 'PAUSED').length;
-  const deleted = projects.filter((p) => p.status === 'DELETED').length;
+  // Deactivated + deleted projects are excluded from the main list, so their
+  // counts are fetched separately and passed in.
   return [
-    { name: 'Active', value: active, color: '#22c55e' },
-    { name: 'Paused', value: paused, color: '#f59e0b' },
-    { name: 'Deleted', value: deleted, color: '#ef4444' },
+    { name: 'Active', value: active, color: '#14b8a6', query: 'status=ACTIVE' },
+    { name: 'Paused', value: paused, color: '#f59e0b', query: 'status=PAUSED' },
+    { name: 'Deactivated', value: deactivatedCount, color: '#94a3b8', query: 'view=deactivated' },
+    { name: 'Deleted', value: deletedCount, color: '#ef4444', query: 'view=trash' },
   ].filter((d) => d.value > 0);
 }
 
@@ -165,6 +171,11 @@ export default function DashboardPage() {
   const [allTeamsLoading, setAllTeamsLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Deactivated + deleted projects are excluded from the main list; fetch their
+  // counts separately so the By Status chart can show (and link to) them.
+  const [deactivatedCount, setDeactivatedCount] = useState(0);
+  const [deletedCount, setDeletedCount] = useState(0);
+
   useEffect(() => {
     if (!teams.length) return;
     setLoading(true);
@@ -228,6 +239,14 @@ export default function DashboardPage() {
     }
   }, [viewTeamId, teams, refreshKey]);
 
+  // Deactivated + deleted counts for the By Status chart, scoped like the list.
+  useEffect(() => {
+    if (!teams.length) { setDeactivatedCount(0); setDeletedCount(0); return; }
+    const scope = viewTeamId === 'all' ? '' : viewTeamId;
+    api.projects.listDeactivated(scope).then((l) => setDeactivatedCount(l.length)).catch(() => setDeactivatedCount(0));
+    api.projects.listDeleted(scope).then((l) => setDeletedCount(l.length)).catch(() => setDeletedCount(0));
+  }, [viewTeamId, teams, refreshKey]);
+
   // Load all team projects for search
   useEffect(() => {
     if (!teams.length) { setAllTeamsProjects([]); return; }
@@ -285,7 +304,7 @@ export default function DashboardPage() {
   const totalLastMonth = monthlyData[monthlyData.length - 2].count;
   const trendUp = totalThisMonth >= totalLastMonth;
 
-  const statusData = buildStatusData(projects);
+  const statusData = buildStatusData(projects, deactivatedCount, deletedCount);
 
   if (loading) {
     return (
@@ -541,7 +560,16 @@ export default function DashboardPage() {
                   contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
                   labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
                 />
-                <Bar dataKey="value" name="Projects" radius={[4, 4, 0, 0]}>
+                <Bar
+                  dataKey="value"
+                  name="Projects"
+                  radius={[4, 4, 0, 0]}
+                  className="cursor-pointer"
+                  onClick={(d: any) => {
+                    const q = d?.payload?.query;
+                    if (q) router.push(`/dashboard/projects?${q}`);
+                  }}
+                >
                   {statusData.map((entry, i) => (
                     <Cell key={i} fill={entry.color} />
                   ))}
@@ -549,13 +577,19 @@ export default function DashboardPage() {
               </BarChart>
             </ResponsiveContainer>
           )}
-          {/* Legend */}
+          {/* Legend — click to open that status filtered in Projects */}
           <div className="mt-3 flex flex-wrap gap-3">
             {statusData.map((s) => (
-              <div key={s.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <button
+                key={s.name}
+                type="button"
+                onClick={() => router.push(`/dashboard/projects?${s.query}`)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                title={`View ${s.name} projects`}
+              >
                 <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
                 {s.name} ({s.value})
-              </div>
+              </button>
             ))}
           </div>
         </div>

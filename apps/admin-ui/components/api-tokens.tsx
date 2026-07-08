@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check } from 'lucide-react';
+import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil } from 'lucide-react';
 
 function fmt(ts?: string | null) {
   return ts ? new Date(ts).toLocaleString() : '—';
@@ -129,6 +129,14 @@ export function ApiTokens() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)}
+                    title="Edit"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => roll(t)} title="Roll secret">
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>

@@ -100,6 +100,47 @@ export class ApiTokensService {
     if (!t) throw new NotFoundException('Token not found');
   }
 
+  /** Update a token's name / scopes / expiry (never the secret). */
+  async update(
+    userId: string,
+    id: string,
+    input: { name?: string; scopes?: string[]; expiresAt?: string | null },
+  ) {
+    await this.own(userId, id);
+    const data: { name?: string; scopes?: string[]; expiresAt?: Date | null } = {};
+
+    if (input.name !== undefined) {
+      if (!input.name.trim()) throw new BadRequestException('name is required');
+      data.name = input.name.trim();
+    }
+    if (input.scopes !== undefined) {
+      if (!Array.isArray(input.scopes) || input.scopes.length === 0) {
+        throw new BadRequestException('at least one scope is required');
+      }
+      const scopes = [...new Set(input.scopes)];
+      for (const s of scopes) {
+        if (!ALL_SCOPES.has(s)) throw new BadRequestException(`unknown scope: ${s}`);
+      }
+      data.scopes = scopes;
+    }
+    if (input.expiresAt !== undefined) {
+      if (input.expiresAt === null || input.expiresAt === '') {
+        data.expiresAt = null;
+      } else {
+        const d = new Date(input.expiresAt);
+        if (isNaN(d.getTime())) throw new BadRequestException('invalid expiresAt');
+        if (d.getTime() <= Date.now()) throw new BadRequestException('expiresAt must be in the future');
+        data.expiresAt = d;
+      }
+    }
+
+    return this.prisma.platformApiToken.update({
+      where: { id },
+      data,
+      select: this.publicSelect,
+    });
+  }
+
   async revoke(userId: string, id: string) {
     await this.own(userId, id);
     await this.prisma.platformApiToken.update({ where: { id }, data: { status: 'revoked' } });

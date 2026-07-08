@@ -1555,6 +1555,12 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
+    update(id: string, data: { name?: string; scopes?: string[]; expiresAt?: string | null }) {
+      return request<ApiToken>(`/account/api-tokens/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
     roll(id: string) {
       return request<CreatedApiToken>(`/account/api-tokens/${id}/roll`, { method: 'POST' });
     },

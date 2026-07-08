@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -37,6 +38,15 @@ export class ApiTokensController {
   @Post()
   create(@Body() body: CreateTokenInput, @CurrentUser() user: JwtPayload) {
     return this.service.create(user.sub, body);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() body: { name?: string; scopes?: string[]; expiresAt?: string | null },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.update(user.sub, id, body);
   }
 
   @Post(':id/roll')

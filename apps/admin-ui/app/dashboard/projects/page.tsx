@@ -203,6 +203,7 @@ export default function ProjectsPage() {
   // URL params take precedence over saved state (dashboard card clicks always win)
   const urlStatus = searchParams.get('status');
   const urlFilter = searchParams.get('filter');
+  const urlView = searchParams.get('view');
   const hasUrlParams = !!(urlStatus || urlFilter);
 
   // Restore from sessionStorage on first mount (unless URL params override)
@@ -304,6 +305,13 @@ export default function ProjectsPage() {
   const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [deactivateConfirm, setDeactivateConfirm] = useState<ProjectListItem | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+
+  // Open the Trash / Deactivated view when linked with ?view=trash|deactivated
+  // (e.g. from the dashboard "By Status" chart).
+  useEffect(() => {
+    if (urlView === 'trash') { setShowTrash(true); setShowDeactivated(false); }
+    else if (urlView === 'deactivated') { setShowDeactivated(true); setShowTrash(false); }
+  }, [urlView]);
 
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);

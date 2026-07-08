@@ -11,8 +11,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck } from 'lucide-react';
 
-export function ApiTokenCreate() {
+export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const router = useRouter();
+  const isEdit = !!tokenId;
   const [groups, setGroups] = useState<ApiTokenScopeGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
@@ -23,13 +24,28 @@ export function ApiTokenCreate() {
 
   const load = useCallback(async () => {
     try {
-      setGroups(await api.apiTokens.scopes());
+      const [g, existing] = await Promise.all([
+        api.apiTokens.scopes(),
+        isEdit ? api.apiTokens.list() : Promise.resolve([]),
+      ]);
+      setGroups(g);
+      if (isEdit) {
+        const t = existing.find((x) => x.id === tokenId);
+        if (!t) {
+          toast.error('Token not found');
+          router.push('/dashboard/account/api-tokens');
+          return;
+        }
+        setName(t.name);
+        setScopes(new Set(t.scopes));
+        setExpiresAt(t.expiresAt ? new Date(t.expiresAt).toISOString().slice(0, 10) : '');
+      }
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to load scopes');
+      toast.error(e?.message || 'Failed to load token');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isEdit, tokenId, router]);
 
   useEffect(() => {
     load();
@@ -74,14 +90,24 @@ export function ApiTokenCreate() {
     if (scopes.size === 0) return toast.error('Enable at least one scope');
     setSaving(true);
     try {
-      const res = await api.apiTokens.create({
-        name: name.trim(),
-        scopes: [...scopes],
-        expiresAt: expiresAt || undefined,
-      });
-      setCreated(res);
+      if (isEdit && tokenId) {
+        await api.apiTokens.update(tokenId, {
+          name: name.trim(),
+          scopes: [...scopes],
+          expiresAt: expiresAt || null,
+        });
+        toast.success('Token updated');
+        router.push('/dashboard/account/api-tokens');
+      } else {
+        const res = await api.apiTokens.create({
+          name: name.trim(),
+          scopes: [...scopes],
+          expiresAt: expiresAt || undefined,
+        });
+        setCreated(res);
+      }
     } catch (e: any) {
-      toast.error(e?.message || 'Create failed');
+      toast.error(e?.message || (isEdit ? 'Update failed' : 'Create failed'));
     } finally {
       setSaving(false);
     }
@@ -102,10 +128,12 @@ export function ApiTokenCreate() {
         </button>
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <KeyRound className="h-5 w-5 text-primary" /> Create API token
+            <KeyRound className="h-5 w-5 text-primary" /> {isEdit ? 'Edit API token' : 'Create API token'}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Turn on only the permissions this token needs.
+            {isEdit
+              ? 'Change the name, permissions or expiry. The token secret stays the same.'
+              : 'Turn on only the permissions this token needs.'}
           </p>
         </div>
       </div>
@@ -231,7 +259,7 @@ export function ApiTokenCreate() {
             Cancel
           </Button>
           <Button onClick={save} disabled={saving || loading}>
-            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Create token
+            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} {isEdit ? 'Save changes' : 'Create token'}
           </Button>
         </div>
       </div>
