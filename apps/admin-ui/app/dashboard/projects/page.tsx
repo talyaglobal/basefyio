@@ -64,6 +64,7 @@ import {
   SortAsc,
   Tag,
   Trash2,
+  UserCheck,
   Users,
   X,
   Zap,
@@ -71,6 +72,7 @@ import {
   List,
 } from 'lucide-react';
 import type { Team } from '@/lib/types';
+import { parseJwt, getAccessToken } from '@/lib/auth';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
@@ -226,6 +228,8 @@ export default function ProjectsPage() {
     return SORT_OPTIONS.some((o) => o.value === raw) ? raw : 'newest';
   });
   const [sortOpen, setSortOpen]             = useState(false);
+  const [createdByMe, setCreatedByMe]       = useState(false);
+  const currentUserId = useMemo(() => parseJwt(getAccessToken() ?? '')?.sub ?? null, []);
   const [viewMode, setViewMode]             = useState<ProjectsViewMode>(() => {
     if (typeof window === 'undefined') return 'grid';
     const stored = localStorage.getItem(PROJECTS_VIEW_MODE_KEY);
@@ -445,6 +449,7 @@ export default function ProjectsPage() {
         if (!selectedTags.every((tid) => pTagIds.includes(tid))) return false;
       }
       if (statusFilter && p.status !== statusFilter) return false;
+      if (createdByMe && currentUserId && p.createdBy !== currentUserId) return false;
       if (thisMonthOnly) {
         if (!isWithinInterval(parseISO(p.createdAt), { start: monthStart, end: new Date() })) return false;
       }
@@ -1031,6 +1036,21 @@ export default function ProjectsPage() {
               className="w-full rounded-lg border bg-background pl-9 pr-4 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
             />
           </div>
+
+          {/* Created by me filter */}
+          <button
+            type="button"
+            onClick={() => setCreatedByMe((v) => !v)}
+            title="Show only projects I created"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+              createdByMe
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'bg-background hover:bg-accent'
+            }`}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Created by me</span>
+          </button>
 
           {/* Sort dropdown */}
           <div ref={sortRef} className="relative">
