@@ -277,9 +277,15 @@ export default function ProjectsPage() {
   // Single-project delete confirm
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Rich single-delete confirm (mirrors the project detail delete modal).
+  const [deleteReasonCode, setDeleteReasonCode] = useState('none');
+  const [deleteDetailsText, setDeleteDetailsText] = useState('');
+  const [deleteNameConfirm, setDeleteNameConfirm] = useState('');
 
   // Bulk delete confirm
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeactivateConfirm, setBulkDeactivateConfirm] = useState(false);
+  const [bulkDeactivating, setBulkDeactivating] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteReasonCode, setBulkDeleteReasonCode] = useState<string>('none');
   const [bulkDeleteDetails, setBulkDeleteDetails] = useState('');
@@ -312,6 +318,11 @@ export default function ProjectsPage() {
     if (urlView === 'trash') { setShowTrash(true); setShowDeactivated(false); }
     else if (urlView === 'deactivated') { setShowDeactivated(true); setShowTrash(false); }
   }, [urlView]);
+
+  // Reset the single-delete confirm fields each time the modal opens.
+  useEffect(() => {
+    if (deleteConfirm) { setDeleteReasonCode('none'); setDeleteDetailsText(''); setDeleteNameConfirm(''); }
+  }, [deleteConfirm]);
 
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
@@ -612,9 +623,18 @@ export default function ProjectsPage() {
   // ── Delete project (single) ───────────────────────────────────────────────────
   async function confirmDeleteProject() {
     if (!deleteConfirm) return;
+    if (deleteNameConfirm.trim() !== deleteConfirm.name) {
+      toast.error('Type the project name to confirm');
+      return;
+    }
     setDeleting(true);
     try {
-      await api.projects.delete(deleteConfirm.id);
+      const selectedReason = DELETE_REASONS.find((x) => x.code === deleteReasonCode);
+      await api.projects.delete(deleteConfirm.id, {
+        reasonCode: deleteReasonCode,
+        reasonLabel: selectedReason?.label || 'None of the above',
+        details: deleteDetailsText.trim() || undefined,
+      });
       setProjects((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
       setSelectedProjects((prev) => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
       toast.success(`"${deleteConfirm.name}" moved to trash`);
@@ -774,6 +794,31 @@ export default function ProjectsPage() {
       `${projectIds.length} project${projectIds.length > 1 ? 's' : ''} moved to trash`,
     );
     if (isOwner && activeTeamId) loadDeletedProjects();
+  }
+
+  async function confirmBulkDeactivate() {
+    const ids = Array.from(selectedProjects);
+    if (ids.length === 0) return;
+    setBulkDeactivating(true);
+    try {
+      const results = await Promise.allSettled(ids.map((id) => api.projects.deactivate(id)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = ids.length - ok;
+      const idSet = new Set(ids);
+      if (ok > 0) {
+        setProjects((prev) => prev.filter((p) => !idSet.has(p.id)));
+        toast.success(`${ok} project${ok > 1 ? 's' : ''} deactivated`);
+      }
+      if (failed > 0) toast.error(`${failed} project${failed > 1 ? 's' : ''} could not be deactivated`);
+      setSelectedProjects(new Set());
+      setBulkDeactivateConfirm(false);
+      loadAll();
+      loadDeactivatedProjects();
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to deactivate');
+    } finally {
+      setBulkDeactivating(false);
+    }
   }
 
   async function confirmBulkDelete() {
@@ -1073,6 +1118,14 @@ export default function ProjectsPage() {
             />
 
             <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeactivateConfirm(true)}
+              >
+                <PowerOff className="mr-1 h-3.5 w-3.5" />
+                Deactivate {selectedProjects.size} Project{selectedProjects.size > 1 ? 's' : ''}
+              </Button>
               <Button
                 variant="destructive"
                 size="sm"
@@ -1752,15 +1805,62 @@ export default function ProjectsPage() {
       {/* ── Single delete confirm modal ───────────────────────────────────── */}
       {deleteConfirm && (
         <Modal title="Move to Trash" onClose={() => setDeleteConfirm(null)}>
-          <p className="text-sm text-muted-foreground mb-1">
-            Move to trash:
-          </p>
+          <p className="text-sm text-muted-foreground mb-1">Move to trash:</p>
           <p className="text-sm font-semibold mb-3">&quot;{deleteConfirm.name}&quot;</p>
+
+          <div className="mb-3">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Reason for deletion</p>
+            <div className="max-h-28 overflow-auto rounded-lg border p-2">
+              <div className="flex flex-wrap gap-1.5">
+                {DELETE_REASONS.map((r) => (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => setDeleteReasonCode(r.code)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                      deleteReasonCode === r.code
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Additional details (optional)
+            </label>
+            <textarea
+              value={deleteDetailsText}
+              onChange={(e) => setDeleteDetailsText(e.target.value)}
+              rows={3}
+              placeholder="Tell us why this project is being deleted..."
+              className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50"
+            />
+          </div>
+
           <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 mb-4">
             <p className="text-xs text-amber-700 dark:text-amber-400">
               This project will remain in trash for <strong>24 hours</strong>. The team owner can restore it during this period. After 24 hours it will be permanently deleted.
             </p>
           </div>
+
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Type <span className="font-semibold text-foreground">{deleteConfirm.name}</span> to confirm.
+            </label>
+            <Input
+              value={deleteNameConfirm}
+              onChange={(e) => setDeleteNameConfirm(e.target.value)}
+              placeholder={deleteConfirm.name}
+              autoFocus
+            />
+          </div>
+
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>
               Cancel
@@ -1769,7 +1869,7 @@ export default function ProjectsPage() {
               variant="destructive"
               className="flex-1"
               onClick={confirmDeleteProject}
-              disabled={deleting}
+              disabled={deleting || deleteNameConfirm.trim() !== deleteConfirm.name}
             >
               {deleting ? 'Moving…' : 'Move to Trash'}
             </Button>
@@ -1800,6 +1900,41 @@ export default function ProjectsPage() {
               disabled={deactivating}
             >
               {deactivating ? 'Deactivating…' : 'Deactivate'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Bulk deactivate confirm modal ─────────────────────────────────── */}
+      {bulkDeactivateConfirm && (
+        <Modal title={`Deactivate ${selectedProjects.size} project${selectedProjects.size > 1 ? 's' : ''}`} onClose={() => setBulkDeactivateConfirm(false)}>
+          <p className="text-sm text-muted-foreground mb-3">
+            Deactivate {selectedProjects.size} selected project{selectedProjects.size > 1 ? 's' : ''}.
+          </p>
+          <div className="mb-4 max-h-28 overflow-auto rounded-lg border bg-muted/30 p-2">
+            {Array.from(selectedProjects).map((id) => {
+              const project = projects.find((p) => p.id === id);
+              if (!project) return null;
+              return (
+                <p key={id} className="truncate text-xs text-muted-foreground" title={project.name}>
+                  - {project.name}
+                </p>
+              );
+            })}
+          </div>
+          <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              They are <strong>frozen</strong> — closed to use, data kept — and <strong>free their plan
+              slots</strong>. Reactivate anytime; if left deactivated they are <strong>permanently deleted
+              after 14 days</strong>.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setBulkDeactivateConfirm(false)}>
+              Cancel
+            </Button>
+            <Button className="flex-1" onClick={confirmBulkDeactivate} disabled={bulkDeactivating}>
+              {bulkDeactivating ? 'Deactivating…' : `Deactivate ${selectedProjects.size}`}
             </Button>
           </div>
         </Modal>
