@@ -75,6 +75,10 @@ import type {
   BlueprintGenerateResult,
   BlueprintSheet,
   MigrationRun,
+  ApiToken,
+  ApiTokenScopeGroup,
+  CreateApiTokenInput,
+  CreatedApiToken,
 } from './types';
 
 /** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
@@ -622,6 +626,21 @@ export const api = {
     },
     restore(id: string) {
       return request<{ message: string }>(`/projects/${id}/restore`, {
+        method: 'POST',
+      });
+    },
+    listDeactivated(teamId: string) {
+      return request<ProjectListItem[]>(
+        `/projects/deactivated?teamId=${encodeURIComponent(teamId || '')}`,
+      );
+    },
+    deactivate(id: string) {
+      return request<{ message: string }>(`/projects/${id}/deactivate`, {
+        method: 'POST',
+      });
+    },
+    reactivate(id: string) {
+      return request<{ message: string }>(`/projects/${id}/reactivate`, {
         method: 'POST',
       });
     },
@@ -1520,6 +1539,27 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ force }),
       });
+    },
+  },
+
+  apiTokens: {
+    scopes() {
+      return request<ApiTokenScopeGroup[]>(`/account/api-tokens/scopes`);
+    },
+    list() {
+      return request<ApiToken[]>(`/account/api-tokens`);
+    },
+    create(data: CreateApiTokenInput) {
+      return request<CreatedApiToken>(`/account/api-tokens`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    roll(id: string) {
+      return request<CreatedApiToken>(`/account/api-tokens/${id}/roll`, { method: 'POST' });
+    },
+    revoke(id: string) {
+      return request<{ revoked: boolean }>(`/account/api-tokens/${id}`, { method: 'DELETE' });
     },
   },
 

@@ -56,7 +56,9 @@ export class UsageService {
       where: { id: teamId },
       include: {
         projects: {
-          where: { status: { not: 'DELETED' } },
+          // Deactivated projects are frozen and must not consume the plan quota,
+          // so only ACTIVE/PAUSED projects count toward projectCount.
+          where: { status: { notIn: ['DELETED', 'DEACTIVATED'] } },
           select: { id: true, slug: true },
         },
         members: { select: { id: true } },

@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/platform-api",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"

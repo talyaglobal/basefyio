@@ -17,6 +17,7 @@ enum UserRole {
 enum ProjectStatus {
   ACTIVE
   PAUSED
+  DEACTIVATED
   DELETED
 }
 
@@ -230,6 +231,9 @@ model Project {
   updatedAt         DateTime            @updatedAt @map("updated_at")
   /// When the project was moved to trash; used for 24h retention (not `updatedAt`).
   deletedAt         DateTime?           @map("deleted_at")
+  /// When the project was deactivated; used for 14-day auto-purge. A deactivated
+  /// project is closed to use and does NOT count against the plan's project quota.
+  deactivatedAt     DateTime?           @map("deactivated_at")
   /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
   /// were installed into the project DB. Null = not yet bootstrapped.
   rlsBootstrappedAt DateTime?           @map("rls_bootstrapped_at")
@@ -1641,4 +1645,26 @@ model MigrationRun {
   @@index([blueprintId])
   @@index([projectId])
   @@map("migration_run")
+}
+
+/// Cloudflare-style platform API token: a named, scoped credential a user mints
+/// so their agents/scripts can drive the account + projects over the management
+/// API. Only the sha256 hash of the secret is stored (shown once at creation).
+model PlatformApiToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  teamId      String?   @map("team_id")
+  name        String
+  tokenPrefix String    @map("token_prefix")
+  tokenHash   String    @unique @map("token_hash")
+  scopes      String[]
+  status      String    @default("active")
+  expiresAt   DateTime? @map("expires_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([tokenPrefix])
+  @@map("platform_api_token")
 }

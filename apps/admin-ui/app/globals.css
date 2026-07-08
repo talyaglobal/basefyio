@@ -129,10 +129,13 @@
   .status-badge {
     @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
-  .status-active   { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400; }
-  .status-paused   { @apply bg-amber-100   text-amber-700   dark:bg-amber-900/30   dark:text-amber-400; }
-  .status-deleted  { @apply bg-red-100     text-red-700     dark:bg-red-900/30     dark:text-red-400; }
-  .status-pending  { @apply bg-sky-100     text-sky-700     dark:bg-sky-900/30     dark:text-sky-400; }
+  /* Active = light green / turquoise blend (teal). */
+  .status-active      { @apply bg-teal-100  text-teal-700  dark:bg-teal-900/30  dark:text-teal-300; }
+  .status-paused      { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400; }
+  /* Deactivated = neutral gray (frozen, not deleted). */
+  .status-deactivated { @apply bg-slate-200 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300; }
+  .status-deleted     { @apply bg-red-100   text-red-700   dark:bg-red-900/30   dark:text-red-400; }
+  .status-pending     { @apply bg-sky-100   text-sky-700   dark:bg-sky-900/30   dark:text-sky-400; }
 
   /* ── Tag pill ───────────────────────────────────────────── */
   .tag-pill {

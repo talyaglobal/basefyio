@@ -56,6 +56,8 @@ import {
   Info,
   Pencil,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   RotateCcw,
   Search,
@@ -76,11 +78,13 @@ import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 const STATUS_COLORS: Record<string, string> = {
   ACTIVE: 'status-active',
   PAUSED: 'status-paused',
+  DEACTIVATED: 'status-deactivated',
   DELETED: 'status-deleted',
 };
 const STATUS_DOT: Record<string, string> = {
-  ACTIVE: 'bg-emerald-500',
+  ACTIVE: 'bg-teal-500',
   PAUSED: 'bg-amber-500',
+  DEACTIVATED: 'bg-slate-400',
   DELETED: 'bg-red-500',
 };
 const COLORS = [
@@ -292,6 +296,14 @@ export default function ProjectsPage() {
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
+
+  // Deactivated projects (frozen — 14-day retention, off the plan quota)
+  const [showDeactivated, setShowDeactivated] = useState(false);
+  const [deactivatedProjects, setDeactivatedProjects] = useState<ProjectListItem[]>([]);
+  const [loadingDeactivated, setLoadingDeactivated] = useState(false);
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
+  const [deactivateConfirm, setDeactivateConfirm] = useState<ProjectListItem | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   // Sort dropdown ref
   const sortRef = useRef<HTMLDivElement>(null);
@@ -671,6 +683,55 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (showTrash || isOwner) loadDeletedProjects();
   }, [showTrash, activeTeamId, viewTeamId, isOwner]);
+
+  // ── Deactivated projects ──────────────────────────────────────────────────────
+  async function loadDeactivatedProjects() {
+    setLoadingDeactivated(true);
+    try {
+      const teamScope = isAllTeams ? '' : (viewTeamId || activeTeamId || '');
+      const rows = await api.projects.listDeactivated(teamScope);
+      setDeactivatedProjects(rows);
+    } catch {
+      setDeactivatedProjects([]);
+    } finally {
+      setLoadingDeactivated(false);
+    }
+  }
+
+  async function confirmDeactivate() {
+    if (!deactivateConfirm) return;
+    setDeactivating(true);
+    try {
+      await api.projects.deactivate(deactivateConfirm.id);
+      toast.success('Project deactivated');
+      setDeactivateConfirm(null);
+      loadAll();
+      loadDeactivatedProjects();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to deactivate project');
+    } finally {
+      setDeactivating(false);
+    }
+  }
+
+  async function handleReactivate(id: string) {
+    setReactivatingId(id);
+    try {
+      await api.projects.reactivate(id);
+      setDeactivatedProjects((prev) => prev.filter((p) => p.id !== id));
+      toast.success('Project reactivated');
+      loadAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reactivate project');
+    } finally {
+      setReactivatingId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (showDeactivated || isOwner) loadDeactivatedProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDeactivated, activeTeamId, viewTeamId, isOwner]);
 
   // ── Bulk operations ───────────────────────────────────────────────────────────
   async function bulkMoveToFolder(folderId: string | null) {
@@ -1146,6 +1207,18 @@ export default function ProjectsPage() {
                 dropHighlight={projectDragActive && dropTargetId === 'droppable-trash'}
                 onClick={() => {
                   setShowTrash(!showTrash);
+                  setShowDeactivated(false);
+                  setSelectedFolder('all');
+                }}
+              />
+
+              {/* Deactivated — frozen projects, off the plan quota, 14-day retention */}
+              <DeactivatedZone
+                active={showDeactivated}
+                count={deactivatedProjects.length}
+                onClick={() => {
+                  setShowDeactivated(!showDeactivated);
+                  setShowTrash(false);
                   setSelectedFolder('all');
                 }}
               />
@@ -1266,6 +1339,128 @@ export default function ProjectsPage() {
                         ) : (
                           <p className="text-[10px] text-muted-foreground/60">
                             Only the team owner, an admin, or the project creator can restore or delete this.
+                          </p>
+                        )}
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : showDeactivated ? (
+              /* ── Deactivated view ──────────────────────────────────────────────── */
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <button
+                    onClick={() => setShowDeactivated(false)}
+                    className="rounded-lg p-1.5 hover:bg-accent transition-colors"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <PowerOff className="h-5 w-5 text-slate-400" />
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold">Deactivated Projects</h2>
+                    <span
+                      className="group relative inline-flex shrink-0 cursor-help items-center"
+                      tabIndex={0}
+                      aria-label="Deactivation policy"
+                    >
+                      <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      <span
+                        role="tooltip"
+                        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
+                      >
+                        Deactivated projects are <span className="font-medium">frozen</span> — closed to
+                        use and their data preserved — and they{' '}
+                        <span className="font-medium">don&apos;t count against your plan&apos;s project
+                        limit</span>. They are <span className="font-medium">permanently removed after 14
+                        days</span> if not reactivated. Reactivating needs a free project slot on your plan.
+                      </span>
+                    </span>
+                    <span className="text-sm text-muted-foreground">({deactivatedProjects.length})</span>
+                  </div>
+                </div>
+
+                {loadingDeactivated ? (
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
+                    ))}
+                  </div>
+                ) : deactivatedProjects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                    <PowerOff className="h-12 w-12 mb-3 opacity-30" />
+                    <p className="text-sm font-medium">No deactivated projects</p>
+                    <p className="text-xs mt-1">Deactivate a project to free a slot without deleting its data</p>
+                  </div>
+                ) : (
+                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {deactivatedProjects.map((project) => {
+                      const canManage = project.canManage !== false;
+                      return (
+                      <div
+                        key={project.id}
+                        className="group relative rounded-xl border border-slate-300/40 bg-card p-4 hover:border-slate-400/60 transition-colors dark:border-slate-600/40"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-medium truncate">{project.name}</h3>
+                              <span className={`status-badge ${STATUS_COLORS.DEACTIVATED}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.DEACTIVATED}`} />
+                                Deactivated
+                              </span>
+                            </div>
+                            {project.teamName && (
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                <Users className="h-2.5 w-2.5" />
+                                {project.teamName}
+                              </span>
+                            )}
+                            {project.description && (
+                              <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/50 mb-3">
+                          {(() => {
+                            const raw = project.deactivatedAt ?? project.updatedAt;
+                            if (!raw) return 'Deactivated';
+                            const d = new Date(raw);
+                            const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                            const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const expiresAt = d.getTime() + 14 * 24 * 60 * 60 * 1000;
+                            const remaining = expiresAt - Date.now();
+                            if (remaining <= 0) {
+                              return `Deactivated ${dateStr} ${timeStr} · Retention ended — auto-removal within 1 hour`;
+                            }
+                            const days = Math.floor(remaining / 86400000);
+                            const hours = Math.floor((remaining % 86400000) / 3600000);
+                            const rem = days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+                            return `Deactivated ${dateStr} ${timeStr} · ${rem} until permanent deletion`;
+                          })()}
+                        </p>
+                        {canManage ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleReactivate(project.id)}
+                              disabled={reactivatingId === project.id}
+                              className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                            >
+                              <Power className={`h-3 w-3 ${reactivatingId === project.id ? 'animate-pulse' : ''}`} />
+                              {reactivatingId === project.id ? 'Reactivating…' : 'Reactivate'}
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(project)}
+                              className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground/60">
+                            Only the team owner, an admin, or the project creator can reactivate this.
                           </p>
                         )}
                       </div>
@@ -1423,6 +1618,7 @@ export default function ProjectsPage() {
           onToggleTag={(tid) => { toggleTag(ctxMenu.project.id, tid); }}
           onMoveTeam={(team) => { setMoveTeamModal({ project: ctxMenu.project, targetTeam: team }); setCtxMenu(null); }}
           onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
+          onDeactivate={() => { setDeactivateConfirm(ctxMenu.project); setCtxMenu(null); }}
           onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
       )}
@@ -1568,6 +1764,34 @@ export default function ProjectsPage() {
               disabled={deleting}
             >
               {deleting ? 'Moving…' : 'Move to Trash'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Deactivate confirm modal ──────────────────────────────────────── */}
+      {deactivateConfirm && (
+        <Modal title="Deactivate Project" onClose={() => setDeactivateConfirm(null)}>
+          <p className="text-sm text-muted-foreground mb-1">Deactivate:</p>
+          <p className="text-sm font-semibold mb-3">&quot;{deactivateConfirm.name}&quot;</p>
+          <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              The project is <strong>frozen</strong> — closed to use, but its data is kept. It{' '}
+              <strong>frees a slot on your plan</strong> so you can create another project. You can
+              reactivate it anytime (a free project slot is required). If left deactivated, it is{' '}
+              <strong>permanently deleted after 14 days</strong>.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDeactivateConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={confirmDeactivate}
+              disabled={deactivating}
+            >
+              {deactivating ? 'Deactivating…' : 'Deactivate'}
             </Button>
           </div>
         </Modal>
@@ -1918,6 +2142,39 @@ function TrashDropZone({
         <span>Trash</span>
         <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${badgeClass}`}>
           {deletedCount}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// ── DeactivatedZone (sidebar entry for frozen projects) ────────────────────────
+function DeactivatedZone({
+  active,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  const rowClass = active
+    ? 'bg-slate-500/10 text-foreground font-medium'
+    : 'text-muted-foreground hover:bg-accent hover:text-foreground';
+  const badgeClass = active
+    ? 'bg-slate-500/20 text-foreground'
+    : 'bg-muted text-muted-foreground';
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full min-h-9 items-center gap-2 rounded-lg px-2 py-2 text-xs transition-colors ${rowClass}`}
+      >
+        <PowerOff className="h-3.5 w-3.5 shrink-0" />
+        <span>Deactivated</span>
+        <span className={`ml-auto text-[10px] rounded-full px-1.5 py-0.5 ${badgeClass}`}>
+          {count}
         </span>
       </button>
     </div>
@@ -2290,8 +2547,9 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
   onToggleTag: (tid: string) => void;
   onMoveTeam: (team: Team) => void;
   onEdit: () => void;
+  onDeactivate: () => void;
   onDelete: () => void;
-}>(function ContextMenu({ x, y, project, folders, tags, teams, currentTeamId, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onMoveTeam, onEdit, onDelete }, ref) {
+}>(function ContextMenu({ x, y, project, folders, tags, teams, currentTeamId, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onMoveTeam, onEdit, onDeactivate, onDelete }, ref) {
   const projectTagIds = (project.tags ?? []).map((t) => t.tag.id);
   const otherTeams = teams.filter((t) => t.id !== currentTeamId);
   const left = Math.min(x, window.innerWidth - 232);
@@ -2395,6 +2653,9 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
         )}
 
         <div className="my-1 h-px bg-border" />
+        <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
+          <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
+        </button>
         <button onClick={onDelete} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
           <Trash2 className="h-3.5 w-3.5" /> Delete Project
         </button>

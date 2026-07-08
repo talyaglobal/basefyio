@@ -222,6 +222,14 @@ export class ProjectsController {
     return this.projectsService.findDeleted(teamId, user.sub);
   }
 
+  @Get('deactivated')
+  async findDeactivated(
+    @Query('teamId') teamId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.findDeactivated(teamId, user.sub);
+  }
+
   @Patch(':id/max-rows')
   async setMaxRowsPerTable(
     @Param('id') id: string,
@@ -326,6 +334,22 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.restore(id, user.sub);
+  }
+
+  @Post(':id/deactivate')
+  async deactivate(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.deactivate(id, user.sub);
+  }
+
+  @Post(':id/reactivate')
+  async reactivate(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.reactivate(id, user.sub);
   }
 
   @Delete(':id/permanent')

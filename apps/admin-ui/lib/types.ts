@@ -140,7 +140,7 @@ export interface ProjectListItem {
   name: string;
   slug: string;
   description: string | null;
-  status: 'ACTIVE' | 'PAUSED' | 'DELETED';
+  status: 'ACTIVE' | 'PAUSED' | 'DEACTIVATED' | 'DELETED';
   /** Database model chosen in the New Project wizard. */
   databaseType?: 'RELATIONAL' | 'NOSQL';
   folderId: string | null;
@@ -153,6 +153,8 @@ export interface ProjectListItem {
   updatedAt: string;
   /** Set when status is DELETED; used for 24h trash retention. */
   deletedAt?: string | null;
+  /** Set when status is DEACTIVATED; used for 14-day auto-purge countdown. */
+  deactivatedAt?: string | null;
   /** Team id/name — populated by the all-teams trash listing. */
   teamId?: string;
   teamName?: string | null;
@@ -1197,3 +1199,20 @@ export interface ManagementDistributionStats {
   note?: string;
   error?: string;
 }
+
+// ── Platform API Tokens ──────────────────────────────────────────────────────
+export interface ApiTokenScope { scope: string; description: string; }
+export interface ApiTokenScopeGroup { resource: string; label: string; scopes: ApiTokenScope[]; }
+export interface ApiToken {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: string[];
+  teamId: string | null;
+  status: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+export interface CreateApiTokenInput { name: string; scopes: string[]; teamId?: string; expiresAt?: string; }
+export interface CreatedApiToken extends ApiToken { token: string; }

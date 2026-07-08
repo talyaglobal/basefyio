@@ -15,7 +15,7 @@ import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
-import { QuotaService } from '../billing/quota.service';
+import { QuotaService, QuotaExceededException } from '../billing/quota.service';
 import { UsageService } from '../billing/usage.service';
 import { InfrastructureService } from '../infrastructure/infrastructure.service';
 import { DataEngineService } from '../data-engine/data-engine.service';
@@ -305,7 +305,9 @@ export class ProjectsService {
     await this.assertTeamMember(teamId, userId);
 
     const projects = await this.prisma.project.findMany({
-      where: { teamId, status: { not: 'DELETED' } },
+      // Deactivated projects are hidden from the main list; they live in their
+      // own "Deactivated" view (like trash) until reactivated or auto-purged.
+      where: { teamId, status: { notIn: ['DELETED', 'DEACTIVATED'] } },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -817,6 +819,159 @@ export class ProjectsService {
     return { message: 'Project deleted' };
   }
 
+  /**
+   * Deactivate a project: freeze it (auth disabled, dropped from data-plane
+   * routing) without deleting data. A deactivated project does NOT count against
+   * the plan's project quota, so the freed slot can be used for another project.
+   * It is permanently purged after 14 days if not reactivated.
+   */
+  async deactivate(id: string, userId: string) {
+    const project = await this.findOne(id, userId);
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+    const isCreator = project.createdBy === userId;
+    if (membership.role !== 'OWNER' && !isCreator) {
+      throw new ForbiddenException('You can only deactivate projects you created');
+    }
+
+    if (project.status === 'DEACTIVATED') {
+      return { message: 'Project is already deactivated' };
+    }
+    if (project.status === 'DELETED') {
+      throw new ForbiddenException('Deleted projects cannot be deactivated');
+    }
+
+    // Close auth so nobody can log in while the project is frozen.
+    try {
+      await this.keycloak.disableRealm(project.keycloakRealm);
+    } catch (err) {
+      this.logger.warn(`Deactivate: failed to disable Keycloak realm for "${project.name}": ${err}`);
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: { status: 'DEACTIVATED', deactivatedAt: new Date() },
+    });
+
+    // Free the plan quota slot and drop the project from PgBouncer routing.
+    this.usageService.decrementProjectCount(project.teamId).catch(() => {});
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    this.logger.log(`Project "${project.name}" deactivated by user ${userId}`);
+
+    await this.activity.append(id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_DEACTIVATED,
+      title: 'Project deactivated',
+      detail: project.name,
+    });
+
+    {
+      const memberIds = await this.teamMemberUserIds(project.teamId);
+      const actorName = await this.resolveActorName(userId);
+      await this.realtime.publish({
+        entityType: 'project',
+        action: 'updated',
+        entityId: id,
+        actorUserId: userId,
+        teamId: project.teamId,
+        userIds: memberIds,
+        payload: { name: project.name, status: 'DEACTIVATED', actorName },
+      });
+    }
+
+    return { message: 'Project deactivated' };
+  }
+
+  /**
+   * Reactivate a deactivated project. This re-consumes a project slot, so the
+   * plan quota is enforced — if the team is already at its limit the caller must
+   * upgrade, or delete/deactivate another project first.
+   */
+  async reactivate(id: string, userId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.status !== 'DEACTIVATED') {
+      throw new ForbiddenException('Project is not deactivated');
+    }
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+    const isCreator = project.createdBy === userId;
+    if (membership.role !== 'OWNER' && !isCreator) {
+      throw new ForbiddenException('You can only reactivate projects you created');
+    }
+
+    // Reactivating consumes a project slot again — enforce the plan quota with a
+    // message that spells out the user's options.
+    try {
+      await this.quota.assertCanCreateProject(project.teamId);
+    } catch (err) {
+      if (err instanceof QuotaExceededException) {
+        throw new QuotaExceededException(
+          `Reactivating "${project.name}" would exceed your plan's project limit. ` +
+            `Upgrade your plan, or delete or deactivate another project first.`,
+          'projects',
+        );
+      }
+      throw err;
+    }
+
+    try {
+      if (await this.keycloak.realmExists(project.keycloakRealm)) {
+        await this.keycloak.enableRealm(project.keycloakRealm);
+      }
+    } catch (err) {
+      this.logger.warn(`Reactivate: could not re-enable Keycloak realm: ${err}`);
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: { status: 'ACTIVE', deactivatedAt: null },
+    });
+
+    this.usageService.incrementProjectCount(project.teamId).catch(() => {});
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    this.logger.log(`Project "${project.name}" reactivated by user ${userId}`);
+
+    await this.activity.append(id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_REACTIVATED,
+      title: 'Project reactivated',
+      detail: project.name,
+    });
+
+    {
+      const memberIds = await this.teamMemberUserIds(project.teamId);
+      const actorName = await this.resolveActorName(userId);
+      await this.realtime.publish({
+        entityType: 'project',
+        action: 'updated',
+        entityId: id,
+        actorUserId: userId,
+        teamId: project.teamId,
+        userIds: memberIds,
+        payload: { name: project.name, status: 'ACTIVE', actorName },
+      });
+    }
+
+    return { message: 'Project reactivated' };
+  }
+
   async listDeletionReasons(userId: string, limit = 200) {
     const actor = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -954,6 +1109,50 @@ export class ProjectsService {
         teamId: p.teamId,
         teamName: team?.name ?? null,
         createdBy,
+        canManage,
+      };
+    });
+  }
+
+  /** Deactivated (frozen) projects for a team — the "Deactivated" list. */
+  async findDeactivated(teamId: string | undefined, userId: string) {
+    await this.purgeDeactivatedPastRetention();
+
+    const memberships = await this.prisma.teamMember.findMany({
+      where: { userId, ...(teamId ? { teamId } : {}) },
+      select: { teamId: true, role: true },
+    });
+    if (memberships.length === 0) return [];
+
+    const roleByTeam = new Map(memberships.map((m) => [m.teamId, m.role]));
+    const teamIds = memberships.map((m) => m.teamId);
+
+    const projects = await this.prisma.project.findMany({
+      where: { teamId: { in: teamIds }, status: 'DEACTIVATED' },
+      orderBy: [{ deactivatedAt: 'desc' }, { updatedAt: 'desc' }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        deactivatedAt: true,
+        createdBy: true,
+        teamId: true,
+        team: { select: { id: true, name: true } },
+      },
+    });
+
+    return projects.map((p) => {
+      const role = roleByTeam.get(p.teamId);
+      const canManage =
+        role === 'OWNER' || role === 'ADMIN' || p.createdBy === userId;
+      const { team, ...rest } = p;
+      return {
+        ...rest,
+        teamName: team?.name ?? null,
         canManage,
       };
     });
@@ -1249,11 +1448,58 @@ export class ProjectsService {
     return expired.length;
   }
 
+  /** Permanently remove deactivated projects past the 14-day retention window. */
+  private async purgeDeactivatedPastRetention(): Promise<number> {
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    const expired = await this.prisma.project.findMany({
+      where: {
+        status: 'DEACTIVATED',
+        OR: [
+          { deactivatedAt: { lt: cutoff } },
+          { AND: [{ deactivatedAt: null }, { updatedAt: { lt: cutoff } }] },
+        ],
+      },
+    });
+
+    if (expired.length === 0) {
+      return 0;
+    }
+
+    this.logger.log(
+      `Deactivated cleanup: permanently deleting ${expired.length} project(s) past 14-day retention`,
+    );
+
+    for (const project of expired) {
+      try {
+        await this.deleteProjectRealm(project.keycloakRealm);
+        await this.dropDatabase(project.dbName).catch(() => {});
+        await this.dropDatabaseUser(project.dbUser).catch(() => {});
+        await this.prisma.project.delete({ where: { id: project.id } });
+        this.logger.log(`Cleanup: permanently deleted deactivated "${project.name}"`);
+      } catch (err: any) {
+        this.logger.error(
+          `Cleanup: failed to delete deactivated project "${project.name}": ${err.message}`,
+        );
+      }
+    }
+
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed after deactivated cleanup: ${err}`),
+    );
+
+    return expired.length;
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupExpiredDeletedProjects() {
     const n = await this.purgeDeletedProjectsPastRetention();
     if (n > 0) {
       this.logger.log(`Trash cleanup: removed ${n} expired project(s) past 24h retention`);
+    }
+    const d = await this.purgeDeactivatedPastRetention();
+    if (d > 0) {
+      this.logger.log(`Deactivated cleanup: removed ${d} project(s) past 14-day retention`);
     }
   }
 

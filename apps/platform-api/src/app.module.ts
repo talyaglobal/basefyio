@@ -13,6 +13,7 @@ import { EntitlementModule } from './modules/entitlement/entitlement.module';
 import { FlowsModule } from './modules/flows/flows.module';
 import { BlueprintModule } from './modules/blueprint/blueprint.module';
 import { CodefyioModule } from './codefyio/codefyio.module';
+import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { MigrationModule } from './modules/migrations/migration.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -69,6 +70,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     FlowsModule,
     BlueprintModule,
     CodefyioModule,
+    ApiTokensModule,
     MigrationModule,
     EmailModule,
     AuthModule,

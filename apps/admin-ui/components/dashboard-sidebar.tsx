@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   CreditCard,
+  KeyRound,
   LayoutDashboard,
   MessageSquareText,
   Rocket,
@@ -72,7 +73,14 @@ const ALL_NAV_ITEMS: NavItem[] = [
     label: 'Account',
     icon: UserCircle,
     isActive: (p) =>
-      p.startsWith('/dashboard/profile') || p.startsWith('/dashboard/account'),
+      p.startsWith('/dashboard/profile') ||
+      (p.startsWith('/dashboard/account') && !p.startsWith('/dashboard/account/api-tokens')),
+  },
+  {
+    href: '/dashboard/account/api-tokens',
+    label: 'API Tokens',
+    icon: KeyRound,
+    isActive: (p) => p.startsWith('/dashboard/account/api-tokens'),
   },
   {
     href: '/dashboard/blueprints',

@@ -15,6 +15,9 @@ import {
 import type { Request, Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -82,7 +85,7 @@ export class RealtimeDataStreamController {
 
 /** Dashboard-facing binding management (which entities broadcast). */
 @Controller('projects/:projectId/realtime-bindings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
 export class RealtimeBindingsController {
   constructor(
     private readonly realtime: RealtimeDataService,
@@ -102,12 +105,14 @@ export class RealtimeBindingsController {
   }
 
   @Get()
+  @Scopes('realtime:read')
   async list(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
     await this.assertMember(projectId, user.sub);
     return this.realtime.listBindings(projectId);
   }
 
   @Put()
+  @Scopes('realtime:write')
   async set(
     @Param('projectId') projectId: string,
     @Body() body: { kind: RealtimeKind; entity: string; enabled: boolean },

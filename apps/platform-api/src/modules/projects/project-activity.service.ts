@@ -13,6 +13,8 @@ export const ProjectActivityKind = {
   PROJECT_UPDATED: 'project.updated',
   PROJECT_DELETED: 'project.deleted',
   PROJECT_RESTORED: 'project.restored',
+  PROJECT_DEACTIVATED: 'project.deactivated',
+  PROJECT_REACTIVATED: 'project.reactivated',
   PROJECT_PERMANENT_DELETE: 'project.permanent_delete',
   PROJECT_MOVED_TEAM: 'project.moved_team',
   SQL_EXECUTED: 'sql.executed',
