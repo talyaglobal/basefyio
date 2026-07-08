@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: '%s | basefyio',
   },
   description:
-    'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration. An open-source alternative to Firebase and Supabase.',
+    'Self-hosted, open-source backend platform with a dedicated database per project, authentication, storage, real-time APIs, and team collaboration — a backend you fully own.',
   metadataBase: new URL(APP_URL),
   icons: {
     icon: '/icon.svg',

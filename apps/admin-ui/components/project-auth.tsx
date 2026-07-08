@@ -401,7 +401,7 @@ function UsersTab({
   );
 }
 
-/* ──────────────────────────────────────────── User Detail Drawer (Supabase-style) */
+/* ──────────────────────────────────────────── User Detail Drawer */
 function UserDetailDrawer({
   user,
   projectId,

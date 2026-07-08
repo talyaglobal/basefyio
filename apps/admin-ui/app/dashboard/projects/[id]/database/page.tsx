@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Database management — Supabase-style Indexes / Triggers / Functions /
- * Extensions for the project database. Postgres functions created here are
+ * Database management — Indexes / Triggers / Functions / Extensions for the
+ * project database. Postgres functions created here are
  * instantly callable as APIs via POST /rest/v1/rpc/{name}.
  */
 

@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
-import { cn } from '@/lib/utils';
+import { cn, projectStatusBadgeClass } from '@/lib/utils';
 
 // ── Helpers ──────────────────────────────────────────────────
 function buildMonthlyData(projects: ProjectListItem[], months = 6) {
@@ -608,8 +608,8 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <Badge
-                    variant={p.status === 'ACTIVE' ? 'default' : 'secondary'}
-                    className={`shrink-0 text-[10px] h-5 ${p.status === 'ACTIVE' ? 'bg-emerald-600' : p.status === 'PAUSED' ? 'bg-amber-500' : ''}`}
+                    variant="secondary"
+                    className={cn('shrink-0 text-[10px] h-5', projectStatusBadgeClass(p.status))}
                   >
                     {p.status}
                   </Badge>

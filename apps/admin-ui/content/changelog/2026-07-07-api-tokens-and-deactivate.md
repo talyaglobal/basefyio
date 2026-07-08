@@ -4,12 +4,12 @@ slug: api-tokens-and-deactivate
 title: "API Tokens, project Deactivate, a dedicated Realtime page & tougher Auth"
 kind: feature
 version: v2.9.0
-summary: Mint scoped, Cloudflare-style API tokens so your agents and scripts can drive your account over the API, deactivate projects to free a plan slot without losing data, manage realtime from its own page, and recover a broken auth realm with one click.
+summary: Mint scoped API tokens so your agents and scripts can drive your account over the API, deactivate projects to free a plan slot without losing data, manage realtime from its own page, and recover a broken auth realm with one click.
 ---
 
 ## API Tokens — let your agents drive your account
 
-**Account → API Tokens** is a new page for minting **scoped, Cloudflare-style
+**Account → API Tokens** is a new page for minting **scoped personal access
 tokens** (`bf_pat_…`) that let an agent or script act on your behalf over the
 REST API — no dashboard login required.
 

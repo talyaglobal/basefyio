@@ -4,7 +4,7 @@ slug: database-management
 title: "Database Management — Indexes, Triggers, Functions, Extensions & RPC"
 kind: feature
 version: v2.5.0
-summary: A new Database tab brings Supabase-style database management. Create indexes for fast queries on millions of rows, manage triggers, enable extensions like pg_trgm and vector, and write Postgres functions that are instantly callable as APIs via /rpc.
+summary: A new Database tab brings full Postgres database management. Create indexes for fast queries on millions of rows, manage triggers, enable extensions like pg_trgm and vector, and write Postgres functions that are instantly callable as APIs via /rpc.
 ---
 
 ## New Database tab

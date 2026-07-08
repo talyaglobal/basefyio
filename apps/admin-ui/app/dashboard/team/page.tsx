@@ -12,6 +12,7 @@ import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn, projectStatusBadgeClass } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -1085,7 +1086,7 @@ export default function TeamSettingsPage() {
                       {p.projectSizeBytes ? ` · ${(Number(p.projectSizeBytes) / 1024 / 1024).toFixed(1)} MB` : ''}
                     </p>
                   </div>
-                  <Badge variant={p.status === 'ACTIVE' ? 'default' : 'secondary'} className="shrink-0 text-[10px]">
+                  <Badge variant="secondary" className={cn('shrink-0 text-[10px]', projectStatusBadgeClass(p.status))}>
                     {p.status}
                   </Badge>
                 </button>

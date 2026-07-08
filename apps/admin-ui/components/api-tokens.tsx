@@ -1,14 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
-import type { ApiToken, ApiTokenScopeGroup, CreatedApiToken } from '@/lib/types';
+import type { ApiToken, CreatedApiToken } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -24,17 +23,14 @@ function fmt(ts?: string | null) {
 }
 
 export function ApiTokens() {
+  const router = useRouter();
   const [tokens, setTokens] = useState<ApiToken[]>([]);
-  const [groups, setGroups] = useState<ApiTokenScopeGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
   const [created, setCreated] = useState<CreatedApiToken | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [t, g] = await Promise.all([api.apiTokens.list(), api.apiTokens.scopes()]);
-      setTokens(t);
-      setGroups(g);
+      setTokens(await api.apiTokens.list());
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load API tokens');
     } finally {
@@ -90,7 +86,7 @@ export function ApiTokens() {
             Scoped tokens for your agents and scripts to drive your account and projects over the API.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
+        <Button onClick={() => router.push('/dashboard/account/api-tokens/new')}>
           <Plus className="mr-1 h-4 w-4" /> Create Token
         </Button>
       </div>
@@ -146,144 +142,8 @@ export function ApiTokens() {
         </div>
       )}
 
-      <CreateTokenDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        groups={groups}
-        onCreated={(res) => {
-          setCreated(res);
-          load();
-        }}
-      />
       <SecretModal token={created} onClose={() => setCreated(null)} />
     </div>
-  );
-}
-
-function CreateTokenDialog({
-  open,
-  onOpenChange,
-  groups,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  groups: ApiTokenScopeGroup[];
-  onCreated: (res: CreatedApiToken) => void;
-}) {
-  const [name, setName] = useState('');
-  const [scopes, setScopes] = useState<Set<string>>(new Set());
-  const [expiresAt, setExpiresAt] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const toggle = (s: string) =>
-    setScopes((prev) => {
-      const next = new Set(prev);
-      next.has(s) ? next.delete(s) : next.add(s);
-      return next;
-    });
-  const toggleGroup = (g: ApiTokenScopeGroup) =>
-    setScopes((prev) => {
-      const next = new Set(prev);
-      const all = g.scopes.every((s) => next.has(s.scope));
-      g.scopes.forEach((s) => (all ? next.delete(s.scope) : next.add(s.scope)));
-      return next;
-    });
-
-  const save = async () => {
-    if (!name.trim()) return toast.error('Name is required');
-    if (scopes.size === 0) return toast.error('Select at least one scope');
-    setSaving(true);
-    try {
-      const res = await api.apiTokens.create({
-        name: name.trim(),
-        scopes: [...scopes],
-        expiresAt: expiresAt || undefined,
-      });
-      onOpenChange(false);
-      setName('');
-      setScopes(new Set());
-      setExpiresAt('');
-      onCreated(res);
-    } catch (e: any) {
-      toast.error(e?.message || 'Create failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Create API token</DialogTitle>
-          <DialogDescription>Grant only the scopes the agent needs.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="token-name">Name</Label>
-            <Input
-              id="token-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="orders-agent"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Scopes</Label>
-            <div className="space-y-3 rounded-md border p-3">
-              {groups.map((g) => {
-                const allOn = g.scopes.every((s) => scopes.has(s.scope));
-                return (
-                  <div key={g.resource}>
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(g)}
-                      className="mb-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
-                    >
-                      {g.label} {allOn ? '(clear)' : '(all)'}
-                    </button>
-                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                      {g.scopes.map((s) => (
-                        <label
-                          key={s.scope}
-                          className="flex cursor-pointer items-center gap-2 text-sm"
-                          title={s.description}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={scopes.has(s.scope)}
-                            onChange={() => toggle(s.scope)}
-                          />
-                          <code className="text-xs">{s.scope}</code>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="token-exp">Expiry (optional)</Label>
-            <Input
-              id="token-exp"
-              type="date"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

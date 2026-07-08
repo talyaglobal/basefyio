@@ -1,7 +1,7 @@
 ---
 date: 2026-06-29
 slug: auth-session-management
-title: "Full authentication & session management — a Supabase-style Users console"
+title: "Full authentication & session management — a complete Users console"
 kind: feature
 version: v2.7.0
 summary: Project Authentication is now a complete identity console — a richer Users list with a per-user detail panel, realm-wide active sessions with one-click revoke, MFA management, configurable brute-force and password policies, phone numbers, and real client IPs with geolocation.

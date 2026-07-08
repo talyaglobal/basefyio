@@ -1202,7 +1202,7 @@ export interface ManagementDistributionStats {
 
 // ── Platform API Tokens ──────────────────────────────────────────────────────
 export interface ApiTokenScope { scope: string; description: string; }
-export interface ApiTokenScopeGroup { resource: string; label: string; scopes: ApiTokenScope[]; }
+export interface ApiTokenScopeGroup { resource: string; label: string; category: string; description?: string; scopes: ApiTokenScope[]; }
 export interface ApiToken {
   id: string;
   name: string;

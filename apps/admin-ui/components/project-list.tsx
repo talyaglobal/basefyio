@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ProjectListItem } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
+import { projectStatusBadgeClass } from '@/lib/utils';
 import { Database, ArrowRight } from 'lucide-react';
 
 interface ProjectListProps {
@@ -49,7 +50,7 @@ export function ProjectList({ projects, loading }: ProjectListProps) {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
               <Database className="h-5 w-5 text-primary" />
             </div>
-            <Badge variant={project.status === 'ACTIVE' ? 'default' : 'secondary'}>
+            <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
               {project.status}
             </Badge>
           </div>

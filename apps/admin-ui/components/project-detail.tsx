@@ -33,7 +33,7 @@ import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
-import { cn } from '@/lib/utils';
+import { cn, projectStatusBadgeClass } from '@/lib/utils';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -298,7 +298,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={project.status === 'ACTIVE' ? 'default' : 'secondary'}>
+          <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
             {project.status}
           </Badge>
           {otherTeams.length > 0 && (

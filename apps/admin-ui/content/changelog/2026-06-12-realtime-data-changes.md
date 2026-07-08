@@ -4,7 +4,7 @@ slug: realtime-data-changes
 title: "Realtime — Live INSERT/UPDATE/DELETE Events for Your App"
 kind: feature
 version: v2.4.0
-summary: Supabase-style realtime is here. Enable it per table or collection, then subscribe from your app with bf.realtime.subscribe() — every insert, update, and delete is pushed to connected clients instantly.
+summary: Realtime is here. Enable it per table or collection, then subscribe from your app with bf.realtime.subscribe() — every insert, update, and delete is pushed to connected clients instantly.
 ---
 
 ## Subscribe to data changes

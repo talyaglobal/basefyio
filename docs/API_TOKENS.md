@@ -29,7 +29,7 @@ Give each token the **fewest scopes** it needs. Prefer short expiries for automa
 
 ## Scopes
 
-Tokens are scoped Cloudflare-style as `resource:action`:
+Tokens are scoped as `resource:action`:
 
 | Scope | Grants |
 |---|---|
