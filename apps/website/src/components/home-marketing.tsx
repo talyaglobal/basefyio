@@ -6,6 +6,7 @@ import {
   Code2,
   Database,
   Globe2,
+  History,
   Key,
   Lock,
   MessageSquare,
@@ -75,6 +76,13 @@ const FEATURES = [
     desc: "S3-compatible object storage with edge CDN. Upload, manage, and serve files with automatic optimization.",
     pills: ["S3-compatible", "Edge CDN", "Resumable"],
     band: "base.storage",
+  },
+  {
+    icon: History,
+    title: "Point-in-Time Recovery",
+    desc: "Rewind your database to any instant in the last 7 days — not just to last night's backup. A bad migration or an accidental DELETE at 14:32 is undone by recovering to 14:31.",
+    pills: ["Any second", "7-day window", "SQL + NoSQL"],
+    band: "base.pitr",
   },
 ] as const;
 

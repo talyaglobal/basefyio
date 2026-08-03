@@ -17,6 +17,7 @@ import { Response } from 'express';
 import { ProjectsService } from './projects.service';
 import { SupabaseImportService } from './supabase-import.service';
 import { ProjectExportService } from './project-export.service';
+import { ProjectPitrService } from './project-pitr.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -36,6 +37,7 @@ export class ProjectsController {
     private readonly projectExport: ProjectExportService,
     private readonly projectArchiveImport: ProjectArchiveImportService,
     private readonly projectActivity: ProjectActivityService,
+    private readonly projectPitr: ProjectPitrService,
   ) {}
 
   @Post()
@@ -523,5 +525,24 @@ export class ProjectsController {
     },
   ) {
     return this.projectExport.restoreCloudBackup(id, user.sub, body);
+  }
+
+  /** What range of timestamps this project can be recovered to right now. */
+  @Get(':id/pitr/window')
+  async getRecoveryWindow(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectPitr.getRecoveryWindow(id, user.sub);
+  }
+
+  /** Recover the project database to an exact instant inside the window. */
+  @Post(':id/pitr/restore')
+  async restoreToTimestamp(
+    @Param('id') id: string,
+    @Body('targetTime') targetTime: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectPitr.restoreToTimestamp(id, user.sub, targetTime);
   }
 }

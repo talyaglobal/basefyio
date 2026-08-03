@@ -823,6 +823,17 @@ export interface CloudBackupItem {
   kind?: 'manual' | 'auto';
 }
 
+/** What range of timestamps a project database can be recovered to. */
+export interface PitrRecoveryWindow {
+  /** Oldest reachable timestamp; null until the first base backup is taken. */
+  earliest: string | null;
+  /** Newest reachable timestamp — how current the shipped change log is. */
+  latest: string | null;
+  baseBackupCount: number;
+  walSegmentCount: number;
+  retentionDays: number;
+}
+
 export interface ImportProgressData {
   database: { tables: number; rows: number; failedTables: string[] };
   auth: { users: number; skipped: number; emailsSent: number };

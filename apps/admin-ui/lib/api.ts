@@ -16,6 +16,7 @@ import type {
   ProjectActivityItem,
   ProjectArchiveImportResponse,
   CloudBackupItem,
+  PitrRecoveryWindow,
   ProjectAuthConfig,
   ProjectExportJobResponse,
   ProjectExportRequest,
@@ -875,6 +876,17 @@ export const api = {
     },
     listCloudBackups(projectId: string) {
       return request<CloudBackupItem[]>(`/projects/${projectId}/backups`);
+    },
+    /** Range of timestamps this project can currently be recovered to. */
+    getRecoveryWindow(projectId: string) {
+      return request<PitrRecoveryWindow>(`/projects/${projectId}/pitr/window`);
+    },
+    /** Recover the project database to an exact instant inside the window. */
+    restoreToTimestamp(projectId: string, targetTime: string) {
+      return request<{ restoredTo: string; baseBackupTaken: string; message: string }>(
+        `/projects/${projectId}/pitr/restore`,
+        { method: 'POST', body: JSON.stringify({ targetTime }) },
+      );
     },
     restoreCloudBackup(
       projectId: string,

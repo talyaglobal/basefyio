@@ -10,6 +10,7 @@ import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useExportProgress } from '@/lib/export-progress-context';
+import { ProjectPitrPanel } from '@/components/project-pitr-panel';
 
 /** Human-readable byte size (small backups would round to "0.00 MB" otherwise). */
 function fmtBytes(bytes: number): string {
@@ -234,6 +235,8 @@ export default function ProjectExportPage() {
           Back
         </Button>
       </div>
+
+      <ProjectPitrPanel projectId={id} />
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
         <h2 className="text-base font-semibold">Export options</h2>

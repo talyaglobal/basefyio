@@ -176,10 +176,10 @@ export default async function Home() {
               <span className="pulse-dot" />
               30 days free trial
             </div>
-            <h1 className="animate-fade-in text-4xl font-bold leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
-              Your database,{" "}
+            <h1 className="animate-fade-in text-4xl font-bold uppercase leading-[1.06] tracking-tight [animation-delay:80ms] motion-reduce:animate-none sm:text-5xl md:text-[56px]">
+              NEXT-GEN DATABASE.{" "}
               <span className="gradient-text relative">
-                instantly.
+                EMPOWERS YOUR NEXT IDEA
                 <span className="absolute bottom-[-2px] left-0 right-0 h-0.5 rounded bg-primary" />
               </span>
             </h1>

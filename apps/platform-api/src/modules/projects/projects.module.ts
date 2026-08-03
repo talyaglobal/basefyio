@@ -25,6 +25,7 @@ import { FoldersController, TagsController } from './folders-tags.controller';
 import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
+import { ProjectPitrService } from './project-pitr.service';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 import { CollectionController } from './collection.controller';
 import { CollectionService } from './collection.service';
@@ -63,6 +64,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
     PublicCollectionApiService,
     SupabaseImportService,
     ProjectExportService,
+    ProjectPitrService,
     ProjectArchiveImportService,
     ImportProcessor,
     ExportProcessor,

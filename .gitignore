@@ -50,3 +50,7 @@ graphify-out/
 .claude/
 /CLAUDE.md
 /.graphifyignore
+
+# Deployment secrets (generated on the server, never committed)
+/secrets/
+*.keyfile
