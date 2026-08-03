@@ -12,7 +12,7 @@ import { HomeMarketing } from "@/components/home-marketing";
 import { HomeFaq } from "@/components/home-faq";
 import { AuthNav } from "@/components/auth-nav";
 import { MarketingFeedback } from "@/components/marketing-feedback";
-import { TerminalCard } from "@/components/terminal-card";
+import { HeroIllustration } from "@/components/hero-illustration";
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import {
@@ -186,7 +186,7 @@ export default async function Home() {
             <div className="animate-fade-in mt-7 max-w-md [animation-delay:160ms] motion-reduce:animate-none">
               <p className="font-mono text-sm text-muted-foreground">
                 database &middot; REST API &middot; auth &middot; storage
-                &middot; ai assistant
+                &middot; PITR &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">
                 &mdash; create a project and get a dedicated PostgreSQL database
@@ -229,7 +229,7 @@ export default async function Home() {
           </div>
 
           <div className="animate-fade-in lg:col-span-6 [animation-delay:200ms] motion-reduce:animate-none">
-            <TerminalCard />
+            <HeroIllustration />
           </div>
         </div>
       </HomeHero>
