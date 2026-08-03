@@ -1,8 +1,8 @@
 # basefyio
 
-> **The open-source, self-hosted backend platform — a Supabase / Firebase alternative you fully own.**
+> **The open-source, self-hosted backend platform you fully own.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)
 [![Stars](https://img.shields.io/github/stars/talyaglobal/basefyio?style=social)](https://github.com/talyaglobal/basefyio/stargazers)
@@ -11,9 +11,11 @@ Deploy your own **multi-tenant backend-as-a-service** in minutes. Every project 
 **PostgreSQL** database, isolated authentication, object storage, and an auto-generated **REST API** —
 all running on **your own infrastructure**, with no vendor lock-in and no data leaving your servers.
 
-basefyio is a self-hosted alternative to Supabase and Firebase for teams who want full ownership of
-their backend: per-project database isolation, JWT-secured APIs, audit logging, an admin dashboard,
-a CLI, and a TypeScript SDK — open source under the MIT license.
+basefyio is built for teams who want full ownership of their backend: per-project database
+isolation, JWT-secured APIs, audit logging, an admin dashboard, a CLI, and a TypeScript SDK.
+The server and dashboard are open source under the **AGPL-3.0-or-later**; the client SDK and CLI
+you install into your own app stay **MIT**, so building on basefyio never imposes the AGPL on
+your code. See [COPYRIGHT.md](./COPYRIGHT.md).
 
 ---
 
@@ -281,4 +283,11 @@ Found a vulnerability? Please **do not** open a public issue — see [SECURITY.m
 
 ## License
 
-[MIT](./LICENSE) © basefyio
+Copyright (C) 2026 basefyio
+
+- **Server and dashboard** (`apps/`) — [AGPL-3.0-or-later](./LICENSE). If you run a modified
+  version as a network service, you must offer its source to your users (AGPL section 13).
+- **Client libraries** (`packages/sdk`, `packages/cli`, `packages/geo`) — MIT, so your own
+  application is never forced to adopt the AGPL.
+
+Full details in [COPYRIGHT.md](./COPYRIGHT.md).

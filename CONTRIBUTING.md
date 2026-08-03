@@ -63,3 +63,9 @@ Use the GitHub issue templates. For security issues, follow
 ## Code of conduct
 
 By participating you agree to abide by our [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## Licensing of contributions
+
+Contributions are accepted under the licence of the directory they touch:
+**AGPL-3.0-or-later** for the server and dashboard (`apps/`), **MIT** for the client
+libraries (`packages/sdk`, `packages/cli`, `packages/geo`). See [COPYRIGHT.md](./COPYRIGHT.md).
