@@ -30,6 +30,20 @@ jobs:
             git checkout -f production
             git reset --hard origin/production
 
+            # ── Deployment secrets ──
+            # Compose mounts these as files, so a missing one aborts the whole
+            # deploy mid-flight. Generate anything absent before touching any
+            # container. Existing files are never overwritten: the Mongo keyfile
+            # authenticates replica-set members and replacing it would lock the
+            # running set out of itself.
+            echo "=== Ensuring deployment secrets exist ==="
+            mkdir -p secrets
+            if [ ! -f secrets/mongo-keyfile ]; then
+              openssl rand -base64 756 > secrets/mongo-keyfile
+              chmod 400 secrets/mongo-keyfile
+              echo "generated secrets/mongo-keyfile"
+            fi
+
             # ── Login to GHCR ──
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
 

@@ -42,7 +42,11 @@ fi
 
 echo "==> 3/5 Recreating PostgreSQL with WAL archiving"
 $COMPOSE up -d postgres
-$COMPOSE exec -T postgres bash -c 'mkdir -p /var/lib/postgresql/wal_archive && chown postgres:postgres /var/lib/postgresql/wal_archive'
+# The container entrypoint creates this directory owned by postgres, but fix it
+# here too for deployments whose volume predates that change — archive_command
+# runs as the postgres user and silently fails against a root-owned directory.
+$COMPOSE exec -T -u root postgres \
+  install -d -o postgres -g postgres /var/lib/postgresql/wal_archive || true
 
 echo "    waiting for PostgreSQL to accept connections"
 for _ in $(seq 1 30); do
