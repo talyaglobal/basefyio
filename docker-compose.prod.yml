@@ -445,6 +445,10 @@ volumes:
   # Continuous WAL segments for point-in-time recovery. The platform ships these
   # to object storage and prunes what is older than the recovery window.
   postgres_wal_archive:
+  # Workspace for point-in-time restores: the base backup is unpacked here and
+  # the throwaway postgres that replays WAL mounts the same volume. Emptied after
+  # each restore.
+  pitr_scratch:
   redis_data:
   minio_data:
   couchdb_data:
