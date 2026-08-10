@@ -348,6 +348,10 @@ services:
     volumes:
       - pgbouncer_config:/etc/pgbouncer
       - /var/run/docker.sock:/var/run/docker.sock
+      # PITR: postgres archives finished WAL here; the API ships each segment to
+      # object storage and deletes the local copy. Without this mount the spool
+      # is invisible to the API and grows without bound.
+      - postgres_wal_archive:/var/lib/postgresql/wal_archive
     networks:
       - internal
       - web

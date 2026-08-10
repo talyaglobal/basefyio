@@ -9,6 +9,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { mkdtemp, readdir, rm, stat, unlink } from 'fs/promises';
+import { createReadStream, createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
+import { createGzip } from 'zlib';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -223,25 +226,48 @@ export class ProjectPitrService {
     let entries: string[];
     try {
       entries = await readdir(WAL_SPOOL_DIR);
-    } catch {
-      return; // No spool mounted (e.g. dev) — nothing to ship.
+    } catch (err: any) {
+      // ENOENT just means no spool is mounted (dev). Any other failure is real:
+      // nothing would ever be shipped or deleted and the spool would grow until
+      // the disk filled, so it must not pass silently.
+      if (err?.code !== 'ENOENT') {
+        this.logger.error(
+          `WAL spool ${WAL_SPOOL_DIR} is unreadable — segments cannot be shipped: ${err.message}`,
+        );
+      }
+      return;
     }
+
+    // A segment that archive_command is still copying in would ship truncated;
+    // anything this recent is left for the next run.
+    const settledBefore = Date.now() - 60_000;
 
     for (const name of entries) {
       const path = join(WAL_SPOOL_DIR, name);
+      let staged: string | null = null;
       try {
         const info = await stat(path);
-        if (!info.isFile()) continue;
+        if (!info.isFile() || info.mtimeMs > settledBefore) continue;
+
+        // WAL compresses by about an order of magnitude: archive_timeout closes
+        // segments on a quiet database, so most of a 16 MB segment is empty.
+        const preCompressed = name.endsWith('.gz');
+        if (!preCompressed) {
+          staged = join(tmpdir(), `${name}.gz`);
+          await pipeline(createReadStream(path), createGzip(), createWriteStream(staged));
+        }
 
         await this.storage.uploadPlatformFileFromPath(
           PITR_BUCKET,
-          `_cluster/wal/${name}`,
-          path,
+          `_cluster/wal/${preCompressed ? name : `${name}.gz`}`,
+          staged ?? path,
         );
-        // Only drop the local copy once object storage has it.
+        // Only drop the local copy once object storage has the segment.
         await unlink(path).catch(() => undefined);
       } catch (err: any) {
         this.logger.warn(`WAL segment ${name} could not be shipped: ${err.message}`);
+      } finally {
+        if (staged) await unlink(staged).catch(() => undefined);
       }
     }
   }
