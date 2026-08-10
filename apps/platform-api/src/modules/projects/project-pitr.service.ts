@@ -263,6 +263,30 @@ export class ProjectPitrService {
     }
   }
 
+  /**
+   * Take a physical base immediately instead of waiting for the nightly run —
+   * used after changing backup configuration, or to shorten the window before a
+   * risky migration. Cluster-wide, so ROOT only. Returns as soon as it starts,
+   * because a full base takes minutes.
+   */
+  async runClusterBaseBackupNow(userId: string) {
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (actor?.role !== 'ROOT') {
+      throw new ForbiddenException('Only ROOT can trigger a cluster base backup');
+    }
+
+    void this.captureClusterBaseBackup()
+      .then(() => this.pruneClusterBases())
+      .catch((err: any) =>
+        this.logger.error(`Manual cluster base backup failed: ${err.message}`),
+      );
+
+    return { message: 'Cluster base backup started; it completes in the background.' };
+  }
+
   @Cron('0 2 * * *')
   async runDailyBaseBackups() {
     const projects = await this.prisma.project.findMany({

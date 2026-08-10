@@ -232,6 +232,12 @@ export class ProjectsController {
     return this.projectsService.findDeactivated(teamId, user.sub);
   }
 
+  // Declared before the ':id/...' routes so "pitr" is not read as a project id.
+  @Post('pitr/run-base-backup')
+  async runClusterBaseBackup(@CurrentUser() user: JwtPayload) {
+    return this.projectPitr.runClusterBaseBackupNow(user.sub);
+  }
+
   @Patch(':id/max-rows')
   async setMaxRowsPerTable(
     @Param('id') id: string,
