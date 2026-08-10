@@ -567,15 +567,32 @@ export class ProjectPitrService {
         ].join('\n'),
         { mode: 0o755 },
       );
+      // Postgres rejects the ISO 8601 "T"/"Z" form here — it wants a timestamp
+      // it can parse, e.g. 2026-08-10 03:37:37.687+00.
+      const recoveryTarget = target.toISOString().replace('T', ' ').replace('Z', '+00');
+
+      // Recovery refuses to start when these are lower than they were on the
+      // primary, so mirror the live cluster's values onto the throwaway.
+      const primarySettings = await this.prisma.$queryRaw<
+        { name: string; setting: string }[]
+      >`
+        select name, setting from pg_settings
+        where name in (
+          'max_connections', 'max_worker_processes', 'max_wal_senders',
+          'max_prepared_transactions', 'max_locks_per_transaction'
+        )
+      `;
+
       await writeFile(
         join(dataDir, 'postgresql.auto.conf'),
         [
           '',
           `restore_command = '${fetchScript} %f %p'`,
-          `recovery_target_time = '${target.toISOString()}'`,
+          `recovery_target_time = '${recoveryTarget}'`,
           "recovery_target_action = 'promote'",
           'archive_mode = off',
           "archive_command = ''",
+          ...primarySettings.map((s) => `${s.name} = ${s.setting}`),
           '',
         ].join('\n'),
         { flag: 'a' },
@@ -605,10 +622,22 @@ export class ProjectPitrService {
       let promoted = false;
       for (let attempt = 0; attempt < 180 && !promoted; attempt++) {
         await new Promise((r) => setTimeout(r, 5000));
+
+        // A misconfigured recovery makes postgres exit immediately. Waiting out
+        // the full timeout would hide the reason, so surface its own words.
+        const state = await container.inspect();
+        if (!state.State.Running) {
+          const tail = await container
+            .logs({ stdout: true, stderr: true, tail: 20 })
+            .then((b) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
+            .catch(() => '');
+          throw new Error(`the recovery instance stopped before finishing: ${tail.slice(-600)}`);
+        }
+
         const probe = await this.runInContainer(container, [
           'psql', '-U', owner, '-d', 'postgres', '-tAc', 'select pg_is_in_recovery()',
         ]).catch(() => ({ exitCode: -1, output: '' }));
-        promoted = probe.exitCode === 0 && probe.output.includes('f');
+        promoted = probe.exitCode === 0 && probe.output.trim() === 'f';
       }
       if (!promoted) {
         throw new Error('recovery did not reach the requested time within 15 minutes');
