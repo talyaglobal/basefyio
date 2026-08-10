@@ -352,6 +352,9 @@ services:
       # object storage and deletes the local copy. Without this mount the spool
       # is invisible to the API and grows without bound.
       - postgres_wal_archive:/var/lib/postgresql/wal_archive
+      # PITR restores unpack a base backup here and hand the same volume to the
+      # throwaway postgres that replays WAL onto it, so both must see one path.
+      - pitr_scratch:/pitr-scratch
     networks:
       - internal
       - web

@@ -206,7 +206,8 @@ export class ProjectPitrService {
    * recovery window is worth.
    */
   private async pruneClusterBases() {
-    const objects = await this.storage
+    // The empty fallback would otherwise infer as never[], which loses `name`.
+    const objects: { name: string; lastModified: Date }[] = await this.storage
       .listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX)
       .catch(() => []);
 
