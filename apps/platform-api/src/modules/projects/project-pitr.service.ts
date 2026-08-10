@@ -525,6 +525,9 @@ export class ProjectPitrService {
       //    plus pg_wal.tar.gz for the segments the base itself needs.
       for (const file of base.files) {
         const leaf = file.name.split('/').pop() as string;
+        // Only the tar members are archives — backup_manifest is JSON metadata
+        // that pg_basebackup writes alongside them, and feeding it to tar fails.
+        if (!leaf.endsWith('.tar.gz')) continue;
         const localTar = join(runDir, leaf);
         const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, file.name);
         await pipeline(stream, createWriteStream(localTar));
