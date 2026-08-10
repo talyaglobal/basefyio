@@ -8,12 +8,14 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { mkdtemp, readdir, rm, stat, unlink } from 'fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, unlink, writeFile } from 'fs/promises';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { createGzip } from 'zlib';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
+import * as Docker from 'dockerode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import {
@@ -46,6 +48,27 @@ const CLUSTER_BASE_PREFIX = '_cluster/base/';
  * back a real replay can reach.
  */
 const CLUSTER_BASE_RETAIN = 3;
+
+/**
+ * Shared workspace for restores. platform-api unpacks a base here and the
+ * throwaway postgres mounts the same volume, so the path must be identical on
+ * both sides — hence a fixed mount point rather than a temp dir.
+ */
+const SCRATCH_ROOT = '/pitr-scratch';
+
+/** Volume backing {@link SCRATCH_ROOT}, handed to the throwaway container. */
+const SCRATCH_VOLUME = process.env.PITR_SCRATCH_VOLUME || 'kolaybase_pitr_scratch';
+
+/**
+ * Must match the running cluster: the same major version, and the same
+ * extensions — a data directory that loads `vector` cannot start on an image
+ * that lacks the library.
+ */
+const PITR_POSTGRES_IMAGE =
+  process.env.PITR_POSTGRES_IMAGE || 'pgvector/pgvector:pg16';
+
+/** Debian postgres images run as this uid; the unpacked data dir must match. */
+const POSTGRES_UID = 999;
 
 /** Where the Postgres `archive_command` drops finished WAL segments. */
 const WAL_SPOOL_DIR =
@@ -388,6 +411,188 @@ export class ProjectPitrService {
     }
   }
 
+  // ── Replay ─────────────────────────────────────────────────────────────────
+
+  /** Newest physical base taken at or before `target`, or null if none exists. */
+  private async findClusterBaseBefore(target: Date) {
+    const objects: { name: string; lastModified: Date }[] = await this.storage
+      .listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX)
+      .catch(() => []);
+
+    const byStamp = new Map<string, { name: string; lastModified: Date }[]>();
+    for (const obj of objects) {
+      const stamp = obj.name.slice(CLUSTER_BASE_PREFIX.length).split('/')[0];
+      byStamp.set(stamp, [...(byStamp.get(stamp) ?? []), obj]);
+    }
+
+    let best: { stamp: string; takenAt: Date; files: { name: string; lastModified: Date }[] } | null =
+      null;
+    for (const [stamp, files] of byStamp) {
+      // The base is only consistent once its last file is written.
+      const takenAt = new Date(Math.max(...files.map((f) => f.lastModified.getTime())));
+      if (takenAt.getTime() > target.getTime()) continue;
+      if (!best || takenAt.getTime() > best.takenAt.getTime()) {
+        best = { stamp, takenAt, files };
+      }
+    }
+    return best;
+  }
+
+  private async runInContainer(container: Docker.Container, cmd: string[]) {
+    const exec = await container.exec({
+      Cmd: cmd,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({});
+    let output = '';
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => {
+        // Docker multiplexes stdout/stderr with an 8-byte header per frame.
+        output += chunk.length > 8 ? chunk.subarray(8).toString() : chunk.toString();
+      });
+      stream.on('end', () => resolve());
+      stream.on('error', reject);
+    });
+    const { ExitCode } = await exec.inspect();
+    return { exitCode: ExitCode ?? -1, output: output.trim() };
+  }
+
+  /**
+   * Rebuild the cluster as it was at `target` in a throwaway postgres, then dump
+   * just this project's database out of it.
+   *
+   * Returns the path to that dump, or null when no physical base predates the
+   * target — in which case there is nothing WAL could be replayed onto.
+   */
+  private async replayIntoDump(dbName: string, target: Date): Promise<string | null> {
+    const base = await this.findClusterBaseBefore(target);
+    if (!base) return null;
+
+    const runId = randomUUID().slice(0, 8);
+    const runDir = join(SCRATCH_ROOT, `restore-${runId}`);
+    const dataDir = join(runDir, 'data');
+    const walDir = join(runDir, 'wal');
+    const dumpPath = join(runDir, 'recovered.dump');
+    const fetchScript = join(runDir, 'fetch-wal.sh');
+    const containerName = `bf-pitr-${runId}`;
+    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    let container: Docker.Container | null = null;
+
+    try {
+      await mkdir(dataDir, { recursive: true });
+      await mkdir(walDir, { recursive: true });
+
+      // 1. Unpack the base. pg_basebackup -Ft writes one tar per tablespace,
+      //    plus pg_wal.tar.gz for the segments the base itself needs.
+      for (const file of base.files) {
+        const leaf = file.name.split('/').pop() as string;
+        const localTar = join(runDir, leaf);
+        const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, file.name);
+        await pipeline(stream, createWriteStream(localTar));
+
+        const target_ = leaf.startsWith('pg_wal') ? join(dataDir, 'pg_wal') : dataDir;
+        await mkdir(target_, { recursive: true });
+        await execFileAsync('tar', ['-xzf', localTar, '-C', target_]);
+        await unlink(localTar).catch(() => undefined);
+      }
+
+      // 2. Stage the WAL the replay may need: everything from shortly before the
+      //    base through the target.
+      const walObjects: { name: string; lastModified: Date }[] = await this.storage
+        .listPlatformObjects(PITR_BUCKET, '_cluster/wal/')
+        .catch(() => []);
+      const from = base.takenAt.getTime() - 60 * 60 * 1000;
+      const to = target.getTime() + 60 * 60 * 1000;
+      for (const obj of walObjects) {
+        const at = obj.lastModified.getTime();
+        if (at < from || at > to) continue;
+        const leaf = obj.name.split('/').pop() as string;
+        const { stream } = await this.storage.getPlatformObject(PITR_BUCKET, obj.name);
+        await pipeline(stream, createWriteStream(join(walDir, leaf)));
+      }
+
+      // 3. Recovery configuration. archive_mode is forced off so the throwaway
+      //    can never write into the live WAL archive after it promotes.
+      await writeFile(
+        fetchScript,
+        [
+          '#!/bin/sh',
+          'set -e',
+          `if [ -f "${walDir}/$1.gz" ]; then exec gunzip -c "${walDir}/$1.gz" > "$2"; fi`,
+          `if [ -f "${walDir}/$1" ]; then exec cp "${walDir}/$1" "$2"; fi`,
+          'exit 1',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      await writeFile(
+        join(dataDir, 'postgresql.auto.conf'),
+        [
+          '',
+          `restore_command = '${fetchScript} %f %p'`,
+          `recovery_target_time = '${target.toISOString()}'`,
+          "recovery_target_action = 'promote'",
+          'archive_mode = off',
+          "archive_command = ''",
+          '',
+        ].join('\n'),
+        { flag: 'a' },
+      );
+      await writeFile(join(dataDir, 'recovery.signal'), '');
+      // The throwaway has no network, so trusting local connections is contained
+      // and avoids depending on whatever pg_hba the base happened to carry.
+      await writeFile(join(dataDir, 'pg_hba.conf'), 'local all all trust\n');
+      await execFileAsync('chown', ['-R', `${POSTGRES_UID}:${POSTGRES_UID}`, runDir]);
+      await execFileAsync('chmod', ['700', dataDir]);
+
+      // 4. Start it and let recovery replay up to the target.
+      container = await docker.createContainer({
+        Image: PITR_POSTGRES_IMAGE,
+        name: containerName,
+        Env: [`PGDATA=${dataDir}`, 'POSTGRES_PASSWORD=unused'],
+        User: `${POSTGRES_UID}:${POSTGRES_UID}`,
+        HostConfig: {
+          Binds: [`${SCRATCH_VOLUME}:${SCRATCH_ROOT}`],
+          NetworkMode: 'none',
+        },
+      } as Docker.ContainerCreateOptions);
+      await container.start();
+
+      // Recovery is finished once the server has promoted out of it.
+      const owner = process.env.POSTGRES_USER || 'postgres';
+      let promoted = false;
+      for (let attempt = 0; attempt < 180 && !promoted; attempt++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const probe = await this.runInContainer(container, [
+          'psql', '-U', owner, '-d', 'postgres', '-tAc', 'select pg_is_in_recovery()',
+        ]).catch(() => ({ exitCode: -1, output: '' }));
+        promoted = probe.exitCode === 0 && probe.output.includes('f');
+      }
+      if (!promoted) {
+        throw new Error('recovery did not reach the requested time within 15 minutes');
+      }
+
+      // 5. Lift this project's database out of the recovered cluster.
+      const dumped = await this.runInContainer(container, [
+        'pg_dump', '-U', owner, '-d', dbName,
+        '--format=custom', '--no-owner', '--no-acl', '-f', dumpPath,
+      ]);
+      if (dumped.exitCode !== 0) {
+        throw new Error(`could not dump the recovered database: ${dumped.output}`);
+      }
+
+      return dumpPath;
+    } catch (err) {
+      await rm(runDir, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    } finally {
+      if (container) {
+        await container.remove({ force: true }).catch(() => undefined);
+      }
+    }
+  }
+
   // ── Restore ────────────────────────────────────────────────────────────────
 
   /**
@@ -411,6 +616,58 @@ export class ProjectPitrService {
       throw new BadRequestException('targetTime cannot be in the future');
     }
 
+    // True point-in-time recovery: replay archived WAL onto a physical base so
+    // the result is the database as of this instant, not as of a nightly dump.
+    const recoveredDump = await this.replayIntoDump(project.dbName, target);
+    if (recoveredDump) {
+      try {
+        await execFileAsync(
+          'pg_restore',
+          [
+            '--host', project.dbHost || 'postgres',
+            '--port', String(project.dbPort || 5432),
+            '--username', project.dbUser,
+            '--dbname', project.dbName,
+            '--clean',
+            '--if-exists',
+            '--no-owner',
+            '--no-acl',
+            recoveredDump,
+          ],
+          {
+            env: {
+              ...process.env,
+              PGPASSWORD: project.dbPassword || '',
+              PGCONNECT_TIMEOUT: '10',
+            },
+            maxBuffer: 1024 * 1024 * 64,
+          },
+        );
+      } finally {
+        await rm(join(recoveredDump, '..'), { recursive: true, force: true }).catch(
+          () => undefined,
+        );
+      }
+
+      await this.activity.append(projectId, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_PITR_RESTORED,
+        title: 'Database recovered to a point in time',
+        detail: `Replayed to ${target.toISOString()}`,
+        metadata: { targetTime: target.toISOString(), method: 'wal-replay' },
+      });
+      this.logger.log(`Project ${projectId} replayed to ${target.toISOString()}`);
+
+      return {
+        restoredTo: target.toISOString(),
+        exact: true,
+        message: 'Database recovered to the requested point in time',
+      };
+    }
+
+    // No physical base covers that instant, so WAL has nothing to replay onto.
+    // Fall back to the nearest daily snapshot and say so plainly rather than
+    // implying the exact moment was reached.
     const window = await this.getRecoveryWindow(projectId, userId);
     if (!window.earliest) {
       throw new BadRequestException(
@@ -489,9 +746,13 @@ export class ProjectPitrService {
       );
 
       return {
-        restoredTo: target.toISOString(),
+        restoredTo: base.lastModified.toISOString(),
+        exact: false,
         baseBackupTaken: base.lastModified.toISOString(),
-        message: 'Database restored to the requested point in time',
+        message:
+          `No continuous backup covers ${target.toISOString()} yet, so the database was ` +
+          `restored to the nearest snapshot, taken ${base.lastModified.toISOString()}. ` +
+          `Changes made after that snapshot are not included.`,
       };
     } finally {
       await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
