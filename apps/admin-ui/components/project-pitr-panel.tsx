@@ -59,6 +59,13 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
 
   const ready = !!window?.earliest;
 
+  // Before the first physical base there is nothing to replay onto, so a target
+  // that early lands on the nearest snapshot instead of the exact instant.
+  const approximate =
+    !!target &&
+    (!window?.continuousFrom ||
+      new Date(target).getTime() < new Date(window.continuousFrom).getTime());
+
   async function submitRestore() {
     if (confirmText.trim().toUpperCase() !== 'RESTORE') {
       toast.error('Type "RESTORE" to confirm');
@@ -68,7 +75,13 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
     try {
       const iso = new Date(target).toISOString();
       const res = await api.projects.restoreToTimestamp(projectId, iso);
-      toast.success(`Database recovered to ${new Date(res.restoredTo).toLocaleString()}`);
+      // The server says when it could not reach the exact instant; surfacing its
+      // message keeps a snapshot restore from looking like a precise one.
+      if (res.exact === false) {
+        toast.warning(res.message);
+      } else {
+        toast.success(`Database recovered to ${new Date(res.restoredTo).toLocaleString()}`);
+      }
       setConfirmOpen(false);
       setConfirmText('');
       load();
@@ -105,10 +118,18 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border bg-muted/30 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Earliest</p>
               <p className="text-sm font-medium">{fmt(window!.earliest)}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Exact from
+              </p>
+              <p className="text-sm font-medium">
+                {window!.continuousFrom ? fmt(window!.continuousFrom) : 'Not yet'}
+              </p>
             </div>
             <div className="rounded-lg border bg-muted/30 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Latest</p>
@@ -145,6 +166,14 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
               Recover
             </Button>
           </div>
+
+          {approximate && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              {window!.continuousFrom
+                ? `Exact recovery reaches back to ${fmt(window!.continuousFrom)}. An earlier time cannot be reconstructed precisely, so the database would be restored to the nearest snapshot instead.`
+                : 'No continuous backup exists yet, so the database would be restored to the nearest snapshot rather than the exact time you pick. The first one is taken tonight.'}
+            </p>
+          )}
 
           <p className="text-xs text-muted-foreground">
             {window!.baseBackupCount} base backup{window!.baseBackupCount === 1 ? '' : 's'} ·{' '}

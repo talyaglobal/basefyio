@@ -829,6 +829,12 @@ export interface PitrRecoveryWindow {
   earliest: string | null;
   /** Newest reachable timestamp — how current the shipped change log is. */
   latest: string | null;
+  /**
+   * Oldest instant that can be reconstructed exactly. Earlier than this only
+   * whole snapshots exist, so a restore lands on the nearest one. Null until the
+   * first physical base backup is taken.
+   */
+  continuousFrom: string | null;
   baseBackupCount: number;
   walSegmentCount: number;
   retentionDays: number;

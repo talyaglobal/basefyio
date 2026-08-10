@@ -883,7 +883,13 @@ export const api = {
     },
     /** Recover the project database to an exact instant inside the window. */
     restoreToTimestamp(projectId: string, targetTime: string) {
-      return request<{ restoredTo: string; baseBackupTaken: string; message: string }>(
+      return request<{
+        restoredTo: string;
+        /** False when only a snapshot was available, so restoredTo is not the time you asked for. */
+        exact?: boolean;
+        baseBackupTaken?: string;
+        message: string;
+      }>(
         `/projects/${projectId}/pitr/restore`,
         { method: 'POST', body: JSON.stringify({ targetTime }) },
       );

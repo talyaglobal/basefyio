@@ -79,6 +79,12 @@ export interface RecoveryWindow {
   earliest: string | null;
   /** Newest reachable timestamp — how current the shipped WAL is. */
   latest: string | null;
+  /**
+   * Oldest instant a true replay can reconstruct exactly. Before this point only
+   * whole snapshots exist, so a restore lands on the nearest one instead of the
+   * requested moment. Null until the first physical base backup is taken.
+   */
+  continuousFrom: string | null;
   baseBackupCount: number;
   walSegmentCount: number;
   retentionDays: number;
@@ -136,19 +142,26 @@ export class ProjectPitrService {
   async getRecoveryWindow(projectId: string, userId: string): Promise<RecoveryWindow> {
     await this.assertMember(projectId, userId);
 
-    const [bases, wal] = await Promise.all([
+    const [bases, wal, clusterBases] = await Promise.all([
       this.storage
         .listPlatformObjects(PITR_BUCKET, `${projectId}/base/`)
         .catch(() => []),
-      this.storage
-        .listPlatformObjects(PITR_BUCKET, `${projectId}/wal/`)
-        .catch(() => []),
+      // WAL is archived per cluster, not per project — the old per-project
+      // prefix never matched anything, so this always reported zero segments.
+      this.storage.listPlatformObjects(PITR_BUCKET, '_cluster/wal/').catch(() => []),
+      this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX).catch(() => []),
     ]);
+
+    // Exact replay can only reach back to the oldest physical base.
+    const continuousFrom = clusterBases.length
+      ? new Date(Math.min(...clusterBases.map((b) => b.lastModified.getTime()))).toISOString()
+      : null;
 
     if (bases.length === 0) {
       return {
         earliest: null,
         latest: null,
+        continuousFrom,
         baseBackupCount: 0,
         walSegmentCount: wal.length,
         retentionDays: RECOVERY_WINDOW_DAYS,
@@ -165,6 +178,7 @@ export class ProjectPitrService {
     return {
       earliest: new Date(baseTimes[0]).toISOString(),
       latest: new Date(newestWal).toISOString(),
+      continuousFrom,
       baseBackupCount: bases.length,
       walSegmentCount: wal.length,
       retentionDays: RECOVERY_WINDOW_DAYS,
