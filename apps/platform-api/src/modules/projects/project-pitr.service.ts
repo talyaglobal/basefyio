@@ -33,6 +33,20 @@ const PITR_BUCKET = 'bf-platform-pitr';
  */
 const RECOVERY_WINDOW_DAYS = 7;
 
+/**
+ * Physical cluster base backups. WAL can only be replayed onto a physical copy
+ * of the data directory — a `pg_dump` is logical and cannot anchor recovery — so
+ * these are what make true point-in-time restore possible.
+ */
+const CLUSTER_BASE_PREFIX = '_cluster/base/';
+
+/**
+ * How many physical bases to keep. Each is a full copy of the cluster, so this
+ * is bounded by disk rather than by the recovery window, and it sets how far
+ * back a real replay can reach.
+ */
+const CLUSTER_BASE_RETAIN = 3;
+
 /** Where the Postgres `archive_command` drops finished WAL segments. */
 const WAL_SPOOL_DIR =
   process.env.POSTGRES_WAL_ARCHIVE_DIR || '/var/lib/postgresql/wal_archive';
@@ -137,6 +151,80 @@ export class ProjectPitrService {
   // ── Base backups ───────────────────────────────────────────────────────────
 
   /** Daily physical base backup for every active relational project. */
+  /**
+   * Take a physical copy of the whole cluster. WAL replay needs this: archived
+   * segments are block-level changes that only apply to a physical data
+   * directory, never to a logical dump. One base covers every project, because
+   * projects are databases inside a single cluster.
+   */
+  private async captureClusterBaseBackup() {
+    const workDir = await mkdtemp(join(tmpdir(), 'pitr-cluster-'));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    try {
+      await execFileAsync(
+        'pg_basebackup',
+        [
+          '--host', process.env.POSTGRES_HOST || 'postgres',
+          '--port', process.env.POSTGRES_PORT || '5432',
+          '--username', process.env.POSTGRES_USER || 'postgres',
+          '--pgdata', workDir,
+          '--format=tar',
+          '--gzip',
+          // Collect the WAL the base itself needs, so recovery can start from it
+          // even if the archive is briefly behind.
+          '--wal-method=fetch',
+          // Force an immediate checkpoint rather than waiting for a spread one.
+          '--checkpoint=fast',
+          '--no-password',
+        ],
+        {
+          env: {
+            ...process.env,
+            PGPASSWORD: process.env.POSTGRES_PASSWORD || '',
+            PGCONNECT_TIMEOUT: '10',
+          },
+          maxBuffer: 1024 * 1024 * 16,
+        },
+      );
+
+      for (const file of await readdir(workDir)) {
+        await this.storage.uploadPlatformFileFromPath(
+          PITR_BUCKET,
+          `${CLUSTER_BASE_PREFIX}${stamp}/${file}`,
+          join(workDir, file),
+        );
+      }
+      this.logger.log(`PITR cluster base backup stored (${stamp})`);
+    } finally {
+      await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Physical bases are retained by count, not by age: each one is a full copy of
+   * the cluster, so keeping a week of them would cost far more disk than the
+   * recovery window is worth.
+   */
+  private async pruneClusterBases() {
+    const objects = await this.storage
+      .listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX)
+      .catch(() => []);
+
+    const stamps = [
+      ...new Set(
+        objects.map((o) => o.name.slice(CLUSTER_BASE_PREFIX.length).split('/')[0]),
+      ),
+    ].sort();
+
+    for (const stamp of stamps.slice(0, Math.max(0, stamps.length - CLUSTER_BASE_RETAIN))) {
+      for (const obj of objects.filter((o) =>
+        o.name.startsWith(`${CLUSTER_BASE_PREFIX}${stamp}/`),
+      )) {
+        await this.storage.removePlatformObject(PITR_BUCKET, obj.name).catch(() => undefined);
+      }
+    }
+  }
+
   @Cron('0 2 * * *')
   async runDailyBaseBackups() {
     const projects = await this.prisma.project.findMany({
@@ -153,6 +241,14 @@ export class ProjectPitrService {
       },
     });
 
+    // The physical cluster base comes first — it is what WAL replays onto, and
+    // it covers every project at once.
+    try {
+      await this.captureClusterBaseBackup();
+    } catch (err: any) {
+      this.logger.error(`PITR cluster base backup failed: ${err.message}`);
+    }
+
     for (const project of projects) {
       try {
         await this.captureBaseBackup(project);
@@ -164,6 +260,7 @@ export class ProjectPitrService {
     }
 
     await this.pruneExpired();
+    await this.pruneClusterBases();
   }
 
   private async captureBaseBackup(project: {
@@ -280,6 +377,9 @@ export class ProjectPitrService {
       .catch(() => []);
 
     for (const obj of objects) {
+      // Physical bases are retained by count instead — pruneClusterBases owns
+      // them, so ageing one out here would silently shorten the replay reach.
+      if (obj.name.startsWith(CLUSTER_BASE_PREFIX)) continue;
       if (obj.lastModified.getTime() >= cutoff) continue;
       await this.storage
         .removePlatformObject(PITR_BUCKET, obj.name)
