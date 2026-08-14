@@ -34,10 +34,17 @@ export class ApiKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const apiKey = request.headers['apikey'];
+    const headerKey = request.headers['apikey'];
+    // A browser following a link — an email verification button, an EventSource
+    // subscription — cannot set headers, so the key may arrive in the query
+    // string instead. Only the anon key is honoured there (checked below), since
+    // URLs end up in logs, history and referrers.
+    const queryKey =
+      typeof request.query?.apikey === 'string' ? request.query.apikey : undefined;
+    const apiKey = headerKey || queryKey;
 
     if (!apiKey) {
-      throw new UnauthorizedException('Missing apikey header');
+      throw new UnauthorizedException('Missing apikey');
     }
 
     const project = await this.prisma.project.findFirst({
@@ -53,6 +60,13 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     const isService = project.serviceKey === apiKey;
+
+    // The service key bypasses RLS, so it must never be accepted from a URL.
+    if (!headerKey && isService) {
+      throw new UnauthorizedException(
+        'The service key must be sent in the apikey header, not the query string',
+      );
+    }
     let dbRole: PgRequestRole = isService ? 'service_role' : 'anon';
     let jwtClaims: Record<string, unknown> | undefined;
 

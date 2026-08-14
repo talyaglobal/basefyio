@@ -55,13 +55,59 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.verifyEmail(projectId, body.otp);
   }
 
+  /**
+   * Target of the "Verify Email" button in the signup mail. A person opens this
+   * in a browser, so it answers with a page rather than the JSON the SDK routes
+   * return, and the key rides in the query string because a link cannot set
+   * headers (the guard only honours the anon key there).
+   */
   @Get('verify-email-callback')
   async verifyEmailCallback(
     @Req() req: Request,
     @Query('otp') otp: string,
+    @Res() res: Response,
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.verifyEmail(projectId, otp);
+    try {
+      await this.sdkAuth.verifyEmail(projectId, otp);
+      res.type('html').send(
+        this.resultPage(
+          'Email verified',
+          'Your address is confirmed. You can close this tab and sign in.',
+          true,
+        ),
+      );
+    } catch (err: any) {
+      res
+        .status(400)
+        .type('html')
+        .send(
+          this.resultPage(
+            'Verification failed',
+            err?.message || 'This link is no longer valid. Request a new one and try again.',
+            false,
+          ),
+        );
+    }
+  }
+
+  /** Minimal self-contained confirmation page — no assets to fetch. */
+  private resultPage(title: string, detail: string, ok: boolean): string {
+    const accent = ok ? '#0d9488' : '#dc2626';
+    const mark = ok ? '&#10003;' : '&#33;';
+    return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title></head>
+<body style="margin:0;background:#f8fafc;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;">
+  <div style="max-width:420px;margin:12vh auto;padding:32px;background:#fff;border-radius:16px;
+              box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;">
+    <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;
+                background:${accent}1a;color:${accent};font-size:28px;line-height:56px;">${mark}</div>
+    <h1 style="margin:0 0 10px;font-size:20px;color:#0f172a;">${title}</h1>
+    <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">${detail}</p>
+  </div>
+</body></html>`;
   }
 
   @Post('forgot-password')
