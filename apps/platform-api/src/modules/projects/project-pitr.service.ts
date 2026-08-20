@@ -42,6 +42,9 @@ const RECOVERY_WINDOW_DAYS = 7;
  */
 const CLUSTER_BASE_PREFIX = '_cluster/base/';
 
+/** Archived WAL, shipped per cluster rather than per project. */
+const CLUSTER_WAL_PREFIX = '_cluster/wal/';
+
 /**
  * How many physical bases to keep. Each is a full copy of the cluster, so this
  * is bounded by disk rather than by the recovery window, and it sets how far
@@ -148,7 +151,7 @@ export class ProjectPitrService {
         .catch(() => []),
       // WAL is archived per cluster, not per project — the old per-project
       // prefix never matched anything, so this always reported zero segments.
-      this.storage.listPlatformObjects(PITR_BUCKET, '_cluster/wal/').catch(() => []),
+      this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX).catch(() => []),
       this.storage.listPlatformObjects(PITR_BUCKET, CLUSTER_BASE_PREFIX).catch(() => []),
     ]);
 
@@ -418,7 +421,7 @@ export class ProjectPitrService {
 
         await this.storage.uploadPlatformFileFromPath(
           PITR_BUCKET,
-          `_cluster/wal/${preCompressed ? name : `${name}.gz`}`,
+          `${CLUSTER_WAL_PREFIX}${preCompressed ? name : `${name}.gz`}`,
           staged ?? path,
         );
         // Only drop the local copy once object storage has the segment.
@@ -434,15 +437,29 @@ export class ProjectPitrService {
   /** Drop base backups and WAL that have aged out of the recovery window. */
   private async pruneExpired() {
     const cutoff = Date.now() - RECOVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    const objects = await this.storage
+    // Annotated because the empty fallback would otherwise infer as never[].
+    const objects: { name: string; lastModified: Date }[] = await this.storage
       .listPlatformObjects(PITR_BUCKET, '')
       .catch(() => []);
+
+    // WAL is only worth keeping while a physical base exists to replay it onto,
+    // and bases are retained by count rather than by age. Segments older than the
+    // oldest base can never be replayed, so they go regardless of the window —
+    // otherwise the archive keeps days of WAL that nothing can use. (That gap
+    // alone was holding ~5 GB of dead segments on production.)
+    const baseTimes = objects
+      .filter((o) => o.name.startsWith(CLUSTER_BASE_PREFIX))
+      .map((o) => o.lastModified.getTime());
+    const walCutoff = baseTimes.length
+      ? Math.max(cutoff, Math.min(...baseTimes) - 60 * 60 * 1000)
+      : cutoff;
 
     for (const obj of objects) {
       // Physical bases are retained by count instead — pruneClusterBases owns
       // them, so ageing one out here would silently shorten the replay reach.
       if (obj.name.startsWith(CLUSTER_BASE_PREFIX)) continue;
-      if (obj.lastModified.getTime() >= cutoff) continue;
+      const limit = obj.name.startsWith(CLUSTER_WAL_PREFIX) ? walCutoff : cutoff;
+      if (obj.lastModified.getTime() >= limit) continue;
       await this.storage
         .removePlatformObject(PITR_BUCKET, obj.name)
         .catch(() => undefined);
@@ -541,7 +558,7 @@ export class ProjectPitrService {
       // 2. Stage the WAL the replay may need: everything from shortly before the
       //    base through the target.
       const walObjects: { name: string; lastModified: Date }[] = await this.storage
-        .listPlatformObjects(PITR_BUCKET, '_cluster/wal/')
+        .listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX)
         .catch(() => []);
       const from = base.takenAt.getTime() - 60 * 60 * 1000;
       const to = target.getTime() + 60 * 60 * 1000;
