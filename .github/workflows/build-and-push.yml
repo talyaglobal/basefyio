@@ -77,5 +77,10 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
 
             # ── Cleanup ──
+            # Three images are built on the host every deploy and BuildKit keeps
+            # each intermediate layer, so "image prune" alone leaves the cache
+            # behind — a handful of deploys was enough to take the disk past 90%.
             docker image prune -f
+            docker builder prune -af
+            df -h / | tail -1
             echo "=== Deploy complete ==="
