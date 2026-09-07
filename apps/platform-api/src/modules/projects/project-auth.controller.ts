@@ -8,6 +8,7 @@ import {
   Get,
   HttpException,
   Injectable,
+  Logger,
   NestInterceptor,
   Post,
   Put,
@@ -34,6 +35,8 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 
+const logger = new Logger('ProjectAuth');
+
 /**
  * Every route here talks to Keycloak, and a raw client failure surfaces in the
  * dashboard as "Internal server error" — which tells the operator nothing and
@@ -49,12 +52,21 @@ export class KeycloakFailureInterceptor implements NestInterceptor {
         if (err instanceof HttpException) return throwError(() => err);
 
         const status = err?.response?.status ?? err?.responseData?.status ?? err?.status;
+        // The Keycloak client reports "Network response was not OK" for every
+        // non-2xx reply, a plain 400 included, so that text alone cannot mean the
+        // server is unreachable. When it gave us a status, trust the status; only
+        // fall back to the message when there is none (a genuine transport fault).
         const unreachable =
           status >= 500 ||
-          /Network response was not OK|ECONNREFUSED|ETIMEDOUT|socket hang up/i.test(
-            err?.message || '',
-          );
+          (!status &&
+            /Network response was not OK|ECONNREFUSED|ETIMEDOUT|socket hang up/i.test(
+              err?.message || '',
+            ));
         if (unreachable) {
+          // Keep the original around; the translated message loses the cause.
+          logger.error(
+            `Keycloak unreachable: status=${status ?? 'n/a'} ${err?.message ?? ''}`,
+          );
           return throwError(
             () =>
               new BadGatewayException(
@@ -64,18 +76,23 @@ export class KeycloakFailureInterceptor implements NestInterceptor {
         }
 
         // Keycloak refused the request for a reason it can state — repeating
-        // that beats a blank 500.
+        // that beats a blank 500. Its own text ("Network response was not OK")
+        // is useless to an operator, so prefer the errorMessage it returns.
         if (status >= 400) {
+          const reason =
+            err?.responseData?.errorMessage ||
+            err?.responseData?.error_description ||
+            err?.responseData?.error;
+          logger.warn(`Keycloak rejected the request (${status}): ${reason ?? err?.message}`);
           return throwError(
             () =>
               new HttpException(
-                err?.responseData?.errorMessage ||
-                  err?.message ||
-                  'The authentication service rejected the request.',
+                reason || 'The authentication service rejected the request.',
                 status,
               ),
           );
         }
+        logger.error(`Unexpected auth failure: ${err?.message ?? err}`);
         return throwError(() => err);
       }),
     );
@@ -145,32 +162,13 @@ export class ProjectAuthController {
     private readonly activity: ProjectActivityService,
   ) {}
 
-  /**
-   * Wrap a Keycloak admin call so a broken/unhealthy realm surfaces as a clean
-   * 502 (not a raw 500). A corrupt realm — every admin op returning 500 — must
-   * not melt the dashboard's auth page with an uncaught error.
-   */
-  private async kc<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      return await fn();
-    } catch (e: any) {
-      const status = e?.response?.status ?? e?.responseData?.status ?? e?.status;
-      if (status >= 500 || /Network response was not OK/i.test(e?.message || '')) {
-        throw new BadGatewayException(
-          "This project's authentication service is currently unavailable (realm error). The realm may need to be repaired or recreated.",
-        );
-      }
-      throw e;
-    }
-  }
-
   @Get()
   async getRealmInfo(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.kc(() => this.keycloak.getRealmInfo(project.keycloakRealm));
+    return this.keycloak.getRealmInfo(project.keycloakRealm);
   }
 
   @Get('users')
@@ -179,7 +177,7 @@ export class ProjectAuthController {
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.kc(() => this.keycloak.listUsers(project.keycloakRealm));
+    return this.keycloak.listUsers(project.keycloakRealm);
   }
 
   @Get('users/:userId')
