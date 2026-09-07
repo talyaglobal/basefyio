@@ -1,9 +1,14 @@
 import {
   BadRequestException,
   BadGatewayException,
+  CallHandler,
   ConflictException,
   Controller,
+  ExecutionContext,
   Get,
+  HttpException,
+  Injectable,
+  NestInterceptor,
   Post,
   Put,
   Patch,
@@ -11,7 +16,10 @@ import {
   Param,
   Body,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@nestjs/config';
 import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
@@ -25,6 +33,54 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+
+/**
+ * Every route here talks to Keycloak, and a raw client failure surfaces in the
+ * dashboard as "Internal server error" — which tells the operator nothing and
+ * looks the same as a bug in our own code. Translate those failures in one
+ * place, so a newly added route cannot forget to. Deliberate HttpExceptions
+ * (400/404/409…) pass through untouched.
+ */
+@Injectable()
+export class KeycloakFailureInterceptor implements NestInterceptor {
+  intercept(_ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
+    return next.handle().pipe(
+      catchError((err: any) => {
+        if (err instanceof HttpException) return throwError(() => err);
+
+        const status = err?.response?.status ?? err?.responseData?.status ?? err?.status;
+        const unreachable =
+          status >= 500 ||
+          /Network response was not OK|ECONNREFUSED|ETIMEDOUT|socket hang up/i.test(
+            err?.message || '',
+          );
+        if (unreachable) {
+          return throwError(
+            () =>
+              new BadGatewayException(
+                "This project's authentication service is currently unavailable (realm error). The realm may need to be repaired or recreated.",
+              ),
+          );
+        }
+
+        // Keycloak refused the request for a reason it can state — repeating
+        // that beats a blank 500.
+        if (status >= 400) {
+          return throwError(
+            () =>
+              new HttpException(
+                err?.responseData?.errorMessage ||
+                  err?.message ||
+                  'The authentication service rejected the request.',
+                status,
+              ),
+          );
+        }
+        return throwError(() => err);
+      }),
+    );
+  }
+}
 
 const OAUTH_PROVIDERS = [
   'google',
@@ -79,6 +135,7 @@ function parsePasswordPolicy(s: string) {
 
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
+@UseInterceptors(KeycloakFailureInterceptor)
 export class ProjectAuthController {
   constructor(
     private readonly projectsService: ProjectsService,
