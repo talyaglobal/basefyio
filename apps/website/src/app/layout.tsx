@@ -5,6 +5,7 @@ import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GoogleAnalytics } from "@/components/google-analytics";
+import { DataFastAnalytics } from "@/components/datafast-analytics";
 import { SiteJsonLd } from "@/components/site-json-ld";
 import { getSiteUrlFromRequest } from "@/lib/site-url";
 import "./globals.css";
@@ -91,6 +92,7 @@ export default function RootLayout({
         className="font-sans antialiased min-h-screen bg-background text-foreground"
       >
         <GoogleAnalytics />
+        <DataFastAnalytics />
         <ThemeProvider>
           <SiteJsonLd />
           {children}
