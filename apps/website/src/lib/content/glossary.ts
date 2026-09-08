@@ -55,15 +55,15 @@ export const GLOSSARY: GlossaryTerm[] = [
       "A key advantage of REST is caching: GET responses cache at the browser, CDN, and proxy layers with no extra work. This makes REST APIs fast and scalable for read-heavy workloads.",
       "Modern REST APIs can be generated directly from a database schema, adding filtering, ordering, pagination, and related-resource embedding without hand-written controllers.",
     ],
-    related: ["rest-api", "crud", "api-key", "webhook"],
+    related: ["auto-generated-rest-api", "crud", "api-key", "webhook"],
     seeAlso: [
-      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
   {
-    slug: "rest-api",
+    slug: "auto-generated-rest-api",
     term: "Auto-generated REST API",
     definition:
       "An auto-generated REST API turns a database directly into a RESTful API, generating endpoints from your schema and enforcing access with database permissions.",
@@ -74,7 +74,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["rest-api", "row-level-security", "database-schema", "crud"],
     seeAlso: [
-      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
@@ -92,7 +92,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["multi-tenancy", "rest-api", "acid-transactions", "database-schema"],
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
-      { label: "Row-level security: a practical guide", href: "/blog/row-level-security-guide" },
+      { label: "Row-level security: a practical guide", href: "/blog/postgresql-row-level-security-guide" },
     ],
   },
   {

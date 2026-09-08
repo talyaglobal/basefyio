@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "seo:check": "node scripts/check-seo-links.mjs",
     "seo:new": "node scripts/new-content.mjs",
     "new:post": "node scripts/new-content.mjs blog",
     "new:compare": "node scripts/new-content.mjs compare",
