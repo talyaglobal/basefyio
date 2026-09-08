@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { CreditCard } from 'lucide-react';
-import { parseJwt, getAccessToken, getRefreshToken, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
+import { parseJwt, getAccessToken, getRefreshToken, setRootMarker, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { UserInfo, UserProfile, Team } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -301,6 +301,13 @@ export default function DashboardLayout({
   const refreshProfile = useCallback(() => {
     api.auth.getProfile().then(setProfile).catch(() => {});
   }, []);
+
+  // Mirror ROOT status into a root-domain cookie so basefyio.com can show the
+  // Admin link in its footer. Purely a UI hint; the routes stay API-gated.
+  useEffect(() => {
+    if (!profile) return;
+    setRootMarker(profile.role === 'ROOT');
+  }, [profile]);
 
   const refreshTeams = useCallback(() => {
     setRefreshKey((k) => k + 1);

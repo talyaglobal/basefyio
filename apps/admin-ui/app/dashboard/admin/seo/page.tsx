@@ -108,10 +108,10 @@ export default function SeoManagerPage() {
     <div className="mx-auto max-w-5xl space-y-5 p-6">
       <div className="flex items-center justify-between">
         <button
-          onClick={() => router.push('/dashboard/management')}
+          onClick={() => router.push('/dashboard/admin')}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" /> Management
+          <ArrowLeft className="h-4 w-4" /> Admin
         </button>
         <Button variant="outline" size="sm" onClick={runAudit} disabled={loading}>
           {loading ? (
@@ -131,10 +131,10 @@ export default function SeoManagerPage() {
             Audits the live site the way a crawler sees it — no Search Console or paid research
             account required. For click and impression data, see{' '}
             <Link
-              href="/dashboard/management"
+              href="/dashboard/admin"
               className="underline underline-offset-2 hover:text-foreground"
             >
-              Management → Search Console
+              Admin → Search Console
             </Link>
             .
           </p>

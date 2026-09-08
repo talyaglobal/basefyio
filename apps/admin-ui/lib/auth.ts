@@ -5,6 +5,7 @@ const TOKEN_KEY = 'basefyio_access_token';
 const REFRESH_KEY = 'basefyio_refresh_token';
 const ID_TOKEN_KEY = 'basefyio_id_token';
 const AUTH_MARKER_KEY = 'basefyio_logged_in';
+const ROOT_MARKER_KEY = 'basefyio_root';
 const FORCE_PASSWORD_CHANGE_KEY = 'basefyio_force_password_change';
 
 /** Root domain for cross-subdomain cookies (e.g. `.basefyio.com`). */
@@ -71,6 +72,28 @@ export function setTokens(tokens: AuthTokens) {
   }
 }
 
+/**
+ * Cross-subdomain marker for ROOT accounts, so basefyio.com can show the Admin
+ * link in its footer without being able to read the session itself. It is only
+ * a UI hint — every admin route is still gated by the API.
+ */
+export function setRootMarker(isRoot: boolean) {
+  if (typeof window === 'undefined') return;
+  const rootDomain = getRootDomain();
+  const isSecure = window.location.protocol === 'https:';
+  if (isRoot) {
+    Cookies.set(ROOT_MARKER_KEY, '1', {
+      expires: 30,
+      sameSite: 'lax',
+      path: '/',
+      ...(rootDomain ? { domain: rootDomain } : {}),
+      ...(isSecure ? { secure: true } : {}),
+    });
+  } else {
+    Cookies.remove(ROOT_MARKER_KEY, { path: '/', ...(rootDomain ? { domain: rootDomain } : {}) });
+  }
+}
+
 export function clearTokens() {
   const storage = getStorage();
   storage?.removeItem(TOKEN_KEY);
@@ -80,6 +103,7 @@ export function clearTokens() {
   Cookies.remove(REFRESH_KEY, { path: '/' });
   const rootDomain = getRootDomain();
   Cookies.remove(AUTH_MARKER_KEY, { path: '/', ...(rootDomain ? { domain: rootDomain } : {}) });
+  Cookies.remove(ROOT_MARKER_KEY, { path: '/', ...(rootDomain ? { domain: rootDomain } : {}) });
   Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });
 }
 

@@ -15,6 +15,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MessageSquareText,
+  Megaphone,
   Rocket,
   Search,
   Sparkles,
@@ -99,30 +100,61 @@ const ALL_NAV_ITEMS: NavItem[] = [
 
 const ROOT_NAV_ITEMS: NavItem[] = [
   {
-    href: '/dashboard/management',
-    label: 'Management',
+    href: '/dashboard/admin',
+    label: 'Admin',
     icon: ShieldCheck,
-    isActive: (p) => p === '/dashboard/management',
+    isActive: (p) => p === '/dashboard/admin',
   },
   {
-    href: '/dashboard/management/gamification',
+    href: '/dashboard/admin/gamification',
     label: 'Gamification',
     icon: Trophy,
-    isActive: (p) => p.startsWith('/dashboard/management/gamification'),
+    isActive: (p) => p.startsWith('/dashboard/admin/gamification'),
   },
   {
-    href: '/dashboard/management/go-to-market',
+    href: '/dashboard/admin/go-to-market',
     label: 'Go-To-Market',
     icon: Rocket,
-    isActive: (p) => p.startsWith('/dashboard/management/go-to-market'),
+    isActive: (p) => p.startsWith('/dashboard/admin/go-to-market'),
   },
   {
-    href: '/dashboard/management/seo',
+    href: '/dashboard/admin/seo',
     label: 'SEO Manager',
     icon: Search,
-    isActive: (p) => p.startsWith('/dashboard/management/seo'),
+    isActive: (p) => p.startsWith('/dashboard/admin/seo'),
+  },
+  {
+    href: '/dashboard/admin/marketing-agency',
+    label: 'Marketing Agency',
+    icon: Megaphone,
+    isActive: (p) => p.startsWith('/dashboard/admin/marketing-agency'),
   },
 ];
+
+function renderNavLink(
+  { href, label, icon: Icon, isActive }: NavItem,
+  pathname: string,
+  collapsed: boolean,
+) {
+  const active = isActive(pathname);
+  return (
+    <Link
+      key={href}
+      href={href}
+      title={collapsed ? label : undefined}
+      className={cn(
+        'flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors',
+        active
+          ? 'bg-muted font-medium text-foreground'
+          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        collapsed && 'justify-center px-0',
+      )}
+    >
+      <Icon className={cn('h-4 w-4 shrink-0', active && 'text-foreground')} />
+      {!collapsed && <span className="truncate">{label}</span>}
+    </Link>
+  );
+}
 
 export function DashboardSidebar({
   activeTeamId,
@@ -198,7 +230,10 @@ export function DashboardSidebar({
 
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
-  const items = isRoot ? [...ALL_NAV_ITEMS, ...ROOT_NAV_ITEMS] : ALL_NAV_ITEMS;
+  const items = ALL_NAV_ITEMS;
+  // Root-only entries live in their own group pinned to the bottom of the nav,
+  // so "Admin" always sits below the regular navigation.
+  const rootItems = isRoot ? ROOT_NAV_ITEMS : [];
 
   async function switchTeam(teamId: string) {
     try {
@@ -229,26 +264,13 @@ export function DashboardSidebar({
     >
 
       <nav className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
-        {items.map(({ href, label, icon: Icon, isActive }) => {
-          const active = isActive(pathname);
-          return (
-            <Link
-              key={href}
-              href={href}
-              title={collapsed ? label : undefined}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors',
-                active
-                  ? 'bg-muted font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                collapsed && 'justify-center px-0',
-              )}
-            >
-              <Icon className={cn('h-4 w-4 shrink-0', active && 'text-foreground')} />
-              {!collapsed && <span className="truncate">{label}</span>}
-            </Link>
-          );
-        })}
+        {items.map((item) => renderNavLink(item, pathname, collapsed))}
+
+        {rootItems.length > 0 && (
+          <div className="mt-auto flex flex-col gap-0.5 border-t border-border pt-2">
+            {rootItems.map((item) => renderNavLink(item, pathname, collapsed))}
+          </div>
+        )}
       </nav>
 
       <div className="shrink-0 border-t border-border p-2">

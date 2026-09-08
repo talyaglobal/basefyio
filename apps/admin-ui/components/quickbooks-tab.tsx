@@ -38,7 +38,7 @@ export function QuickbooksTab() {
     const qb = p.get('qb');
     if (qb === 'connected') toast.success('QuickBooks connected');
     else if (qb === 'error') toast.error(`QuickBooks connection failed: ${p.get('reason') || ''}`);
-    if (qb) window.history.replaceState(null, '', '/dashboard/management');
+    if (qb) window.history.replaceState(null, '', '/dashboard/admin');
   }, [load]);
 
   async function connect() {

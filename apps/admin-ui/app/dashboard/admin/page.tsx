@@ -588,10 +588,10 @@ export default function ManagementPage() {
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold">
               <ShieldCheck className="h-6 w-6 text-primary" />
-              Management
+              Admin
             </h1>
             <p className="text-sm text-muted-foreground">
-              Role-based management area. Permissions are controlled by ROOT.
+              Role-based admin area. Permissions are controlled by ROOT.
             </p>
           </div>
         </div>
@@ -1725,7 +1725,7 @@ export default function ManagementPage() {
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
                 <th className="px-2 py-2">Role</th>
-                <th className="px-2 py-2">Management Access</th>
+                <th className="px-2 py-2">Admin Access</th>
                 <th className="px-2 py-2">Manage Users</th>
                 <th className="px-2 py-2">Manage Teams</th>
                 <th className="px-2 py-2">Manage Plans</th>

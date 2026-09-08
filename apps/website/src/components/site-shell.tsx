@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BasefyioLogo } from "@/components/basefyio-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
+import { AdminFooterLink } from "@/components/admin-footer-link";
 import { MarketingFeedback } from "@/components/marketing-feedback";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 
@@ -83,6 +84,12 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             >
               RSS
             </Link>
+            <Suspense fallback={null}>
+              <AdminFooterLink
+                appUrl={appUrl}
+                className="transition-colors hover:text-foreground"
+              />
+            </Suspense>
           </nav>
           <p className="text-sm text-muted-foreground">
             © {new Date().getFullYear()} basefyio

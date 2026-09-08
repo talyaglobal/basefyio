@@ -72,7 +72,7 @@ export class QuickbooksController {
     @Res() res: Response,
   ) {
     const appUrl = this.config.get<string>('appUrl') || 'http://localhost:3000';
-    const dest = `${appUrl}/dashboard/management`;
+    const dest = `${appUrl}/dashboard/admin`;
     try {
       if (error) return res.redirect(`${dest}?qb=error&reason=${encodeURIComponent(error)}`);
       if (!code || !realmId || !state) return res.redirect(`${dest}?qb=error&reason=missing_params`);

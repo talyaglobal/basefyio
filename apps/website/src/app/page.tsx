@@ -11,6 +11,7 @@ import { HomeHero } from "@/components/home-hero";
 import { HomeMarketing } from "@/components/home-marketing";
 import { HomeFaq } from "@/components/home-faq";
 import { AuthNav } from "@/components/auth-nav";
+import { AdminFooterLink } from "@/components/admin-footer-link";
 import { MarketingFeedback } from "@/components/marketing-feedback";
 import { HeroIllustration } from "@/components/hero-illustration";
 import { ScrollReveal } from "@/components/scroll-reveal";
@@ -422,12 +423,15 @@ export default async function Home() {
           <span className="text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} basefyio
           </span>
-          <a
-            href="/llms.txt"
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            llms.txt
-          </a>
+          <div className="flex items-center gap-4">
+            <AdminFooterLink appUrl={appRoot} />
+            <a
+              href="/llms.txt"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              llms.txt
+            </a>
+          </div>
         </div>
       </footer>
 
