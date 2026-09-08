@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Rocket,
+  Search,
   Sparkles,
   Trophy,
   UserCircle,
@@ -114,6 +115,12 @@ const ROOT_NAV_ITEMS: NavItem[] = [
     label: 'Go-To-Market',
     icon: Rocket,
     isActive: (p) => p.startsWith('/dashboard/management/go-to-market'),
+  },
+  {
+    href: '/dashboard/management/seo',
+    label: 'SEO Manager',
+    icon: Search,
+    isActive: (p) => p.startsWith('/dashboard/management/seo'),
   },
 ];
 
