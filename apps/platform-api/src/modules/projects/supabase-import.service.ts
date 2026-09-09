@@ -734,14 +734,33 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private assertServiceRoleKey(serviceRoleKey: string) {
     const key = serviceRoleKey?.trim();
     if (!key) return;
+
+    // Newer projects issue non-JWT keys. The publishable one carries the same
+    // reach as anon, so name it rather than letting it through to import
+    // nothing from every protected table.
+    if (key.startsWith('sb_publishable_')) {
+      throw new BadRequestException(
+        'This is the publishable (public) API key. Use a secret key (sb_secret_…), or the legacy service_role key, from Supabase → Settings → API.',
+      );
+    }
+    if (key.startsWith('sb_secret_')) return;
+
     try {
       const parts = key.split('.');
       if (parts.length < 2) return;
       const json = Buffer.from(parts[1], 'base64').toString('utf8');
-      const payload = JSON.parse(json) as { role?: string };
+      const payload = JSON.parse(json) as { role?: string; ref?: string };
       if (payload.role === 'anon') {
+        // Say what actually arrived. Both keys start with "eyJ" and are masked
+        // in the form, so "wrong key" alone leaves no way to tell whether the
+        // paste was wrong, the project was wrong, or a browser password
+        // manager refilled the field.
         throw new BadRequestException(
-          'This is the anon (public) API key. Use the service_role secret from Supabase → Settings → API for a full import.',
+          `The key received has role "anon"` +
+            (payload.ref ? ` and belongs to Supabase project "${payload.ref}"` : '') +
+            ` (ends "…${key.slice(-6)}"). The public key cannot read RLS-protected tables. ` +
+            'Copy the service_role secret from Supabase → Settings → API, and re-check the field with the eye icon — ' +
+            'both keys start with "eyJ", and a saved browser password can replace what you pasted.',
         );
       }
       if (payload.role && payload.role !== 'service_role') {

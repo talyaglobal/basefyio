@@ -1145,6 +1145,15 @@ export function CreateProjectDialog({
                   }}
                   placeholder="eyJhbGciOiJIUzI1NiIs..."
                   required
+                  // These are secrets being pasted, never credentials for this
+                  // site. Left to its heuristics, a password manager fills a
+                  // saved value into the masked field and the import runs with
+                  // a key nobody chose.
+                  name="supabase-service-role"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
                 />
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">
@@ -1176,6 +1185,11 @@ export function CreateProjectDialog({
                   value={databasePassword}
                   onChange={(e) => setDatabasePassword(e.target.value)}
                   placeholder="Only if some tables fail to import"
+                  name="supabase-db-password"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
                 />
                 <p className="text-xs text-muted-foreground">
                   Normally the <strong>service_role</strong> key is enough. Use Dashboard &rarr; Database &rarr; password
