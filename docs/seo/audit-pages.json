@@ -1,0 +1,962 @@
+[
+  {
+    "url": "https://basefyio.com/",
+    "statusCode": 200,
+    "title": "basefyio — database BaaS & REST API for Developers",
+    "h1Count": 1,
+    "wordCount": 1049,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 302
+  },
+  {
+    "url": "https://basefyio.com/blog",
+    "statusCode": 200,
+    "title": "Blog | basefyio",
+    "h1Count": 1,
+    "wordCount": 346,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 169
+  },
+  {
+    "url": "https://basefyio.com/blog/basefyio-v1-2-1-release-notes",
+    "statusCode": 200,
+    "title": "basefyio v1.2.1: Faster CLI, Resilient Project Provisioning | basefyio",
+    "h1Count": 1,
+    "wordCount": 526,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 210
+  },
+  {
+    "url": "https://basefyio.com/blog/build-vs-buy-backend",
+    "statusCode": 200,
+    "title": "Build vs. Buy: Should You Build Your Own Backend in 2026? | basefyio",
+    "h1Count": 1,
+    "wordCount": 473,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 213
+  },
+  {
+    "url": "https://basefyio.com/blog/choosing-a-backend-for-your-ai-app",
+    "statusCode": 200,
+    "title": "How to Choose a Backend for Your AI App | basefyio",
+    "h1Count": 1,
+    "wordCount": 473,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 211
+  },
+  {
+    "url": "https://basefyio.com/blog/getting-started-with-basefyio",
+    "statusCode": 200,
+    "title": "Getting Started with basefyio: A PostgreSQL Backend in Minutes | basefyio",
+    "h1Count": 1,
+    "wordCount": 458,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 482
+  },
+  {
+    "url": "https://basefyio.com/blog/multi-tenancy-database-patterns",
+    "statusCode": 200,
+    "title": "Database Multi-Tenancy Patterns: Shared Schema vs. Database per Tenant | basefyio",
+    "h1Count": 1,
+    "wordCount": 462,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 455
+  },
+  {
+    "url": "https://basefyio.com/blog/postgresql-row-level-security-guide",
+    "statusCode": 200,
+    "title": "PostgreSQL Row-Level Security: A Practical Guide | basefyio",
+    "h1Count": 1,
+    "wordCount": 484,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 211
+  },
+  {
+    "url": "https://basefyio.com/blog/rest-api-on-postgresql-without-boilerplate",
+    "statusCode": 200,
+    "title": "How to Build a REST API on PostgreSQL Without Writing Boilerplate | basefyio",
+    "h1Count": 1,
+    "wordCount": 455,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 476
+  },
+  {
+    "url": "https://basefyio.com/blog/rest-api-without-boilerplate",
+    "statusCode": 404,
+    "title": "",
+    "h1Count": 0,
+    "wordCount": 0,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 523
+  },
+  {
+    "url": "https://basefyio.com/blog/rest-vs-graphql-backend-2026",
+    "statusCode": 200,
+    "title": "REST vs. GraphQL for Your Backend in 2026 | basefyio",
+    "h1Count": 1,
+    "wordCount": 459,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 213
+  },
+  {
+    "url": "https://basefyio.com/blog/row-level-security-guide",
+    "statusCode": 404,
+    "title": "",
+    "h1Count": 0,
+    "wordCount": 0,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 520
+  },
+  {
+    "url": "https://basefyio.com/blog/self-hosting-backend-with-docker",
+    "statusCode": 200,
+    "title": "Self-Hosting Your Backend with Docker: What to Know | basefyio",
+    "h1Count": 1,
+    "wordCount": 455,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 214
+  },
+  {
+    "url": "https://basefyio.com/compare",
+    "statusCode": 200,
+    "title": "Compare basefyio | basefyio",
+    "h1Count": 1,
+    "wordCount": 522,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 302
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-appwrite",
+    "statusCode": 200,
+    "title": "basefyio vs. Appwrite: SQL-Native or Abstracted Backend? | basefyio",
+    "h1Count": 1,
+    "wordCount": 260,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 363
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-aws-amplify",
+    "statusCode": 200,
+    "title": "basefyio vs. AWS Amplify: Standard SQL or the AWS Stack? | basefyio",
+    "h1Count": 1,
+    "wordCount": 244,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 127
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-convex",
+    "statusCode": 200,
+    "title": "basefyio vs. Convex: Standard SQL or a Reactive TS Backend? | basefyio",
+    "h1Count": 1,
+    "wordCount": 226,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 144
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-directus",
+    "statusCode": 200,
+    "title": "basefyio vs. Directus: App Backend or Headless Data Platform? | basefyio",
+    "h1Count": 1,
+    "wordCount": 242,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 215
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-firebase",
+    "statusCode": 200,
+    "title": "basefyio vs. Firebase: SQL Backend or NoSQL? A Practical Comparison | basefyio",
+    "h1Count": 1,
+    "wordCount": 267,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 257
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-hasura",
+    "statusCode": 200,
+    "title": "basefyio vs. Hasura: REST Backend or GraphQL Engine? | basefyio",
+    "h1Count": 1,
+    "wordCount": 238,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 205
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-neon",
+    "statusCode": 200,
+    "title": "basefyio vs. Neon: Full Backend or Serverless Database? | basefyio",
+    "h1Count": 1,
+    "wordCount": 274,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 264
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-nhost",
+    "statusCode": 200,
+    "title": "basefyio vs. Nhost: REST or GraphQL Backend? | basefyio",
+    "h1Count": 1,
+    "wordCount": 210,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 379
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-pocketbase",
+    "statusCode": 200,
+    "title": "basefyio vs. PocketBase: Full Platform or Single-File SQLite? | basefyio",
+    "h1Count": 1,
+    "wordCount": 244,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 371
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-render",
+    "statusCode": 200,
+    "title": "basefyio vs. Render: Backend Platform or App Hosting? | basefyio",
+    "h1Count": 1,
+    "wordCount": 266,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 375
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-strapi",
+    "statusCode": 200,
+    "title": "basefyio vs. Strapi: Database Backend or Headless CMS? | basefyio",
+    "h1Count": 1,
+    "wordCount": 232,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 221
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-supabase",
+    "statusCode": 200,
+    "title": "basefyio vs. Supabase: Which Backend Should You Use? | basefyio",
+    "h1Count": 1,
+    "wordCount": 269,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 468
+  },
+  {
+    "url": "https://basefyio.com/compare/basefyio-vs-xata",
+    "statusCode": 200,
+    "title": "basefyio vs. Xata: Full Backend or Serverless Data Platform? | basefyio",
+    "h1Count": 1,
+    "wordCount": 238,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 227
+  },
+  {
+    "url": "https://basefyio.com/docs",
+    "statusCode": 200,
+    "title": "Documentation | basefyio",
+    "h1Count": 1,
+    "wordCount": 1104,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 472
+  },
+  {
+    "url": "https://basefyio.com/docs/api",
+    "statusCode": 200,
+    "title": "API Reference | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 405,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 472
+  },
+  {
+    "url": "https://basefyio.com/docs/auth",
+    "statusCode": 200,
+    "title": "Authentication | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 783,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 197
+  },
+  {
+    "url": "https://basefyio.com/docs/cli",
+    "statusCode": 200,
+    "title": "CLI Reference | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 488,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 472
+  },
+  {
+    "url": "https://basefyio.com/docs/connect",
+    "statusCode": 200,
+    "title": "External Database Access | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 425,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 305
+  },
+  {
+    "url": "https://basefyio.com/docs/data-engine",
+    "statusCode": 200,
+    "title": "Data Engine | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 840,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 197
+  },
+  {
+    "url": "https://basefyio.com/docs/realtime",
+    "statusCode": 200,
+    "title": "Realtime | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 340,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 198
+  },
+  {
+    "url": "https://basefyio.com/docs/sdk",
+    "statusCode": 200,
+    "title": "SDK Reference | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 575,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 472
+  },
+  {
+    "url": "https://basefyio.com/docs/security",
+    "statusCode": 200,
+    "title": "Security & Row-Level Security | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 582,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 410
+  },
+  {
+    "url": "https://basefyio.com/docs/self-hosting",
+    "statusCode": 200,
+    "title": "Self-Hosting Guide | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 535,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 410
+  },
+  {
+    "url": "https://basefyio.com/docs/storage",
+    "statusCode": 200,
+    "title": "Storage | basefyio Docs",
+    "h1Count": 1,
+    "wordCount": 583,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 303
+  },
+  {
+    "url": "https://basefyio.com/feed.xml",
+    "statusCode": 200,
+    "title": "",
+    "h1Count": 0,
+    "wordCount": 0,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 323
+  },
+  {
+    "url": "https://basefyio.com/integrations",
+    "statusCode": 200,
+    "title": "Integrations | basefyio",
+    "h1Count": 1,
+    "wordCount": 312,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 196
+  },
+  {
+    "url": "https://basefyio.com/integrations/angular",
+    "statusCode": 200,
+    "title": "basefyio + Angular: A Backend for Angular Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 268,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 534
+  },
+  {
+    "url": "https://basefyio.com/integrations/astro",
+    "statusCode": 200,
+    "title": "basefyio + Astro: A Backend for Content and Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 223,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 529
+  },
+  {
+    "url": "https://basefyio.com/integrations/express",
+    "statusCode": 200,
+    "title": "basefyio + Express: Backend Data Access in Node.js APIs | basefyio",
+    "h1Count": 1,
+    "wordCount": 249,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 469
+  },
+  {
+    "url": "https://basefyio.com/integrations/nextjs",
+    "statusCode": 200,
+    "title": "basefyio + Next.js: Database Backend for Your App | basefyio",
+    "h1Count": 1,
+    "wordCount": 261,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 318
+  },
+  {
+    "url": "https://basefyio.com/integrations/nodejs",
+    "statusCode": 200,
+    "title": "basefyio + Node.js: Backend Data Access from the Server | basefyio",
+    "h1Count": 1,
+    "wordCount": 256,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 529
+  },
+  {
+    "url": "https://basefyio.com/integrations/nuxt",
+    "statusCode": 200,
+    "title": "basefyio + Nuxt: Database Backend for Nuxt Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 238,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 512
+  },
+  {
+    "url": "https://basefyio.com/integrations/react",
+    "statusCode": 200,
+    "title": "basefyio + React: A Backend for Your React App | basefyio",
+    "h1Count": 1,
+    "wordCount": 235,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 329
+  },
+  {
+    "url": "https://basefyio.com/integrations/react-native",
+    "statusCode": 200,
+    "title": "basefyio + React Native: Backend for Mobile Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 227,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 524
+  },
+  {
+    "url": "https://basefyio.com/integrations/remix",
+    "statusCode": 200,
+    "title": "basefyio + Remix: Database Backend with Loaders and Actions | basefyio",
+    "h1Count": 1,
+    "wordCount": 237,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 527
+  },
+  {
+    "url": "https://basefyio.com/integrations/solidjs",
+    "statusCode": 200,
+    "title": "basefyio + SolidJS: Backend for Solid Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 209,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 525
+  },
+  {
+    "url": "https://basefyio.com/integrations/sveltekit",
+    "statusCode": 200,
+    "title": "basefyio + SvelteKit: Backend for Svelte Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 221,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 492
+  },
+  {
+    "url": "https://basefyio.com/integrations/vue",
+    "statusCode": 200,
+    "title": "basefyio + Vue: Database Backend for Vue Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 217,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 343
+  },
+  {
+    "url": "https://basefyio.com/kvkk",
+    "statusCode": 200,
+    "title": "KVKK Aydınlatma Metni | basefyio",
+    "h1Count": 1,
+    "wordCount": 250,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 410
+  },
+  {
+    "url": "https://basefyio.com/learn",
+    "statusCode": 200,
+    "title": "Learn — Backend & database Glossary | basefyio",
+    "h1Count": 1,
+    "wordCount": 861,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 275
+  },
+  {
+    "url": "https://basefyio.com/learn/acid-transactions",
+    "statusCode": 200,
+    "title": "ACID Transactions | basefyio",
+    "h1Count": 1,
+    "wordCount": 117,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 287
+  },
+  {
+    "url": "https://basefyio.com/learn/api-key",
+    "statusCode": 200,
+    "title": "API Key | basefyio",
+    "h1Count": 1,
+    "wordCount": 128,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 280
+  },
+  {
+    "url": "https://basefyio.com/learn/backend-as-a-service",
+    "statusCode": 200,
+    "title": "Backend-as-a-Service (BaaS) | basefyio",
+    "h1Count": 1,
+    "wordCount": 168,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 89
+  },
+  {
+    "url": "https://basefyio.com/learn/connection-pooling",
+    "statusCode": 200,
+    "title": "Connection Pooling | basefyio",
+    "h1Count": 1,
+    "wordCount": 121,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 264
+  },
+  {
+    "url": "https://basefyio.com/learn/cors",
+    "statusCode": 200,
+    "title": "CORS (Cross-Origin Resource Sharing) | basefyio",
+    "h1Count": 1,
+    "wordCount": 147,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 285
+  },
+  {
+    "url": "https://basefyio.com/learn/crud",
+    "statusCode": 200,
+    "title": "CRUD | basefyio",
+    "h1Count": 1,
+    "wordCount": 125,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 256
+  },
+  {
+    "url": "https://basefyio.com/learn/database-index",
+    "statusCode": 200,
+    "title": "Database Index | basefyio",
+    "h1Count": 1,
+    "wordCount": 131,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 263
+  },
+  {
+    "url": "https://basefyio.com/learn/database-migration",
+    "statusCode": 200,
+    "title": "Database Migration | basefyio",
+    "h1Count": 1,
+    "wordCount": 116,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 277
+  },
+  {
+    "url": "https://basefyio.com/learn/database-replication",
+    "statusCode": 200,
+    "title": "Database Replication | basefyio",
+    "h1Count": 1,
+    "wordCount": 114,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 283
+  },
+  {
+    "url": "https://basefyio.com/learn/database-schema",
+    "statusCode": 200,
+    "title": "Database Schema | basefyio",
+    "h1Count": 1,
+    "wordCount": 118,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 262
+  },
+  {
+    "url": "https://basefyio.com/learn/database-view",
+    "statusCode": 200,
+    "title": "Database View | basefyio",
+    "h1Count": 1,
+    "wordCount": 136,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 263
+  },
+  {
+    "url": "https://basefyio.com/learn/foreign-key",
+    "statusCode": 200,
+    "title": "Foreign Key | basefyio",
+    "h1Count": 1,
+    "wordCount": 140,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 295
+  },
+  {
+    "url": "https://basefyio.com/learn/full-text-search",
+    "statusCode": 200,
+    "title": "Full-Text Search | basefyio",
+    "h1Count": 1,
+    "wordCount": 138,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 301
+  },
+  {
+    "url": "https://basefyio.com/learn/graphql",
+    "statusCode": 200,
+    "title": "GraphQL | basefyio",
+    "h1Count": 1,
+    "wordCount": 157,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 283
+  },
+  {
+    "url": "https://basefyio.com/learn/jwt",
+    "statusCode": 200,
+    "title": "JSON Web Token (JWT) | basefyio",
+    "h1Count": 1,
+    "wordCount": 154,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 192
+  },
+  {
+    "url": "https://basefyio.com/learn/multi-tenancy",
+    "statusCode": 200,
+    "title": "Multi-Tenancy | basefyio",
+    "h1Count": 1,
+    "wordCount": 137,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 171
+  },
+  {
+    "url": "https://basefyio.com/learn/oauth",
+    "statusCode": 200,
+    "title": "OAuth | basefyio",
+    "h1Count": 1,
+    "wordCount": 135,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 194
+  },
+  {
+    "url": "https://basefyio.com/learn/object-storage",
+    "statusCode": 200,
+    "title": "Object Storage | basefyio",
+    "h1Count": 1,
+    "wordCount": 145,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 170
+  },
+  {
+    "url": "https://basefyio.com/learn/orm",
+    "statusCode": 200,
+    "title": "ORM (Object-Relational Mapping) | basefyio",
+    "h1Count": 1,
+    "wordCount": 135,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 247
+  },
+  {
+    "url": "https://basefyio.com/learn/pagination",
+    "statusCode": 200,
+    "title": "Pagination | basefyio",
+    "h1Count": 1,
+    "wordCount": 123,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 247
+  },
+  {
+    "url": "https://basefyio.com/learn/primary-key",
+    "statusCode": 200,
+    "title": "Primary Key | basefyio",
+    "h1Count": 1,
+    "wordCount": 120,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 332
+  },
+  {
+    "url": "https://basefyio.com/learn/rate-limiting",
+    "statusCode": 200,
+    "title": "Rate Limiting | basefyio",
+    "h1Count": 1,
+    "wordCount": 130,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 275
+  },
+  {
+    "url": "https://basefyio.com/learn/rest-api",
+    "statusCode": 200,
+    "title": "REST API | basefyio",
+    "h1Count": 1,
+    "wordCount": 158,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 148
+  },
+  {
+    "url": "https://basefyio.com/learn/row-level-security",
+    "statusCode": 200,
+    "title": "Row-Level Security (RLS) | basefyio",
+    "h1Count": 1,
+    "wordCount": 160,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 160
+  },
+  {
+    "url": "https://basefyio.com/learn/serverless-database",
+    "statusCode": 200,
+    "title": "Serverless Database | basefyio",
+    "h1Count": 1,
+    "wordCount": 127,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 306
+  },
+  {
+    "url": "https://basefyio.com/learn/soft-delete",
+    "statusCode": 200,
+    "title": "Soft Delete | basefyio",
+    "h1Count": 1,
+    "wordCount": 123,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 358
+  },
+  {
+    "url": "https://basefyio.com/learn/sql-injection",
+    "statusCode": 200,
+    "title": "SQL Injection | basefyio",
+    "h1Count": 1,
+    "wordCount": 127,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 254
+  },
+  {
+    "url": "https://basefyio.com/learn/stored-procedure",
+    "statusCode": 200,
+    "title": "Stored Procedure | basefyio",
+    "h1Count": 1,
+    "wordCount": 133,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 270
+  },
+  {
+    "url": "https://basefyio.com/learn/upsert",
+    "statusCode": 200,
+    "title": "Upsert | basefyio",
+    "h1Count": 1,
+    "wordCount": 115,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 367
+  },
+  {
+    "url": "https://basefyio.com/learn/uuid",
+    "statusCode": 200,
+    "title": "UUID (Universally Unique Identifier) | basefyio",
+    "h1Count": 1,
+    "wordCount": 119,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 318
+  },
+  {
+    "url": "https://basefyio.com/learn/webhook",
+    "statusCode": 200,
+    "title": "Webhook | basefyio",
+    "h1Count": 1,
+    "wordCount": 115,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 326
+  },
+  {
+    "url": "https://basefyio.com/llms.txt",
+    "statusCode": 200,
+    "title": "",
+    "h1Count": 0,
+    "wordCount": 0,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 476
+  },
+  {
+    "url": "https://basefyio.com/privacy",
+    "statusCode": 200,
+    "title": "Privacy Policy | basefyio",
+    "h1Count": 1,
+    "wordCount": 427,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 410
+  },
+  {
+    "url": "https://basefyio.com/terms",
+    "statusCode": 200,
+    "title": "Terms of Service | basefyio",
+    "h1Count": 1,
+    "wordCount": 348,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 476
+  },
+  {
+    "url": "https://basefyio.com/use-cases",
+    "statusCode": 200,
+    "title": "Use Cases | basefyio",
+    "h1Count": 1,
+    "wordCount": 307,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 301
+  },
+  {
+    "url": "https://basefyio.com/use-cases/ai-applications",
+    "statusCode": 200,
+    "title": "A Backend for AI Applications — Database, Auth, and Storage for LLM Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 230,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 158
+  },
+  {
+    "url": "https://basefyio.com/use-cases/analytics-dashboards",
+    "statusCode": 200,
+    "title": "A Backend for Analytics Dashboards — Full SQL Power | basefyio",
+    "h1Count": 1,
+    "wordCount": 219,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 84
+  },
+  {
+    "url": "https://basefyio.com/use-cases/ecommerce",
+    "statusCode": 200,
+    "title": "A Backend for E-commerce — Products, Orders, and Auth | basefyio",
+    "h1Count": 1,
+    "wordCount": 234,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 138
+  },
+  {
+    "url": "https://basefyio.com/use-cases/internal-tools",
+    "statusCode": 200,
+    "title": "A Backend for Internal Tools — Instant API Over Your Data | basefyio",
+    "h1Count": 1,
+    "wordCount": 214,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 145
+  },
+  {
+    "url": "https://basefyio.com/use-cases/mobile-apps",
+    "statusCode": 200,
+    "title": "A Backend for Mobile Apps — Instant REST API, Auth & Storage | basefyio",
+    "h1Count": 1,
+    "wordCount": 243,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 97
+  },
+  {
+    "url": "https://basefyio.com/use-cases/realtime-chat",
+    "statusCode": 200,
+    "title": "A Backend for Chat & Messaging Apps | basefyio",
+    "h1Count": 1,
+    "wordCount": 204,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 163
+  },
+  {
+    "url": "https://basefyio.com/use-cases/saas-applications",
+    "statusCode": 200,
+    "title": "The Backend for SaaS Applications — Database, Auth & REST API | basefyio",
+    "h1Count": 1,
+    "wordCount": 244,
+    "imagesTotal": 0,
+    "imagesMissingAlt": 0,
+    "responseTimeMs": 94
+  }
+]
