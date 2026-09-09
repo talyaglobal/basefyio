@@ -2332,7 +2332,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return {
       stream: response.data as Readable,
       size: Number.isFinite(declared) ? declared : 0,
-      contentType: response.headers?.['content-type'],
+      contentType:
+        typeof response.headers?.['content-type'] === 'string'
+          ? (response.headers['content-type'] as string)
+          : undefined,
     };
   }
 }
