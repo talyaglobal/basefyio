@@ -189,6 +189,9 @@ export class ImportProcessor extends WorkerHost {
         await onProgress({ step: 'auth', detail: 'Importing auth users...', percent: 55 });
         await this.importService.runAuthImport(
           baseUrl, headers, project, progress, projectName,
+          async (detail: string, percent: number) => {
+            await onProgress({ step: 'auth', detail, percent });
+          },
         );
         checkCancelled();
         await onProgress({
@@ -210,6 +213,9 @@ export class ImportProcessor extends WorkerHost {
         await onProgress({ step: 'storage', detail: 'Importing storage files...', percent: 85 });
         await this.importService.runStorageImport(
           baseUrl, headers, project, progress, jobId,
+          async (detail: string, percent: number) => {
+            await onProgress({ step: 'storage', detail, percent });
+          },
         );
         checkCancelled();
         await onProgress({

@@ -585,8 +585,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     project: any,
     progress: ImportProgress,
     projectName: string,
+    onProgress?: (detail: string, percent: number) => Promise<void>,
   ) {
-    return this.importAuth(baseUrl, headers, project, progress, projectName);
+    return this.importAuth(baseUrl, headers, project, progress, projectName, onProgress);
   }
 
   /**
@@ -713,8 +714,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     project: any,
     progress: ImportProgress,
     jobId = "",
+    onProgress?: (detail: string, percent: number) => Promise<void>,
   ) {
-    const result = await this.importStorage(baseUrl, headers, project, progress, jobId);
+    const result = await this.importStorage(baseUrl, headers, project, progress, jobId, onProgress);
 
     // An import can land tens of gigabytes at once. Refresh the team's figure
     // now rather than leaving the dashboard — and the quota check — reading a
@@ -2148,6 +2150,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     project: any,
     progress: ImportProgress,
     projectName: string,
+    onProgress?: (detail: string, percent: number) => Promise<void>,
   ) {
     let allUsers: SupabaseUser[] = [];
     let page = 1;
@@ -2182,7 +2185,22 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let skippedNoEmail = 0;
     let skippedDuplicate = 0;
 
+    // Creating thousands of users one at a time takes far longer than the
+    // queue's no-progress window, and a step that reports nothing for its whole
+    // duration is indistinguishable from a wedged one. Report as it goes.
+    let done = 0;
+    let lastReport = 0;
+
     for (const user of allUsers) {
+      done++;
+      if (onProgress && (Date.now() - lastReport > 5_000 || done === allUsers.length)) {
+        lastReport = Date.now();
+        const share = allUsers.length ? done / allUsers.length : 1;
+        await onProgress(
+          `Importing auth users... (${done} of ${allUsers.length})`,
+          55 + Math.round(share * 25),
+        );
+      }
       try {
         const email = user.email;
         if (!email) {
@@ -2252,6 +2270,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     project: any,
     progress: ImportProgress,
     jobId = "",
+    onProgress?: (detail: string, percent: number) => Promise<void>,
   ) {
     let buckets: SupabaseBucket[] = [];
 
@@ -2328,6 +2347,25 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           (progress.storage.expectedObjects ?? 0) + objects.length;
         let copiedHere = 0;
 
+        // Tens of gigabytes take hours. Without a heartbeat the step looks
+        // identical to a hung one, both to the operator watching and to the
+        // queue's no-progress guard, which would force-fail a healthy import
+        // half an hour into the copy.
+        const bucketIndex = buckets.indexOf(bucket) + 1;
+        let lastReport = 0;
+        const report = async (force = false) => {
+          if (!onProgress) return;
+          if (!force && Date.now() - lastReport < 5_000) return;
+          lastReport = Date.now();
+          const share = objects.length ? copiedHere / objects.length : 1;
+          const overall = (bucketIndex - 1 + share) / Math.max(buckets.length, 1);
+          await onProgress(
+            `Copying "${logicalBucketName}" (${copiedHere}/${objects.length} files, bucket ${bucketIndex}/${buckets.length})`,
+            85 + Math.round(overall * 10),
+          );
+        };
+        await report(true);
+
         // Copy several objects at once: one at a time turns tens of gigabytes
         // into many hours of mostly-idle waiting on network round trips. The
         // bodies stream through, so concurrency costs bandwidth, not heap.
@@ -2355,6 +2393,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             );
             progress.storage.objects++;
             copiedHere++;
+            await report();
           } catch (err: any) {
             // A quota rejection is not a per-object problem — every remaining
             // file will fail identically. Skipping them one by one would end in
