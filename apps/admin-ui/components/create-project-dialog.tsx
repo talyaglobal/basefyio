@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
@@ -86,6 +86,45 @@ function formatEtaTotalSeconds(totalSec: number): string {
   return remSec > 0 ? `~${mins}m ${remSec}s remaining` : `~${mins}m remaining`;
 }
 
+/**
+ * What the pasted key actually is.
+ *
+ * The anon and service_role keys are both JWTs beginning "eyJ", the field is
+ * masked, and a wrong one fails only after the import starts — with a message
+ * the operator has no way to check against the key in front of them. Decoding
+ * the payload here shows the role and the project it belongs to before anything
+ * is submitted. Nothing leaves the browser; the payload segment of a JWT is not
+ * encrypted, only base64url.
+ */
+function inspectSupabaseKey(raw: string): {
+  role: string;
+  ref?: string;
+  ok: boolean;
+} | null {
+  const key = raw.trim();
+  if (!key) return null;
+
+  if (key.startsWith('sb_publishable_')) return { role: 'publishable (public)', ok: false };
+  if (key.startsWith('sb_secret_')) return { role: 'secret', ok: true };
+
+  const parts = key.split('.');
+  if (parts.length < 2) return null;
+
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { role?: string; ref?: string };
+    if (!payload.role) return null;
+    return {
+      role: payload.role,
+      ref: payload.ref,
+      ok: payload.role === 'service_role',
+    };
+  } catch {
+    return null;
+  }
+}
+
 function SupabaseLogo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -128,6 +167,15 @@ export function CreateProjectDialog({
   const [importName, setImportName] = useState('');
   const [importNameManual, setImportNameManual] = useState(false);
   const [validating, setValidating] = useState(false);
+
+  const keyInfo = useMemo(() => inspectSupabaseKey(serviceRoleKey), [serviceRoleKey]);
+  const urlRef = useMemo(() => {
+    try {
+      return new URL(supabaseUrl.trim()).hostname.split('.')[0] ?? '';
+    } catch {
+      return '';
+    }
+  }, [supabaseUrl]);
   const [validated, setValidated] = useState(false);
   const [tableCount, setTableCount] = useState(0);
   const [importSteps, setImportSteps] = useState<ImportStep[]>([]);
@@ -1155,6 +1203,24 @@ export function CreateProjectDialog({
                   data-1p-ignore
                   data-lpignore="true"
                 />
+                {keyInfo && (
+                  <p
+                    className={`text-xs ${
+                      keyInfo.ok
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    Detected: <strong>{keyInfo.role}</strong> key
+                    {keyInfo.ref ? ` · project ${keyInfo.ref}` : ''}
+                    {keyInfo.ref && urlRef && keyInfo.ref !== urlRef
+                      ? ' — this key belongs to a different project than the URL above'
+                      : ''}
+                    {!keyInfo.ok
+                      ? ' — a public key cannot read tables protected by row-level security'
+                      : ''}
+                  </p>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">
                     Found in Supabase Dashboard &rarr; Settings &rarr; API &rarr; service_role key

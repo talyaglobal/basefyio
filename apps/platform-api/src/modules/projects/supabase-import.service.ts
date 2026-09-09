@@ -902,6 +902,112 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
+  /**
+   * Regions the Supabase connection pooler is published in. Two hostname
+   * generations are live (`aws-0-` and `aws-1-`), and a project answers on
+   * exactly one of them.
+   */
+  private static readonly SUPABASE_POOLER_REGIONS = [
+    'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+    'eu-central-1', 'eu-central-2', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1',
+    'ap-south-1', 'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1', 'ap-northeast-2',
+    'sa-east-1', 'ca-central-1',
+  ] as const;
+
+  /**
+   * Open a read connection to the source Supabase database.
+   *
+   * `db.<ref>.supabase.co` resolves to IPv6 only. A host without IPv6 egress
+   * gets ENETUNREACH, the import falls back to PostgREST, and every
+   * RLS-protected table then copies as zero rows — a silent, total loss of the
+   * rows that matter most. The pooler answers over IPv4, so it is tried next.
+   *
+   * The pooler hostname carries the region, which nothing in the project URL or
+   * the JWT reveals, so the candidates are probed and the one that authenticates
+   * wins. Probing is parallel and short-lived; a wrong region rejects the tenant
+   * immediately.
+   */
+  private async openSupabaseSourcePool(ref: string, password: string): Promise<Pool | null> {
+    const direct = new Pool({
+      host: `db.${ref}.supabase.co`,
+      port: 5432,
+      user: 'postgres',
+      password,
+      database: 'postgres',
+      ssl: { rejectUnauthorized: false },
+      max: 3,
+      connectionTimeoutMillis: 20_000,
+      statement_timeout: 120_000,
+    });
+
+    try {
+      await this.connectPoolWithRetry(direct, `supabase-direct-${ref}`, 2);
+      this.logger.log(
+        `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
+      );
+      return direct;
+    } catch (err: any) {
+      await direct.end().catch(() => undefined);
+      this.logger.warn(
+        `Direct Postgres connection failed (${err.message}); trying the IPv4 connection pooler`,
+      );
+    }
+
+    const candidates: string[] = [];
+    for (const region of SupabaseImportService.SUPABASE_POOLER_REGIONS) {
+      candidates.push(`aws-1-${region}.pooler.supabase.com`);
+      candidates.push(`aws-0-${region}.pooler.supabase.com`);
+    }
+
+    const probe = async (host: string): Promise<Pool | null> => {
+      const pool = new Pool({
+        host,
+        port: 5432, // session mode; transaction mode (6543) drops prepared statements
+        user: `postgres.${ref}`,
+        password,
+        database: 'postgres',
+        ssl: { rejectUnauthorized: false },
+        max: 3,
+        connectionTimeoutMillis: 8_000,
+        statement_timeout: 120_000,
+      });
+      try {
+        const client = await pool.connect();
+        client.release();
+        return pool;
+      } catch {
+        await pool.end().catch(() => undefined);
+        return null;
+      }
+    };
+
+    const results = await Promise.all(candidates.map(probe));
+    let winner: Pool | null = null;
+    let winnerHost = '';
+    for (let i = 0; i < results.length; i++) {
+      const pool = results[i];
+      if (!pool) continue;
+      if (!winner) {
+        winner = pool;
+        winnerHost = candidates[i];
+      } else {
+        await pool.end().catch(() => undefined);
+      }
+    }
+
+    if (winner) {
+      this.logger.log(
+        `Direct Postgres copy enabled via pooler (${winnerHost}, user postgres.${ref}) — bypasses PostgREST row-level grants`,
+      );
+      return winner;
+    }
+
+    this.logger.warn(
+      `No reachable Postgres route to Supabase project "${ref}" (direct endpoint is IPv6-only and no pooler region accepted the credentials); falling back to PostgREST for data`,
+    );
+    return null;
+  }
+
   private async connectPoolWithRetry(pool: Pool, label: string, maxRetries = 5): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -964,32 +1070,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
       if (ref) {
         if (onProgress) {
-          await onProgress(`Connecting to Supabase Postgres (db.${ref}.supabase.co)...`, 7);
+          await onProgress('Connecting to the Supabase database...', 7);
         }
-        try {
-          sourcePool = new Pool({
-            host: `db.${ref}.supabase.co`,
-            port: 5432,
-            user: 'postgres',
-            password: pwd,
-            database: 'postgres',
-            ssl: { rejectUnauthorized: false },
-            max: 3,
-            connectionTimeoutMillis: 20_000,
-            statement_timeout: 120_000,
-          });
-          await this.connectPoolWithRetry(sourcePool, `supabase-remote-${ref}`);
-          this.logger.log(
-            `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
+        sourcePool = await this.openSupabaseSourcePool(ref, pwd);
+        if (!sourcePool) {
+          progress.warnings.push(
+            'Could not reach the source database directly, so tables protected by row-level security may have imported empty. Check the verification counts below.',
           );
-        } catch (err: any) {
-          this.logger.warn(
-            `Direct Postgres connection failed (${err.message}); falling back to PostgREST for data`,
-          );
-          if (sourcePool) {
-            await sourcePool.end().catch(() => {});
-            sourcePool = null;
-          }
         }
       } else {
         this.logger.warn(
@@ -1376,7 +1463,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (type === 'boolean') return 'boolean';
     if (type === 'object') return 'jsonb';
 
-    if (description.includes('primary key')) return 'bigint';
+    // A primary key defaults to bigint only when the spec says nothing about
+    // its type. Supabase describes a text key — "pro", "enterprise", a slug —
+    // as type "string" with no numeric format, and typing that column bigint
+    // makes every insert into the table fail on syntax, one warning per row,
+    // leaving the table empty while the import reports success.
+    if (type !== 'string' && description.includes('primary key')) return 'bigint';
 
     if (spec.maxLength) return `varchar(${spec.maxLength})`;
 
@@ -1961,7 +2053,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (totalRows === 0) {
       this.logger.warn(
         `Table "${sanitized}": 0 rows imported via ${strategyLabel} — ` +
-        `provide the Database Password for direct Postgres copy`,
+        `the table is either empty at the source or its rows are not readable over PostgREST`,
       );
     } else {
       this.logger.log(`Imported ${totalRows} rows into "${sanitized}" via ${strategyLabel}`);
