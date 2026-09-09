@@ -71,19 +71,23 @@ interface ImportStep {
   detail?: string;
 }
 
-/** Cap so early % spikes do not produce absurd ETAs */
-const MAX_IMPORT_ETA_MS = 45 * 60 * 1000;
-/** Floor % for ETA math only — avoids divide-by-tiny-% blowups */
-const MIN_PCT_FOR_ETA = 1;
 
-/** Wall-clock countdown uses whole seconds; sub-minute shows live ticks without ~ */
-function formatEtaTotalSeconds(totalSec: number): string {
-  if (!Number.isFinite(totalSec) || totalSec <= 0) return 'Almost done…';
-  if (totalSec < 6) return 'Almost done…';
-  if (totalSec < 60) return `${totalSec}s remaining`;
-  const mins = Math.floor(totalSec / 60);
-  const remSec = totalSec % 60;
-  return remSec > 0 ? `~${mins}m ${remSec}s remaining` : `~${mins}m remaining`;
+/**
+ * Time spent so far, not time left.
+ *
+ * A remaining-time estimate was projected from the percentage, but the phases
+ * are nothing alike: the schema copy, the user accounts and tens of gigabytes of
+ * files each move the bar at their own rate, so the figure was wrong in both
+ * directions and kept revising itself. Elapsed time cannot be wrong.
+ */
+function formatElapsedSeconds(totalSec: number): string {
+  if (!Number.isFinite(totalSec) || totalSec < 0) return '';
+  const hours = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) return `${hours}h ${mins}m elapsed`;
+  if (mins > 0) return `${mins}m ${secs}s elapsed`;
+  return `${secs}s elapsed`;
 }
 
 /**
@@ -185,9 +189,6 @@ export function CreateProjectDialog({
   const importEtaStartMsRef = useRef(0);
   const [importEta, setImportEta] = useState<string>('');
   const [importStrategy, setImportStrategy] = useState<string>('');
-  const etaSmoothedMsRef = useRef(0);
-  /** Wall-clock anchor so remaining time ticks down every real second (not smoothed lag). */
-  const importEtaAnchorRef = useRef<{ at: number; remainingMs: number } | null>(null);
   const etaLastTickSecRef = useRef(-1);
   const etaRafRef = useRef<number | null>(null);
 
@@ -222,29 +223,21 @@ export function CreateProjectDialog({
       cancelAnimationFrame(etaRafRef.current);
       etaRafRef.current = null;
     }
-    etaSmoothedMsRef.current = 0;
-    importEtaAnchorRef.current = null;
     etaLastTickSecRef.current = -1;
     importEtaStartMsRef.current = 0;
   }, []);
 
   const runEtaFrame = useCallback(() => {
-    const pct = importPercentRef.current;
-    if (pct <= 0 || pct >= 100 || importEtaStartMsRef.current === 0) {
+    const start = importEtaStartMsRef.current;
+    if (start === 0 || importPercentRef.current >= 100) {
       etaRafRef.current = null;
       return;
     }
 
-    const anchor = importEtaAnchorRef.current;
-    const displayMs =
-      anchor != null
-        ? Math.max(0, anchor.remainingMs - (Date.now() - anchor.at))
-        : Math.max(0, etaSmoothedMsRef.current);
-
-    const tickSec = Math.max(0, Math.ceil(displayMs / 1000));
+    const tickSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
     if (tickSec !== etaLastTickSecRef.current) {
       etaLastTickSecRef.current = tickSec;
-      setImportEta(formatEtaTotalSeconds(tickSec));
+      setImportEta(formatElapsedSeconds(tickSec));
     }
 
     etaRafRef.current = requestAnimationFrame(runEtaFrame);
@@ -266,31 +259,15 @@ export function CreateProjectDialog({
         ai?.status === 'running' && ai.startedAt ? ai.startedAt : importStartRef.current;
       importEtaStartMsRef.current = startMs;
 
-      if (pct <= 0 || pct >= 100 || startMs === 0) {
+      if (pct >= 100 || startMs === 0) {
         stopEtaAnimation();
         setImportEta('');
         return;
       }
 
-      const elapsed = Date.now() - startMs;
-      const effectivePct = Math.max(pct, MIN_PCT_FOR_ETA);
-      let raw = elapsed * (100 / effectivePct - 1);
-      raw = Math.max(0, Math.min(raw, MAX_IMPORT_ETA_MS));
-
-      const prev = etaSmoothedMsRef.current;
-      let next: number;
-      if (prev <= 0 || !Number.isFinite(prev)) {
-        next = raw;
-      } else if (raw < prev) {
-        next = prev + (raw - prev) * 0.22;
-      } else {
-        next = prev + (raw - prev) * 0.04;
-      }
-      etaSmoothedMsRef.current = next;
-      importEtaAnchorRef.current = { at: Date.now(), remainingMs: next };
-      const secNow = Math.max(0, Math.ceil(next / 1000));
+      const secNow = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
       etaLastTickSecRef.current = secNow;
-      setImportEta(formatEtaTotalSeconds(secNow));
+      setImportEta(formatElapsedSeconds(secNow));
 
       ensureEtaRaf();
     },
