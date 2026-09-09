@@ -77,6 +77,37 @@ export default () => ({
     apiKey: process.env.OPENAI_API_KEY || '',
   },
 
+  /**
+   * In-house marketing agency: Claude writes the copy, fal.ai renders image and
+   * video, ElevenLabs voices the script, and Pubbler distributes the result.
+   * Every leg is optional — the dashboard reports which ones are unconfigured
+   * rather than failing the whole pipeline.
+   */
+  marketingAgency: {
+    claude: {
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      model: process.env.ANTHROPIC_MODEL || 'claude-opus-5',
+    },
+    fal: {
+      apiKey: process.env.FAL_KEY || '',
+      imageModel: process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/dev',
+      videoModel:
+        process.env.FAL_VIDEO_MODEL || 'fal-ai/kling-video/v1/standard/text-to-video',
+    },
+    elevenlabs: {
+      apiKey: process.env.ELEVENLABS_API_KEY || '',
+      voiceId: process.env.ELEVENLABS_VOICE_ID || '',
+      model: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
+    },
+    pubbler: {
+      /** Base URL of the Pubbler instance, without the /public/v1 suffix. */
+      apiUrl: process.env.PUBBLER_API_URL || '',
+      apiKey: process.env.PUBBLER_API_KEY || '',
+      /** Pubbler channel (integration) id posts default to — the @myfyio account. */
+      defaultIntegrationId: process.env.PUBBLER_DEFAULT_INTEGRATION_ID || '',
+    },
+  },
+
   embedding: {
     /** Set to "false" to disable all embedding / vector search without removing the module. */
     enabled: process.env.EMBEDDING_ENABLED !== 'false',

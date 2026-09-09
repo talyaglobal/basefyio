@@ -1233,3 +1233,85 @@ export interface ApiToken {
 }
 export interface CreateApiTokenInput { name: string; scopes: string[]; teamId?: string; expiresAt?: string; }
 export interface CreatedApiToken extends ApiToken { token: string; }
+
+// ── Marketing Agency ─────────────────────────────────────────────────────────
+export type MarketingCampaignStatus =
+  | 'DRAFT'
+  | 'GENERATING'
+  | 'READY'
+  | 'PUBLISHING'
+  | 'PUBLISHED'
+  | 'FAILED';
+export type MarketingAssetKind = 'IMAGE' | 'VIDEO' | 'AUDIO';
+export type MarketingAssetStatus = 'PENDING' | 'READY' | 'FAILED';
+export type MarketingPublishMode = 'draft' | 'now' | 'schedule';
+
+export interface MarketingAsset {
+  id: string;
+  campaignId: string;
+  kind: MarketingAssetKind;
+  status: MarketingAssetStatus;
+  provider: string;
+  model: string | null;
+  prompt: string | null;
+  url: string | null;
+  selected: boolean;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  brief: string;
+  channel: string;
+  integrationId: string | null;
+  status: MarketingCampaignStatus;
+  language: string;
+  tone: string | null;
+  caption: string | null;
+  hashtags: string[];
+  imagePrompt: string | null;
+  videoPrompt: string | null;
+  voiceScript: string | null;
+  pubblerPostId: string | null;
+  publishMode: string | null;
+  publishedAt: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assets: MarketingAsset[];
+}
+
+/** Which legs of the pipeline have credentials, so the UI can say what is missing. */
+export interface MarketingAgencyStatus {
+  copy: boolean;
+  visuals: boolean;
+  voice: boolean;
+  publishing: boolean;
+  falModels: { image: string; video: string };
+  defaultChannelId: string | null;
+}
+
+export interface MarketingChannel {
+  id: string;
+  name: string;
+  identifier: string;
+  picture: string | null;
+  disabled: boolean;
+}
+
+export interface MarketingVoice {
+  id: string;
+  name: string;
+  previewUrl: string | null;
+}
+
+export interface CreateMarketingCampaignInput {
+  name: string;
+  brief: string;
+  channel?: string;
+  language?: string;
+  tone?: string;
+  integrationId?: string;
+}

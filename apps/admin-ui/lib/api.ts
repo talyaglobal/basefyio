@@ -58,6 +58,12 @@ import type {
   ManagementSearchConsoleSummary,
   ManagementAnalyticsTrafficSummary,
   ManagementDistributionStats,
+  MarketingAgencyStatus,
+  MarketingCampaign,
+  MarketingChannel,
+  MarketingVoice,
+  MarketingPublishMode,
+  CreateMarketingCampaignInput,
   RolePermissionMatrix,
   UserProfile,
   RootAlert,
@@ -466,6 +472,92 @@ export const api = {
     },
     managementDistribution() {
       return request<ManagementDistributionStats>('/auth/management/marketing/distribution');
+    },
+  },
+
+  // The in-house marketing agency: Claude writes it, fal.ai and ElevenLabs
+  // render it, Pubbler publishes it.
+  marketingAgency: {
+    status() {
+      return request<MarketingAgencyStatus>('/auth/management/marketing-agency/status');
+    },
+    channels() {
+      return request<MarketingChannel[]>('/auth/management/marketing-agency/channels');
+    },
+    voices() {
+      return request<MarketingVoice[]>('/auth/management/marketing-agency/voices');
+    },
+    listCampaigns() {
+      return request<MarketingCampaign[]>('/auth/management/marketing-agency/campaigns');
+    },
+    getCampaign(id: string) {
+      return request<MarketingCampaign>(`/auth/management/marketing-agency/campaigns/${id}`);
+    },
+    createCampaign(input: CreateMarketingCampaignInput) {
+      return request<MarketingCampaign>('/auth/management/marketing-agency/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+    },
+    rewriteCopy(id: string) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/copy`,
+        { method: 'POST' },
+      );
+    },
+    editCopy(
+      id: string,
+      patch: {
+        caption?: string;
+        hashtags?: string[];
+        imagePrompt?: string;
+        videoPrompt?: string;
+        voiceScript?: string;
+      },
+    ) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/copy`,
+        { method: 'PATCH', body: JSON.stringify(patch) },
+      );
+    },
+    renderImage(id: string) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/image`,
+        { method: 'POST' },
+      );
+    },
+    renderVideo(id: string) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/video`,
+        { method: 'POST' },
+      );
+    },
+    renderVoiceover(id: string, voiceId?: string) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/voiceover`,
+        { method: 'POST', body: JSON.stringify({ voiceId }) },
+      );
+    },
+    selectAsset(id: string, assetId: string) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/assets/${assetId}/select`,
+        { method: 'POST' },
+      );
+    },
+    publish(
+      id: string,
+      body: { mode: MarketingPublishMode; date?: string; postType?: 'post' | 'story' },
+    ) {
+      return request<MarketingCampaign>(
+        `/auth/management/marketing-agency/campaigns/${id}/publish`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
+    deleteCampaign(id: string) {
+      return request<{ deleted: boolean }>(
+        `/auth/management/marketing-agency/campaigns/${id}`,
+        { method: 'DELETE' },
+      );
     },
   },
 

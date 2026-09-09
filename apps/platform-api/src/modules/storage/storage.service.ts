@@ -36,6 +36,9 @@ export interface BucketSummary {
 /** Platform-wide bucket for user feedback screenshots / clips (not project-scoped). */
 const FEEDBACK_ATTACHMENTS_BUCKET = 'bf-platform-feedback';
 
+/** Platform-wide bucket for marketing agency renders (voiceovers, cached art). */
+const MARKETING_ASSETS_BUCKET = 'bf-platform-marketing';
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -712,6 +715,49 @@ export class StorageService {
       mimeType: contentType,
       kind: isVideo ? 'video' : 'image',
     };
+  }
+
+  /**
+   * Stores a marketing agency render and returns a publicly readable URL.
+   *
+   * fal.ai hands back hosted URLs, but ElevenLabs returns raw audio bytes — and
+   * Pubbler will only attach media it can fetch over HTTP. Parking the bytes in a
+   * public platform bucket gives the voiceover the same kind of URL the images
+   * already have, so the rest of the pipeline treats every asset the same way.
+   */
+  async uploadMarketingAsset(
+    campaignId: string,
+    buffer: Buffer,
+    contentType: string,
+    extension: string,
+  ): Promise<{ url: string }> {
+    const bucket = MARKETING_ASSETS_BUCKET;
+    const exists = await this.client.bucketExists(bucket);
+    if (!exists) {
+      await this.client.makeBucket(bucket, '');
+      const policy = JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${bucket}/*`],
+          },
+        ],
+      });
+      await this.client.setBucketPolicy(bucket, policy);
+    }
+
+    const objectName = `${campaignId}/${Date.now()}-${randomBytes(8).toString('hex')}.${extension}`;
+    await this.client.putObject(bucket, objectName, buffer, buffer.length, {
+      'Content-Type': contentType,
+    });
+
+    const publicHost = this.publicSsl
+      ? `https://${this.publicEndpoint}:${this.publicPort}`
+      : `http://${this.publicEndpoint}:${this.publicPort}`;
+    return { url: `${publicHost}/${bucket}/${objectName}` };
   }
 
   async ensurePlatformBucket(bucketName: string): Promise<void> {

@@ -32,6 +32,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\" --fix"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@basefyio/data-engine": "file:../../packages/data-engine",
     "@keycloak/keycloak-admin-client": "^24.0.0",
     "@nestjs/axios": "^3.0.0",

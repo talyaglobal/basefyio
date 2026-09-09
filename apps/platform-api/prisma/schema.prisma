@@ -1668,3 +1668,98 @@ model PlatformApiToken {
   @@index([tokenPrefix])
   @@map("platform_api_token")
 }
+
+enum MarketingCampaignStatus {
+  DRAFT
+  GENERATING
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum MarketingAssetKind {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum MarketingAssetStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+/// One marketing campaign produced by the in-house agency pipeline: a brief goes
+/// in, Claude writes the copy, fal.ai renders the visuals, ElevenLabs voices the
+/// script, and the result is pushed to Pubbler as a social post. Everything the
+/// pipeline produced is kept so a campaign can be reviewed, re-rendered, or
+/// re-published without regenerating from scratch.
+model MarketingCampaign {
+  id           String                  @id @default(uuid())
+  /// Short internal name so the list stays scannable.
+  name         String
+  /// The human brief the campaign was generated from.
+  brief        String
+  /// Target channel as Pubbler names it (instagram, x, linkedin, ...).
+  channel      String                  @default("instagram")
+  /// Pubbler integration (channel account) id the post is pushed to.
+  integrationId String?                @map("integration_id")
+  status       MarketingCampaignStatus @default(DRAFT)
+  /// Content language the copy is written in (ISO-639-1).
+  language     String                  @default("en")
+  /// Free-form tone/brand guidance handed to Claude verbatim.
+  tone         String?
+
+  /// Claude's output: caption, hashtags, image prompt, video prompt, voiceover.
+  caption      String?
+  hashtags     String[]                @default([])
+  imagePrompt  String?                 @map("image_prompt")
+  videoPrompt  String?                 @map("video_prompt")
+  voiceScript  String?                 @map("voice_script")
+
+  /// Pubbler post id once pushed, plus how it was pushed (draft/now/schedule).
+  pubblerPostId String?                @map("pubbler_post_id")
+  publishMode   String?                @map("publish_mode")
+  publishedAt   DateTime?              @map("published_at")
+
+  /// Last pipeline error, surfaced in the dashboard instead of only the logs.
+  error        String?
+
+  createdBy    String?                 @map("created_by")
+  createdAt    DateTime                @default(now()) @map("created_at")
+  updatedAt    DateTime                @updatedAt @map("updated_at")
+
+  assets       MarketingAsset[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("marketing_campaign")
+}
+
+/// A rendered artefact belonging to a campaign — an fal.ai image or video, or an
+/// ElevenLabs voiceover. Kept as a row (not a column on the campaign) so a
+/// campaign can carry several takes and you can pick the one that works.
+model MarketingAsset {
+  id         String               @id @default(uuid())
+  campaignId String               @map("campaign_id")
+  kind       MarketingAssetKind
+  status     MarketingAssetStatus @default(PENDING)
+  /// Provider that produced it (fal, elevenlabs).
+  provider   String
+  /// Provider model identifier, e.g. fal-ai/flux/dev.
+  model      String?
+  /// The prompt or script this artefact was rendered from.
+  prompt     String?
+  /// Where the artefact lives. fal.ai and ElevenLabs both hand back a URL.
+  url        String?
+  /// Whether this take is the one pushed to Pubbler.
+  selected   Boolean              @default(false)
+  error      String?
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("marketing_asset")
+}

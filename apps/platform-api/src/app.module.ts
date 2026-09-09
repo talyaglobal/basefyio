@@ -37,6 +37,7 @@ import { ObservabilityModule } from './modules/observability/observability.modul
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { RealtimeDataModule } from './modules/realtime-data/realtime-data.module';
 import { MarketingInsightsModule } from './modules/marketing-insights/marketing-insights.module';
+import { MarketingAgencyModule } from './modules/marketing-agency/marketing-agency.module';
 import { DataImportModule } from './modules/data-import/data-import.module';
 import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { SearchModule } from './modules/search/search.module';
@@ -93,6 +94,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RealtimeModule,
     RealtimeDataModule,
     MarketingInsightsModule,
+    MarketingAgencyModule,
     DataImportModule,
     EmbeddingModule,
     SearchModule,
