@@ -561,11 +561,24 @@ export class StorageService {
 
     const objectName = path.replace(/^\/+/, '');
 
-    await this.client.putObject(minioBucket, objectName, body, size, {
+    // A zero here would be taken literally and store an empty object — the file
+    // would exist, the count would match, and the loss would be invisible. When
+    // the source does not declare a length, hand the client no length at all and
+    // let it read the stream to the end.
+    const declared = Number.isFinite(size) && size > 0 ? size : undefined;
+
+    await this.client.putObject(minioBucket, objectName, body, declared as number, {
       'Content-Type': contentType,
     });
 
     const stat = await this.client.statObject(minioBucket, objectName);
+
+    // Read back what landed. A truncated upload otherwise counts as a success.
+    if (declared !== undefined && stat.size !== declared) {
+      throw new InternalServerErrorException(
+        `Upload of "${objectName}" stored ${stat.size} bytes, expected ${declared}`,
+      );
+    }
     return {
       name: objectName,
       size: stat.size,

@@ -555,7 +555,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         await this.projectsService.forceDelete(projectId);
         this.logger.log(`Cancelled import job ${jobId}, project ${projectId} deleted`);
       } catch (err: any) {
-        this.logger.warn(`Failed to clean up project ${projectId}: ${err.message}`);
+        // Not a warning: a half-removed project is left behind and someone has
+        // to know it needs finishing.
+        this.logger.error(
+          `Cleanup after cancelling job ${jobId} did not finish for project ${projectId}: ${err.message}`,
+          err.stack,
+        );
       }
     } else {
       this.logger.log(

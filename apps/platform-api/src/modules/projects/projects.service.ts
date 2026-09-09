@@ -1390,7 +1390,20 @@ export class ProjectsService {
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) return;
 
-    await this.deleteProjectRealm(project.keycloakRealm);
+    // Mark it dead before tearing anything down. This teardown has been
+    // interrupted part-way — a deploy restarting the container between dropping
+    // the database and removing the row — and left an ACTIVE project pointing at
+    // a database that no longer exists: broken to open, and invisible to the
+    // cleanup that only looks at DELETED rows. Ordering it this way means an
+    // interruption leaves something recoverable instead.
+    await this.prisma.project
+      .update({ where: { id }, data: { status: 'DELETED', deletedAt: new Date() } })
+      .catch(() => undefined);
+
+    // A failure here must not strand the rest of the teardown.
+    await this.deleteProjectRealm(project.keycloakRealm).catch((err) =>
+      this.logger.warn(`Realm cleanup failed for "${project.name}": ${err.message}`),
+    );
 
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});

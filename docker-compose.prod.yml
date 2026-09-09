@@ -41,6 +41,11 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: always
+    # The deploy builds three images on a 7.6 GB host. When that spike exhausts
+    # memory the kernel picks a victim by RSS, and it has repeatedly chosen the
+    # stateful services — killing Keycloak wipes every SSO session and signs all
+    # users out mid-session. Make the build the victim instead, not the data.
+    oom_score_adj: -900
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -110,6 +115,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:24.0
     restart: always
+    oom_score_adj: -900
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
@@ -152,6 +158,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    oom_score_adj: -900
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
     volumes:
       - redis_data:/data
@@ -173,6 +180,7 @@ services:
   minio:
     image: minio/minio:latest
     restart: always
+    oom_score_adj: -900
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -205,6 +213,7 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:latest
     restart: always
+    oom_score_adj: -900
     ports:
       - "${PGBOUNCER_PORT:-6432}:6432"
     volumes:
