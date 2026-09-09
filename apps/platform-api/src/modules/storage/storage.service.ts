@@ -8,6 +8,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomBytes } from 'crypto';
 import * as Minio from 'minio';
 import { Readable } from 'stream';
@@ -638,6 +639,72 @@ export class StorageService {
     const url = await this.publicClient.presignedGetObject(minioBucket, objectName, expiry);
 
     return { url, expiresIn: expiry };
+  }
+
+  // ── Usage accounting ───────────────────────────────────
+
+  /**
+   * Recompute `team_usage.storage_bytes` from what MinIO actually holds.
+   *
+   * The column was only ever initialised to zero and never written again, so
+   * every team read as "0 GB used": the dashboard under-reported, and
+   * `assertCanUploadStorage` could not trip because the running total never
+   * left zero. Storage is the only component that can answer the question, so
+   * it reports its own usage instead of routing a dependency from billing back
+   * into here.
+   *
+   * Deactivated and deleted projects are excluded, matching the existing rule
+   * that a frozen project does not consume the plan's quota.
+   *
+   * @param teamId Limit the pass to one team — used right after an import so
+   *   the figure is current instead of up to six hours stale.
+   */
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async recalculateStorageUsage(teamId?: string): Promise<void> {
+    try {
+      const projects = await this.prisma.project.findMany({
+        where: {
+          status: { notIn: ['DELETED', 'DEACTIVATED'] },
+          ...(teamId ? { teamId } : {}),
+        },
+        select: { id: true, slug: true, storagePrefix: true, teamId: true },
+      });
+      if (projects.length === 0) return;
+
+      const teamByProject = new Map(projects.map((p) => [p.id, p.teamId]));
+
+      // Every team in scope starts at zero, so a team whose buckets were all
+      // removed drops to zero instead of keeping its last non-zero total.
+      const bytesByTeam = new Map<string, bigint>(
+        projects.map((p) => [p.teamId, BigInt(0)]),
+      );
+
+      const buckets = await this.client.listBuckets();
+      for (const bucket of buckets) {
+        const owner = this.resolveMinioBucketOwner(bucket.name, projects);
+        if (!owner) continue;
+        const team = teamByProject.get(owner.id);
+        if (!team) continue;
+        const { totalSize } = await this.bucketStats(bucket.name);
+        bytesByTeam.set(team, (bytesByTeam.get(team) ?? BigInt(0)) + BigInt(totalSize));
+      }
+
+      for (const [team, bytes] of bytesByTeam) {
+        await this.prisma.teamUsage.upsert({
+          where: { teamId: team },
+          update: { storageBytes: bytes },
+          create: { teamId: team, storageBytes: bytes },
+        });
+      }
+
+      this.logger.log(
+        `Storage usage recalculated for ${bytesByTeam.size} team(s)` +
+          (teamId ? ` (team ${teamId})` : ''),
+      );
+    } catch (err: any) {
+      // Usage accounting must never take down a request or an import.
+      this.logger.warn(`Storage usage recalculation failed: ${err.message}`);
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────

@@ -843,7 +843,12 @@ export interface PitrRecoveryWindow {
 export interface ImportProgressData {
   database: { tables: number; rows: number; failedTables: string[] };
   auth: { users: number; skipped: number; emailsSent: number };
-  storage: { buckets: number; objects: number };
+  storage: {
+    buckets: number;
+    objects: number;
+    /** Objects the source listing reported, for comparison against `objects`. */
+    expectedObjects?: number;
+  };
   warnings: string[];
   /**
    * Counts read back from the destination after the import, as opposed to what
@@ -857,6 +862,8 @@ export interface ImportProgressData {
     emptyTables: string[];
     matchesReported: boolean;
     checkedAt: string;
+    objectsInTarget?: number;
+    bucketsInTarget?: number;
   };
 }
 
@@ -880,8 +887,13 @@ export function normalizeImportProgressData(
     storage: {
       buckets: raw?.storage?.buckets ?? 0,
       objects: raw?.storage?.objects ?? 0,
+      expectedObjects: raw?.storage?.expectedObjects,
     },
     warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+    // Carried through rather than rebuilt: this is the only field that reports
+    // what the destination actually holds, and dropping it here would leave the
+    // result screen showing the importer's own optimistic tallies.
+    verification: raw?.verification,
   };
 }
 

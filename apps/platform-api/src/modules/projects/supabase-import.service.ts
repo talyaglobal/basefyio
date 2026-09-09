@@ -44,7 +44,16 @@ const KNOWN_PG_BASE_TYPES = new Set([
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
   auth: { users: number; skipped: number };
-  storage: { buckets: number; objects: number };
+  storage: {
+    buckets: number;
+    objects: number;
+    /**
+     * How many objects the source listing reported. Compared against `objects`
+     * to prove nothing was dropped — the two diverging is the whole reason this
+     * field exists.
+     */
+    expectedObjects?: number;
+  };
   warnings: string[];
   /**
    * What the destination actually holds once the import finishes, read back
@@ -59,6 +68,9 @@ export interface ImportProgress {
     emptyTables: string[];
     matchesReported: boolean;
     checkedAt: string;
+    /** Objects counted in the destination buckets, independent of the copy loop. */
+    objectsInTarget?: number;
+    bucketsInTarget?: number;
   };
 }
 
@@ -653,6 +665,46 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await pool.end().catch(() => undefined);
     }
+
+    await this.verifyStorage(project, progress);
+  }
+
+  /**
+   * Count the objects the destination actually holds.
+   *
+   * Separate from the database check on purpose: storage can fail on its own
+   * (a quota stop, a rejected upload) while every table arrives intact, and the
+   * copy loop's tally only records what it believed it sent.
+   */
+  private async verifyStorage(project: any, progress: ImportProgress): Promise<void> {
+    try {
+      const buckets = await this.storage.listBuckets(project.id);
+      const objectsInTarget = buckets.reduce((n, b) => n + b.objectCount, 0);
+      const expected = progress.storage.expectedObjects ?? progress.storage.objects;
+
+      progress.verification = {
+        tablesInTarget: progress.verification?.tablesInTarget ?? 0,
+        rowsInTarget: progress.verification?.rowsInTarget ?? 0,
+        emptyTables: progress.verification?.emptyTables ?? [],
+        matchesReported: progress.verification?.matchesReported ?? false,
+        checkedAt: progress.verification?.checkedAt ?? new Date().toISOString(),
+        bucketsInTarget: buckets.length,
+        objectsInTarget,
+      };
+
+      if (expected > objectsInTarget) {
+        progress.warnings.push(
+          `Verification: the source listed ${expected} storage object(s), the destination holds ${objectsInTarget}.`,
+        );
+      }
+
+      this.logger.log(
+        `Storage verification for project ${project.id}: ${buckets.length} bucket(s), ` +
+          `${objectsInTarget} object(s) in target (source listed ${expected})`,
+      );
+    } catch (err: any) {
+      progress.warnings.push(`Verification: storage could not be counted: ${err.message}`);
+    }
   }
 
   async runStorageImport(
@@ -662,7 +714,18 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     progress: ImportProgress,
     jobId = "",
   ) {
-    return this.importStorage(baseUrl, headers, project, progress, jobId);
+    const result = await this.importStorage(baseUrl, headers, project, progress, jobId);
+
+    // An import can land tens of gigabytes at once. Refresh the team's figure
+    // now rather than leaving the dashboard — and the quota check — reading a
+    // pre-import total until the next scheduled pass.
+    const owner = await this.prisma.project.findUnique({
+      where: { id: project.id },
+      select: { teamId: true },
+    });
+    if (owner) await this.storage.recalculateStorageUsage(owner.teamId);
+
+    return result;
   }
 
   // ── Private: Connection ─────────────────────────────────
@@ -2150,6 +2213,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           supabaseBucketId,
         );
 
+        progress.storage.expectedObjects =
+          (progress.storage.expectedObjects ?? 0) + objects.length;
+        let copiedHere = 0;
+
         // Copy several objects at once: one at a time turns tens of gigabytes
         // into many hours of mostly-idle waiting on network round trips. The
         // bodies stream through, so concurrency costs bandwidth, not heap.
@@ -2176,6 +2243,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
               obj.metadata?.mimetype || contentType || 'application/octet-stream',
             );
             progress.storage.objects++;
+            copiedHere++;
           } catch (err: any) {
             // A quota rejection is not a per-object problem — every remaining
             // file will fail identically. Skipping them one by one would end in
@@ -2207,6 +2275,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           },
         );
         await Promise.all(workers);
+
+        if (copiedHere < objects.length && !this.cancelledJobs.has(jobId)) {
+          progress.warnings.push(
+            `Bucket "${logicalBucketName}": ${copiedHere} of ${objects.length} objects copied — ` +
+              `${objects.length - copiedHere} missing. Re-run the import to retry them.`,
+          );
+        }
       } catch (err: any) {
         this.logger.warn(
           `Failed to list/upload objects for bucket "${logicalBucketName}": ${err.message}`,
@@ -2245,13 +2320,37 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       const allItems: any[] = [];
 
       while (true) {
-        const { data } = await firstValueFrom(
-          this.http.post(
-            `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucketId)}`,
-            { prefix, limit, offset },
-            { headers, timeout: 30000 },
-          ),
-        );
+        // A dropped page is invisible damage: the copy loop would faithfully
+        // transfer a truncated list and report success. Retry hard, and if a
+        // page still cannot be read, fail the bucket rather than return part
+        // of it.
+        let data: any;
+        let lastErr: any;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            ({ data } = await firstValueFrom(
+              this.http.post(
+                `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucketId)}`,
+                { prefix, limit, offset },
+                { headers, timeout: 60000 },
+              ),
+            ));
+            lastErr = undefined;
+            break;
+          } catch (err: any) {
+            lastErr = err;
+            if (attempt < 4) {
+              await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+            }
+          }
+        }
+        if (lastErr) {
+          throw new Error(
+            `Could not list objects at offset ${offset} of bucket "${bucketId}"` +
+              (prefix ? ` prefix "${prefix}"` : '') +
+              `: ${lastErr.message}`,
+          );
+        }
 
         if (!Array.isArray(data) || data.length === 0) break;
         allItems.push(...data);
@@ -2288,8 +2387,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         }
       }
     } catch (err: any) {
-      this.logger.warn(
-        `Failed to list objects in bucket "${bucketId}" prefix "${prefix}": ${err.message}`,
+      // Deliberately not swallowed. Returning what was gathered so far would
+      // hand the copy loop a short list and call the result complete.
+      throw new Error(
+        `Failed to list objects in bucket "${bucketId}"` +
+          (prefix ? ` prefix "${prefix}"` : '') +
+          `: ${err.message}`,
       );
     }
 
