@@ -37,7 +37,7 @@ export interface ImportJobData {
 }
 
 export interface ImportJobProgress {
-  step: 'database' | 'auth' | 'storage' | 'completed' | 'failed';
+  step: 'database' | 'auth' | 'storage' | 'verify' | 'completed' | 'failed';
   detail: string;
   percent: number;
   progress?: ImportProgress;
@@ -75,12 +75,18 @@ export class ImportProcessor extends WorkerHost {
   }
 
   async process(job: Job<ImportJobData>): Promise<ImportProgress> {
-    const JOB_TIMEOUT_MS = 45 * 60 * 1000; // 45 minutes
+    // A large source (tens of GB of storage, millions of rows) legitimately runs
+    // for hours. The previous 45-minute cap aborted healthy imports part-way and
+    // left the project half-populated, which is worse than either finishing or
+    // failing outright. Genuinely wedged jobs are caught separately by the
+    // queue health monitor, which watches for a lack of *progress* rather than
+    // elapsed time.
+    const JOB_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(
-        () => reject(new Error('Import job timed out after 45 minutes')),
+        () => reject(new Error('Import job timed out after 8 hours')),
         JOB_TIMEOUT_MS,
       );
     });
@@ -203,7 +209,7 @@ export class ImportProcessor extends WorkerHost {
       try {
         await onProgress({ step: 'storage', detail: 'Importing storage files...', percent: 85 });
         await this.importService.runStorageImport(
-          baseUrl, headers, project, progress,
+          baseUrl, headers, project, progress, jobId,
         );
         checkCancelled();
         await onProgress({
@@ -216,6 +222,28 @@ export class ImportProcessor extends WorkerHost {
         if (err instanceof CancelledError) throw err;
         this.logger.error(`Storage import failed: ${err.message}`, err.stack);
         progress.warnings.push(`Storage import failed: ${err.message}`);
+      }
+
+      checkCancelled();
+
+      // Read back what landed. Everything reported so far is what the importer
+      // believed it sent; this is the only number that reflects the database.
+      try {
+        await onProgress({ step: 'verify', detail: 'Verifying imported data...', percent: 97 });
+        await this.importService.verifyImport(project, progress);
+        const v = progress.verification;
+        await onProgress({
+          step: 'verify',
+          detail: v
+            ? `${v.tablesInTarget} tables, ${v.rowsInTarget} rows verified in the destination`
+            : 'Verification unavailable',
+          percent: 98,
+          progress,
+        });
+      } catch (err: any) {
+        if (err instanceof CancelledError) throw err;
+        this.logger.warn(`Import verification failed: ${err.message}`);
+        progress.warnings.push(`Verification failed: ${err.message}`);
       }
 
       checkCancelled();

@@ -845,6 +845,19 @@ export interface ImportProgressData {
   auth: { users: number; skipped: number; emailsSent: number };
   storage: { buckets: number; objects: number };
   warnings: string[];
+  /**
+   * Counts read back from the destination after the import, as opposed to what
+   * the importer reported sending. `emptyTables` is the signal that matters:
+   * tables that arrived without rows usually mean RLS blocked the read because
+   * no source database password was supplied.
+   */
+  verification?: {
+    tablesInTarget: number;
+    rowsInTarget: number;
+    emptyTables: string[];
+    matchesReported: boolean;
+    checkedAt: string;
+  };
 }
 
 /** Ensures SSE/job payloads always yield full lists for the result UI. */
@@ -888,7 +901,7 @@ export function parseProjectSupabaseImportLog(
 }
 
 export interface ImportJobProgressEvent {
-  step: 'database' | 'auth' | 'storage' | 'completed' | 'failed';
+  step: 'database' | 'auth' | 'storage' | 'verify' | 'completed' | 'failed';
   detail: string;
   percent: number;
   progress?: ImportProgressData;

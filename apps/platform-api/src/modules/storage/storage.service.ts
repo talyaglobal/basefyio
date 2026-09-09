@@ -527,6 +527,53 @@ export class StorageService {
     };
   }
 
+  /**
+   * Same as {@link uploadObject}, but the body streams straight through to
+   * storage instead of being held in memory.
+   *
+   * Buffering is fine for a dashboard upload and fatal for a bulk import: this
+   * container is capped at 2 GiB, so a handful of concurrent 500 MB objects
+   * would exhaust the heap and take the whole API down mid-import. `size` comes
+   * from the source listing — MinIO needs it up front to avoid buffering the
+   * stream itself, which would defeat the purpose.
+   */
+  async uploadObjectStream(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    path: string,
+    body: Readable,
+    size: number,
+    contentType: string,
+  ) {
+    if (!path || path === '/') {
+      throw new BadRequestException('File path is required');
+    }
+
+    const project = await this.assertProjectAccess(projectId, userId);
+    await this.quota.assertCanUploadStorage(project.teamId, size);
+
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+
+    const objectName = path.replace(/^\/+/, '');
+
+    await this.client.putObject(minioBucket, objectName, body, size, {
+      'Content-Type': contentType,
+    });
+
+    const stat = await this.client.statObject(minioBucket, objectName);
+    return {
+      name: objectName,
+      size: stat.size,
+      contentType: stat.metaData?.['content-type'] || contentType,
+      lastModified: stat.lastModified,
+      etag: stat.etag,
+    };
+  }
+
   async getObject(
     projectId: string,
     userId: string | undefined,

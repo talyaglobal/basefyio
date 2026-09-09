@@ -14,6 +14,7 @@ import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
 import { Pool } from 'pg';
 import { randomBytes } from 'crypto';
+import { Readable } from 'stream';
 import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
@@ -45,6 +46,20 @@ export interface ImportProgress {
   auth: { users: number; skipped: number };
   storage: { buckets: number; objects: number };
   warnings: string[];
+  /**
+   * What the destination actually holds once the import finishes, read back
+   * from the database itself. The counters above record what was *sent*; a
+   * migration is judged on what *arrived*, and the two can differ silently when
+   * a batch insert is rejected.
+   */
+  verification?: {
+    tablesInTarget: number;
+    rowsInTarget: number;
+    /** Tables that exist but came out empty — the clearest sign of an RLS block. */
+    emptyTables: string[];
+    matchesReported: boolean;
+    checkedAt: string;
+  };
 }
 
 interface SupabaseColumn {
@@ -90,7 +105,29 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private readonly cancelledJobs = new Set<string>();
   private lastQueueHealthCheckAt = 0;
   private healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
-  private static readonly STALE_JOB_THRESHOLD_MS = 50 * 60 * 1000; // 50 min (job timeout is 45 min)
+  /**
+   * Absolute ceiling for a single import. A 32 GB source legitimately runs for
+   * hours, so the old 50-minute cap failed healthy jobs part-way through and
+   * left the project half-populated — the worst possible outcome for a migration.
+   */
+  private static readonly STALE_JOB_THRESHOLD_MS = 8 * 60 * 60 * 1000; // 8h
+
+  /**
+   * A job is only stuck if it stops *advancing*. Progress is reported after
+   * every table and every batch of objects, so half an hour of complete silence
+   * means something is genuinely wedged — while a slow-but-moving import is left
+   * alone no matter how long it takes.
+   */
+  private static readonly NO_PROGRESS_THRESHOLD_MS = 30 * 60 * 1000; // 30m
+
+  /**
+   * Objects copied in parallel. Bodies stream through, so this buys throughput
+   * without heap; kept modest so an import cannot starve the API of sockets.
+   */
+  private static readonly STORAGE_CONCURRENCY = 6;
+
+  /** Last observed progress per job, used to tell "slow" from "stuck". */
+  private readonly jobProgressSeen = new Map<string, { signature: string; at: number }>();
 
   constructor(
     private readonly http: HttpService,
@@ -188,23 +225,48 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         }
 
         const now = Date.now();
+        const liveIds = new Set(activeJobs.map((j) => String(j.id)));
+        for (const id of this.jobProgressSeen.keys()) {
+          if (!liveIds.has(id)) this.jobProgressSeen.delete(id);
+        }
+
         for (const job of activeJobs) {
+          const id = String(job.id);
           const processedOn = job.processedOn || job.timestamp || 0;
-          if (processedOn && now - processedOn > SupabaseImportService.STALE_JOB_THRESHOLD_MS) {
-            try {
-              await job.moveToFailed(
-                new Error('Import job exceeded maximum runtime (health monitor)'),
-                job.token || '0',
-                true,
-              );
-              await this.notifyAutoCancelledJob(
-                job,
-                'Import exceeded runtime limit and was auto-cancelled by health monitor. Please retry the import.',
-              );
-              this.logger.warn(`Force-failed stuck import job ${job.id} (active for ${Math.round((now - processedOn) / 60_000)} min)`);
-            } catch {
-              // Job may have already completed or been handled
-            }
+
+          // Progress is an object; stringify it so any advance — a new table, a
+          // new batch of objects — counts as movement.
+          const signature = JSON.stringify(job.progress ?? null);
+          const seen = this.jobProgressSeen.get(id);
+          if (!seen || seen.signature !== signature) {
+            this.jobProgressSeen.set(id, { signature, at: now });
+          }
+          const stalledFor = now - (this.jobProgressSeen.get(id)?.at ?? now);
+          const ranFor = processedOn ? now - processedOn : 0;
+
+          const stalled = stalledFor > SupabaseImportService.NO_PROGRESS_THRESHOLD_MS;
+          const overran = ranFor > SupabaseImportService.STALE_JOB_THRESHOLD_MS;
+          if (!stalled && !overran) continue;
+
+          const why = stalled
+            ? `no progress for ${Math.round(stalledFor / 60_000)} min`
+            : `exceeded the ${Math.round(SupabaseImportService.STALE_JOB_THRESHOLD_MS / 3_600_000)}h ceiling`;
+          try {
+            await job.moveToFailed(
+              new Error(`Import job stopped making progress (${why})`),
+              job.token || '0',
+              true,
+            );
+            await this.notifyAutoCancelledJob(
+              job,
+              `Import was auto-cancelled because it ${why}. Anything already copied is kept; re-running the import resumes from a clean slate.`,
+            );
+            this.logger.warn(
+              `Force-failed import job ${id}: ${why} (active for ${Math.round(ranFor / 60_000)} min)`,
+            );
+            this.jobProgressSeen.delete(id);
+          } catch {
+            // Job may have already completed or been handled
           }
         }
       } catch (err: any) {
@@ -515,13 +577,92 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return this.importAuth(baseUrl, headers, project, progress, projectName);
   }
 
+  /**
+   * Count what the destination database actually holds, table by table.
+   *
+   * Every other number in the report is what the importer believed it sent.
+   * This one is read back from the target, so a batch that was rejected, or a
+   * table that RLS quietly emptied, shows up as a hard mismatch instead of a
+   * clean-looking success. Failure to verify is reported, never fatal — the data
+   * is already in place by this point.
+   */
+  async verifyImport(project: any, progress: ImportProgress): Promise<void> {
+    const pool = new Pool({
+      host: project.dbHost || 'postgres',
+      port: project.dbPort || 5432,
+      database: project.dbName,
+      user: project.dbUser,
+      password: project.dbPassword,
+      max: 2,
+      statement_timeout: 120_000,
+      connectionTimeoutMillis: 15_000,
+    });
+
+    try {
+      const { rows: tables } = await pool.query<{ name: string }>(
+        `select table_name as name
+           from information_schema.tables
+          where table_schema = 'public' and table_type = 'BASE TABLE'
+          order by table_name`,
+      );
+
+      let rowsInTarget = 0;
+      const emptyTables: string[] = [];
+
+      for (const { name } of tables) {
+        // Identifier comes from the catalogue, but quote it anyway rather than
+        // trusting that to stay true.
+        const ident = `"public"."${name.replace(/"/g, '""')}"`;
+        try {
+          const { rows } = await pool.query<{ n: string }>(`select count(*) as n from ${ident}`);
+          const n = Number(rows[0]?.n ?? 0);
+          rowsInTarget += n;
+          if (n === 0) emptyTables.push(name);
+        } catch (err: any) {
+          progress.warnings.push(`Verification: could not count "${name}": ${err.message}`);
+        }
+      }
+
+      const matchesReported = rowsInTarget === progress.database.rows;
+      progress.verification = {
+        tablesInTarget: tables.length,
+        rowsInTarget,
+        emptyTables,
+        matchesReported,
+        checkedAt: new Date().toISOString(),
+      };
+
+      if (!matchesReported) {
+        progress.warnings.push(
+          `Verification: import reported ${progress.database.rows} rows, the database holds ${rowsInTarget}.`,
+        );
+      }
+      if (emptyTables.length) {
+        progress.warnings.push(
+          `Verification: ${emptyTables.length} table(s) imported empty — ${emptyTables
+            .slice(0, 10)
+            .join(', ')}${emptyTables.length > 10 ? ', …' : ''}. If the source has rows there, the database password was likely missing and RLS blocked the read.`,
+        );
+      }
+
+      this.logger.log(
+        `Import verification for "${project.name}": ${tables.length} tables, ${rowsInTarget} rows in target (reported ${progress.database.rows})`,
+      );
+    } catch (err: any) {
+      progress.warnings.push(`Verification could not run: ${err.message}`);
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+  }
+
   async runStorageImport(
     baseUrl: string,
     headers: Record<string, string>,
     project: any,
     progress: ImportProgress,
+    jobId = "",
   ) {
-    return this.importStorage(baseUrl, headers, project, progress);
+    return this.importStorage(baseUrl, headers, project, progress, jobId);
   }
 
   // ── Private: Connection ─────────────────────────────────
@@ -1936,6 +2077,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     headers: Record<string, string>,
     project: any,
     progress: ImportProgress,
+    jobId = "",
   ) {
     let buckets: SupabaseBucket[] = [];
 
@@ -2008,28 +2150,43 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           supabaseBucketId,
         );
 
-        for (const obj of objects) {
+        // Copy several objects at once: one at a time turns tens of gigabytes
+        // into many hours of mostly-idle waiting on network round trips. The
+        // bodies stream through, so concurrency costs bandwidth, not heap.
+        const copyOne = async (obj: SupabaseStorageObject) => {
           try {
-            const fileBuffer = await this.downloadSupabaseObject(
+            const { stream, size, contentType } = await this.openSupabaseObjectStream(
               baseUrl,
               headers,
               supabaseBucketId,
               obj.name,
             );
 
-            const contentType =
-              obj.metadata?.mimetype || 'application/octet-stream';
+            // Prefer the listing's size; fall back to the response header. A
+            // zero here would make storage buffer the stream to measure it.
+            const byteLength = obj.metadata?.size ?? size ?? 0;
 
-            await this.storage.uploadObject(
+            await this.storage.uploadObjectStream(
               project.id,
               undefined,
               logicalBucketName,
               obj.name,
-              fileBuffer,
-              contentType,
+              stream,
+              byteLength,
+              obj.metadata?.mimetype || contentType || 'application/octet-stream',
             );
             progress.storage.objects++;
           } catch (err: any) {
+            // A quota rejection is not a per-object problem — every remaining
+            // file will fail identically. Skipping them one by one would end in
+            // a "successful" import that is quietly missing data, so stop here
+            // and let the operator raise the plan and re-run.
+            const quotaHit =
+              err?.status === 402 ||
+              err?.response?.statusCode === 402 ||
+              /quota|storage limit/i.test(err?.message || '');
+            if (quotaHit) throw err;
+
             this.logger.warn(
               `Failed to import object "${obj.name}" from bucket "${logicalBucketName}": ${err.message}`,
             );
@@ -2037,7 +2194,19 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
               `Storage object "${logicalBucketName}/${obj.name}" failed: ${err.message}`,
             );
           }
-        }
+        };
+
+        const queue = [...objects];
+        const workers = Array.from(
+          { length: Math.min(SupabaseImportService.STORAGE_CONCURRENCY, queue.length) },
+          async () => {
+            for (let next = queue.shift(); next; next = queue.shift()) {
+              if (this.cancelledJobs.has(jobId)) return;
+              await copyOne(next);
+            }
+          },
+        );
+        await Promise.all(workers);
       } catch (err: any) {
         this.logger.warn(
           `Failed to list/upload objects for bucket "${logicalBucketName}": ${err.message}`,
@@ -2127,30 +2296,43 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return allObjects;
   }
 
-  private async downloadSupabaseObject(
+  /**
+   * Open the source object as a stream rather than reading it into a Buffer.
+   *
+   * Buckets allow objects up to 500 MB, and objects are copied concurrently, so
+   * buffering would put gigabytes on a 2 GiB heap. Streaming keeps memory flat
+   * regardless of object size or concurrency. The reported size comes back with
+   * the stream because storage needs it before the body is consumed.
+   */
+  private async openSupabaseObjectStream(
     baseUrl: string,
     headers: Record<string, string>,
     bucketId: string,
     objectPath: string,
-  ): Promise<Buffer> {
+  ): Promise<{ stream: Readable; size: number; contentType?: string }> {
     const encodedPath = objectPath
       .split('/')
       .map((seg) => encodeURIComponent(seg))
       .join('/');
 
-    const { data } = await firstValueFrom(
+    const response = await firstValueFrom(
       this.http.get(
         `${baseUrl}/storage/v1/object/${encodeURIComponent(bucketId)}/${encodedPath}`,
         {
           headers,
-          responseType: 'arraybuffer',
+          responseType: 'stream',
           timeout: 300000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
         },
       ),
     );
 
-    if (Buffer.isBuffer(data)) return data;
-    if (data instanceof ArrayBuffer) return Buffer.from(data);
-    return Buffer.from(data as any);
+    const declared = Number(response.headers?.['content-length'] ?? 0);
+    return {
+      stream: response.data as Readable,
+      size: Number.isFinite(declared) ? declared : 0,
+      contentType: response.headers?.['content-type'],
+    };
   }
 }
