@@ -48,6 +48,14 @@ jobs:
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
 
             # ── Build images on server ──
+            # The cluster image carries the extensions an imported schema can
+            # need. Cached unless its Dockerfile changes, so this costs nothing
+            # on a normal deploy.
+            echo "=== Building Postgres ==="
+            docker build \
+              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres:latest \
+              docker/postgres
+
             echo "=== Building Platform API ==="
             docker build \
               -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest \
@@ -67,6 +75,7 @@ jobs:
 
             # ── Push to GHCR (backup) ──
             echo "=== Pushing images ==="
+            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres:latest &
             docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest &
             docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-ui:latest &
             docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-website:latest &
