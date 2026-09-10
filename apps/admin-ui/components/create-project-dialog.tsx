@@ -1133,27 +1133,55 @@ export function CreateProjectDialog({
             {reimportTarget && (
               <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100">
                 <p className="font-semibold text-emerald-900 dark:text-emerald-200">
-                  Fewer errors and warnings
+                  {reimportMode === 'sync'
+                    ? 'What a sync does'
+                    : 'Fewer errors and warnings'}
                 </p>
                 <ul className="mt-1.5 list-disc space-y-1 pl-4 text-emerald-900/90 dark:text-emerald-200/90">
-                  <li>
-                    Use the <strong>service_role</strong> key (Supabase → Settings → API),
-                    not the anon key, so the importer can read all tables.
-                  </li>
-                  <li>
-                    If some tables still show 0 rows or permission errors, add the{' '}
-                    <strong>Database password</strong> (Settings → Database) so basefyio
-                    can copy data over a direct Postgres connection.
-                  </li>
-                  <li>
-                    Match the <strong>Supabase project URL</strong> to the same source you
-                    used before if you want a true refresh; a different project will
-                    replace data with that project&apos;s schema and rows.
-                  </li>
-                  <li>
-                    Large projects take several minutes; keep this window open or use the
-                    progress toast if you minimize.
-                  </li>
+                  {reimportMode === 'sync' ? (
+                    <>
+                      <li>
+                        Nothing here is dropped or rebuilt. Each table&apos;s row counts are
+                        compared, and only rows the source has that this project does not
+                        are copied across.
+                      </li>
+                      <li>
+                        The <strong>Database password</strong> (Settings → Database) is
+                        required: rows are matched by primary key over a direct Postgres
+                        connection.
+                      </li>
+                      <li>
+                        Rows are matched by <strong>primary key</strong>. A table without
+                        one is reported rather than guessed at — a project imported before
+                        keys were copied across needs one full re-import first.
+                      </li>
+                      <li>
+                        Safe to run as often as you like: an insert that would duplicate an
+                        existing row is ignored.
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      <li>
+                        Use the <strong>service_role</strong> key (Supabase → Settings → API),
+                        not the anon key, so the importer can read all tables.
+                      </li>
+                      <li>
+                        If some tables still show 0 rows or permission errors, add the{' '}
+                        <strong>Database password</strong> (Settings → Database) so basefyio
+                        can copy data over a direct Postgres connection.
+                      </li>
+                      <li>
+                        Match the <strong>Supabase project URL</strong> to the same source you
+                        used before if you want a true refresh; a different project will
+                        replace data with that project&apos;s schema and rows.
+                      </li>
+                      <li>
+                        Large projects take several minutes; keep this window open or use the
+                        progress toast if you minimize.
+                      </li>
+                    </>
+                  )}
                 </ul>
               </div>
             )}
@@ -1239,7 +1267,9 @@ export function CreateProjectDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="db-password">Database password (optional)</Label>
+                <Label htmlFor="db-password">
+                  Database password {reimportMode === 'sync' ? '(required)' : '(optional)'}
+                </Label>
                 <PasswordInput
                   id="db-password"
                   value={databasePassword}
@@ -1305,7 +1335,11 @@ export function CreateProjectDialog({
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <SupabaseLogo className="h-4 w-4 mr-2 brightness-[10]" />
-                  {reimportTarget ? 'Start re-import' : 'Start Import'}
+                  {reimportMode === 'sync'
+                    ? 'Start sync'
+                    : reimportTarget
+                      ? 'Start re-import'
+                      : 'Start Import'}
                 </Button>
               </DialogFooter>
             </form>
