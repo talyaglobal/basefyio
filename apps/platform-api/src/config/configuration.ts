@@ -165,6 +165,16 @@ export default () => ({
      * namespace; the default preserves labels on resources already created.
      */
     labelPrefix: process.env.DOCKER_LABEL_PREFIX || 'com.kolaybase',
+    /**
+     * Whether new projects may be placed on their own Postgres container.
+     *
+     * Off unless the host is explicitly declared to have room for it: a
+     * reachable Docker socket says a container *can* be started, not that the
+     * machine can carry another database. Turn it on per host once capacity is
+     * provisioned. Projects created while it is off use the shared cluster and
+     * are unaffected by it later.
+     */
+    dedicatedDbEnabled: process.env.DEDICATED_DB_ENABLED === 'true',
   },
 
   /**

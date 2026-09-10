@@ -123,9 +123,17 @@ export class ProjectsService {
 
     const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
 
-    // Keep provisioning architecture consistent across plans to avoid migration issues
-    // during plan upgrades/downgrades (free -> pro/business and vice versa).
-    const needsDedicatedDb = this.infra.isEnabled() || (await this.quota.shouldUseDedicatedDb(dto.teamId));
+    // Dedicated placement is a deliberate, capacity-bound decision, so it takes
+    // two things: a host declared to have room (DEDICATED_DB_ENABLED) and a plan
+    // that includes it. Docker being reachable is not on its own a reason to
+    // hand a project its own database — that would put every new project,
+    // free ones included, on a container of its own.
+    //
+    // Projects keep whatever placement they were created with; a plan change
+    // does not move data between the shared cluster and a dedicated container.
+    const needsDedicatedDb =
+      this.infra.isDedicatedDbEnabled() &&
+      (await this.quota.shouldUseDedicatedDb(dto.teamId));
 
     const projectId = randomUUID();
     const slug = await this.uniqueSlug(this.toSlug(normalizedName));
@@ -142,22 +150,50 @@ export class ProjectsService {
     let actualDbPort = dbPort;
     let actualAdminUser: string | undefined;
     let actualAdminPassword: string | undefined;
+    // Held until the project row exists: the infrastructure record cannot be
+    // written before then, and a rollback has no other way to find the container.
+    let dedicatedPg:
+      | {
+          containerName: string;
+          volumeName: string;
+          adminUser: string;
+          adminPassword: string;
+          memoryMb: number;
+          cpuMillis: number;
+        }
+      | undefined;
 
-    if (needsDedicatedDb && this.infra.isEnabled()) {
+    if (needsDedicatedDb) {
       try {
         const plan = await this.quota.getTeamPlan(dto.teamId);
+        const memoryMb = plan?.dbMemoryMb || 1024;
+        const cpuMillis = plan?.dbCpuMillis || 1000;
         const pgResult = await this.infra.provisionPostgres({
           projectId,
           projectSlug: slug,
-          memoryMb: plan?.dbMemoryMb || 1024,
-          cpuMillis: plan?.dbCpuMillis || 1000,
+          memoryMb,
+          cpuMillis,
         });
         actualDbHost = pgResult.host;
         actualDbPort = pgResult.port;
         actualAdminUser = pgResult.adminUser;
         actualAdminPassword = pgResult.adminPassword;
+        dedicatedPg = {
+          containerName: pgResult.containerName,
+          volumeName: pgResult.volumeName,
+          adminUser: pgResult.adminUser,
+          adminPassword: pgResult.adminPassword,
+          memoryMb,
+          cpuMillis,
+        };
       } catch (err: any) {
-        this.logger.warn(`Failed to provision dedicated Postgres, falling back to shared: ${err.message}`);
+        // Loud on purpose: the project stays usable on the shared cluster, but
+        // it is not getting the isolation its plan was sold on. This downgrade
+        // went unnoticed for months at warn level.
+        this.logger.error(
+          `Failed to provision dedicated Postgres for "${normalizedName}", falling back to the shared cluster: ${err.message}`,
+          err?.stack,
+        );
       }
     }
 
@@ -186,8 +222,17 @@ export class ProjectsService {
       } catch {
         this.logger.warn(`Rollback: could not delete orphaned realm "${realmName}"`);
       }
-      await this.dropDatabaseUser(dbUser);
-      await this.dropDatabase(dbName);
+      if (dedicatedPg) {
+        // The database lives inside the container, so removing the container
+        // rolls the database back with it — nothing reached the shared host.
+        await this.infra.discardPostgresContainer(
+          dedicatedPg.containerName,
+          dedicatedPg.volumeName,
+        );
+      } else {
+        await this.dropDatabaseUser(dbUser);
+        await this.dropDatabase(dbName);
+      }
       const reason = err?.message || 'unknown error';
       this.logger.error(`Keycloak realm creation failed (${reason}), rolling back`, err);
       throw new InternalServerErrorException(
@@ -217,6 +262,22 @@ export class ProjectsService {
         ...({ rlsBootstrappedAt: new Date() } as any),
       },
     });
+
+    if (dedicatedPg) {
+      // Now that the project row exists the foreign key resolves. If this is
+      // skipped the container runs unreferenced: reconciliation ignores it and
+      // deleting the project leaves it behind.
+      try {
+        await this.infra.recordPostgresInfrastructure({
+          projectId: project.id,
+          ...dedicatedPg,
+        });
+      } catch (err: any) {
+        this.logger.error(
+          `Project ${project.id} runs on dedicated container ${dedicatedPg.containerName} but its infrastructure record could not be written: ${err.message}`,
+        );
+      }
+    }
 
     this.logger.log(`Project "${project.name}" created (${project.id}, ${databaseType})`);
 

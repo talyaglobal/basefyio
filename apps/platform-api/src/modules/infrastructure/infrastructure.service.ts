@@ -74,6 +74,14 @@ export class InfrastructureService implements OnModuleInit {
     return this.enabled;
   }
 
+  /** Whether this host is declared to have capacity for dedicated databases. */
+  isDedicatedDbEnabled(): boolean {
+    return (
+      this.enabled &&
+      this.config.get<boolean>('docker.dedicatedDbEnabled') === true
+    );
+  }
+
   // ── Provision Dedicated Postgres ─────────────────────
 
   async provisionPostgres(opts: ProvisionPgOptions): Promise<{
@@ -82,6 +90,7 @@ export class InfrastructureService implements OnModuleInit {
     adminUser: string;
     adminPassword: string;
     containerName: string;
+    volumeName: string;
   }> {
     if (!this.enabled) {
       throw new InternalServerErrorException(
@@ -131,49 +140,92 @@ export class InfrastructureService implements OnModuleInit {
 
     await container.start();
 
-    await this.prisma.projectInfrastructure.upsert({
-      where: { projectId: opts.projectId },
-      update: {
-        pgContainerName: containerName,
-        pgContainerHost: containerName,
-        pgContainerPort: 5432,
-        pgAdminUser: adminUser,
-        pgAdminPassword: adminPassword,
-        pgMemoryMb: opts.memoryMb,
-        pgCpuMillis: opts.cpuMillis,
-        pgVolumeId: volumeName,
-        status: 'PROVISIONING',
-      },
-      create: {
-        projectId: opts.projectId,
-        pgContainerName: containerName,
-        pgContainerHost: containerName,
-        pgContainerPort: 5432,
-        pgAdminUser: adminUser,
-        pgAdminPassword: adminPassword,
-        pgMemoryMb: opts.memoryMb,
-        pgCpuMillis: opts.cpuMillis,
-        pgVolumeId: volumeName,
-        status: 'PROVISIONING',
-      },
-    });
-
     await this.waitForHealthy(containerName, 60_000);
-
-    await this.prisma.projectInfrastructure.update({
-      where: { projectId: opts.projectId },
-      data: { status: 'ACTIVE', provisionedAt: new Date() },
-    });
 
     this.logger.log(`Dedicated Postgres provisioned: ${containerName}`);
 
+    // The infrastructure record is written by recordPostgresInfrastructure once
+    // the project row exists — see the note there.
     return {
       host: containerName,
       port: 5432,
       adminUser,
       adminPassword,
       containerName,
+      volumeName,
     };
+  }
+
+  /**
+   * Persist the infrastructure record for a freshly provisioned Postgres.
+   *
+   * Kept apart from provisionPostgres on purpose: the row carries a foreign key
+   * to `projects`, so it can only be written after the project row is created.
+   * Writing it during provisioning violates that constraint, and the caller's
+   * fallback then quietly downgrades the project to the shared database while
+   * the new container keeps running with nothing pointing at it.
+   */
+  async recordPostgresInfrastructure(opts: {
+    projectId: string;
+    containerName: string;
+    volumeName: string;
+    adminUser: string;
+    adminPassword: string;
+    memoryMb: number;
+    cpuMillis: number;
+  }): Promise<void> {
+    const record = {
+      pgContainerName: opts.containerName,
+      pgContainerHost: opts.containerName,
+      pgContainerPort: 5432,
+      pgAdminUser: opts.adminUser,
+      pgAdminPassword: opts.adminPassword,
+      pgMemoryMb: opts.memoryMb,
+      pgCpuMillis: opts.cpuMillis,
+      pgVolumeId: opts.volumeName,
+      status: 'ACTIVE' as const,
+      provisionedAt: new Date(),
+    };
+
+    await this.prisma.projectInfrastructure.upsert({
+      where: { projectId: opts.projectId },
+      update: record,
+      create: { projectId: opts.projectId, ...record },
+    });
+  }
+
+  /**
+   * Remove a container/volume pair that was created but never recorded.
+   * deprovisionPostgres cannot serve this case because it looks the container
+   * up through the very row that does not exist yet.
+   */
+  async discardPostgresContainer(
+    containerName: string,
+    volumeName?: string,
+  ): Promise<void> {
+    if (!this.enabled) return;
+
+    try {
+      const container = this.docker.getContainer(containerName);
+      try {
+        await container.stop();
+      } catch {
+        /* already stopped */
+      }
+      await container.remove();
+      this.logger.log(`Discarded unreferenced container ${containerName}`);
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to discard container ${containerName}: ${err.message}`,
+      );
+    }
+
+    if (!volumeName) return;
+    try {
+      await this.docker.getVolume(volumeName).remove();
+    } catch (err: any) {
+      this.logger.warn(`Failed to discard volume ${volumeName}: ${err.message}`);
+    }
   }
 
   // ── Provision Dedicated MinIO ────────────────────────
