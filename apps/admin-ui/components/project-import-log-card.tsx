@@ -13,7 +13,7 @@ import {
   AlertTriangle,
   Database,
   HardDrive,
-  RefreshCw,
+  RotateCcw,
   ScrollText,
   Shield,
   Sparkles,
@@ -137,7 +137,7 @@ export function ProjectImportLogCard({
             className="h-7 text-xs"
             onClick={onReimport}
           >
-            <RefreshCw className="mr-1.5 h-3 w-3" />
+            <RotateCcw className="mr-1.5 h-3 w-3" />
             Re-import
           </Button>
         </div>

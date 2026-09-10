@@ -27,8 +27,8 @@ import {
 import {
   Database, Github, Key, Shield, Trash2, Triangle,
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
-  RefreshCw,
-  ArrowDownToLine,
+  RotateCcw,
+  GitCompareArrows,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
@@ -319,7 +319,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               }}
               title="Fetch only what the source has gained since the last import"
             >
-              <ArrowDownToLine className="mr-2 h-4 w-4" />
+              <GitCompareArrows className="mr-2 h-4 w-4" />
               Sync Changes
             </Button>
           )}
@@ -332,7 +332,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
                 setReimportOpen(true);
               }}
             >
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RotateCcw className="mr-2 h-4 w-4" />
               {reimportLabel}
             </Button>
           )}
