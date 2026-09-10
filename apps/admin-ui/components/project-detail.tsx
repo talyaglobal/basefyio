@@ -28,6 +28,7 @@ import {
   Database, Github, Key, Shield, Trash2, Triangle,
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
   RefreshCw,
+  ArrowDownToLine,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
@@ -87,6 +88,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [movingTeam, setMovingTeam] = useState(false);
   const [reimportOpen, setReimportOpen] = useState(false);
+  const [reimportMode, setReimportMode] = useState<'full' | 'sync'>('full');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteReasonCode, setDeleteReasonCode] = useState<string>('none');
   const [deleteDetails, setDeleteDetails] = useState('');
@@ -307,8 +309,29 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               Move to Team
             </Button>
           )}
+          {reimportSource === 'supabase' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setReimportMode('sync');
+                setReimportOpen(true);
+              }}
+              title="Fetch only what the source has gained since the last import"
+            >
+              <ArrowDownToLine className="mr-2 h-4 w-4" />
+              Sync Changes
+            </Button>
+          )}
           {reimportSource && (
-            <Button variant="outline" size="sm" onClick={() => setReimportOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setReimportMode('full');
+                setReimportOpen(true);
+              }}
+            >
               <RefreshCw className="mr-2 h-4 w-4" />
               {reimportLabel}
             </Button>
@@ -656,6 +679,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         onCreated={() => router.refresh()}
         teamId={project.teamId}
         reimportSource={reimportSource}
+        reimportMode={reimportMode}
         reimportTarget={
           reimportOpen && reimportSource
             ? { projectId: project.id, projectName: project.name }

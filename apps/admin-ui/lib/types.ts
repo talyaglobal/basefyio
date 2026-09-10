@@ -779,6 +779,12 @@ export interface SupabaseImportRequest {
   teamId: string;
   /** When set, import runs into this existing basefyio project (same DB/realm). */
   existingProjectId?: string;
+  /**
+   * 'sync' compares the project against the source and fetches only what it has
+   * gained — minutes rather than hours once the first import is done. Requires
+   * existingProjectId.
+   */
+  mode?: 'full' | 'sync';
 }
 
 export interface SupabaseImportJobResponse {

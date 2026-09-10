@@ -57,6 +57,8 @@ interface CreateProjectDialogProps {
   /** When set, opens re-import flow for this existing project. */
   reimportTarget?: ReimportTarget | null;
   reimportSource?: ReimportSource | null;
+  /** 'sync' fetches only what the source has gained; 'full' rebuilds. */
+  reimportMode?: 'full' | 'sync';
 }
 
 type DialogView = 'db-type' | 'advisor' | 'create' | 'import' | 'import-zip' | 'importing' | 'result';
@@ -156,6 +158,7 @@ export function CreateProjectDialog({
   teamId,
   reimportTarget = null,
   reimportSource = null,
+  reimportMode = 'full',
 }: CreateProjectDialogProps) {
   const router = useRouter();
   const [view, setView] = useState<DialogView>('db-type');
@@ -619,6 +622,7 @@ export function CreateProjectDialog({
         ...(reimportTarget
           ? { existingProjectId: reimportTarget.projectId }
           : {}),
+        ...(reimportMode === 'sync' ? { mode: 'sync' as const } : {}),
       });
 
       setImportProjectName(result.project.name);
@@ -1088,14 +1092,27 @@ export function CreateProjectDialog({
                 <div className="flex items-center gap-2">
                   <SupabaseLogo className="h-5 w-5" />
                   <DialogTitle>
-                    {reimportTarget
-                      ? 'Re-import from Supabase'
-                      : 'Import from Supabase'}
+                    {reimportMode === 'sync'
+                      ? 'Sync changes from Supabase'
+                      : reimportTarget
+                        ? 'Re-import from Supabase'
+                        : 'Import from Supabase'}
                   </DialogTitle>
                 </div>
               </div>
               <DialogDescription>
-                {reimportTarget ? (
+                {reimportMode === 'sync' && reimportTarget ? (
+                  <>
+                    Fetch what your Supabase project has gained since the last
+                    import into{' '}
+                    <span className="font-medium text-foreground">
+                      {reimportTarget.projectName}
+                    </span>
+                    . Rows, files and users already here are left untouched, so
+                    this takes minutes rather than hours. The database password
+                    is required — rows are matched by primary key.
+                  </>
+                ) : reimportTarget ? (
                   <>
                     Pull data again from your Supabase project into{' '}
                     <span className="font-medium text-foreground">

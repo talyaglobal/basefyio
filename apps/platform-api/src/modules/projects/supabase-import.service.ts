@@ -335,6 +335,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     supabaseDatabasePassword?: string,
     existingProjectId?: string,
+    mode: 'full' | 'sync' = 'full',
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -358,6 +359,15 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       keycloakRealm: string;
     };
     let preserveProjectOnCancel = false;
+
+    // A sync only makes sense against something already imported: it compares
+    // the two sides and fetches the difference, and there is no difference to
+    // measure against a project that does not exist yet.
+    if (mode === 'sync' && !existingProjectId) {
+      throw new BadRequestException(
+        'Syncing updates an existing project. Run a full import first.',
+      );
+    }
 
     if (existingProjectId) {
       const existing = await this.projectsService.getProjectForSupabaseImport(
@@ -414,6 +424,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       dbName: project.dbName,
       keycloakRealm: project.keycloakRealm,
       preserveProjectOnCancel,
+      mode,
     };
 
     // Managed Redis/BullMQ deployments may leave queues paused after restarts.
@@ -721,6 +732,280 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       );
     } catch (err: any) {
       progress.warnings.push(`Verification: storage could not be counted: ${err.message}`);
+    }
+  }
+
+  /**
+   * Fetch what the source has gained, and leave the rest alone.
+   *
+   * A full import rebuilds every table from nothing, which on a large project
+   * costs hours — and by the time it finishes, a live source has moved on
+   * again. Most of that work is spent re-copying rows that are already here.
+   *
+   * This compares the two sides and transfers only the difference. It leans on
+   * the primary keys the schema copy now brings across: with a key, a row can
+   * be recognised, so an insert that would duplicate is simply ignored and the
+   * pass can be repeated as often as you like without changing the result.
+   */
+  async runSyncImport(
+    baseUrl: string,
+    headers: Record<string, string>,
+    project: any,
+    progress: ImportProgress,
+    jobId = '',
+    onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
+  ): Promise<void> {
+    const pwd: string | undefined = project.supabaseDatabasePassword;
+    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
+    const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+
+    if (!pwd || !ref) {
+      throw new BadRequestException(
+        'Syncing needs the source database password: rows are matched by primary key over a direct connection, which the API key alone cannot open.',
+      );
+    }
+
+    const sourcePool = await this.openSupabaseSourcePool(ref, pwd);
+    if (!sourcePool) {
+      throw new BadRequestException(
+        'Could not reach the source database. Check the database password and that the project is running.',
+      );
+    }
+
+    const pool = new Pool({
+      host: project.dbHost,
+      port: project.dbPort,
+      user: project.dbUser,
+      password: project.dbPassword,
+      database: project.dbName,
+      connectionTimeoutMillis: 15_000,
+      statement_timeout: 300_000,
+    });
+
+    try {
+      await this.connectPoolWithRetry(pool, project.dbName);
+
+      const { rows: tables } = await pool.query<{ name: string }>(
+        `select table_name as name from information_schema.tables
+          where table_schema = 'public' and table_type = 'BASE TABLE'
+          order by table_name`,
+      );
+
+      let examined = 0;
+      let changed = 0;
+
+      for (const { name } of tables) {
+        if (this.cancelledJobs.has(jobId)) return;
+        examined++;
+
+        if (onProgress) {
+          await onProgress(
+            `Comparing "${name}" (${examined}/${tables.length})`,
+            5 + Math.round((examined / Math.max(tables.length, 1)) * 70),
+            'Direct SQL',
+          );
+        }
+
+        try {
+          const copied = await this.syncTable(sourcePool, pool, name);
+          if (copied > 0) {
+            changed++;
+            progress.database.rows += copied;
+            this.logger.log(`Sync: "${name}" gained ${copied} row(s)`);
+          }
+        } catch (err: any) {
+          this.logger.warn(`Sync: "${name}" could not be compared: ${err.message}`);
+          progress.warnings.push(`Table "${name}" could not be synced: ${err.message}`);
+        }
+      }
+
+      progress.database.tables = changed;
+      this.logger.log(
+        `Sync compared ${examined} table(s); ${changed} needed rows, ${progress.database.rows} copied`,
+      );
+    } finally {
+      await pool.end().catch(() => undefined);
+      await sourcePool.end().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Bring one table level with the source.
+   *
+   * The row counts are compared first because that single question settles most
+   * tables for the price of two counts — nothing to do, move on. Only where
+   * they differ does anything get read.
+   *
+   * How the difference is found depends on what the table offers. A timestamp
+   * that records when a row last changed makes it cheap: ask only for rows
+   * newer than the newest one here. Without one, the rows are read in key order
+   * and offered to an insert that ignores keys already present, which is slower
+   * but always correct.
+   */
+  private async syncTable(sourcePool: Pool, pool: Pool, table: string): Promise<number> {
+    const ident = `"public"."${table.replace(/"/g, '""')}"`;
+
+    const [{ rows: srcCount }, { rows: dstCount }] = await Promise.all([
+      sourcePool.query<{ n: string }>(`select count(*) as n from ${ident}`),
+      pool.query<{ n: string }>(`select count(*) as n from ${ident}`),
+    ]);
+    const source = Number(srcCount[0]?.n ?? 0);
+    const destination = Number(dstCount[0]?.n ?? 0);
+    if (source <= destination) return 0;
+
+    const { rows: keyCols } = await pool.query<{ column_name: string }>(
+      `select a.attname as column_name
+         from pg_index i
+         join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+        where i.indrelid = $1::regclass and i.indisprimary`,
+      [ident],
+    );
+    if (keyCols.length === 0) {
+      throw new Error(
+        `no primary key, so new rows cannot be told from existing ones (source has ${source - destination} more)`,
+      );
+    }
+    const keys = keyCols.map((k) => `"${k.column_name.replace(/"/g, '""')}"`);
+
+    const { rows: cols } = await pool.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = $1
+        order by ordinal_position`,
+      [table],
+    );
+    const columns = cols.map((c) => `"${c.column_name.replace(/"/g, '""')}"`);
+    const names = cols.map((c) => c.column_name);
+
+    // A column that records when the row last changed turns this into a tail
+    // read instead of a full scan.
+    const watermark = ['updated_at', 'modified_at', 'created_at', 'inserted_at'].find((w) =>
+      names.includes(w),
+    );
+
+    let where = '';
+    const params: unknown[] = [];
+    if (watermark) {
+      const { rows } = await pool.query<{ m: string | null }>(
+        `select max("${watermark}") as m from ${ident}`,
+      );
+      if (rows[0]?.m) {
+        where = `where "${watermark}" > $1`;
+        params.push(rows[0].m);
+      }
+    }
+
+    const conflict = keys.join(', ');
+    let copied = 0;
+    const pageSize = 1000;
+    let offset = 0;
+
+    while (true) {
+      const { rows } = await sourcePool.query(
+        `select ${columns.join(', ')} from ${ident} ${where}
+          order by ${conflict} limit ${pageSize} offset ${offset}`,
+        params,
+      );
+      if (rows.length === 0) break;
+
+      const values = rows
+        .map(
+          (_, r) =>
+            `(${columns.map((__, c) => `$${r * columns.length + c + 1}`).join(', ')})`,
+        )
+        .join(', ');
+      const flat = rows.flatMap((row: any) => names.map((n) => row[n] ?? null));
+
+      const result = await pool.query(
+        `insert into ${ident} (${columns.join(', ')}) values ${values}
+         on conflict (${conflict}) do nothing`,
+        flat,
+      );
+      copied += result.rowCount ?? 0;
+
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    return copied;
+  }
+
+  /**
+   * Copy only the objects the destination does not already hold.
+   *
+   * Re-uploading tens of gigabytes to discover that almost all of it was
+   * already there is the slowest part of a repeat import, and the listings on
+   * both sides answer the question directly.
+   */
+  async runStorageSync(
+    baseUrl: string,
+    headers: Record<string, string>,
+    project: any,
+    progress: ImportProgress,
+    jobId = '',
+    onProgress?: (detail: string, percent: number) => Promise<void>,
+  ): Promise<void> {
+    let buckets: SupabaseBucket[] = [];
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get(`${baseUrl}/storage/v1/bucket`, { headers, timeout: 60000 }),
+      );
+      buckets = data || [];
+    } catch (err: any) {
+      throw new Error(`Failed to fetch storage buckets: ${err.message}`);
+    }
+
+    for (let b = 0; b < buckets.length; b++) {
+      if (this.cancelledJobs.has(jobId)) return;
+
+      const bucket = buckets[b];
+      const logicalBucketName = (bucket.name || bucket.id || '').trim();
+      if (!logicalBucketName) continue;
+
+      try {
+        await this.storage.createBucket(project.id, undefined, logicalBucketName, bucket.public);
+        progress.storage.buckets++;
+      } catch {
+        // Already there from the first import, which is the normal case here.
+      }
+
+      const supabaseBucketId = bucket.id || bucket.name;
+      const objects = await this.listSupabaseObjects(baseUrl, headers, supabaseBucketId);
+
+      const here = new Set<string>();
+      try {
+        const existing = await this.storage.listObjects(project.id, undefined, logicalBucketName, '', true);
+        for (const obj of existing as Array<{ name: string }>) here.add(obj.name);
+      } catch (err: any) {
+        this.logger.warn(`Sync: could not list "${logicalBucketName}" locally: ${err.message}`);
+      }
+
+      const missing = objects.filter((o) => !here.has(o.name));
+      progress.storage.expectedObjects = (progress.storage.expectedObjects ?? 0) + objects.length;
+
+      if (onProgress) {
+        await onProgress(
+          `"${logicalBucketName}": ${missing.length} of ${objects.length} file(s) missing (bucket ${b + 1}/${buckets.length})`,
+          78 + Math.round(((b + 1) / Math.max(buckets.length, 1)) * 17),
+        );
+      }
+
+      for (const obj of missing) {
+        if (this.cancelledJobs.has(jobId)) return;
+        try {
+          const { stream, size, contentType } = await this.openSupabaseObjectStream(
+            baseUrl, headers, supabaseBucketId, obj.name,
+          );
+          await this.storage.uploadObjectStream(
+            project.id, undefined, logicalBucketName, obj.name, stream,
+            obj.metadata?.size ?? size ?? 0,
+            obj.metadata?.mimetype || contentType || 'application/octet-stream',
+          );
+          progress.storage.objects++;
+        } catch (err: any) {
+          this.logger.warn(`Sync: "${logicalBucketName}/${obj.name}" failed: ${err.message}`);
+          progress.warnings.push(`Storage object "${logicalBucketName}/${obj.name}" failed: ${err.message}`);
+        }
+      }
     }
   }
 

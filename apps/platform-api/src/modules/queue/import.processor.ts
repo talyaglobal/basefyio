@@ -34,6 +34,12 @@ export interface ImportJobData {
   keycloakRealm: string;
   /** When true, cancelImport must not delete the project (re-import into existing project). */
   preserveProjectOnCancel?: boolean;
+  /**
+   * 'full' rebuilds the project from the source. 'sync' leaves what is already
+   * here and fetches only what the source has gained since — the difference
+   * between hours and minutes once a project has been imported once.
+   */
+  mode?: 'full' | 'sync';
 }
 
 export interface ImportJobProgress {
@@ -158,6 +164,68 @@ export class ImportProcessor extends WorkerHost {
       checkCancelled();
       await job.updateProgress(update);
     };
+
+    // A sync leaves everything already here in place and fetches only what the
+    // source has gained. It reuses the auth step unchanged, which has always
+    // skipped identities that exist.
+    if (job.data.mode === 'sync') {
+      try {
+        await onProgress({ step: 'database', detail: 'Comparing tables...', percent: 5 });
+        await this.importService.runSyncImport(
+          baseUrl, headers, project, progress, jobId,
+          async (detail: string, percent: number, strategy?: string) => {
+            await onProgress({ step: 'database', detail, percent, strategy });
+          },
+        );
+
+        checkCancelled();
+        await onProgress({ step: 'auth', detail: 'Checking for new users...', percent: 76 });
+        await this.importService.runAuthImport(
+          baseUrl, headers, project, progress, projectName,
+          async (detail: string, percent: number) => {
+            await onProgress({ step: 'auth', detail, percent: Math.min(percent, 77) });
+          },
+        );
+
+        checkCancelled();
+        await onProgress({ step: 'storage', detail: 'Comparing storage...', percent: 78 });
+        await this.importService.runStorageSync(
+          baseUrl, headers, project, progress, jobId,
+          async (detail: string, percent: number) => {
+            await onProgress({ step: 'storage', detail, percent });
+          },
+        );
+
+        checkCancelled();
+        await onProgress({ step: 'verify', detail: 'Verifying...', percent: 97 });
+        await this.importService.verifyImport(project, progress);
+
+        await job.updateProgress({
+          step: 'completed',
+          detail: `Sync complete: ${progress.database.rows} row(s), ${progress.storage.objects} file(s), ${progress.auth.users} user(s) added`,
+          percent: 100,
+          progress,
+        });
+
+        this.logger.log(
+          `Sync job ${jobId} complete: ${progress.database.rows} rows across ${progress.database.tables} table(s), ` +
+          `${progress.auth.users} users, ${progress.storage.objects} objects`,
+        );
+
+        await this.activity.append(projectId, {
+          userId: job.data.userId,
+          kind: ProjectActivityKind.SUPABASE_IMPORT_COMPLETED,
+          title: 'Supabase sync completed',
+          detail: `${progress.database.rows} row(s) across ${progress.database.tables} table(s); ${progress.auth.users} user(s); ${progress.storage.objects} file(s).`,
+        });
+
+        return progress;
+      } catch (err: any) {
+        if (err instanceof CancelledError) throw err;
+        this.logger.error(`Sync failed: ${err.message}`, err.stack);
+        throw err;
+      }
+    }
 
     try {
       // Database import

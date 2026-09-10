@@ -61,6 +61,7 @@ export class ProjectsController {
       user.sub,
       body.databasePassword,
       body.existingProjectId,
+      body.mode ?? 'full',
     );
   }
 

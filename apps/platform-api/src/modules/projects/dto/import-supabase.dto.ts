@@ -5,6 +5,7 @@ import {
   MinLength,
   IsOptional,
   IsUUID,
+  IsIn,
 } from 'class-validator';
 
 export class ImportSupabaseDto {
@@ -28,6 +29,14 @@ export class ImportSupabaseDto {
   @IsString()
   @IsNotEmpty()
   teamId: string;
+
+  /**
+   * 'sync' compares this project against the source and fetches only what it
+   * has gained, instead of rebuilding everything. Requires existingProjectId.
+   */
+  @IsOptional()
+  @IsIn(['full', 'sync'])
+  mode?: 'full' | 'sync';
 
   /** Re-import into this basefyio project instead of creating a new one. Must belong to teamId. */
   @IsOptional()
