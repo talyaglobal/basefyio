@@ -49,12 +49,22 @@ jobs:
 
             # ── Build images on server ──
             # The cluster image carries the extensions an imported schema can
-            # need. Cached unless its Dockerfile changes, so this costs nothing
-            # on a normal deploy.
-            echo "=== Building Postgres ==="
-            docker build \
-              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres:latest \
-              docker/postgres
+            # need. Rebuilding it every deploy would be worse than pointless:
+            # the cleanup below wipes the build cache, so the rebuild produces a
+            # new image id, compose recreates postgres, and everything that
+            # depends on it restarts — including Keycloak, which drops every SSO
+            # session. Tag by the Dockerfile's own hash and only build when that
+            # changes, so an unchanged cluster image keeps its id and compose
+            # leaves the database alone.
+            PG_REF=ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres
+            PG_HASH=$(sha256sum docker/postgres/Dockerfile | cut -c1-12)
+            if docker image inspect "$PG_REF:$PG_HASH" >/dev/null 2>&1; then
+              echo "=== Postgres image unchanged ($PG_HASH) ==="
+            else
+              echo "=== Building Postgres ($PG_HASH) ==="
+              docker build -t "$PG_REF:$PG_HASH" docker/postgres
+            fi
+            docker tag "$PG_REF:$PG_HASH" "$PG_REF:latest"
 
             echo "=== Building Platform API ==="
             docker build \
