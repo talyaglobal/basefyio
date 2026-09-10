@@ -13,8 +13,11 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
 import { Pool } from 'pg';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { Readable } from 'stream';
+import * as Docker from 'dockerode';
+import { readFile, unlink } from 'fs/promises';
+import { join } from 'path';
 import { ProjectsService } from './projects.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
@@ -140,6 +143,14 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
   /** Last observed progress per job, used to tell "slow" from "stuck". */
   private readonly jobProgressSeen = new Map<string, { signature: string; at: number }>();
+
+  /** Staging area for a schema dump, shared with the container that writes it. */
+  private static readonly SCHEMA_SCRATCH_ROOT = '/pitr-scratch';
+  private static readonly SCHEMA_SCRATCH_VOLUME =
+    process.env.PITR_SCRATCH_VOLUME || 'kolaybase_pitr_scratch';
+
+  /** Which host and user actually reached a given source project. */
+  private readonly sourceConnByRef = new Map<string, { host: string; user: string }>();
 
   constructor(
     private readonly http: HttpService,
@@ -949,6 +960,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.connectPoolWithRetry(direct, `supabase-direct-${ref}`, 2);
+      this.sourceConnByRef.set(ref, { host: `db.${ref}.supabase.co`, user: 'postgres' });
       this.logger.log(
         `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
       );
@@ -1003,6 +1015,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (winner) {
+      this.sourceConnByRef.set(ref, { host: winnerHost, user: `postgres.${ref}` });
       this.logger.log(
         `Direct Postgres copy enabled via pooler (${winnerHost}, user postgres.${ref}) — bypasses PostgREST row-level grants`,
       );
@@ -1013,6 +1026,426 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       `No reachable Postgres route to Supabase project "${ref}" (direct endpoint is IPv6-only and no pooler region accepted the credentials); falling back to PostgREST for data`,
     );
     return null;
+  }
+
+  /**
+   * Copy the source's real schema, not an approximation of it.
+   *
+   * Tables used to be rebuilt from the PostgREST schema description, which
+   * knows column names and types and nothing else. Everything that makes a
+   * database usable was therefore dropped on the floor: primary keys, indexes,
+   * foreign keys, defaults and sequences, checks, triggers, functions, row
+   * level security, and views — which arrived as static tables holding a
+   * snapshot of their own output. The rows were all there and the project was
+   * still unusable: upserts have no conflict target, inserts into a serial
+   * column have no sequence, and a query that was instant against an index
+   * becomes a sequential scan over millions of rows.
+   *
+   * `pg_dump` already knows how to describe a database exactly. It refuses to
+   * run against a newer server than itself, so the dump runs inside a throwaway
+   * container matching the source's major version, writing to the volume this
+   * process can read.
+   *
+   * Returns the SQL, or null if the dump could not be produced — the import
+   * then falls back to the reconstructed tables rather than failing outright.
+   */
+  private async dumpSourceSchema(
+    ref: string,
+    password: string,
+    majorVersion: number,
+  ): Promise<string | null> {
+    const runId = randomUUID().slice(0, 8);
+    const fileName = `schema-${runId}.sql`;
+    const hostPath = join(SupabaseImportService.SCHEMA_SCRATCH_ROOT, fileName);
+    const image = `postgres:${majorVersion}-alpine`;
+    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    let container: Docker.Container | null = null;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        docker.pull(image, (err: any, stream: any) => {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (e: any) => (e ? reject(e) : resolve()));
+        });
+      });
+
+      // Reuse whichever route actually connected — the direct endpoint when the
+      // host has IPv6, the pooler otherwise. They take different usernames.
+      const conn = this.sourceConnByRef.get(ref);
+      if (!conn) return null;
+      const url = `postgresql://${encodeURIComponent(conn.user)}@${conn.host}:5432/postgres?sslmode=require`;
+
+      container = await docker.createContainer({
+        Image: image,
+        // The password travels in the environment rather than the URL so it
+        // stays out of the container's command line.
+        Env: [`PGPASSWORD=${password}`],
+        Cmd: [
+          'sh',
+          '-c',
+          `pg_dump "$0" --schema-only --schema=public --no-owner --no-privileges --no-comments -f ${hostPath}`,
+          url,
+        ],
+        HostConfig: {
+          Binds: [
+            `${SupabaseImportService.SCHEMA_SCRATCH_VOLUME}:${SupabaseImportService.SCHEMA_SCRATCH_ROOT}`,
+          ],
+        },
+      } as Docker.ContainerCreateOptions);
+
+      await container.start();
+      const { StatusCode } = await container.wait();
+
+      if (StatusCode !== 0) {
+        const why = await container
+          .logs({ stdout: true, stderr: true, tail: 20 })
+          .then((b) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
+          .catch(() => '');
+        this.logger.warn(`Schema dump exited ${StatusCode}: ${why}`);
+        return null;
+      }
+
+      const sql = await readFile(hostPath, 'utf8');
+      await unlink(hostPath).catch(() => undefined);
+      return sql;
+    } catch (err: any) {
+      this.logger.warn(`Schema dump failed: ${err.message}`);
+      return null;
+    } finally {
+      if (container) await container.remove({ force: true }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Give the dumped schema the ground it expects to land on.
+   *
+   * A managed provider's `public` schema is not self-contained: its policies
+   * call `auth.uid()`, its foreign keys point at `auth.users`, its defaults call
+   * functions in an `extensions` schema, and its columns use types from
+   * extensions installed there. Applying the dump without any of that produced
+   * five hundred failures from one missing schema alone, each one taking a
+   * policy, a key or a whole table with it.
+   *
+   * The stubs are deliberately minimal — enough for the schema to be valid and
+   * for the objects to attach. Basefy authenticates through its own identity
+   * provider, so `auth.uid()` reports whoever the current request is, which is
+   * nobody unless the application sets it.
+   */
+  private async prepareDestinationForSchema(client: any): Promise<void> {
+    const attempt = async (sql: string) => client.query(sql).catch(() => undefined);
+
+    // Roles the policies name.
+    for (const role of ['anon', 'authenticated', 'service_role', 'authenticator', 'supabase_admin']) {
+      await attempt(
+        `do $$ begin if not exists (select 1 from pg_roles where rolname = '${role}') then create role "${role}" nologin; end if; end $$;`,
+      );
+    }
+
+    for (const schema of ['extensions', 'auth', 'vault', 'graphql_public']) {
+      await attempt(`create schema if not exists "${schema}"`);
+    }
+
+    // Types used by columns must exist before the tables that use them. Anything
+    // this cluster does not ship is skipped; the objects that need it are then
+    // reported as rejected rather than silently missed.
+    await attempt('create extension if not exists vector with schema public');
+    await attempt('create extension if not exists postgis with schema public');
+    for (const ext of ['pgcrypto', 'uuid-ossp', 'moddatetime', 'pg_stat_statements', 'pg_trgm', 'btree_gin', 'btree_gist', 'citext', 'unaccent']) {
+      await attempt(`create extension if not exists "${ext}" with schema extensions`);
+    }
+
+    // Foreign keys reference this table, so it has to exist before them. It is
+    // filled from the source further on, keeping those keys truthful.
+    // Views and functions in the copied schema read these columns by name, so
+    // the stub carries the provider's shape rather than just its key.
+    await attempt(`
+      create table if not exists auth.users (
+        id uuid primary key,
+        email text,
+        phone text,
+        role text,
+        aud text,
+        created_at timestamptz default now(),
+        updated_at timestamptz,
+        last_sign_in_at timestamptz,
+        email_confirmed_at timestamptz,
+        phone_confirmed_at timestamptz,
+        confirmed_at timestamptz,
+        banned_until timestamptz,
+        deleted_at timestamptz,
+        is_sso_user boolean default false,
+        is_anonymous boolean default false,
+        raw_user_meta_data jsonb default '{}'::jsonb,
+        raw_app_meta_data jsonb default '{}'::jsonb
+      )
+    `);
+
+    await attempt(`
+      create or replace function auth.uid() returns uuid language sql stable as
+      $fn$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $fn$
+    `);
+    await attempt(`
+      create or replace function auth.role() returns text language sql stable as
+      $fn$ select nullif(current_setting('request.jwt.claim.role', true), '') $fn$
+    `);
+    await attempt(`
+      create or replace function auth.email() returns text language sql stable as
+      $fn$ select nullif(current_setting('request.jwt.claim.email', true), '') $fn$
+    `);
+    await attempt(`
+      create or replace function auth.jwt() returns jsonb language sql stable as
+      $fn$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $fn$
+    `);
+  }
+
+  /**
+   * Copy the identities the foreign keys point at.
+   *
+   * Rows all over the schema reference `auth.users`. Without those rows the keys
+   * restored after the load would refuse to attach, and the application would
+   * read orphaned references where the source had none.
+   */
+  private async copyAuthUsers(sourcePool: Pool, pool: Pool): Promise<number> {
+    const { rows } = await sourcePool.query<Record<string, unknown>>(
+      `select id, email, phone, created_at, updated_at, last_sign_in_at,
+              email_confirmed_at, raw_user_meta_data, raw_app_meta_data
+         from auth.users`,
+    );
+    if (rows.length === 0) return 0;
+
+    const cols = [
+      'id', 'email', 'phone', 'created_at', 'updated_at', 'last_sign_in_at',
+      'email_confirmed_at', 'raw_user_meta_data', 'raw_app_meta_data',
+    ];
+
+    const client = await pool.connect();
+    try {
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500);
+        const values = batch
+          .map((_, n) => `(${cols.map((__, c) => `$${n * cols.length + c + 1}`).join(', ')})`)
+          .join(', ');
+        const params = batch.flatMap((r) => cols.map((c) => r[c] ?? null));
+        await client.query(
+          `insert into auth.users (${cols.join(', ')}) values ${values}
+           on conflict (id) do nothing`,
+          params,
+        );
+      }
+    } finally {
+      client.release();
+    }
+    return rows.length;
+  }
+
+  /**
+   * Apply a dumped schema to the destination, one statement at a time.
+   *
+   * Statement by statement rather than as one script because a dump from a
+   * managed provider always carries a few things this cluster cannot accept —
+   * an extension it does not have, a role that exists only there. Failing the
+   * whole schema over one of those would lose the other several thousand
+   * objects, so each failure is counted and reported and the rest goes in.
+   */
+  private async applySourceSchema(
+    pool: Pool,
+    sql: string,
+    progress: ImportProgress,
+  ): Promise<{ applied: number; failed: number; deferred: string[] }> {
+    const client = await pool.connect();
+    let applied = 0;
+    let failed = 0;
+    const failures: string[] = [];
+    const deferred: string[] = [];
+
+    try {
+      await this.prepareDestinationForSchema(client);
+
+      for (const statement of this.splitSqlStatements(sql)) {
+        // Foreign keys and triggers cannot be in place while the rows load:
+        // tables are filled in listing order, which no key ordering respects,
+        // and the source's triggers would fire a second time on data they
+        // already produced. Both go on after the data does.
+        if (
+          /^\s*ALTER TABLE[\s\S]*ADD CONSTRAINT[\s\S]*FOREIGN KEY/i.test(statement) ||
+          /^\s*CREATE(\s+OR\s+REPLACE)?\s+(CONSTRAINT\s+)?TRIGGER/i.test(statement)
+        ) {
+          deferred.push(statement);
+          continue;
+        }
+
+        try {
+          await client.query(statement);
+          applied++;
+        } catch (err: any) {
+          failed++;
+          if (failures.length < 8) {
+            failures.push(`${statement.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+          }
+        }
+      }
+    } finally {
+      client.release();
+    }
+
+    this.logger.log(
+      `Source schema applied: ${applied} statements, ${failed} rejected, ${deferred.length} held back until the data is in`,
+    );
+    if (failed > 0) {
+      progress.warnings.push(
+        `${failed} schema statement(s) could not be applied. First few: ${failures.join(' | ')}`,
+      );
+    }
+    return { applied, failed, deferred };
+  }
+
+  /**
+   * Put back what the load could not run with: the foreign keys and triggers.
+   *
+   * A key that the copied rows genuinely violate will refuse to attach. That is
+   * worth reporting rather than forcing, since it means the two databases
+   * disagree about the data.
+   */
+  private async applyDeferredSchema(
+    pool: Pool,
+    statements: string[],
+    progress: ImportProgress,
+  ): Promise<void> {
+    if (statements.length === 0) return;
+
+    const client = await pool.connect();
+    let applied = 0;
+    const failures: string[] = [];
+
+    try {
+      for (const statement of statements) {
+        try {
+          await client.query(statement);
+          applied++;
+        } catch (err: any) {
+          if (failures.length < 8) {
+            failures.push(`${statement.slice(0, 70).replace(/\s+/g, ' ')}… — ${err.message}`);
+          }
+        }
+      }
+    } finally {
+      client.release();
+    }
+
+    const failed = statements.length - applied;
+    this.logger.log(`Deferred schema: ${applied} of ${statements.length} applied`);
+    if (failed > 0) {
+      progress.warnings.push(
+        `${failed} foreign key(s)/trigger(s) could not be restored. First few: ${failures.join(' | ')}`,
+      );
+    }
+  }
+
+  /**
+   * Leave the database ready to be written to.
+   *
+   * A sequence restored from a dump carries the source's starting point, not
+   * its current position, so the first insert would collide with an existing
+   * row. Materialized views arrive defined but empty. Neither is data loss, but
+   * both look like one the first time the application runs.
+   */
+  private async finalizeSchema(pool: Pool, progress: ImportProgress): Promise<void> {
+    const client = await pool.connect();
+    try {
+      const { rows: seqs } = await client.query<{
+        seq: string;
+        tbl: string;
+        col: string;
+      }>(`
+        select quote_ident(ns.nspname) || '.' || quote_ident(s.relname) as seq,
+               quote_ident(tns.nspname) || '.' || quote_ident(t.relname) as tbl,
+               quote_ident(a.attname) as col
+          from pg_class s
+          join pg_namespace ns on ns.oid = s.relnamespace
+          join pg_depend d on d.objid = s.oid and d.classid = 'pg_class'::regclass
+          join pg_class t on t.oid = d.refobjid
+          join pg_namespace tns on tns.oid = t.relnamespace
+          join pg_attribute a on a.attrelid = t.oid and a.attnum = d.refobjsubid
+         where s.relkind = 'S' and ns.nspname = 'public'
+      `);
+
+      for (const { seq, tbl, col } of seqs) {
+        await client
+          .query(
+            `select setval('${seq}', coalesce((select max(${col}) from ${tbl}), 0) + 1, false)`,
+          )
+          .catch(() => undefined);
+      }
+
+      const { rows: mviews } = await client.query<{ name: string }>(`
+        select quote_ident(n.nspname) || '.' || quote_ident(c.relname) as name
+          from pg_class c join pg_namespace n on n.oid = c.relnamespace
+         where c.relkind = 'm' and n.nspname = 'public'
+      `);
+
+      let refreshed = 0;
+      for (const { name } of mviews) {
+        try {
+          await client.query(`refresh materialized view ${name}`);
+          refreshed++;
+        } catch (err: any) {
+          progress.warnings.push(`Could not populate materialized view ${name}: ${err.message}`);
+        }
+      }
+
+      await client.query('analyze').catch(() => undefined);
+
+      this.logger.log(
+        `Schema finalised: ${seqs.length} sequence(s) advanced, ${refreshed}/${mviews.length} materialized view(s) populated`,
+      );
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Split a dump into statements.
+   *
+   * A plain split on ";" would cut through function bodies, which are the one
+   * place a dump legitimately contains semicolons inside a literal, so
+   * dollar-quoted blocks are tracked and passed over whole.
+   */
+  private splitSqlStatements(sql: string): string[] {
+    const statements: string[] = [];
+    let buffer = '';
+    let dollarTag: string | null = null;
+
+    for (const rawLine of sql.split('\n')) {
+      const line = rawLine;
+      if (!dollarTag && /^\s*(--|$)/.test(line)) continue;
+
+      buffer += line + '\n';
+
+      let rest = line;
+      while (true) {
+        if (dollarTag) {
+          const end = rest.indexOf(dollarTag);
+          if (end === -1) break;
+          rest = rest.slice(end + dollarTag.length);
+          dollarTag = null;
+        } else {
+          const open = rest.match(/\$[A-Za-z_]*\$/);
+          if (!open) break;
+          dollarTag = open[0];
+          rest = rest.slice((open.index ?? 0) + dollarTag.length);
+        }
+      }
+
+      if (!dollarTag && /;\s*$/.test(line)) {
+        const statement = buffer.trim();
+        if (statement) statements.push(statement);
+        buffer = '';
+      }
+    }
+
+    const tail = buffer.trim();
+    if (tail) statements.push(tail);
+    return statements;
   }
 
   private async connectPoolWithRetry(pool: Pool, label: string, maxRetries = 5): Promise<void> {
@@ -1049,7 +1482,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       await onProgress('Fetching database schema from Supabase...', 5);
     }
     const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
-    const tables = this.extractTablesFromOpenApi(openApi);
+    let tables = this.extractTablesFromOpenApi(openApi);
 
     this.logger.log(`Found ${tables.length} tables to import`);
 
@@ -1092,6 +1525,73 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // With a real connection to the source, take its schema verbatim instead of
+    // rebuilding an approximation. Only then do the tables arrive with their
+    // keys, indexes, defaults and everything else that makes them work.
+    let schemaApplied = false;
+    let deferredSchema: string[] = [];
+    if (sourcePool) {
+      const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+      try {
+        const { rows } = await sourcePool.query<{ v: string }>('show server_version');
+        const major = parseInt(String(rows[0]?.v ?? ''), 10);
+        if (ref && pwd && Number.isFinite(major)) {
+          if (onProgress) await onProgress('Copying the source schema...', 8);
+          const sql = await this.dumpSourceSchema(ref, pwd, major);
+          if (sql) {
+            const { applied, failed, deferred } = await this.applySourceSchema(pool, sql, progress);
+            schemaApplied = applied > 0;
+            deferredSchema = deferred;
+
+            if (schemaApplied) {
+              try {
+                const copied = await this.copyAuthUsers(sourcePool, pool);
+                this.logger.log(`Copied ${copied} identities into auth.users for referential integrity`);
+              } catch (err: any) {
+                this.logger.warn(`Could not copy auth.users: ${err.message}`);
+                progress.warnings.push(
+                  `Identities could not be copied into auth.users (${err.message}), so foreign keys pointing at them may not restore.`,
+                );
+              }
+            }
+            if (onProgress) {
+              await onProgress(
+                `Source schema applied (${applied} objects${failed ? `, ${failed} skipped` : ''})`,
+                9,
+              );
+            }
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not copy the source schema: ${err.message}`);
+      }
+      if (!schemaApplied) {
+        progress.warnings.push(
+          'The source schema could not be copied, so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.',
+        );
+      }
+    }
+
+    // With the real schema in place, the source's own catalogue is the correct
+    // list of what to fill. The API's schema description omits anything it does
+    // not publish, which would leave those tables created and empty.
+    if (schemaApplied && sourcePool) {
+      try {
+        const { rows } = await sourcePool.query<{ table_name: string }>(
+          `select table_name from information_schema.tables
+            where table_schema = 'public' and table_type = 'BASE TABLE'
+            order by table_name`,
+        );
+        if (rows.length > 0) {
+          tables = rows.map((r) => ({ table_name: r.table_name }) as SupabaseTable);
+          this.logger.log(`Loading data for ${tables.length} tables listed by the source catalogue`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not list source tables directly: ${err.message}`);
+      }
+    }
+
+
     try {
       for (let i = 0; i < tables.length; i++) {
         const table = tables[i];
@@ -1102,12 +1602,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             await onProgress(`Creating table "${table.table_name}" (${i + 1}/${tables.length})`, pct);
           }
 
-          const columns = this.extractColumnsFromOpenApi(
-            openApi,
-            table.table_name,
-          );
+          // When the schema came from the source, the table already exists as
+          // it should. Recreating it here would throw all of that away — this
+          // path drops the table first.
+          const columns = schemaApplied
+            ? await this.readLocalTableColumns(pool, table.table_name)
+            : this.extractColumnsFromOpenApi(openApi, table.table_name);
 
-          await this.createLocalTable(pool, table.table_name, columns);
+          if (!schemaApplied) {
+            await this.createLocalTable(pool, table.table_name, columns);
+          }
           progress.database.tables++;
 
           const method = sourcePool ? 'Direct SQL' : undefined;
@@ -1187,6 +1691,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             `Table "${table.table_name}": ${err.message}`,
           );
         }
+      }
+
+      if (schemaApplied) {
+        if (onProgress) await onProgress('Restoring keys and triggers...', 48);
+        await this.applyDeferredSchema(pool, deferredSchema, progress);
+        if (onProgress) await onProgress('Preparing the database for writes...', 49);
+        await this.finalizeSchema(pool, progress);
       }
     } finally {
       await pool.end();
@@ -1480,6 +1991,26 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     if (spec.maxLength) return `varchar(${spec.maxLength})`;
 
     return 'text';
+  }
+
+  /**
+   * Describe a table that already exists here, so the copy targets the columns
+   * the restored schema actually created rather than the ones the API happened
+   * to describe.
+   */
+  private async readLocalTableColumns(
+    pool: Pool,
+    tableName: string,
+  ): Promise<SupabaseColumn[]> {
+    const { rows } = await pool.query<SupabaseColumn>(
+      `select column_name, data_type, is_nullable, column_default,
+              character_maximum_length, udt_name
+         from information_schema.columns
+        where table_schema = 'public' and table_name = $1
+        order by ordinal_position`,
+      [tableName],
+    );
+    return rows;
   }
 
   private async createLocalTable(
