@@ -785,16 +785,22 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.connectPoolWithRetry(pool, project.dbName);
 
-      const { rows: tables } = await pool.query<{ name: string }>(
-        `select table_name as name from information_schema.tables
-          where table_schema = 'public' and table_type = 'BASE TABLE'
-          order by table_name`,
-      );
+      const tables = await this.tablesInDependencyOrder(pool);
 
       let examined = 0;
       let changed = 0;
+      const refused: string[] = [];
 
-      for (const { name } of tables) {
+      const level = async (name: string): Promise<void> => {
+        const copied = await this.syncTable(sourcePool, pool, name);
+        if (copied > 0) {
+          changed++;
+          progress.database.rows += copied;
+          this.logger.log(`Sync: "${name}" gained ${copied} row(s)`);
+        }
+      };
+
+      for (const name of tables) {
         if (this.cancelledJobs.has(jobId)) return;
         examined++;
 
@@ -807,12 +813,22 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-          const copied = await this.syncTable(sourcePool, pool, name);
-          if (copied > 0) {
-            changed++;
-            progress.database.rows += copied;
-            this.logger.log(`Sync: "${name}" gained ${copied} row(s)`);
-          }
+          await level(name);
+        } catch (err: any) {
+          this.logger.warn(`Sync: "${name}" refused on the first pass: ${err.message}`);
+          refused.push(name);
+        }
+      }
+
+      // A table refused on the first pass usually named a row that had not
+      // arrived yet: a cycle broken in tablesInDependencyOrder, or a parent
+      // that was itself refused. With everything else in place, offer those
+      // tables once more. The insert ignores rows already here, so this costs
+      // nothing when the first pass was right after all.
+      for (const name of refused) {
+        if (this.cancelledJobs.has(jobId)) return;
+        try {
+          await level(name);
         } catch (err: any) {
           this.logger.warn(`Sync: "${name}" could not be compared: ${err.message}`);
           progress.warnings.push(`Table "${name}" could not be synced: ${err.message}`);
@@ -827,6 +843,76 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       await pool.end().catch(() => undefined);
       await sourcePool.end().catch(() => undefined);
     }
+  }
+
+  /**
+   * Public tables, parents before children.
+   *
+   * The insert that brings a table level keeps whatever foreign keys the schema
+   * copy carried across, so a child row cannot land before the row it points
+   * at. Alphabetical order put activity_logs ahead of users and every new log
+   * line was refused for naming a user that was not there yet. Each table is
+   * placed after everything it references. Tables in a reference cycle cannot
+   * be ordered and go last, alphabetically; a table pointing at itself is not
+   * a dependency for this purpose.
+   */
+  private async tablesInDependencyOrder(pool: Pool): Promise<string[]> {
+    const { rows: tables } = await pool.query<{ name: string }>(
+      `select table_name as name from information_schema.tables
+        where table_schema = 'public' and table_type = 'BASE TABLE'
+        order by table_name`,
+    );
+    const { rows: edges } = await pool.query<{ child: string; parent: string }>(
+      `select c.relname as child, p.relname as parent
+         from pg_constraint k
+         join pg_class c on c.oid = k.conrelid
+         join pg_class p on p.oid = k.confrelid
+         join pg_namespace n on n.oid = c.relnamespace
+        where k.contype = 'f' and n.nspname = 'public'
+          and c.relname <> p.relname`,
+    );
+
+    const names = tables.map((t) => t.name);
+    const parentsOf = new Map<string, Set<string>>(names.map((n) => [n, new Set<string>()]));
+    for (const { child, parent } of edges) {
+      if (parentsOf.has(child) && parentsOf.has(parent)) {
+        parentsOf.get(child)!.add(parent);
+      }
+    }
+
+    const childrenOf = new Map<string, number>(names.map((n) => [n, 0]));
+    for (const { child, parent } of edges) {
+      if (parentsOf.has(child) && parentsOf.has(parent)) {
+        childrenOf.set(parent, (childrenOf.get(parent) ?? 0) + 1);
+      }
+    }
+
+    const ordered: string[] = [];
+    const placed = new Set<string>();
+    let remaining = names;
+    while (remaining.length) {
+      let ready = remaining.filter((n) =>
+        [...parentsOf.get(n)!].every((p) => placed.has(p)),
+      );
+      if (ready.length === 0) {
+        // Every remaining table waits on another remaining table: a cycle,
+        // users -> vouchers -> users being the usual shape. Left alone, one
+        // such cycle at the root stalls everything downstream of it. Break it
+        // at the table that unblocks the most others; the few rows in it that
+        // point into the cycle are caught by the caller's second pass.
+        const [first] = [...remaining].sort(
+          (a, b) =>
+            (childrenOf.get(b) ?? 0) - (childrenOf.get(a) ?? 0) || a.localeCompare(b),
+        );
+        ready = [first];
+      }
+      for (const n of ready) {
+        ordered.push(n);
+        placed.add(n);
+      }
+      remaining = remaining.filter((n) => !placed.has(n));
+    }
+    return ordered;
   }
 
   /**
