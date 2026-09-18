@@ -23,12 +23,15 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rimraf dist",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "rimraf": "^5.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^5.0.1"
   },
   "repository": {
     "type": "git",
@@ -49,6 +52,5 @@
     "hosted-postgres",
     "backend-as-a-service"
   ],
-  "license": "MIT",
-  "dependencies": {}
+  "license": "MIT"
 }

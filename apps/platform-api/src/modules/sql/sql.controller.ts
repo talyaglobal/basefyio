@@ -26,6 +26,7 @@ export class SqlController {
       page: dto.page,
       limit: dto.limit,
       countTotal: dto.countTotal,
+      params: dto.params,
     });
   }
 }

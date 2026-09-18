@@ -69,17 +69,22 @@ export class BasefyioClient {
   }
 
   /**
-   * Execute a raw SQL query.
+   * Execute a raw SQL query, with its values bound.
    *
-   * **WARNING: This method executes raw SQL. NEVER pass unsanitized user input
-   * directly into the query string, as this creates SQL injection vulnerabilities.
-   * Always validate and sanitize any dynamic values before including them.**
+   * **Pass values as `params`, never inside the query string.** A value written
+   * into SQL can become syntax, and it can also be read as an *operation*: the
+   * API scans the statement for forbidden operations and reads string literals
+   * too, so a sentence containing "copy", "grant" or "load" is refused as the
+   * operation it names. A bound value is neither.
    *
    * @example
-   * const { data } = await bf.sql('SELECT * FROM users WHERE id = 1')
+   * const { data } = await bf.sql('SELECT * FROM users WHERE id = $1', [id])
    */
-  async sql<T = Record<string, unknown>>(query: string): Promise<BasefyioResponse<T[]>> {
-    return this.db.sql<T>(query);
+  async sql<T = Record<string, unknown>>(
+    query: string,
+    params?: unknown[],
+  ): Promise<BasefyioResponse<T[]>> {
+    return this.db.sql<T>(query, params);
   }
 
   /**

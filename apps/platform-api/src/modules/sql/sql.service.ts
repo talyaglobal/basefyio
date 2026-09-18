@@ -87,7 +87,13 @@ export class SqlService implements OnModuleDestroy {
     projectId: string,
     query: string,
     userId?: string,
-    opts?: { page?: number; limit?: number; countTotal?: boolean },
+    opts?: {
+      page?: number;
+      limit?: number;
+      countTotal?: boolean;
+      /** Values for `$1 … $n`; see `ExecuteSqlDto.params` for why they travel apart. */
+      params?: unknown[];
+    },
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
@@ -108,6 +114,15 @@ export class SqlService implements OnModuleDestroy {
 
     this.validateQuery(query);
 
+    // Bound values are never part of the statement, so `validateQuery` never
+    // sees them — which is the point rather than a gap. The guard scans the SQL
+    // that will run, literals included, because a literal is where a smuggled
+    // COPY would hide; the cost was that an ordinary value written into the SQL
+    // ("page load", "grant access") was refused as the operation it names.
+    // Sent apart, a value cannot be read as an operation and cannot become
+    // syntax. Every character of the statement is still scanned.
+    const values = opts?.params?.length ? opts.params : undefined;
+
     const trimmed = query.replace(/--[^\n]*/g, '').trim();
     const leading = trimmed.toUpperCase();
     const isSelectShape = leading.startsWith('SELECT') || leading.startsWith('WITH');
@@ -119,6 +134,24 @@ export class SqlService implements OnModuleDestroy {
     // SELECT. A multi-statement script (e.g. "CREATE TEMP ...; SELECT ...;")
     // must run as-is — we then surface the last result that returns rows.
     const multi = this.isMultiStatement(query);
+
+    // The extended protocol carries one statement, so a parameterised script
+    // cannot go out in one round trip. Said in a sentence here rather than left
+    // to the driver, whose "cannot insert multiple commands into a prepared
+    // statement" reads like a syntax error in the caller's own SQL.
+    if (values && multi) {
+      throw new BadRequestException(
+        'Parameters can only be used with a single statement. Send one statement per call.',
+      );
+    }
+    // Postgres binds at most 65535 parameters per statement; past that the
+    // driver raises a protocol error with no advice in it.
+    if (values && values.length > 65535) {
+      throw new BadRequestException(
+        `Too many parameters (${values.length}); Postgres binds at most 65535 per statement. Send the rows in batches.`,
+      );
+    }
+
     const canPaginate = isSelectShape && !multi;
     let runQuery: string;
     let total: number | null = null;
@@ -135,7 +168,7 @@ export class SqlService implements OnModuleDestroy {
     const client = await pool.connect();
 
     try {
-      const rawResult = await client.query(runQuery);
+      const rawResult = await client.query(runQuery, values);
       const duration = Date.now() - startTime;
 
       // node-postgres returns an array of results for a multi-statement query.
@@ -160,7 +193,9 @@ export class SqlService implements OnModuleDestroy {
       if (canPaginate && opts?.countTotal) {
         try {
           const countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`;
-          const c = await client.query(countSql);
+          // The same values: the count wraps the same statement, so it carries
+          // the same placeholders.
+          const c = await client.query(countSql, values);
           const raw = Number(c.rows[0]?.total ?? 0);
           totalIsApprox = raw > 10000;
           total = totalIsApprox ? 10000 : raw;

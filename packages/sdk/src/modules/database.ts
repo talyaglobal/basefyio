@@ -29,6 +29,47 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+/**
+ * How one value reaches the database: written into the statement, or bound.
+ *
+ * Both modes run through the same builder, so the SQL `toSQL()` shows is the
+ * SQL `execute()` sends apart from the values. `execute()` binds, and that is
+ * not only the safer half:
+ *
+ * The API scans every statement for forbidden operations and reads string
+ * literals too, because a literal is where a smuggled `COPY` would hide. An
+ * ordinary value written into SQL is therefore refused as the operation it
+ * happens to name — "page load", "grant access", a message that says "copy".
+ * A bound value is never part of the statement, so it is never scanned as one.
+ *
+ * `toSQL()` keeps inlining, because what it is for is being read.
+ */
+type Binder = (value: unknown) => string;
+
+/** Values written into the statement — the shape `toSQL()` has always had. */
+const inlineBinder: Binder = escapeValue;
+
+/** Values kept out of the statement; `$1 … $n` go in their place. */
+function paramBinder(params: unknown[]): Binder {
+  return (value) => {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new Error('Non-finite numbers are not supported');
+    }
+    // `undefined` reaches the database as NULL either way; the driver would
+    // otherwise send nothing at all for the placeholder.
+    params.push(value === undefined ? null : value);
+    return `$${params.length}`;
+  };
+}
+
+/** A LIMIT or OFFSET count: never a bound value, so never anything but a number. */
+function countLiteral(value: number, what: string): string {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${what} must be a non-negative integer`);
+  }
+  return String(value);
+}
+
 // ── Or Condition Builder ───────────────────────────────
 
 export class OrConditionBuilder {
@@ -293,55 +334,58 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
   // ── SQL generation ───────────────────────────────────
 
-  private buildWhereClause(): string {
+  /**
+   * One filter as SQL.
+   *
+   * Shared by the AND list and by every OR group. The two used to carry the
+   * same switch twice, and with a binder a second copy is worse than untidy:
+   * it is a second place for a value to end up written into the statement.
+   */
+  private filterClause(f: Filter | OrFilter, bind: Binder): string {
+    const col = quoteIdent(f.column);
+    const neg = f.negate ? 'NOT ' : '';
+    let clause: string;
+
+    switch (f.operator) {
+      case 'eq':  clause = `${col} = ${bind(f.value)}`; break;
+      case 'neq': clause = `${col} != ${bind(f.value)}`; break;
+      case 'gt':  clause = `${col} > ${bind(f.value)}`; break;
+      case 'gte': clause = `${col} >= ${bind(f.value)}`; break;
+      case 'lt':  clause = `${col} < ${bind(f.value)}`; break;
+      case 'lte': clause = `${col} <= ${bind(f.value)}`; break;
+      case 'like':  clause = `${col} LIKE ${bind(f.value)}`; break;
+      case 'ilike': clause = `${col} ILIKE ${bind(f.value)}`; break;
+      // NULL and the booleans are syntax here, not values: `IS $1` is not SQL.
+      case 'is':  clause = `${col} IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`; break;
+      case 'in':  clause = this.inClause(col, f.value, bind); break;
+      case 'not': clause = `NOT (${col} = ${bind(f.value)})`; break;
+      default:    clause = `${col} = ${bind(f.value)}`;
+    }
+
+    return neg ? `${neg}(${clause})` : clause;
+  }
+
+  /**
+   * A test against a list.
+   *
+   * Bound, the list is one value and the test becomes `= ANY($n)`: the same
+   * rows, one placeholder instead of one per element, and an honest answer for
+   * the empty list — `IN ()` is a syntax error, `= ANY` of nothing is no rows.
+   */
+  private inClause(col: string, value: unknown, bind: Binder): string {
+    if (bind === inlineBinder) return `${col} IN ${escapeValue(value)}`;
+    return `${col} = ANY(${bind(Array.isArray(value) ? value : [value])})`;
+  }
+
+  private buildWhereClause(bind: Binder): string {
     const parts: string[] = [];
 
     for (const f of this._filters) {
-      const col = quoteIdent(f.column);
-      const neg = f.negate ? 'NOT ' : '';
-      let clause: string;
-
-      switch (f.operator) {
-        case 'eq':  clause = `${col} = ${escapeValue(f.value)}`; break;
-        case 'neq': clause = `${col} != ${escapeValue(f.value)}`; break;
-        case 'gt':  clause = `${col} > ${escapeValue(f.value)}`; break;
-        case 'gte': clause = `${col} >= ${escapeValue(f.value)}`; break;
-        case 'lt':  clause = `${col} < ${escapeValue(f.value)}`; break;
-        case 'lte': clause = `${col} <= ${escapeValue(f.value)}`; break;
-        case 'like':  clause = `${col} LIKE ${escapeValue(f.value)}`; break;
-        case 'ilike': clause = `${col} ILIKE ${escapeValue(f.value)}`; break;
-        case 'is':  clause = `${col} IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`; break;
-        case 'in':  clause = `${col} IN ${escapeValue(f.value)}`; break;
-        case 'not': clause = `NOT (${col} = ${escapeValue(f.value)})`; break;
-        default:    clause = `${col} = ${escapeValue(f.value)}`;
-      }
-
-      parts.push(neg ? `${neg}(${clause})` : clause);
+      parts.push(this.filterClause(f, bind));
     }
 
     for (const orGroup of this._or) {
-      const orParts = orGroup.map((f) => {
-        const col = quoteIdent(f.column);
-        const neg = f.negate ? 'NOT ' : '';
-        let clause: string;
-
-        switch (f.operator) {
-          case 'eq':  clause = `${col} = ${escapeValue(f.value)}`; break;
-          case 'neq': clause = `${col} != ${escapeValue(f.value)}`; break;
-          case 'gt':  clause = `${col} > ${escapeValue(f.value)}`; break;
-          case 'gte': clause = `${col} >= ${escapeValue(f.value)}`; break;
-          case 'lt':  clause = `${col} < ${escapeValue(f.value)}`; break;
-          case 'lte': clause = `${col} <= ${escapeValue(f.value)}`; break;
-          case 'like':  clause = `${col} LIKE ${escapeValue(f.value)}`; break;
-          case 'ilike': clause = `${col} ILIKE ${escapeValue(f.value)}`; break;
-          case 'is':  clause = `${col} IS ${f.value === null ? 'NULL' : f.value ? 'TRUE' : 'FALSE'}`; break;
-          case 'in':  clause = `${col} IN ${escapeValue(f.value)}`; break;
-          case 'not': clause = `NOT (${col} = ${escapeValue(f.value)})`; break;
-          default:    clause = `${col} = ${escapeValue(f.value)}`;
-        }
-
-        return neg ? `${neg}(${clause})` : clause;
-      });
+      const orParts = orGroup.map((f) => this.filterClause(f, bind));
       parts.push(`(${orParts.join(' OR ')})`);
     }
 
@@ -364,12 +408,16 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
   private buildLimitOffset(): string {
     let s = '';
-    if (this._limit !== undefined) s += ` LIMIT ${this._limit}`;
-    if (this._offset !== undefined) s += ` OFFSET ${this._offset}`;
+    // Counts, not values: these are written into the statement in both modes,
+    // so they are checked rather than trusted — a caller reaching this from
+    // plain JavaScript can pass anything at all.
+    if (this._limit !== undefined) s += ` LIMIT ${countLiteral(this._limit, 'limit')}`;
+    if (this._offset !== undefined) s += ` OFFSET ${countLiteral(this._offset, 'offset')}`;
     return s;
   }
 
-  toSQL(): string {
+  /** The statement, with every value handed to `bind`. One builder, two modes. */
+  private build(bind: Binder): string {
     const table = quoteIdent(this._table);
 
     switch (this._op) {
@@ -377,7 +425,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
         const cols = this._selectCols === '*'
           ? '*'
           : this._selectCols.split(',').map((c) => quoteIdent(c.trim())).join(', ');
-        return `SELECT ${cols} FROM ${table}${this.buildWhereClause()}${this.buildOrderClause()}${this.buildLimitOffset()}`;
+        return `SELECT ${cols} FROM ${table}${this.buildWhereClause(bind)}${this.buildOrderClause()}${this.buildLimitOffset()}`;
       }
 
       case 'insert': {
@@ -385,7 +433,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
         const allKeys = [...new Set(this._insertRows.flatMap(Object.keys))];
         const cols = allKeys.map(quoteIdent).join(', ');
         const rows = this._insertRows.map((row) => {
-          const vals = allKeys.map((k) => escapeValue(row[k] ?? null));
+          const vals = allKeys.map((k) => bind(row[k] ?? null));
           return `(${vals.join(', ')})`;
         });
         return `INSERT INTO ${table} (${cols}) VALUES ${rows.join(', ')} RETURNING *`;
@@ -393,14 +441,14 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
 
       case 'update': {
         const sets = Object.entries(this._updateData)
-          .map(([k, v]) => `${quoteIdent(k)} = ${escapeValue(v)}`)
+          .map(([k, v]) => `${quoteIdent(k)} = ${bind(v)}`)
           .join(', ');
         if (!sets) throw new Error('No data to update');
-        return `UPDATE ${table} SET ${sets}${this.buildWhereClause()} RETURNING *`;
+        return `UPDATE ${table} SET ${sets}${this.buildWhereClause(bind)} RETURNING *`;
       }
 
       case 'delete': {
-        return `DELETE FROM ${table}${this.buildWhereClause()} RETURNING *`;
+        return `DELETE FROM ${table}${this.buildWhereClause(bind)} RETURNING *`;
       }
 
       case 'upsert': {
@@ -408,7 +456,7 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
         const allKeys = [...new Set(this._insertRows.flatMap(Object.keys))];
         const cols = allKeys.map(quoteIdent).join(', ');
         const rows = this._insertRows.map((row) => {
-          const vals = allKeys.map((k) => escapeValue(row[k] ?? null));
+          const vals = allKeys.map((k) => bind(row[k] ?? null));
           return `(${vals.join(', ')})`;
         });
         const conflict = this._upsertConflict.length
@@ -423,14 +471,40 @@ export class QueryBuilder<T = Record<string, unknown>> implements PromiseLike<Ba
     }
   }
 
+  /**
+   * The statement with its values written in — what a person reads.
+   *
+   * Kept as it was, and no longer what `execute()` sends. Inlined, an ordinary
+   * value is refused by the API when it happens to name a forbidden operation
+   * ("page load", "grant access"), because the guard reads string literals too.
+   * `toQuery()` is what actually runs.
+   */
+  toSQL(): string {
+    return this.build(inlineBinder);
+  }
+
+  /** The statement as it is sent: placeholders, and the values beside them. */
+  toQuery(): { text: string; params: unknown[] } {
+    const params: unknown[] = [];
+    const text = this.build(paramBinder(params));
+    return { text, params };
+  }
+
   // ── Execution ────────────────────────────────────────
 
   private async execute(): Promise<BasefyioResponse<T[]>> {
     try {
-      const sql = this.toSQL();
+      const { text, params } = this.toQuery();
       const result = await this.http.json<SqlResult>('/sql/execute', {
         method: 'POST',
-        body: JSON.stringify({ projectId: this.projectId, query: sql }),
+        // `params` rides along only when there are any, so a query carrying no
+        // values sends byte-for-byte the request it always did — and still
+        // works against an API that has never heard of parameters.
+        body: JSON.stringify({
+          projectId: this.projectId,
+          query: text,
+          ...(params.length ? { params } : {}),
+        }),
       });
 
       const rows = (result.rows ?? []) as T[];
@@ -472,17 +546,31 @@ export class DatabaseClient {
   }
 
   /**
-   * Execute a raw SQL query.
+   * Execute a raw SQL query, with its values bound.
    *
-   * **WARNING: This method executes raw SQL. NEVER pass unsanitized user input
-   * directly into the query string, as this creates SQL injection vulnerabilities.
-   * Always validate and sanitize any dynamic values before including them.**
+   * ```ts
+   * await bf.sql('UPDATE slots SET error = $1 WHERE id = $2', [message, id]);
+   * ```
+   *
+   * **Pass values as `params`, never inside the query string.** Two things go
+   * wrong when they are written in. A value can become syntax — the ordinary
+   * injection — and a value can be read as an operation: the API scans the
+   * statement for forbidden operations and reads string literals too, so a
+   * sentence containing "copy", "grant" or "load" is refused as the operation
+   * it names. Bound values are neither.
    */
-  async sql<T = Record<string, unknown>>(query: string): Promise<BasefyioResponse<T[]>> {
+  async sql<T = Record<string, unknown>>(
+    query: string,
+    params?: unknown[],
+  ): Promise<BasefyioResponse<T[]>> {
     try {
       const result = await this.http.json<SqlResult>('/sql/execute', {
         method: 'POST',
-        body: JSON.stringify({ projectId: this.projectId, query }),
+        body: JSON.stringify({
+          projectId: this.projectId,
+          query,
+          ...(params?.length ? { params } : {}),
+        }),
       });
       return { data: (result.rows ?? []) as T[], error: null };
     } catch (err: any) {
