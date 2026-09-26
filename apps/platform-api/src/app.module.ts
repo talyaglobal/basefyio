@@ -66,6 +66,12 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     GuardsModule,
+    // Registered before anything that (transitively) imports ProjectsModule —
+    // Flows, Blueprint, Codefyio, Migration, Sql all do. ProjectsModule's
+    // PublicApiController serves `rest/v1/:table`, and Nest matches routes in
+    // module-scan order, so a later `POST/DELETE rest/v1/embeddings` would be
+    // taken as a table named "embeddings" ("Table not found").
+    TenantEmbeddingModule,
     QueueModule,
     EntitlementModule,
     FlowsModule,
@@ -99,7 +105,6 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     EmbeddingModule,
     SearchModule,
     RecommendationModule,
-    TenantEmbeddingModule,
     DataEngineModule,
     DataQueryModule,
     DataStructuresModule,

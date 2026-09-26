@@ -38,6 +38,11 @@ export default function EmbeddingsPage() {
   const [savingKey, setSavingKey] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
+  // Public REST base (`<public api>/api/rest/v1`) as the backend reports it —
+  // the global `/api` prefix and the production host are only known there.
+  const [restUrl, setRestUrl] = useState(
+    `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/rest/v1`,
+  );
 
   const fetchStatus = useCallback(async () => {
     if (!project) return;
@@ -54,6 +59,14 @@ export default function EmbeddingsPage() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (!project) return;
+    api.projects
+      .connect(project.id)
+      .then((conn) => conn?.restUrl && setRestUrl(conn.restUrl))
+      .catch(() => undefined); // keep the fallback; the status card reports real errors
+  }, [project]);
 
   const handleToggle = async (enabled: boolean) => {
     if (!project) return;
@@ -110,7 +123,7 @@ export default function EmbeddingsPage() {
     );
   }
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const restPath = restUrl.replace(/^https?:\/\/[^/]+/, '');
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
@@ -252,11 +265,11 @@ export default function EmbeddingsPage() {
               <h3 className="text-sm font-medium">Endpoints</h3>
               <div className="space-y-1.5">
                 {[
-                  { method: 'POST', path: '/rest/v1/embeddings', desc: 'Store an embedding' },
-                  { method: 'POST', path: '/rest/v1/embeddings/batch', desc: 'Store multiple embeddings' },
-                  { method: 'POST', path: '/rest/v1/embeddings/search', desc: 'Semantic search' },
-                  { method: 'DELETE', path: '/rest/v1/embeddings', desc: 'Delete by IDs' },
-                  { method: 'GET', path: '/rest/v1/embeddings/status', desc: 'Check status' },
+                  { method: 'POST', path: `${restPath}/embeddings`, desc: 'Store an embedding' },
+                  { method: 'POST', path: `${restPath}/embeddings/batch`, desc: 'Store multiple embeddings' },
+                  { method: 'POST', path: `${restPath}/embeddings/search`, desc: 'Semantic search' },
+                  { method: 'DELETE', path: `${restPath}/embeddings`, desc: 'Delete by IDs' },
+                  { method: 'GET', path: `${restPath}/embeddings/status`, desc: 'Check status' },
                 ].map((ep) => (
                   <div key={ep.path + ep.method} className="flex items-center gap-2 text-sm">
                     <span className="w-16 shrink-0 rounded bg-muted px-1.5 py-0.5 text-center text-xs font-mono font-medium">
@@ -306,7 +319,7 @@ export default function EmbeddingsPage() {
               <div className="relative">
                 <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-xs leading-relaxed">
                   <code>{`// Store an embedding
-const res = await fetch('${apiBaseUrl}/rest/v1/embeddings', {
+const res = await fetch('${restUrl}/embeddings', {
   method: 'POST',
   headers: {
     'apikey': '${project.serviceKey.slice(0, 20)}...',
@@ -320,7 +333,7 @@ const res = await fetch('${apiBaseUrl}/rest/v1/embeddings', {
 });
 
 // Search similar content
-const results = await fetch('${apiBaseUrl}/rest/v1/embeddings/search', {
+const results = await fetch('${restUrl}/embeddings/search', {
   method: 'POST',
   headers: {
     'apikey': '${project.anonKey.slice(0, 20)}...',
@@ -330,6 +343,7 @@ const results = await fetch('${apiBaseUrl}/rest/v1/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
+    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
   }),
 });`}</code>
                 </pre>
@@ -340,7 +354,7 @@ const results = await fetch('${apiBaseUrl}/rest/v1/embeddings/search', {
                   onClick={() =>
                     copyToClipboard(
                       `// Store an embedding
-const res = await fetch('${apiBaseUrl}/rest/v1/embeddings', {
+const res = await fetch('${restUrl}/embeddings', {
   method: 'POST',
   headers: {
     'apikey': '<YOUR_SERVICE_KEY>',
@@ -354,7 +368,7 @@ const res = await fetch('${apiBaseUrl}/rest/v1/embeddings', {
 });
 
 // Search similar content
-const results = await fetch('${apiBaseUrl}/rest/v1/embeddings/search', {
+const results = await fetch('${restUrl}/embeddings/search', {
   method: 'POST',
   headers: {
     'apikey': '<YOUR_ANON_KEY>',
@@ -364,6 +378,7 @@ const results = await fetch('${apiBaseUrl}/rest/v1/embeddings/search', {
     query: 'forgot my password',
     namespace: 'faq',
     limit: 5,
+    threshold: 0.7, // max cosine distance, default 0.5 (similarity >= 0.5)
   }),
 });`,
                       'Code snippet',

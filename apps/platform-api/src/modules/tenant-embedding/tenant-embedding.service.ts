@@ -3,6 +3,9 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  BadGatewayException,
+  HttpException,
+  HttpStatus,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -12,6 +15,10 @@ import { join } from 'path';
 import * as crypto from 'crypto';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
+
+/** Inputs per OpenAI embeddings request (the API allows 2048; keep bodies small). */
+const EMBED_BATCH = 100;
+const MAX_SEARCH_LIMIT = 100;
 
 /** Serialize a JS number[] to the `[x,y,...]` literal PostgreSQL vector cast expects. */
 function toVectorLiteral(embedding: number[]): string {
@@ -137,68 +144,115 @@ export class TenantEmbeddingService {
     projectId: string,
     dto: StoreEmbeddingDto,
   ): Promise<TenantEmbeddingRecord> {
-    const project = await this.getProjectWithEmbedding(projectId);
-    const namespace = dto.namespace || 'default';
-    const hash = this.sha256(dto.content + '::' + namespace);
-
-    const pool = this.projectPool(project);
-    try {
-      // Dedup check
-      const existing = await pool.query<{ id: string }>(
-        `SELECT id FROM kb_embeddings WHERE content_hash = $1 AND namespace = $2`,
-        [hash, namespace],
-      );
-      if (existing.rows.length > 0) {
-        const row = await pool.query<any>(
-          `SELECT id, content_hash, namespace, content, metadata, token_count, created_at
-           FROM kb_embeddings WHERE id = $1`,
-          [existing.rows[0].id],
-        );
-        return this.mapRow(row.rows[0]);
-      }
-
-      // Generate embedding
-      const openai = this.getOpenAI(project.embeddingApiKey);
-      const embedding = await this.generateEmbedding(openai, dto.content);
-
-      // Insert metadata row
-      const insertResult = await pool.query<any>(
-        `INSERT INTO kb_embeddings (content_hash, namespace, content, metadata, token_count)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, content_hash, namespace, content, metadata, token_count, created_at`,
-        [
-          hash,
-          namespace,
-          dto.content,
-          dto.metadata ? JSON.stringify(dto.metadata) : null,
-          embedding.tokenCount,
-        ],
-      );
-      const record = insertResult.rows[0];
-
-      // Insert vector
-      await pool.query(
-        `INSERT INTO kb_embeddings_store (id, embedding)
-         VALUES ($1, $2::vector)
-         ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding`,
-        [record.id, toVectorLiteral(embedding.vector)],
-      );
-
-      return this.mapRow(record);
-    } finally {
-      await pool.end();
-    }
+    const [record] = await this.storeBatch(projectId, [dto]);
+    return record;
   }
 
+  /**
+   * Store many chunks over one connection pool. Existing (content, namespace)
+   * pairs are returned as-is; the rest are embedded EMBED_BATCH at a time and
+   * written one transaction per item, so a failed vector insert can never
+   * leave a metadata row behind that dedup would later return without a vector.
+   * Results are in input order.
+   */
   async storeBatch(
     projectId: string,
     items: StoreEmbeddingDto[],
   ): Promise<TenantEmbeddingRecord[]> {
-    const results: TenantEmbeddingRecord[] = [];
-    for (const item of items) {
-      results.push(await this.store(projectId, item));
+    if (!Array.isArray(items)) {
+      throw new BadRequestException('Body must be { items: [{ content, namespace?, metadata? }] }');
     }
-    return results;
+    items.forEach((item, i) => {
+      if (typeof item?.content !== 'string' || item.content.trim() === '') {
+        throw new BadRequestException(`items[${i}].content must be a non-empty string`);
+      }
+    });
+    if (items.length === 0) return [];
+
+    const project = await this.getProjectWithEmbedding(projectId);
+    const prepared = items.map((item) => {
+      const namespace = item.namespace || 'default';
+      return { ...item, namespace, hash: this.sha256(item.content + '::' + namespace) };
+    });
+
+    const pool = this.projectPool(project);
+    try {
+      const existing = await pool.query<any>(
+        `SELECT e.id, e.content_hash, e.namespace, e.content, e.metadata, e.token_count, e.created_at
+         FROM kb_embeddings e
+         JOIN kb_embeddings_store es ON es.id = e.id
+         WHERE (e.content_hash, e.namespace) IN (
+           SELECT * FROM unnest($1::varchar[], $2::varchar[])
+         )`,
+        [prepared.map((p) => p.hash), prepared.map((p) => p.namespace)],
+      );
+      const byKey = new Map<string, TenantEmbeddingRecord>(
+        existing.rows.map((r) => [`${r.content_hash}::${r.namespace}`, this.mapRow(r)]),
+      );
+
+      // Same text twice in one request: embed it once.
+      const missing = [
+        ...new Map(
+          prepared
+            .filter((p) => !byKey.has(`${p.hash}::${p.namespace}`))
+            .map((p) => [`${p.hash}::${p.namespace}`, p]),
+        ).values(),
+      ];
+
+      const openai = this.getOpenAI(project.embeddingApiKey);
+      for (let i = 0; i < missing.length; i += EMBED_BATCH) {
+        const slice = missing.slice(i, i + EMBED_BATCH);
+        const embeddings = await this.generateEmbeddings(
+          openai,
+          slice.map((p) => p.content),
+        );
+
+        for (let j = 0; j < slice.length; j++) {
+          const item = slice[j];
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            // A metadata row without a vector (left by an older, non-transactional
+            // write) is replaced rather than returned as a hit.
+            const insert = await client.query<any>(
+              `INSERT INTO kb_embeddings (content_hash, namespace, content, metadata, token_count)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (content_hash, namespace) DO UPDATE
+                 SET content = EXCLUDED.content,
+                     metadata = EXCLUDED.metadata,
+                     token_count = EXCLUDED.token_count,
+                     updated_at = NOW()
+               RETURNING id, content_hash, namespace, content, metadata, token_count, created_at`,
+              [
+                item.hash,
+                item.namespace,
+                item.content,
+                item.metadata ? JSON.stringify(item.metadata) : null,
+                embeddings[j].tokenCount,
+              ],
+            );
+            const record = insert.rows[0];
+            await client.query(
+              `INSERT INTO kb_embeddings_store (id, embedding)
+               VALUES ($1, $2::vector)
+               ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding`,
+              [record.id, toVectorLiteral(embeddings[j].vector)],
+            );
+            await client.query('COMMIT');
+            byKey.set(`${item.hash}::${item.namespace}`, this.mapRow(record));
+          } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined);
+            throw err;
+          } finally {
+            client.release();
+          }
+        }
+      }
+
+      return prepared.map((p) => byKey.get(`${p.hash}::${p.namespace}`)!);
+    } finally {
+      await pool.end();
+    }
   }
 
   /* ──────────────── search embeddings ──────────────── */
@@ -207,11 +261,15 @@ export class TenantEmbeddingService {
     projectId: string,
     dto: SearchEmbeddingDto,
   ): Promise<TenantSimilarityResult[]> {
-    const project = await this.getProjectWithEmbedding(projectId);
-    const { query, namespace, threshold = 0.5, limit = 10, filter } = dto;
+    const { query, namespace, threshold = 0.5, filter } = dto;
+    if (typeof query !== 'string' || query.trim() === '') {
+      throw new BadRequestException('query must be a non-empty string');
+    }
+    const limit = Math.min(Math.max(Math.trunc(Number(dto.limit ?? 10)) || 10, 1), MAX_SEARCH_LIMIT);
 
+    const project = await this.getProjectWithEmbedding(projectId);
     const openai = this.getOpenAI(project.embeddingApiKey);
-    const embedding = await this.generateEmbedding(openai, query);
+    const [embedding] = await this.generateEmbeddings(openai, [query]);
 
     const pool = this.projectPool(project);
     try {
@@ -431,19 +489,56 @@ export class TenantEmbeddingService {
     return new OpenAI({ apiKey });
   }
 
-  private async generateEmbedding(
+  /**
+   * Embed several texts in one request. Provider failures are mapped to
+   * HTTP errors that say what went wrong — unmapped, an OpenAI 401 or quota
+   * error surfaced to callers as a bare 500 "Internal server error".
+   */
+  private async generateEmbeddings(
     openai: OpenAI,
-    text: string,
-  ): Promise<{ vector: number[]; tokenCount: number }> {
-    const trimmed = text.slice(0, 8000);
-    const response = await openai.embeddings.create({
-      model: this.embeddingModel,
-      input: trimmed,
-    });
-    return {
-      vector: response.data[0].embedding,
-      tokenCount: response.usage?.total_tokens ?? 0,
-    };
+    texts: string[],
+  ): Promise<Array<{ vector: number[]; tokenCount: number }>> {
+    let response: OpenAI.Embeddings.CreateEmbeddingResponse;
+    try {
+      response = await openai.embeddings.create({
+        model: this.embeddingModel,
+        input: texts.map((t) => t.slice(0, 8000)),
+      });
+    } catch (err) {
+      throw this.providerError(err);
+    }
+
+    // Token usage is reported per request; attribute it evenly.
+    const perItem = Math.round((response.usage?.total_tokens ?? 0) / texts.length);
+    return [...response.data]
+      .sort((a, b) => a.index - b.index)
+      .map((d) => ({ vector: d.embedding, tokenCount: perItem }));
+  }
+
+  private providerError(err: unknown): HttpException {
+    const status = err instanceof OpenAI.APIError ? err.status : undefined;
+    const detail = err instanceof Error ? err.message : String(err);
+    this.logger.error(`Embedding provider error (status ${status ?? 'n/a'}): ${detail}`);
+
+    if (status === 401 || status === 403) {
+      return new BadGatewayException(
+        'Embedding provider rejected the API key. Check the project or platform OpenAI key.',
+      );
+    }
+    if (status === 429) {
+      return new HttpException(
+        'Embedding provider rate limit or quota exceeded. Retry later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (status === 400) {
+      return new BadRequestException(`Embedding provider rejected the input: ${detail}`);
+    }
+    return new BadGatewayException(
+      status
+        ? `Embedding provider error (HTTP ${status}).`
+        : 'Could not reach the embedding provider.',
+    );
   }
 
   private sha256(text: string): string {
