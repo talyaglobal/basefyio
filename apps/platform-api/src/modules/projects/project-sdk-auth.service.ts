@@ -442,6 +442,9 @@ export class ProjectSdkAuthService {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
+    // Before the grant, so the very first token already carries auth_time.
+    await this.keycloak.ensureRealmClientAuthTimeMapper(realmName, clientId);
+
     const params = new URLSearchParams({
       grant_type: 'password', client_id: clientId, username: email, password,
       scope: 'openid email profile',

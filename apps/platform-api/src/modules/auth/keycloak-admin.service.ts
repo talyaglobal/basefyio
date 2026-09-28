@@ -27,6 +27,25 @@ type SupportedIdpProvider =
   | 'facebook'
   | 'twitter';
 
+/**
+ * Puts the login time Keycloak keeps on every user session into the access token as
+ * `auth_time`. Refreshing keeps the original value, so a refreshed token does not look like a
+ * fresh sign-in.
+ */
+const AUTH_TIME_MAPPER = {
+  name: 'auth_time',
+  protocol: 'openid-connect',
+  protocolMapper: 'oidc-usersessionmodel-note-mapper',
+  config: {
+    'user.session.note': 'AUTH_TIME',
+    'claim.name': 'auth_time',
+    'jsonType.label': 'long',
+    'id.token.claim': 'true',
+    'access.token.claim': 'true',
+    'userinfo.token.claim': 'false',
+  },
+};
+
 @Injectable()
 export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
@@ -475,6 +494,7 @@ export class KeycloakAdminService implements OnModuleInit {
         publicClient: true,
         directAccessGrantsEnabled: true,
         standardFlowEnabled: true,
+        protocolMappers: [AUTH_TIME_MAPPER],
       }),
     );
 
@@ -968,6 +988,38 @@ export class KeycloakAdminService implements OnModuleInit {
    * SDK /auth/signin password flow with "Client not allowed for direct access
    * grants". Returns true if the client now allows it. Best-effort.
    */
+  /** Realms whose anon client is known to carry the auth_time mapper in this process. */
+  private readonly authTimeMapped = new Set<string>();
+
+  /**
+   * Ensure a realm client puts `auth_time` in its access tokens. Keycloak 24 only puts it in
+   * the ID token by default, and the SDK sign-in returns only the access token, so without this
+   * a consumer has no way to tell when the person last entered their password (OIDC's re-auth
+   * checks). Realms created before AUTH_TIME_MAPPER was part of createClients get it here, on
+   * their first sign-in. Best-effort and cached per process: a failure only means the claim is
+   * still missing, never a failed sign-in.
+   */
+  async ensureRealmClientAuthTimeMapper(realmName: string, clientId: string): Promise<void> {
+    const key = `${realmName}/${clientId}`;
+    if (this.authTimeMapped.has(key)) return;
+    try {
+      await this.ensureAuth();
+      const clients = await this.client.clients.find({ realm: realmName, clientId });
+      const c = clients[0];
+      if (!c?.id) return;
+      const mappers = await this.client.clients.listProtocolMappers({ realm: realmName, id: c.id });
+      if (!mappers.some((m) => m.name === AUTH_TIME_MAPPER.name)) {
+        await this.client.clients.addProtocolMapper({ realm: realmName, id: c.id }, AUTH_TIME_MAPPER);
+        this.logger.log(`Added auth_time mapper to "${clientId}" in realm "${realmName}"`);
+      }
+      this.authTimeMapped.add(key);
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not ensure auth_time mapper for "${clientId}" in "${realmName}": ${err?.message ?? err}`,
+      );
+    }
+  }
+
   async ensureRealmClientDirectGrant(realmName: string, clientId: string): Promise<boolean> {
     await this.ensureAuth();
     try {
