@@ -834,6 +834,13 @@ export class KeycloakAdminService implements OnModuleInit {
   async createProjectUser(
     realmName: string,
     data: { email: string; password: string; firstName?: string; lastName?: string },
+    /**
+     * Whether the address counts as confirmed. Required, never defaulted: this flag is what a
+     * token's `email_verified` claim reports, and consumers use it to decide whether an address
+     * really belongs to the person holding the token. Only a caller that has proven control of the
+     * address (or a project that opted out of verification) may pass true.
+     */
+    emailVerified: boolean,
   ): Promise<string> {
     await this.ensureAuth();
 
@@ -847,9 +854,11 @@ export class KeycloakAdminService implements OnModuleInit {
       firstName: data.firstName?.trim() || data.email.split('@')[0] || 'user',
       lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
       enabled: true,
-      // Mark verified so a realm with "Verify Email" on doesn't block the
-      // password grant (the app runs its own email verification when needed).
-      emailVerified: true,
+      // Never unconditionally true. A self-registered address is unconfirmed until the
+      // project's OTP flow (verifyEmail / magic link) proves the person controls it; marking it
+      // verified here put `email_verified: true` in the tokens of accounts registered under
+      // somebody else's address.
+      emailVerified,
       requiredActions: [],
       credentials: [
         { type: 'password', value: data.password, temporary: false },
@@ -932,7 +941,9 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     const u = await this.client.users.findOne({ realm: realmName, id: userId });
     const local = (u?.email || u?.username || 'user').split('@')[0] || 'user';
-    const update: Record<string, unknown> = { emailVerified: true, requiredActions: [] };
+    // Deliberately leaves emailVerified alone. This runs on a failed sign-in, and flipping it
+    // here marked any unverified account as verified as soon as someone typed a password for it.
+    const update: Record<string, unknown> = { requiredActions: [] };
     // Keycloak 24 User Profile requires firstName/lastName; fill them if empty so
     // the grant stops failing with "Account is not fully set up".
     if (!u?.firstName?.trim()) update.firstName = local;
