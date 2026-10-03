@@ -100,7 +100,9 @@ export class ProjectSdkAuthService {
 
     let userId: string;
     try {
-      userId = await this.keycloak.createProjectUser(project.keycloakRealm, data);
+      userId = await this.keycloak.createProjectUser(
+        project.keycloakRealm, data, !cfg.requireEmailVerify,
+      );
     } catch (err: any) {
       throw new InternalServerErrorException(`Failed to create user: ${err.message}`);
     }
@@ -440,6 +442,9 @@ export class ProjectSdkAuthService {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
+    // Before the grant, so the very first token already carries auth_time.
+    await this.keycloak.ensureRealmClientAuthTimeMapper(realmName, clientId);
+
     const params = new URLSearchParams({
       grant_type: 'password', client_id: clientId, username: email, password,
       scope: 'openid email profile',
@@ -496,15 +501,20 @@ export class ProjectSdkAuthService {
           | null;
         if (user?.id) {
           // A fully-set-up account can still fail the grant ("Account is not fully
-          // set up") when realm-default required actions, an unverified email, or
-          // — on Keycloak 24 — missing firstName/lastName (User Profile) got left
-          // at creation. Heal those and retry with the SAME password (a wrong
-          // password still 401s).
+          // set up") when realm-default required actions or — on Keycloak 24 —
+          // missing firstName/lastName (User Profile) got left at creation. Heal
+          // those and retry with the SAME password (a wrong password still 401s).
+          //
+          // Only when Keycloak says that is the reason. A wrong password is also
+          // invalid_grant, and healing on it let anyone who typed any password
+          // change the account. The email's verified flag is never healed: an
+          // unverified address is not a login blocker (the token just says
+          // email_verified: false), it is a fact consumers rely on.
           const blocked =
-            user.emailVerified === false ||
-            (user.requiredActions?.length ?? 0) > 0 ||
-            !user.firstName?.trim() ||
-            !user.lastName?.trim();
+            /not fully set up/i.test(kcDesc) &&
+            ((user.requiredActions?.length ?? 0) > 0 ||
+              !user.firstName?.trim() ||
+              !user.lastName?.trim());
           if (blocked) {
             await this.keycloak
               .clearRealmUserLoginBlockers(realmName, user.id)
