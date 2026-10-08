@@ -14,6 +14,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import { mapPgError } from './pg-error.util';
+import { parseQuery } from './postgrest/parser';
+import { SelectBuilder } from './postgrest/builder';
+import { SchemaCache } from './postgrest/schema-cache';
+import { PostgrestParseError } from './postgrest/types';
 
 interface ParsedFilter {
   clause: string;
@@ -76,6 +80,11 @@ export class PublicApiService {
   private static readonly POOL_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
   private poolCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Per-project column and foreign-key catalogue, so embeds resolve without a
+   *  round trip per request. Refreshed when a request names something the cache
+   *  does not know, which is how a schema change surfaces. */
+  private readonly schemaCache = new SchemaCache();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -106,33 +115,61 @@ export class PublicApiService {
     ctx: RlsContext,
   ) {
     this.validateTableName(table);
+    const parsed = parseQuery(query);
 
     return this.withRls(projectId, ctx, async (client) => {
-      const columns = this.parseSelect(query.select as string);
-      const { where, params } = this.parseFilters(query);
-      const orderBy = this.parseOrder(query.order as string);
-      const { limitClause, limitParams } = this.parsePagination(query, params.length);
+      // Resolving embeds needs the foreign keys, which the URL cannot carry.
+      // If the request names a relation or column the cache has not seen, it is
+      // reloaded once — a newly created table surfaces exactly this way — before
+      // the request is called wrong.
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const dataBuilder = new SelectBuilder(schema, this.schemaCache);
+        const { sql, params } = dataBuilder.build(table, parsed);
 
-      const sql = [
-        `SELECT ${columns} FROM "${table}"`,
-        where ? `WHERE ${where}` : '',
-        orderBy ? `ORDER BY ${orderBy}` : '',
-        limitClause,
-      ].filter(Boolean).join(' ');
+        const countBuilder = new SelectBuilder(schema, this.schemaCache);
+        const count = countBuilder.buildCount(table, parsed);
 
-      const allParams = [...params, ...limitParams];
-
-      const countSql = `SELECT COUNT(*)::int AS total FROM "${table}"${where ? ` WHERE ${where}` : ''}`;
-      const [dataResult, countResult] = await Promise.all([
-        client.query(sql, allParams),
-        client.query(countSql, params),
-      ]);
-
-      return {
-        data: dataResult.rows,
-        count: countResult.rows[0]?.total ?? 0,
+        const [dataResult, countResult] = await Promise.all([
+          client.query(sql, params),
+          client.query(count.sql, count.params),
+        ]);
+        return {
+          data: dataResult.rows,
+          count: countResult.rows[0]?.total ?? 0,
+        };
       };
+
+      try {
+        return await run(false);
+      } catch (err) {
+        if (
+          err instanceof PostgrestParseError &&
+          (err.code === 'PGRST200' || err.code === 'PGRST204' || err.code === 'PGRST205')
+        ) {
+          this.schemaCache.invalidate(projectId);
+          try {
+            return await run(true);
+          } catch (retryErr) {
+            throw this.toHttp(retryErr);
+          }
+        }
+        throw this.toHttp(err);
+      }
     });
+  }
+
+  /** Map a parse failure to a 400 that keeps PostgREST's error code; anything
+   *  else is left for withRls / mapPgError to classify. */
+  private toHttp(err: unknown): unknown {
+    if (err instanceof PostgrestParseError) {
+      return new BadRequestException({
+        message: err.message,
+        details: err.details,
+        code: err.code,
+      });
+    }
+    return err;
   }
 
   /**
