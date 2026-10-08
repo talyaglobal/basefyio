@@ -585,7 +585,7 @@ export default function ManagementPage() {
       )}
       <div className="flex items-center justify-between">
         <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/dashboard')}>
+          <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/console')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>

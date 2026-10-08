@@ -281,10 +281,10 @@ export default function MarketingAgencyPage() {
     <div className="mx-auto max-w-6xl space-y-5 p-6">
       <div className="flex items-center justify-between">
         <button
-          onClick={() => router.push('/dashboard/admin')}
+          onClick={() => router.push('/console')}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" /> Admin
+          <ArrowLeft className="h-4 w-4" /> Console
         </button>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           {loading ? (

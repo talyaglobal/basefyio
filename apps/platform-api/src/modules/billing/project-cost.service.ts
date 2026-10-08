@@ -298,6 +298,26 @@ export class ProjectCostService {
     };
   }
 
+  /**
+   * One project's report with our raw cost and the customer price side by
+   * side, for the root console. Null when the project no longer occupies
+   * infrastructure (deactivated or deleted).
+   */
+  async getProjectReport(projectId: string): Promise<ProjectCostReport | null> {
+    const now = new Date();
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { teamId: true } });
+    if (!project) return null;
+    await this.ensureFreshDbSizes(project.teamId);
+
+    const row = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { in: [...BILLABLE_STATUSES] } },
+      select: projectSelect,
+    });
+    if (!row) return null;
+    const [cfg, [input]] = await Promise.all([this.getConfig(), this.toInputs([row])]);
+    return priceProject(cfg, this.resolvePeriod(null, now), input, now);
+  }
+
   /** Re-measure every billable project's database now and flush live counters. */
   async refreshNow(): Promise<{ projects: number }> {
     const projects = await this.usage.refreshProjectDbSizes();
