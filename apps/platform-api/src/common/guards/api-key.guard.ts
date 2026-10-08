@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  ForbiddenException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -67,6 +68,8 @@ export class ApiKeyGuard implements CanActivate {
         'The service key must be sent in the apikey header, not the query string',
       );
     }
+
+    this.assertKeyMatchesTargetProject(request, project.id, isService);
     let dbRole: PgRequestRole = isService ? 'service_role' : 'anon';
     let jwtClaims: Record<string, unknown> | undefined;
 
@@ -113,6 +116,62 @@ export class ApiKeyGuard implements CanActivate {
     } as ApiKeyPayload;
 
     return true;
+  }
+
+  /**
+   * Refuse a key used against a project other than its own.
+   *
+   * A key identifies exactly one project, but most routes also name a project —
+   * in the path, the body or the query — and the services act on the one named.
+   * Their access check only runs for a dashboard user, so with a key the named
+   * project was never compared with the key's. Any project's anon key, which
+   * ships inside every browser app and comes free with a sign-up, therefore
+   * opened every other project: owner-level SQL, storage, the user directory.
+   *
+   * Every place a project can be named is checked, not just the first one
+   * found, because routes disagree about where they read it from: a path
+   * naming the caller's own project with a body naming a victim's must not pass
+   * on the strength of the path.
+   *
+   * The anon key is refused outright — it is public, so no legitimate caller
+   * holds another project's. The service key is secret, and some internal tool
+   * may hold one key for several projects; until that is ruled out, a mismatch
+   * is logged rather than refused. Set SERVICE_KEY_PROJECT_BINDING=enforce to
+   * refuse those too.
+   */
+  private assertKeyMatchesTargetProject(
+    request: any,
+    keyProjectId: string,
+    isService: boolean,
+  ): void {
+    const named = [
+      request.params?.projectId,
+      request.body && typeof request.body === 'object' ? request.body.projectId : undefined,
+      request.query?.projectId,
+    ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+    const foreign = named.find((id) => id !== keyProjectId);
+    if (!foreign) return;
+
+    const route = `${request.method} ${request.originalUrl ?? request.url ?? ''}`.split('?')[0];
+
+    if (!isService) {
+      this.logger.warn(
+        `Refused anon key of project ${keyProjectId} used against project ${foreign} (${route})`,
+      );
+      throw new ForbiddenException('This API key does not belong to the requested project');
+    }
+
+    if (this.config.get<string>('SERVICE_KEY_PROJECT_BINDING') === 'enforce') {
+      this.logger.warn(
+        `Refused service key of project ${keyProjectId} used against project ${foreign} (${route})`,
+      );
+      throw new ForbiddenException('This API key does not belong to the requested project');
+    }
+
+    this.logger.warn(
+      `CROSS-PROJECT SERVICE KEY: key of project ${keyProjectId} used against project ${foreign} (${route}) — allowed for now, will be refused once binding is enforced`,
+    );
   }
 
   /**

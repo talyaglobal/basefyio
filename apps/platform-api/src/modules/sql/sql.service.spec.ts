@@ -1,4 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+
+// SqlService imports ProjectsService only for its type and DI token. Loading
+// the real module here would drag in the Keycloak admin client (ESM), which
+// this unit test neither needs nor can transform. The harness injects a mock.
+jest.mock('../projects/projects.service', () => ({ ProjectsService: class {} }));
+
 import { SqlService } from './sql.service';
 
 /**
@@ -43,11 +49,13 @@ function harness(queryResult: unknown = { rows: [], fields: [], rowCount: 0 }) {
   const activity = { append: jest.fn().mockResolvedValue(undefined) };
   const embedding = { enqueueJob: jest.fn() };
 
+  const projectsService = { ensureRlsBootstrap: jest.fn() };
   const svc = new SqlService(
     prisma as any,
     {} as any,
     activity as any,
     embedding as any,
+    projectsService as any,
   );
   // The pool is the one dependency that needs a live database; everything this
   // file is about happens on the way to it.
@@ -164,5 +172,93 @@ describe('SqlService.execute — values travel apart from the statement', () => 
     expect(audited).toContain('UPDATE t SET secret = $1');
     expect(audited).not.toContain('hunter2');
     expect(JSON.stringify(activity.append.mock.calls)).not.toContain('hunter2');
+  });
+});
+
+/**
+ * Who the statement runs as.
+ *
+ * A dashboard editor (no rls context) runs as the database owner, exactly as
+ * before. An API-key caller runs inside a transaction that switches to the
+ * key's role first, so RLS governs the statement — the public anon key can read
+ * what policy allows and, holding no write grant, can write nothing.
+ */
+describe('SqlService.execute — runs under the caller role', () => {
+  function roleHarness(opts?: { denySetRoleOnce?: boolean }) {
+    let setRoleCalls = 0;
+    const calls: string[] = [];
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        calls.push(sql);
+        if (/^SET LOCAL ROLE/.test(sql)) {
+          setRoleCalls++;
+          if (opts?.denySetRoleOnce && setRoleCalls === 1) {
+            const e: any = new Error('permission denied to set role');
+            e.code = '42501';
+            throw e;
+          }
+        }
+        return { rows: [], fields: [], rowCount: 0 };
+      }),
+      release: jest.fn(),
+    };
+    const prisma = {
+      project: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'p1', teamId: 't1', dbHost: 'h', dbPort: 5432,
+          dbUser: 'u', dbPassword: 'secret', dbName: 'db',
+        }),
+      },
+      teamMember: { findUnique: jest.fn().mockResolvedValue({ id: 'm1' }) },
+      sqlAuditLog: { create: jest.fn().mockResolvedValue({ id: 'a1' }) },
+    };
+    const activity = { append: jest.fn().mockResolvedValue(undefined) };
+    const embedding = { enqueueJob: jest.fn() };
+    const projectsService = { ensureRlsBootstrap: jest.fn().mockResolvedValue(undefined) };
+    const svc = new SqlService(
+      prisma as any, {} as any, activity as any, embedding as any, projectsService as any,
+    );
+    (svc as any).getPool = () => ({ connect: async () => client });
+    return { svc, client, calls, projectsService };
+  }
+
+  it('switches to the anon role inside a transaction for an API-key call', async () => {
+    const { svc, calls } = roleHarness();
+    await svc.execute('p1', 'SELECT * FROM t', undefined, {
+      rls: { role: 'anon' },
+    });
+    expect(calls).toContain('BEGIN');
+    expect(calls).toContain('SET LOCAL ROLE "anon"');
+    expect(calls).toContain('COMMIT');
+    expect(calls.some((c) => c.includes("set_config('request.jwt.role'"))).toBe(true);
+    // The role switch must come before the statement runs.
+    expect(calls.indexOf('SET LOCAL ROLE "anon"')).toBeLessThan(
+      calls.findIndex((c) => c.includes('FROM t')),
+    );
+  });
+
+  it('carries the role for an authenticated API-key call', async () => {
+    const { svc, calls } = roleHarness();
+    await svc.execute('p1', 'SELECT 1', undefined, {
+      rls: { role: 'authenticated', jwtClaims: { sub: 'user-1' } },
+    });
+    expect(calls).toContain('SET LOCAL ROLE "authenticated"');
+  });
+
+  it('does NOT switch role for a dashboard user (owner path unchanged)', async () => {
+    const { svc, calls } = roleHarness();
+    await svc.execute('p1', 'SELECT 1', 'u1');
+    expect(calls.some((c) => c.startsWith('SET LOCAL ROLE'))).toBe(false);
+    expect(calls).not.toContain('BEGIN');
+  });
+
+  it('bootstraps once and retries when SET ROLE is denied, never falling back to owner', async () => {
+    const { svc, calls, projectsService } = roleHarness({ denySetRoleOnce: true });
+    await svc.execute('p1', 'SELECT 1', undefined, { rls: { role: 'anon' } });
+    expect(projectsService.ensureRlsBootstrap).toHaveBeenCalledWith('p1');
+    // Two SET ROLE attempts: the denied one and the post-heal retry.
+    expect(calls.filter((c) => c === 'SET LOCAL ROLE "anon"').length).toBe(2);
+    // A ROLLBACK for the failed first attempt.
+    expect(calls).toContain('ROLLBACK');
   });
 });
