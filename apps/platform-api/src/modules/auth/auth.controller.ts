@@ -612,13 +612,15 @@ export class AuthController {
       }
 
       // Standard web flow: embed tokens in the fragment so the frontend can read them.
-      // SECURITY: Only allow relative paths or same-origin redirects to prevent open redirect token theft.
+      // SECURITY: Only allow relative paths or our own app/admin-console origins to prevent open redirect token theft.
       let redirectPath = result.redirectTo || '/login';
       if (redirectPath.startsWith('http')) {
         try {
           const redirectUrl = new URL(redirectPath);
-          const appOrigin = new URL(baseAppUrl);
-          if (redirectUrl.origin !== appOrigin.origin) {
+          const allowedOrigins = [baseAppUrl, process.env.ADMIN_URL]
+            .filter((u): u is string => !!u)
+            .map((u) => new URL(u).origin);
+          if (!allowedOrigins.includes(redirectUrl.origin)) {
             redirectPath = '/login'; // Block external redirect
           }
         } catch {

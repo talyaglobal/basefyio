@@ -4,8 +4,41 @@ import type { NextRequest } from 'next/server';
 const PUBLIC_PATHS = ['/login', '/signup', '/'];
 const FORCE_PASSWORD_CHANGE_PATH = '/set-new-password';
 
+const isAdminPath = (pathname: string) =>
+  pathname === '/dashboard/admin' || pathname.startsWith('/dashboard/admin/');
+
+/**
+ * The admin console lives on its own host. `admin.<domain>` serves only the
+ * /dashboard/admin routes and sends everything else in /dashboard to
+ * `app.<domain>`; `app.<domain>` hands admin routes over to `admin.<domain>`.
+ * Sessions are per origin, so the console keeps its own sign-in. Other hosts
+ * (localhost, previews) are left alone.
+ */
+function splitConsoleHost(request: NextRequest): NextResponse | null {
+  const host = (request.headers.get('x-forwarded-host') || request.headers.get('host') || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const { pathname, search } = request.nextUrl;
+
+  if (host.startsWith('admin.')) {
+    if (pathname === '/') return NextResponse.redirect(new URL('/dashboard/admin', `https://${host}`));
+    // Includes bare /dashboard, so a non-admin bounced off an admin page lands
+    // on the app instead of looping back into the console.
+    if (pathname.startsWith('/dashboard') && !isAdminPath(pathname)) {
+      return NextResponse.redirect(new URL(pathname + search, `https://app.${host.slice('admin.'.length)}`));
+    }
+  } else if (host.startsWith('app.') && isAdminPath(pathname)) {
+    return NextResponse.redirect(new URL(pathname + search, `https://admin.${host.slice('app.'.length)}`));
+  }
+  return null;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const consoleRedirect = splitConsoleHost(request);
+  if (consoleRedirect) return consoleRedirect;
 
   if (PUBLIC_PATHS.some((p) => pathname === p)) {
     return NextResponse.next();
@@ -44,5 +77,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/set-new-password'],
+  matcher: ['/', '/dashboard/:path*', '/set-new-password'],
 };
