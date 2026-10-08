@@ -107,6 +107,15 @@ export function clearTokens() {
   Cookies.remove(FORCE_PASSWORD_CHANGE_KEY, { path: '/' });
 }
 
+/**
+ * True when some basefyio origin holds a session: the marker lives on the root
+ * domain, so the admin console can see that app.<domain> is signed in even
+ * though the tokens themselves stay in that origin's localStorage.
+ */
+export function hasSessionMarker(): boolean {
+  return Cookies.get(AUTH_MARKER_KEY) === '1';
+}
+
 export function getRefreshToken(): string | undefined {
   const storage = getStorage();
   return storage?.getItem(REFRESH_KEY) || Cookies.get(REFRESH_KEY);

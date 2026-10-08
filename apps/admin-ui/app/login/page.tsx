@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { setTokens, startProactiveRefresh, isAuthenticated } from '@/lib/auth';
+import { setTokens, startProactiveRefresh, isAuthenticated, hasSessionMarker } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -58,12 +58,29 @@ function LoginForm() {
   const [captchaRequired, setCaptchaRequired] = useState(false);
   const [captchaQuestion, setCaptchaQuestion] = useState('');
   const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [handingOff, setHandingOff] = useState(false);
 
   useEffect(() => {
     // Already signed in (session persists in localStorage across tabs/restarts):
     // don't show the login form, go straight to the dashboard.
     if (typeof window !== 'undefined' && !window.location.hash && isAuthenticated()) {
       router.replace(safeNext());
+      return;
+    }
+
+    // Admin console with no session of its own while app.<domain> is signed in:
+    // borrow that session (app/auth/handoff) instead of asking again. A
+    // `handoff=none` reply means the app had nothing to give, so show the form.
+    if (
+      !window.location.hash &&
+      window.location.hostname.startsWith('admin.') &&
+      searchParams.get('handoff') !== 'none' &&
+      !searchParams.get('error') &&
+      hasSessionMarker()
+    ) {
+      setHandingOff(true);
+      const appOrigin = `https://app.${window.location.hostname.slice('admin.'.length)}`;
+      window.location.replace(`${appOrigin}/auth/handoff?next=${encodeURIComponent(safeNext())}`);
       return;
     }
 
@@ -199,6 +216,14 @@ function LoginForm() {
       toast.error(err.message || `${provider} login failed`);
       setOauthLoading(null);
     }
+  }
+
+  if (handingOff) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/40">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+      </div>
+    );
   }
 
   return (

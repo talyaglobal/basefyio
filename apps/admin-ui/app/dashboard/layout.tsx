@@ -117,7 +117,9 @@ export default function DashboardLayout({
     // and the user demanded the session never end on its own — only an explicit
     // Logout clears both tokens. A genuinely logged-out visitor has neither.
     if (!getAccessToken() && !getRefreshToken()) {
-      router.replace('/login');
+      // Keep the page they asked for, so signing in (or the admin console's
+      // session handoff) returns them to it.
+      router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       return;
     }
 
