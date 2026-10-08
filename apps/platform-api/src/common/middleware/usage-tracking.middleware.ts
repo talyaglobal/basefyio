@@ -3,13 +3,22 @@ import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsageService } from '../../modules/billing/usage.service';
 
+interface ResolvedOwner {
+  teamId: string;
+  /** Known whenever the request named a project (header or API key). */
+  projectId: string | null;
+}
+
 /**
  * Middleware that tracks API requests and bandwidth for billing.
  * Applied to public REST API routes (rest/v1/*).
  *
- * Resolves team from:
- * 1. x-project-id header → look up project → get teamId
- * 2. apikey header → look up project by anonKey/serviceKey → get teamId
+ * Resolves the owner from:
+ * 1. x-project-id header → look up project → teamId + projectId
+ * 2. apikey header → look up project by anonKey/serviceKey → teamId + projectId
+ *
+ * Usage is counted per team (plan quotas) and per project (the cost
+ * breakdown under Billing).
  */
 @Injectable()
 export class UsageTrackingMiddleware implements NestMiddleware {
@@ -19,10 +28,7 @@ export class UsageTrackingMiddleware implements NestMiddleware {
   private static readonly MAX_CACHE_SIZE = 500;
   private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  private projectTeamCache = new Map<
-    string,
-    { teamId: string; expiresAt: number }
-  >();
+  private ownerCache = new Map<string, { owner: ResolvedOwner; expiresAt: number }>();
 
   private evictionTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -39,9 +45,9 @@ export class UsageTrackingMiddleware implements NestMiddleware {
 
   private evictExpired() {
     const now = Date.now();
-    for (const [key, entry] of this.projectTeamCache) {
+    for (const [key, entry] of this.ownerCache) {
       if (entry.expiresAt <= now) {
-        this.projectTeamCache.delete(key);
+        this.ownerCache.delete(key);
       }
     }
   }
@@ -53,10 +59,11 @@ export class UsageTrackingMiddleware implements NestMiddleware {
       return next();
     }
 
-    const teamId = await this.resolveTeamId(req);
+    const owner = await this.resolveOwner(req);
 
-    if (teamId) {
-      this.usage.trackApiRequest(teamId).catch(() => {});
+    if (owner) {
+      const { teamId, projectId } = owner;
+      this.usage.trackApiRequest(teamId, projectId).catch(() => {});
 
       const usageService = this.usage;
       let responseSize = 0;
@@ -83,7 +90,7 @@ export class UsageTrackingMiddleware implements NestMiddleware {
         const totalBytes = requestSize + responseSize;
 
         if (totalBytes > 0) {
-          usageService.trackBandwidth(teamId, totalBytes).catch(() => {});
+          usageService.trackBandwidth(teamId, totalBytes, projectId).catch(() => {});
         }
 
         return originalEnd.apply(res, [chunk, ...args]);
@@ -93,49 +100,48 @@ export class UsageTrackingMiddleware implements NestMiddleware {
     next();
   }
 
-  private async resolveTeamId(req: Request): Promise<string | null> {
+  private async resolveOwner(req: Request): Promise<ResolvedOwner | null> {
     const projectId = req.headers['x-project-id'] as string;
     if (projectId) {
-      return this.getTeamIdForProject(projectId);
+      return this.getOwnerForProject(projectId);
     }
 
     const apiKey = req.headers['apikey'] as string;
     if (apiKey) {
-      return this.getTeamIdByApiKey(apiKey);
+      return this.getOwnerByApiKey(apiKey);
     }
 
     return null;
   }
 
-  private async getTeamIdForProject(
-    projectId: string,
-  ): Promise<string | null> {
+  private async getOwnerForProject(projectId: string): Promise<ResolvedOwner | null> {
     const cacheKey = `pid:${projectId}`;
-    const cached = this.projectTeamCache.get(cacheKey);
+    const cached = this.ownerCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.teamId;
+      return cached.owner;
     }
 
     try {
       const project = await this.prisma.project.findUnique({
         where: { id: projectId },
-        select: { teamId: true },
+        select: { id: true, teamId: true },
       });
       if (project) {
-        this.setCacheEntry(cacheKey, project.teamId);
-        return project.teamId;
+        const owner = { teamId: project.teamId, projectId: project.id };
+        this.setCacheEntry(cacheKey, owner);
+        return owner;
       }
     } catch {
-      this.logger.debug(`Failed to resolve teamId for project ${projectId}`);
+      this.logger.debug(`Failed to resolve owner for project ${projectId}`);
     }
     return null;
   }
 
-  private async getTeamIdByApiKey(apiKey: string): Promise<string | null> {
+  private async getOwnerByApiKey(apiKey: string): Promise<ResolvedOwner | null> {
     const cacheKey = `key:${apiKey.slice(0, 20)}`;
-    const cached = this.projectTeamCache.get(cacheKey);
+    const cached = this.ownerCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.teamId;
+      return cached.owner;
     }
 
     try {
@@ -144,26 +150,27 @@ export class UsageTrackingMiddleware implements NestMiddleware {
           OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
           status: 'ACTIVE',
         },
-        select: { teamId: true },
+        select: { id: true, teamId: true },
       });
       if (project) {
-        this.setCacheEntry(cacheKey, project.teamId);
-        return project.teamId;
+        const owner = { teamId: project.teamId, projectId: project.id };
+        this.setCacheEntry(cacheKey, owner);
+        return owner;
       }
     } catch {
-      this.logger.debug('Failed to resolve teamId by API key');
+      this.logger.debug('Failed to resolve owner by API key');
     }
     return null;
   }
 
-  private setCacheEntry(key: string, teamId: string) {
+  private setCacheEntry(key: string, owner: ResolvedOwner) {
     // Enforce max cache size — evict oldest entries when full
-    if (this.projectTeamCache.size >= UsageTrackingMiddleware.MAX_CACHE_SIZE) {
-      const firstKey = this.projectTeamCache.keys().next().value;
-      if (firstKey) this.projectTeamCache.delete(firstKey);
+    if (this.ownerCache.size >= UsageTrackingMiddleware.MAX_CACHE_SIZE) {
+      const firstKey = this.ownerCache.keys().next().value;
+      if (firstKey) this.ownerCache.delete(firstKey);
     }
-    this.projectTeamCache.set(key, {
-      teamId,
+    this.ownerCache.set(key, {
+      owner,
       expiresAt: Date.now() + UsageTrackingMiddleware.CACHE_TTL_MS,
     });
   }

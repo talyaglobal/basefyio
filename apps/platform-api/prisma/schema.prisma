@@ -285,6 +285,7 @@ model Project {
   maxRowsPerTable     Int                     @default(1000) @map("max_rows_per_table")
 
   realtimeBindings RealtimeBinding[]
+  usage            ProjectUsage?
 
   @@map("projects")
 }
@@ -680,6 +681,29 @@ model UsageRecord {
   @@index([teamId, metric, recordedAt])
   @@index([projectId, metric, recordedAt])
   @@map("usage_records")
+}
+
+/// Per-project resource snapshot behind the Billing cost breakdown.
+/// `dbSizeBytes` and the monthly counters are refreshed by UsageService
+/// (6-hourly cron + Redis flush); `storageBytes` by the storage cron. Rows are
+/// additive bookkeeping only — quotas keep reading TeamUsage.
+model ProjectUsage {
+  id                  String    @id @default(uuid())
+  projectId           String    @unique @map("project_id")
+  teamId              String    @map("team_id")
+  dbSizeBytes         BigInt    @default(0) @map("db_size_bytes")
+  storageBytes        BigInt    @default(0) @map("storage_bytes")
+  apiRequestsMonth    Int       @default(0) @map("api_requests_month")
+  bandwidthMonth      BigInt    @default(0) @map("bandwidth_month")
+  periodStart         DateTime  @default(now()) @map("period_start")
+  /// Null until the storage cron has walked this project's buckets once.
+  storageCalculatedAt DateTime? @map("storage_calculated_at")
+  lastCalculatedAt    DateTime  @default(now()) @map("last_calculated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("project_usage")
 }
 
 // ── Dedicated Infrastructure ─────────────────────────────

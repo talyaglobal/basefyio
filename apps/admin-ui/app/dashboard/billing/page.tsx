@@ -16,6 +16,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { ProjectCostsPanel } from '@/components/project-costs-panel';
+import type { TeamCostReport } from '@/lib/types';
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -318,6 +320,7 @@ export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [projectCosts, setProjectCosts] = useState<TeamCostReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [changingPlan, setChangingPlan] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<{
@@ -365,6 +368,7 @@ export default function BillingPage() {
         api.billing.invoices(activeTeamId),
         api.billing.account(activeTeamId),
         api.billing.paymentMethod(activeTeamId),
+        api.billing.projectCosts(activeTeamId),
       ]);
 
       const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -376,6 +380,7 @@ export default function BillingPage() {
       setInvoices(val(results[3], []) || []);
       setBillingAccount(val(results[4], null));
       setPaymentMethod(val(results[5], null));
+      setProjectCosts(val(results[6], null));
     } catch (err) {
       console.error('Failed to load billing data:', err);
     } finally {
@@ -891,6 +896,9 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+
+      {/* Project costs */}
+      <ProjectCostsPanel report={projectCosts} />
 
       {/* Plans */}
       {!isLegacy && (

@@ -49,6 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
 import { QuickbooksTab } from '@/components/quickbooks-tab';
+import { InfraCostsTab } from '@/components/infra-costs-tab';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
@@ -191,6 +192,7 @@ export default function ManagementPage() {
     | 'stripe'
     | 'quickbooks'
     | 'emailReports'
+    | 'infraCosts'
   >('users');
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -287,7 +289,8 @@ export default function ManagementPage() {
       | 'analytics'
       | 'stripe'
       | 'quickbooks'
-      | 'emailReports',
+      | 'emailReports'
+      | 'infraCosts',
     force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
@@ -741,6 +744,19 @@ export default function ManagementPage() {
           onClick={() => setActiveTab('stripe')}
         >
           Stripe
+        </button>
+        )}
+        {(managementPermissions?.canManagePlans || isRoot) && (
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+            activeTab === 'infraCosts'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('infraCosts')}
+        >
+          Infrastructure Costs
         </button>
         )}
         {isRoot && (
@@ -1376,6 +1392,12 @@ export default function ManagementPage() {
       {activeTab === 'quickbooks' && isRoot && (
         <section className="rounded-xl border bg-card p-4">
           <QuickbooksTab />
+        </section>
+      )}
+
+      {activeTab === 'infraCosts' && (managementPermissions?.canManagePlans || isRoot) && (
+        <section className="space-y-6 rounded-xl border bg-card p-4">
+          <InfraCostsTab />
         </section>
       )}
 
