@@ -245,17 +245,40 @@ function CardForm({
     setError(null);
 
     try {
-      const { clientSecret } = await api.billing.createSetupIntent(teamId);
-
       const cardElement = elements.getElement(CardElement);
       if (!cardElement) throw new Error('Card element not found');
 
-      const { setupIntent, error: stripeError } = await stripe.confirmCardSetup(clientSecret, {
-        payment_method: { card: cardElement },
-      });
+      // Confirm against a freshly created SetupIntent. If Stripe reports the
+      // intent as missing or already spent — a stale, expired or one-off bad
+      // client secret, the shape behind the "No such setupintent" a customer
+      // once saw — the intent is single-use, so a second attempt reuses nothing:
+      // fetch a brand-new one and confirm that. One retry is enough; a real
+      // problem (a declined card, a configuration fault) fails the same way
+      // twice and is surfaced plainly rather than as Stripe's raw id string.
+      const confirmOnce = async () => {
+        const { clientSecret } = await api.billing.createSetupIntent(teamId);
+        return stripe.confirmCardSetup(clientSecret, {
+          payment_method: { card: cardElement },
+        });
+      };
+
+      const isStaleIntent = (e?: { code?: string; message?: string }) =>
+        e?.code === 'resource_missing' ||
+        e?.code === 'setup_intent_unexpected_state' ||
+        /no such setupintent/i.test(e?.message || '');
+
+      let { setupIntent, error: stripeError } = await confirmOnce();
+      if (stripeError && isStaleIntent(stripeError)) {
+        ({ setupIntent, error: stripeError } = await confirmOnce());
+      }
 
       if (stripeError) {
-        setError(stripeError.message || 'Card verification failed');
+        // Never show Stripe's raw "No such setupintent: seti_…" to a customer.
+        setError(
+          isStaleIntent(stripeError)
+            ? 'We could not start the card setup. Please refresh the page and try again.'
+            : stripeError.message || 'Card verification failed',
+        );
         return;
       }
 
