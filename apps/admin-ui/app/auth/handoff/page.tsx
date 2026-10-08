@@ -19,10 +19,7 @@ export default function SessionHandoffPage() {
     const consoleOrigin = `https://admin.${host.slice('app.'.length)}`;
 
     const requested = new URLSearchParams(window.location.search).get('next') || '';
-    const next =
-      requested === '/dashboard/admin' || requested.startsWith('/dashboard/admin/')
-        ? requested
-        : '/dashboard/admin';
+    const next = requested === '/console' || requested.startsWith('/console/') ? requested : '/console';
     const loginUrl = `${consoleOrigin}/login?next=${encodeURIComponent(next)}`;
 
     const accessToken = getAccessToken();

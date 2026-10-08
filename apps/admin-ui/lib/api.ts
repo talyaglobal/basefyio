@@ -1,4 +1,5 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
+import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage } from './console-types';
 import type {
   AuthTokens,
   ColumnInfo,
@@ -2473,6 +2474,24 @@ export const api = {
       return request<{ success: boolean }>(`/project-tags/${id}`, {
         method: 'DELETE',
       });
+    },
+  },
+  /** Root console on admin.<domain> — every call is root-only. */
+  console: {
+    overview() {
+      return request<ConsoleOverview>('/admin/console/overview');
+    },
+    projects(includeDeleted = false) {
+      return request<ConsoleProjectList>(`/admin/console/projects${includeDeleted ? '?includeDeleted=true' : ''}`);
+    },
+    project(id: string) {
+      return request<ConsoleProjectDetail>(`/admin/console/projects/${encodeURIComponent(id)}`);
+    },
+    storage() {
+      return request<ConsoleStorage>('/admin/console/storage');
+    },
+    refreshStorage() {
+      return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });
     },
   },
 };

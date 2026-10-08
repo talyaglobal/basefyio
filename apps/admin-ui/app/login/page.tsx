@@ -48,7 +48,7 @@ function LoginForm() {
   const safeNext = () => {
     const n = searchParams.get('next');
     if (n && n.startsWith('/') && !n.startsWith('//')) return n;
-    return window.location.hostname.startsWith('admin.') ? '/dashboard/admin' : '/dashboard';
+    return window.location.hostname.startsWith('admin.') ? '/console' : '/dashboard';
   };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

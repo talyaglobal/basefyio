@@ -15,12 +15,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MessageSquareText,
-  Megaphone,
-  Rocket,
-  Search,
   Sparkles,
-  TrendingUp,
-  Trophy,
   UserCircle,
   Users,
 } from 'lucide-react';
@@ -99,54 +94,23 @@ const ALL_NAV_ITEMS: NavItem[] = [
   },
 ];
 
+// Root tools live in their own console on admin.<domain>; one door to it.
 const ROOT_NAV_ITEMS: NavItem[] = [
   {
-    href: '/dashboard/admin',
-    label: 'Admin',
+    href: '/console',
+    label: 'Root console',
     icon: ShieldCheck,
-    isActive: (p) => p === '/dashboard/admin',
-  },
-  {
-    href: '/dashboard/admin/gamification',
-    label: 'Gamification',
-    icon: Trophy,
-    isActive: (p) => p.startsWith('/dashboard/admin/gamification'),
-  },
-  {
-    href: '/dashboard/admin/go-to-market',
-    label: 'Go-To-Market',
-    icon: Rocket,
-    isActive: (p) => p.startsWith('/dashboard/admin/go-to-market'),
-  },
-  {
-    href: '/dashboard/admin/marketing-strategy',
-    label: 'Marketing Strategy',
-    icon: TrendingUp,
-    isActive: (p) => p.startsWith('/dashboard/admin/marketing-strategy'),
-  },
-  {
-    href: '/dashboard/admin/seo',
-    label: 'SEO Manager',
-    icon: Search,
-    isActive: (p) => p.startsWith('/dashboard/admin/seo'),
-  },
-  {
-    href: '/dashboard/admin/marketing-agency',
-    label: 'Marketing Agency',
-    icon: Megaphone,
-    isActive: (p) => p.startsWith('/dashboard/admin/marketing-agency'),
+    isActive: () => false,
   },
 ];
 
 /**
- * Admin routes are served from admin.<domain> and everything else from
- * app.<domain> (see middleware.ts). Point each link at its own host so the
- * address shown on hover is where the link really goes.
+ * The root console is served from admin.<domain> (see middleware.ts). Point
+ * its link at that host so the address shown on hover is where it really goes.
  */
 function hrefForHost(href: string, host: string) {
-  const isAdmin = href === '/dashboard/admin' || href.startsWith('/dashboard/admin/');
-  if (host.startsWith('app.') && isAdmin) return `https://admin.${host.slice('app.'.length)}${href}`;
-  if (host.startsWith('admin.') && !isAdmin) return `https://app.${host.slice('admin.'.length)}${href}`;
+  const isConsole = href === '/console' || href.startsWith('/console/');
+  if (host.startsWith('app.') && isConsole) return `https://admin.${host.slice('app.'.length)}${href}`;
   return href;
 }
 

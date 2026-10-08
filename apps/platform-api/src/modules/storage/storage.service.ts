@@ -14,6 +14,7 @@ import * as Minio from 'minio';
 import { Readable } from 'stream';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../billing/quota.service';
 
@@ -34,11 +35,32 @@ export interface BucketSummary {
   totalSize: number;
 }
 
+/** One MinIO bucket as measured by the last full storage pass. */
+export interface BucketInventoryEntry {
+  bucket: string;
+  /** Owning project of any status (a deleted project's leftovers still name it); null = none. */
+  projectId: string | null;
+  sizeBytes: number;
+  objectCount: number;
+  createdAt: string;
+}
+
+export interface BucketInventory {
+  measuredAt: string;
+  buckets: BucketInventoryEntry[];
+}
+
+/** SystemSetting key holding the latest {@link BucketInventory}. */
+const BUCKET_INVENTORY_KEY = 'storage_bucket_inventory';
+
 /** Platform-wide bucket for user feedback screenshots / clips (not project-scoped). */
 const FEEDBACK_ATTACHMENTS_BUCKET = 'bf-platform-feedback';
 
 /** Platform-wide bucket for marketing agency renders (voiceovers, cached art). */
 const MARKETING_ASSETS_BUCKET = 'bf-platform-marketing';
+
+/** Buckets the platform itself owns, as opposed to customer projects. */
+export const PLATFORM_BUCKETS: readonly string[] = [FEEDBACK_ATTACHMENTS_BUCKET, MARKETING_ASSETS_BUCKET];
 
 @Injectable()
 export class StorageService {
@@ -717,15 +739,43 @@ export class StorageService {
       );
       const bytesByProject = new Map<string, bigint>(projects.map((p) => [p.id, BigInt(0)]));
 
+      // A full pass also records every bucket — including those of deleted
+      // projects and the platform's own — for the root console's inventory.
+      const fullPass = !teamId;
+      const everyProject = fullPass
+        ? await this.prisma.project.findMany({ select: { id: true, slug: true, storagePrefix: true } })
+        : [];
+      const inventory: BucketInventoryEntry[] = [];
+
       const buckets = await this.client.listBuckets();
       for (const bucket of buckets) {
         const owner = this.resolveMinioBucketOwner(bucket.name, projects);
-        if (!owner) continue;
-        const team = teamByProject.get(owner.id);
-        if (!team) continue;
-        const { totalSize } = await this.bucketStats(bucket.name);
-        bytesByTeam.set(team, (bytesByTeam.get(team) ?? BigInt(0)) + BigInt(totalSize));
-        bytesByProject.set(owner.id, (bytesByProject.get(owner.id) ?? BigInt(0)) + BigInt(totalSize));
+        const team = owner ? teamByProject.get(owner.id) : undefined;
+        if (!team && !fullPass) continue;
+        const { totalSize, objectCount } = await this.bucketStats(bucket.name);
+        if (owner && team) {
+          bytesByTeam.set(team, (bytesByTeam.get(team) ?? BigInt(0)) + BigInt(totalSize));
+          bytesByProject.set(owner.id, (bytesByProject.get(owner.id) ?? BigInt(0)) + BigInt(totalSize));
+        }
+        if (fullPass) {
+          const anyOwner = owner ?? this.resolveMinioBucketOwner(bucket.name, everyProject);
+          inventory.push({
+            bucket: bucket.name,
+            projectId: anyOwner?.id ?? null,
+            sizeBytes: totalSize,
+            objectCount,
+            createdAt: bucket.creationDate.toISOString(),
+          });
+        }
+      }
+
+      if (fullPass) {
+        const value: BucketInventory = { measuredAt: new Date().toISOString(), buckets: inventory };
+        await this.prisma.systemSetting.upsert({
+          where: { key: BUCKET_INVENTORY_KEY },
+          create: { key: BUCKET_INVENTORY_KEY, value: value as unknown as Prisma.InputJsonValue },
+          update: { value: value as unknown as Prisma.InputJsonValue },
+        });
       }
 
       for (const [team, bytes] of bytesByTeam) {
@@ -755,6 +805,12 @@ export class StorageService {
       // Usage accounting must never take down a request or an import.
       this.logger.warn(`Storage usage recalculation failed: ${err.message}`);
     }
+  }
+
+  /** Every bucket as of the last full storage pass; null until one has run. */
+  async getBucketInventory(): Promise<BucketInventory | null> {
+    const row = await this.prisma.systemSetting.findUnique({ where: { key: BUCKET_INVENTORY_KEY } });
+    return (row?.value as unknown as BucketInventory) ?? null;
   }
 
   // ── Helpers ────────────────────────────────────────────

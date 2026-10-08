@@ -4,14 +4,20 @@ import type { NextRequest } from 'next/server';
 const PUBLIC_PATHS = ['/login', '/signup', '/'];
 const FORCE_PASSWORD_CHANGE_PATH = '/set-new-password';
 
-const isAdminPath = (pathname: string) =>
-  pathname === '/dashboard/admin' || pathname.startsWith('/dashboard/admin/');
+const isConsolePath = (pathname: string) => pathname === '/console' || pathname.startsWith('/console/');
+
+/** The old in-app admin routes, mapped onto their place in the root console. */
+function legacyAdminToConsole(pathname: string): string | null {
+  if (pathname === '/dashboard/admin') return '/console/manage';
+  if (pathname.startsWith('/dashboard/admin/')) return `/console/${pathname.slice('/dashboard/admin/'.length)}`;
+  return null;
+}
 
 /**
- * The admin console lives on its own host. `admin.<domain>` serves only the
- * /dashboard/admin routes and sends everything else in /dashboard to
- * `app.<domain>`; `app.<domain>` hands admin routes over to `admin.<domain>`.
- * Sessions are per origin, so the console keeps its own sign-in. Other hosts
+ * The root console lives on its own host. `admin.<domain>` serves /console
+ * and sends everything in /dashboard to `app.<domain>`; `app.<domain>` hands
+ * console and old admin routes over to `admin.<domain>`. Sessions are per
+ * origin; the console borrows the app's through /auth/handoff. Other hosts
  * (localhost, previews) are left alone.
  */
 function splitConsoleHost(request: NextRequest): NextResponse | null {
@@ -20,16 +26,18 @@ function splitConsoleHost(request: NextRequest): NextResponse | null {
     .trim()
     .toLowerCase();
   const { pathname, search } = request.nextUrl;
+  const legacy = legacyAdminToConsole(pathname);
 
   if (host.startsWith('admin.')) {
-    if (pathname === '/') return NextResponse.redirect(new URL('/dashboard/admin', `https://${host}`));
-    // Includes bare /dashboard, so a non-admin bounced off an admin page lands
+    if (pathname === '/') return NextResponse.redirect(new URL('/console', `https://${host}`));
+    if (legacy) return NextResponse.redirect(new URL(legacy + search, `https://${host}`));
+    // Includes bare /dashboard, so a non-root bounced off a console page lands
     // on the app instead of looping back into the console.
-    if (pathname.startsWith('/dashboard') && !isAdminPath(pathname)) {
+    if (pathname.startsWith('/dashboard')) {
       return NextResponse.redirect(new URL(pathname + search, `https://app.${host.slice('admin.'.length)}`));
     }
-  } else if (host.startsWith('app.') && isAdminPath(pathname)) {
-    return NextResponse.redirect(new URL(pathname + search, `https://admin.${host.slice('app.'.length)}`));
+  } else if (host.startsWith('app.') && (legacy || isConsolePath(pathname))) {
+    return NextResponse.redirect(new URL((legacy ?? pathname) + search, `https://admin.${host.slice('app.'.length)}`));
   }
   return null;
 }
@@ -77,5 +85,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/set-new-password'],
+  matcher: ['/', '/dashboard/:path*', '/console/:path*', '/set-new-password'],
 };
