@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Box, Database, DollarSign, HardDrive, RefreshCw, Users } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { ConsoleOverview, ConsoleTopProject, StorageCategory } from '@/lib/console-types';
+import type { ConsoleOverview, ConsolePlanMix, ConsoleTopProject, StorageCategory } from '@/lib/console-types';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { formatBytes, formatCount, formatUsd, monthLabel, timeAgo } from '@/components/console/format';
-import { ErrorState, PageHeader, Panel, Spinner, StatCard, td, tdRight, th, thRight } from '@/components/console/ui';
+import { formatBytes, formatCount, formatDate, formatUsd, monthLabel, timeAgo } from '@/components/console/format';
+import { ErrorState, PageHeader, Panel, Spinner, StatCard, StatusBadge, td, tdRight, th, thRight } from '@/components/console/ui';
 
 const CATEGORY_LABELS: Record<StorageCategory, string> = {
   project: 'Live projects',
@@ -28,6 +29,7 @@ export default function ConsoleOverviewPage() {
   const [data, setData] = useState<ConsoleOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [openPlan, setOpenPlan] = useState<ConsolePlanMix | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,7 +206,7 @@ export default function ConsoleOverviewPage() {
         />
       </div>
 
-      <Panel className="mt-4" title="Plan mix" flush>
+      <Panel className="mt-4" title="Plan mix" description="Click a plan to see its teams" flush>
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/40">
             <tr>
@@ -217,8 +219,12 @@ export default function ConsoleOverviewPage() {
           </thead>
           <tbody>
             {data.plans.map((p) => (
-              <tr key={p.name} className="border-b last:border-0">
-                <td className={td}>{p.displayName}</td>
+              <tr
+                key={p.name}
+                onClick={() => setOpenPlan(p)}
+                className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
+              >
+                <td className={`${td} font-medium text-primary`}>{p.displayName}</td>
                 <td className={tdRight}>{formatUsd(p.priceMonthlyUsd)}</td>
                 <td className={tdRight}>{p.teams}</td>
                 <td className={tdRight}>{p.paying}</td>
@@ -228,7 +234,75 @@ export default function ConsoleOverviewPage() {
           </tbody>
         </table>
       </Panel>
+
+      <PlanTeamsDialog plan={openPlan} onClose={() => setOpenPlan(null)} />
     </>
+  );
+}
+
+function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClose: () => void }) {
+  const cost = plan?.teamList.reduce((s, t) => s + t.projectedRawUsd, 0) ?? 0;
+  return (
+    <Dialog open={!!plan} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden p-0">
+        {plan && (
+          <div className="flex max-h-[85vh] flex-col">
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>
+                {plan.displayName} · {plan.teams} {plan.teams === 1 ? 'team' : 'teams'}
+              </DialogTitle>
+              <DialogDescription>
+                {formatUsd(plan.priceMonthlyUsd)} a month · {plan.paying} paying · their projects cost us{' '}
+                {formatUsd(cost)} this month, projected
+              </DialogDescription>
+            </DialogHeader>
+            <div className="overflow-auto">
+              <table className="w-full whitespace-nowrap text-sm">
+                <thead className="sticky top-0 border-b bg-muted">
+                  <tr>
+                    <th className={th}>Team</th>
+                    <th className={th}>Owner</th>
+                    <th className={th}>Status</th>
+                    <th className={thRight}>Projects</th>
+                    <th className={thRight}>Members</th>
+                    <th className={thRight}>Footprint</th>
+                    <th className={thRight}>Our cost</th>
+                    <th className={thRight}>On plan since</th>
+                    <th className={thRight}>Renews</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {plan.teamList.map((t) => (
+                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/40">
+                      <td className={td}>
+                        <Link
+                          href={`/console/projects?q=${encodeURIComponent(t.name)}`}
+                          className="font-medium hover:underline"
+                          title="Show this team's projects"
+                        >
+                          {t.name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{t.slug}</div>
+                      </td>
+                      <td className={`${td} text-muted-foreground`}>{t.ownerEmail ?? '—'}</td>
+                      <td className={td}>
+                        <StatusBadge status={t.status} />
+                      </td>
+                      <td className={tdRight}>{t.projects}</td>
+                      <td className={tdRight}>{t.members}</td>
+                      <td className={tdRight}>{t.footprintBytes ? formatBytes(t.footprintBytes) : '—'}</td>
+                      <td className={`${tdRight} font-medium`}>{t.projectedRawUsd ? formatUsd(t.projectedRawUsd) : '—'}</td>
+                      <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.subscribedAt)}</td>
+                      <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.currentPeriodEnd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

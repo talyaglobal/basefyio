@@ -27,6 +27,31 @@ export interface ConsoleStorageSummary {
   byCategory: Record<StorageCategory, number>;
 }
 
+export interface ConsolePlanTeam {
+  id: string;
+  name: string;
+  slug: string;
+  ownerEmail: string | null;
+  status: string;
+  projects: number;
+  members: number;
+  createdAt: string;
+  subscribedAt: string;
+  currentPeriodEnd: string | null;
+  /** Our raw cost for the team's projects, projected to month end. */
+  projectedRawUsd: number;
+  footprintBytes: number;
+}
+
+export interface ConsolePlanMix {
+  name: string;
+  displayName: string;
+  priceMonthlyUsd: number;
+  teams: number;
+  paying: number;
+  teamList: ConsolePlanTeam[];
+}
+
 export interface ConsoleOverview {
   generatedAt: string;
   period: { start: string; end: string; elapsedFraction: number; daysLeft: number };
@@ -54,7 +79,7 @@ export interface ConsoleOverview {
     bandwidthMonthBytes: number;
     storage: ConsoleStorageSummary;
   };
-  plans: Array<{ name: string; displayName: string; priceMonthlyUsd: number; teams: number; paying: number }>;
+  plans: ConsolePlanMix[];
   months: Array<{ month: string; signups: number; projects: number }>;
   topByCost: ConsoleTopProject[];
   topByFootprint: ConsoleTopProject[];

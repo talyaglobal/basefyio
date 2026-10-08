@@ -53,6 +53,12 @@ export default function ConsoleProjectsPage() {
     load();
   }, [load]);
 
+  // Links from elsewhere in the console (a team in the plan mix) arrive with ?q=.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setQuery(q);
+  }, []);
+
   const rows = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();

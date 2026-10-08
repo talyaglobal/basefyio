@@ -64,6 +64,31 @@ export interface ConsoleUsageMonth {
 
 export type StorageCategory = 'project' | 'deleted_project' | 'platform' | 'orphan';
 
+export interface ConsolePlanTeam {
+  id: string;
+  name: string;
+  slug: string;
+  ownerEmail: string | null;
+  status: string;
+  projects: number;
+  members: number;
+  createdAt: string;
+  subscribedAt: string;
+  currentPeriodEnd: string | null;
+  /** Our raw cost for the team's projects, projected to month end. */
+  projectedRawUsd: number;
+  footprintBytes: number;
+}
+
+export interface ConsolePlanMix {
+  name: string;
+  displayName: string;
+  priceMonthlyUsd: number;
+  teams: number;
+  paying: number;
+  teamList: ConsolePlanTeam[];
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
@@ -106,7 +131,26 @@ export class RootConsoleService {
       this.prisma.team.count(),
       this.prisma.project.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.subscription.findMany({
-        select: { status: true, plan: { select: { name: true, displayName: true, priceMonthly: true } } },
+        select: {
+          status: true,
+          currentPeriodEnd: true,
+          createdAt: true,
+          plan: { select: { name: true, displayName: true, priceMonthly: true } },
+          team: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              createdAt: true,
+              _count: { select: { projects: { where: { status: { not: 'DELETED' } } }, members: true } },
+              members: {
+                where: { role: 'OWNER' },
+                take: 1,
+                select: { user: { select: { email: true } } },
+              },
+            },
+          },
+        },
       }),
       this.prisma.projectUsage.aggregate({
         where: { project: { status: { in: ['ACTIVE', 'PAUSED'] } } },
@@ -119,8 +163,19 @@ export class RootConsoleService {
       }),
     ]);
 
+    // What each team costs us and occupies, from the same report as the totals.
+    const teamCost = new Map(
+      report.teams.map((t) => [
+        t.teamId,
+        {
+          projectedRawUsd: t.totals.projectedRawUsd,
+          footprintBytes: t.projects.reduce((sum, p) => sum + p.dbSizeBytes + p.storageBytes, 0),
+        },
+      ]),
+    );
+
     // Plan mix and recurring revenue across every team, not only those with projects.
-    const planMix = new Map<string, { name: string; displayName: string; priceMonthlyUsd: number; teams: number; paying: number }>();
+    const planMix = new Map<string, ConsolePlanMix>();
     let mrrUsd = 0;
     let payingTeams = 0;
     for (const s of subscriptions) {
@@ -131,8 +186,24 @@ export class RootConsoleService {
         priceMonthlyUsd: price,
         teams: 0,
         paying: 0,
+        teamList: [],
       };
       entry.teams += 1;
+      const tc = teamCost.get(s.team.id);
+      entry.teamList.push({
+        id: s.team.id,
+        name: s.team.name,
+        slug: s.team.slug,
+        ownerEmail: s.team.members[0]?.user.email ?? null,
+        status: s.status,
+        projects: s.team._count.projects,
+        members: s.team._count.members,
+        createdAt: s.team.createdAt.toISOString(),
+        subscribedAt: s.createdAt.toISOString(),
+        currentPeriodEnd: s.currentPeriodEnd?.toISOString() ?? null,
+        projectedRawUsd: tc?.projectedRawUsd ?? 0,
+        footprintBytes: tc?.footprintBytes ?? 0,
+      });
       if (price > 0 && (s.status === 'ACTIVE' || s.status === 'TRIALING' || s.status === 'PAST_DUE')) {
         entry.paying += 1;
         payingTeams += 1;
@@ -203,7 +274,9 @@ export class RootConsoleService {
         bandwidthMonthBytes: Number(usageTotals._sum.bandwidthMonth ?? 0),
         storage: this.summarizeInventory(inventory, await this.projectStatusIndex()),
       },
-      plans: [...planMix.values()].sort((a, b) => a.priceMonthlyUsd - b.priceMonthlyUsd),
+      plans: [...planMix.values()]
+        .sort((a, b) => a.priceMonthlyUsd - b.priceMonthlyUsd)
+        .map((p) => ({ ...p, teamList: p.teamList.sort((a, b) => b.projectedRawUsd - a.projectedRawUsd) })),
       months,
       topByCost: top((p) => p.projectedRawUsd),
       topByFootprint: top((p) => p.dbSizeBytes + p.storageBytes),
@@ -352,7 +425,7 @@ export class RootConsoleService {
         infrastructure: {
           select: { pgContainerName: true, pgMemoryMb: true, pgCpuMillis: true, status: true, provisionedAt: true },
         },
-        usage: { select: { storageCalculatedAt: true, lastCalculatedAt: true } },
+        usage: { select: { storageCalculatedAt: true, dbSizeCalculatedAt: true } },
       },
     });
     if (!project) throw new NotFoundException('Project not found');
@@ -418,7 +491,7 @@ export class RootConsoleService {
       },
       database: {
         sizeBytes: cost?.dbSizeBytes ?? null,
-        measuredAt: project.usage?.lastCalculatedAt?.toISOString() ?? null,
+        measuredAt: project.usage?.dbSizeCalculatedAt?.toISOString() ?? null,
         tables: tables.items,
         tablesError: tables.error,
       },
