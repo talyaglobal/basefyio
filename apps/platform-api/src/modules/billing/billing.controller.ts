@@ -21,6 +21,7 @@ import { ManagementPermissionGuard } from '../../common/guards/management-permis
 import { RequireManagementPermission } from '../../common/decorators/management-permission.decorator';
 import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
+import { ProjectCostService } from './project-cost.service';
 import { StripeService } from '../stripe/stripe.service';
 import { ObservabilityService } from '../observability/observability.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -35,6 +36,7 @@ export class BillingController {
   constructor(
     private readonly billing: BillingService,
     private readonly usage: UsageService,
+    private readonly projectCosts: ProjectCostService,
     private readonly stripe: StripeService,
     private readonly observability: ObservabilityService,
     private readonly prisma: PrismaService,
@@ -64,6 +66,21 @@ export class BillingController {
     }
     await this.billing.verifyTeamMembership(teamId, userId);
     return this.usage.getTeamUsage(teamId);
+  }
+
+  /**
+   * Per-project cost breakdown for the current billing period. Customers only
+   * ever see priced figures; the raw infrastructure cost stays in management.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('project-costs')
+  async getProjectCosts(@Req() req: any, @Query('teamId') teamId?: string) {
+    const userId = req.user.sub;
+    if (!teamId) {
+      teamId = await this.billing.getUserActiveTeamId(userId);
+    }
+    await this.billing.verifyTeamMembership(teamId, userId);
+    return this.projectCosts.getTeamReport(teamId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -659,6 +676,58 @@ export class BillingController {
       recentInvoices,
       activeSubscriptions,
     };
+  }
+
+  /** Every team's projects with raw infrastructure cost, customer price and margin. */
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Get('management/project-costs')
+  async managementProjectCosts() {
+    return this.projectCosts.getPlatformReport();
+  }
+
+  /** Re-measure database sizes and flush live counters right now. */
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Post('management/project-costs/refresh')
+  async refreshManagementProjectCosts() {
+    return this.projectCosts.refreshNow();
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Get('management/cost-config')
+  async getCostConfig() {
+    return this.projectCosts.getConfig();
+  }
+
+  @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
+  @RequireManagementPermission('canManagePlans')
+  @Patch('management/cost-config')
+  async updateCostConfig(
+    @Req() req: RequestWithTraceId,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const startedAt = Date.now();
+    const audit = (success: boolean) =>
+      this.observability.captureRootAction({
+        traceId: req.traceId || 'unknown',
+        actorUserId: (req as any).user?.sub || 'unknown',
+        action: 'BILLING_COST_CONFIG_UPDATED',
+        resourceType: 'system_setting',
+        resourceId: 'infra_cost_config',
+        severity: 'HIGH',
+        success,
+        latencyMs: Date.now() - startedAt,
+      });
+    try {
+      const result = await this.projectCosts.updateConfig(body);
+      await audit(true);
+      return result;
+    } catch (err) {
+      await audit(false);
+      throw err;
+    }
   }
 
   @Post('webhook')

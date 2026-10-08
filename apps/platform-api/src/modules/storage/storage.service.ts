@@ -83,6 +83,30 @@ export class StorageService {
   }
 
   /**
+   * Per-project storage figures arrived after many projects already existed.
+   * Until every billable project has been measured once, run the storage pass
+   * shortly after boot instead of waiting up to six hours for the cron.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const unmeasured = await this.prisma.project.count({
+        where: {
+          status: { notIn: ['DELETED', 'DEACTIVATED'] },
+          OR: [{ usage: null }, { usage: { storageCalculatedAt: null } }],
+        },
+      });
+      if (unmeasured === 0) return;
+      this.logger.log(`${unmeasured} project(s) have no storage measurement yet — scheduling a pass in 90s`);
+      const timer = setTimeout(() => {
+        this.recalculateStorageUsage().catch(() => {});
+      }, 90_000);
+      if (typeof (timer as any).unref === 'function') (timer as any).unref();
+    } catch (err: any) {
+      this.logger.debug(`Storage bootstrap check skipped: ${err.message}`);
+    }
+  }
+
+  /**
    * Prefix for every MinIO bucket that belongs to a project — must match the start
    * of {@link minioBucketName} for that slug (any logical bucket name).
    */
@@ -691,6 +715,7 @@ export class StorageService {
       const bytesByTeam = new Map<string, bigint>(
         projects.map((p) => [p.teamId, BigInt(0)]),
       );
+      const bytesByProject = new Map<string, bigint>(projects.map((p) => [p.id, BigInt(0)]));
 
       const buckets = await this.client.listBuckets();
       for (const bucket of buckets) {
@@ -700,6 +725,7 @@ export class StorageService {
         if (!team) continue;
         const { totalSize } = await this.bucketStats(bucket.name);
         bytesByTeam.set(team, (bytesByTeam.get(team) ?? BigInt(0)) + BigInt(totalSize));
+        bytesByProject.set(owner.id, (bytesByProject.get(owner.id) ?? BigInt(0)) + BigInt(totalSize));
       }
 
       for (const [team, bytes] of bytesByTeam) {
@@ -707,6 +733,17 @@ export class StorageService {
           where: { teamId: team },
           update: { storageBytes: bytes },
           create: { teamId: team, storageBytes: bytes },
+        });
+      }
+
+      // Per-project figures feed the cost breakdown under Billing.
+      const measuredAt = new Date();
+      for (const p of projects) {
+        const bytes = bytesByProject.get(p.id) ?? BigInt(0);
+        await this.prisma.projectUsage.upsert({
+          where: { projectId: p.id },
+          update: { storageBytes: bytes, storageCalculatedAt: measuredAt, teamId: p.teamId },
+          create: { projectId: p.id, teamId: p.teamId, storageBytes: bytes, storageCalculatedAt: measuredAt },
         });
       }
 

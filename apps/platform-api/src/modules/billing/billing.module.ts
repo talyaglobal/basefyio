@@ -4,6 +4,7 @@ import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { QuotaService } from './quota.service';
+import { ProjectCostService } from './project-cost.service';
 import { BillingScheduler } from './billing.scheduler';
 import { StripeSummaryScheduler } from './stripe-summary.scheduler';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
@@ -24,6 +25,7 @@ import { QuickbooksModule } from '../quickbooks/quickbooks.module';
     BillingService,
     UsageService,
     QuotaService,
+    ProjectCostService,
     BillingScheduler,
     StripeSummaryScheduler,
     BillingProcessor,
@@ -32,6 +34,6 @@ import { QuickbooksModule } from '../quickbooks/quickbooks.module';
     RealtimeEventsService,
     RealtimeStreamService,
   ],
-  exports: [BillingService, UsageService, QuotaService],
+  exports: [BillingService, UsageService, QuotaService, ProjectCostService],
 })
 export class BillingModule {}

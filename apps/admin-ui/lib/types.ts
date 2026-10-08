@@ -1346,3 +1346,156 @@ export interface CreateMarketingCampaignInput {
   tone?: string;
   integrationId?: string;
 }
+
+// ── Project cost breakdown (Billing) ─────────────────────
+
+export type CostLineKey = 'compute' | 'database' | 'storage' | 'egress' | 'api_requests';
+export type CostLineUnit = 'hours' | 'GB' | 'requests';
+
+export interface PeriodProgress {
+  start: string;
+  end: string;
+  now: string;
+  totalHours: number;
+  elapsedHours: number;
+  /** 0..1 */
+  elapsedFraction: number;
+  daysLeft: number;
+}
+
+/** Customer-facing line: priced figures only. */
+export interface CustomerCostLine {
+  key: CostLineKey;
+  label: string;
+  quantity: number;
+  unit: CostLineUnit;
+  detail: string;
+  amountUsd: number;
+  projectedUsd: number;
+}
+
+export interface CustomerProjectCost {
+  projectId: string;
+  name: string;
+  slug: string;
+  status: string;
+  computeTier: string;
+  activeHours: number;
+  lines: CustomerCostLine[];
+  amountUsd: number;
+  projectedUsd: number;
+}
+
+export interface CustomerRates {
+  computeTiers: Array<{ name: string; vcpu: number; memoryGb: number; hourlyUsd: number; monthlyUsd: number }>;
+  diskUsdPerGbMonth: number;
+  egressUsdPerGb: number;
+  apiRequestsUsdPerMillion: number;
+}
+
+export interface TeamCostReport {
+  currency: 'usd';
+  generatedAt: string;
+  period: PeriodProgress;
+  plan: { name: string; displayName: string; priceMonthlyUsd: number } | null;
+  projects: CustomerProjectCost[];
+  totals: { amountUsd: number; projectedUsd: number };
+  rates: CustomerRates;
+  storagePending: boolean;
+}
+
+export interface ComputeTier {
+  name: string;
+  vcpu: number;
+  memoryGb: number;
+}
+
+export interface SharedTierRule {
+  maxDbGb: number | null;
+  tier: string;
+}
+
+export interface InfraCostConfig {
+  currency: 'usd';
+  markup: number;
+  server: {
+    label: string;
+    monthlyCostUsd: number;
+    vcpu: number;
+    memoryGb: number;
+    volumeGb: number;
+  };
+  diskUsdPerGbMonth: number;
+  egressUsdPerGb: number;
+  apiRequestsUsdPerMillion: number;
+  computeTiers: ComputeTier[];
+  sharedTierByDbSize: SharedTierRule[];
+}
+
+/** Management line: our raw cost next to the customer price. */
+export interface CostLine {
+  key: CostLineKey;
+  label: string;
+  quantity: number;
+  unit: CostLineUnit;
+  detail: string;
+  rawUsd: number;
+  pricedUsd: number;
+  projectedRawUsd: number;
+  projectedPricedUsd: number;
+}
+
+export interface ProjectCostReport {
+  projectId: string;
+  name: string;
+  slug: string;
+  status: string;
+  computeTier: string;
+  activeHours: number;
+  dbSizeBytes: number;
+  storageBytes: number;
+  apiRequests: number;
+  bandwidthBytes: number;
+  lines: CostLine[];
+  rawUsd: number;
+  pricedUsd: number;
+  projectedRawUsd: number;
+  projectedPricedUsd: number;
+}
+
+export interface CostTotals {
+  rawUsd: number;
+  pricedUsd: number;
+  projectedRawUsd: number;
+  projectedPricedUsd: number;
+}
+
+export interface PlatformTeamCost {
+  teamId: string;
+  teamName: string;
+  teamSlug: string;
+  plan: { name: string; displayName: string; priceMonthlyUsd: number; status: string } | null;
+  projects: ProjectCostReport[];
+  totals: CostTotals;
+  marginUsd: number;
+}
+
+export interface PlatformCostReport {
+  currency: 'usd';
+  generatedAt: string;
+  period: PeriodProgress;
+  config: InfraCostConfig;
+  summary: {
+    teams: number;
+    projects: number;
+    actualMonthlyBillUsd: number;
+    allocatedRawUsd: number;
+    allocatedPricedUsd: number;
+    planRevenueUsd: number;
+    marginVsAllocatedUsd: number;
+    marginVsBillUsd: number;
+    recoveryRatio: number;
+  };
+  teams: PlatformTeamCost[];
+  storagePending: boolean;
+}

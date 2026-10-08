@@ -86,6 +86,9 @@ import type {
   ApiTokenScopeGroup,
   CreateApiTokenInput,
   CreatedApiToken,
+  TeamCostReport,
+  PlatformCostReport,
+  InfraCostConfig,
 } from './types';
 
 /** Parse JSON body regardless of Content-Type casing (some proxies send Application/JSON). */
@@ -2345,6 +2348,27 @@ export const api = {
       }>(`/billing/management/user-packages/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ planName }),
+      });
+    },
+    /** Per-project cost breakdown for the team's current billing period. */
+    projectCosts(teamId: string) {
+      return request<TeamCostReport>(`/billing/project-costs?teamId=${encodeURIComponent(teamId)}`);
+    },
+    managementProjectCosts() {
+      return request<PlatformCostReport>('/billing/management/project-costs');
+    },
+    refreshManagementProjectCosts() {
+      return request<{ projects: number }>('/billing/management/project-costs/refresh', { method: 'POST' });
+    },
+    managementCostConfig() {
+      return request<InfraCostConfig>('/billing/management/cost-config');
+    },
+    updateManagementCostConfig(
+      patch: Partial<Omit<InfraCostConfig, 'server'>> & { server?: Partial<InfraCostConfig['server']> },
+    ) {
+      return request<InfraCostConfig>('/billing/management/cost-config', {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
       });
     },
     managementStripeOverview() {
