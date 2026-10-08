@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -27,7 +28,12 @@ export class JwtOrApiKeyGuard implements CanActivate {
     if (request.headers['apikey']) {
       try {
         return await this.apiKeyGuard.canActivate(context);
-      } catch {}
+      } catch (err) {
+        // A valid key aimed at another project is a refusal, not a failed
+        // login. Folding it into the generic 401 below would tell the caller
+        // their key is wrong when it is the target that is.
+        if (err instanceof ForbiddenException) throw err;
+      }
     }
 
     throw new UnauthorizedException('Valid JWT or API key required');

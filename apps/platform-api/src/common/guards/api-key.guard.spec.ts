@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ApiKeyGuard } from './api-key.guard';
 
 function makeCtx(headers: Record<string, unknown>) {
@@ -62,5 +62,143 @@ describe('ApiKeyGuard', () => {
     await expect(g.canActivate(context)).resolves.toBe(true);
     expect(req.apiKeyPayload.dbRole).toBe('authenticated');
     expect(req.apiKeyPayload.jwtClaims).toEqual({ sub: 'user-1' });
+  });
+});
+
+/**
+ * A key opens exactly one project.
+ *
+ * These cover the hole that let any project's public anon key act on every
+ * other project: the guard resolved the key to its own project, but the
+ * services acted on whichever project the request named, and only checked
+ * access for dashboard users.
+ */
+describe('ApiKeyGuard — project binding', () => {
+  const OWN = '11111111-1111-4111-8111-111111111111';
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+  const ANON = 'anon-key-of-own-project';
+  const SERVICE = 'service-key-of-own-project';
+
+  const project = {
+    id: OWN,
+    anonKey: ANON,
+    serviceKey: SERVICE,
+    keycloakRealm: 'bf-own',
+  };
+
+  function guardWith(binding?: string) {
+    const prisma = {
+      project: { findFirst: jest.fn().mockResolvedValue(project) },
+    };
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'SERVICE_KEY_PROJECT_BINDING' ? binding : undefined,
+      ),
+    };
+    return new ApiKeyGuard(prisma as any, config as any);
+  }
+
+  function context(request: Record<string, unknown>) {
+    const req = {
+      method: 'POST',
+      originalUrl: '/api/test',
+      headers: {},
+      params: {},
+      query: {},
+      body: {},
+      ...request,
+    };
+    return {
+      req,
+      ctx: { switchToHttp: () => ({ getRequest: () => req }) } as any,
+    };
+  }
+
+  describe('anon key', () => {
+    it('is accepted on its own project', async () => {
+      const { ctx, req } = context({ headers: { apikey: ANON }, params: { projectId: OWN } });
+      await expect(guardWith().canActivate(ctx)).resolves.toBe(true);
+      expect((req as any).apiKeyPayload.projectId).toBe(OWN);
+    });
+
+    it('is accepted where the route names no project at all', async () => {
+      const { ctx } = context({ headers: { apikey: ANON } });
+      await expect(guardWith().canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it('is refused when the path names another project', async () => {
+      const { ctx } = context({ headers: { apikey: ANON }, params: { projectId: OTHER } });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('is refused when the body names another project (POST /sql/execute)', async () => {
+      const { ctx } = context({
+        headers: { apikey: ANON },
+        body: { projectId: OTHER, query: 'select 1' },
+      });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('is refused when the query string names another project', async () => {
+      const { ctx } = context({ headers: { apikey: ANON }, query: { projectId: OTHER } });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('is refused when the path names its own project but the body names another', async () => {
+      const { ctx } = context({
+        headers: { apikey: ANON },
+        params: { projectId: OWN },
+        body: { projectId: OTHER },
+      });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('is refused from the query string too', async () => {
+      const { ctx } = context({ query: { apikey: ANON, projectId: OTHER } });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('is refused even when it also carries a Bearer mirror of itself', async () => {
+      const { ctx } = context({
+        headers: { apikey: ANON, authorization: `Bearer ${ANON}` },
+        params: { projectId: OTHER },
+      });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('service key', () => {
+    it('is accepted on its own project', async () => {
+      const { ctx } = context({ headers: { apikey: SERVICE }, params: { projectId: OWN } });
+      await expect(guardWith().canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it('is allowed but logged on another project while binding is not enforced', async () => {
+      const guard = guardWith();
+      const warn = jest.spyOn((guard as any).logger, 'warn').mockImplementation(() => undefined);
+      const { ctx } = context({ headers: { apikey: SERVICE }, params: { projectId: OTHER } });
+
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('CROSS-PROJECT SERVICE KEY'));
+    });
+
+    it('is refused on another project once binding is enforced', async () => {
+      const { ctx } = context({ headers: { apikey: SERVICE }, params: { projectId: OTHER } });
+      await expect(guardWith('enforce').canActivate(ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('is still never accepted from the query string', async () => {
+      const { ctx } = context({ query: { apikey: SERVICE } });
+      await expect(guardWith().canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  it('rejects a key that belongs to no project', async () => {
+    const prisma = { project: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const guard = new ApiKeyGuard(prisma as any, { get: jest.fn() } as any);
+    const { ctx } = context({ headers: { apikey: 'unknown' } });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

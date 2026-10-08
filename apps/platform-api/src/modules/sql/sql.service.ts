@@ -14,7 +14,27 @@ import {
   ProjectActivityService,
 } from '../projects/project-activity.service';
 import { EmbeddingService } from '../embedding/embedding.service';
+import { ProjectsService } from '../projects/projects.service';
 import { findForbiddenSqlPattern } from './sql-guard';
+
+/** Postgres "insufficient_privilege" — SET LOCAL ROLE raises this when the
+ *  connecting db user was never granted membership in the target role. */
+const PG_INSUFFICIENT_PRIVILEGE = '42501';
+
+/**
+ * How an API-key call must run against the project database.
+ *
+ * A dashboard editor (a team member, proven by JWT) runs as the owner — that is
+ * the SQL editor, and it is meant to see everything. A call authenticated by an
+ * API key does not: it runs under the key's database role so that row-level
+ * security applies. `anon` has SELECT only, so the public key can read what
+ * policy allows and write nothing; `authenticated` carries the user's claims;
+ * `service_role` is the secret server key and bypasses RLS by design.
+ */
+export interface SqlRlsContext {
+  role: 'anon' | 'authenticated' | 'service_role';
+  jwtClaims?: Record<string, unknown>;
+}
 
 @Injectable()
 export class SqlService implements OnModuleDestroy {
@@ -81,6 +101,7 @@ export class SqlService implements OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly activity: ProjectActivityService,
     private readonly embeddingService: EmbeddingService,
+    private readonly projectsService: ProjectsService,
   ) {}
 
   async execute(
@@ -93,6 +114,13 @@ export class SqlService implements OnModuleDestroy {
       countTotal?: boolean;
       /** Values for `$1 … $n`; see `ExecuteSqlDto.params` for why they travel apart. */
       params?: unknown[];
+      /**
+       * Present when the caller authenticated with an API key rather than a
+       * dashboard login. The statement then runs under this database role, so
+       * RLS applies. Absent for a dashboard team member, who keeps owner access
+       * (the SQL editor) exactly as before.
+       */
+      rls?: SqlRlsContext;
     },
   ) {
     const project = await this.prisma.project.findFirst({
@@ -162,14 +190,36 @@ export class SqlService implements OnModuleDestroy {
       runQuery = query;
     }
 
-    const pool = this.getPool(project);
-
     const startTime = Date.now();
-    const client = await pool.connect();
+    const countSql =
+      canPaginate && opts?.countTotal
+        ? `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`
+        : null;
 
     try {
-      const rawResult = await client.query(runQuery, values);
-      const duration = Date.now() - startTime;
+      // A dashboard editor runs as owner; an API-key caller runs under its DB
+      // role so RLS applies. runWithRole owns the connection either way.
+      const { rawResult, countRaw, duration } = await this.runWithRole(
+        project,
+        projectId,
+        opts?.rls,
+        async (client) => {
+          const t0 = Date.now();
+          const main = await client.query(runQuery, values);
+          const dur = Date.now() - t0;
+          let count: QueryResult | null = null;
+          if (countSql) {
+            try {
+              // The count wraps the same statement, so it carries the same
+              // placeholders.
+              count = (await client.query(countSql, values)) as QueryResult;
+            } catch {
+              count = null;
+            }
+          }
+          return { rawResult: main, countRaw: count, duration: dur };
+        },
+      );
 
       // node-postgres returns an array of results for a multi-statement query.
       // Show the last statement that returned rows (the final SELECT); fall back
@@ -190,18 +240,10 @@ export class SqlService implements OnModuleDestroy {
         allResults.slice().reverse().find((r) => r.fields?.length) ??
         allResults[allResults.length - 1];
 
-      if (canPaginate && opts?.countTotal) {
-        try {
-          const countSql = `SELECT COUNT(*)::int AS total FROM (SELECT 1 FROM (${stripped}) AS _bf_paged_count LIMIT 10001) sub`;
-          // The same values: the count wraps the same statement, so it carries
-          // the same placeholders.
-          const c = await client.query(countSql, values);
-          const raw = Number(c.rows[0]?.total ?? 0);
-          totalIsApprox = raw > 10000;
-          total = totalIsApprox ? 10000 : raw;
-        } catch {
-          total = null;
-        }
+      if (countRaw) {
+        const raw = Number(countRaw.rows[0]?.total ?? 0);
+        totalIsApprox = raw > 10000;
+        total = totalIsApprox ? 10000 : raw;
       }
 
       const auditLog = await this.prisma.sqlAuditLog.create({
@@ -291,9 +333,93 @@ export class SqlService implements OnModuleDestroy {
       });
 
       throw new BadRequestException(`SQL error: ${err.message}`);
-    } finally {
-      // Return the connection to the cached pool; do NOT end the pool.
-      client.release();
+    }
+  }
+
+  /**
+   * Run `fn` against the project database under the right authority.
+   *
+   * With no RLS context the caller is a dashboard team member: the statement
+   * runs as the database owner, on a pooled connection, with no transaction —
+   * byte for byte what the SQL editor did before.
+   *
+   * With an RLS context the caller authenticated by API key. The work runs in a
+   * transaction that first switches to the key's role and publishes the JWT
+   * claims policies read, so RLS governs the statement. Owner access is never
+   * the fallback: if the role switch fails because this project predates the
+   * grants, the project is bootstrapped once and the transaction retried; a
+   * second failure is surfaced, never downgraded to owner.
+   */
+  private async runWithRole<T>(
+    project: {
+      id: string;
+      dbHost: string;
+      dbPort: number;
+      dbUser: string;
+      dbPassword: string;
+      dbName: string;
+    },
+    projectId: string,
+    rls: SqlRlsContext | undefined,
+    fn: (client: import('pg').PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const pool = this.getPool(project);
+
+    if (!rls) {
+      const client = await pool.connect();
+      try {
+        return await fn(client);
+      } finally {
+        client.release();
+      }
+    }
+
+    const attempt = async (): Promise<T> => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        try {
+          await client.query(`SET LOCAL ROLE "${rls.role}"`);
+        } catch (roleErr: any) {
+          if (roleErr && typeof roleErr === 'object') roleErr.__setRoleFailed = true;
+          throw roleErr;
+        }
+        await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          rls.jwtClaims ? JSON.stringify(rls.jwtClaims) : '{}',
+        ]);
+        await client.query(`SELECT set_config('request.jwt.role', $1, true)`, [
+          rls.role,
+        ]);
+        const out = await fn(client);
+        await client.query('COMMIT');
+        return out;
+      } catch (e) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          /* noop */
+        }
+        throw e;
+      } finally {
+        client.release();
+      }
+    };
+
+    try {
+      return await attempt();
+    } catch (err: any) {
+      // Only a failed SET ROLE means the project is missing the role grants and
+      // can be healed. A query-level privilege error (the role is in place but
+      // the statement is not allowed — e.g. the anon key attempting a write)
+      // must surface as itself, not trigger a bootstrap loop.
+      if (!(err?.code === PG_INSUFFICIENT_PRIVILEGE && err.__setRoleFailed)) {
+        throw err;
+      }
+      this.logger.warn(
+        `SET ROLE "${rls.role}" denied for project ${projectId}; bootstrapping RLS and retrying once.`,
+      );
+      await this.projectsService.ensureRlsBootstrap(projectId);
+      return await attempt();
     }
   }
 
