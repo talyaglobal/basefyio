@@ -334,7 +334,13 @@ export class ProjectCostService {
         where: {
           status: { in: [...BILLABLE_STATUSES] },
           ...(teamId ? { teamId } : {}),
-          OR: [{ usage: null }, { usage: { lastCalculatedAt: { lt: staleBefore } } }],
+          // Not lastCalculatedAt: the storage pass and counter flushes bump it
+          // too, which made never-measured databases look fresh.
+          OR: [
+            { usage: null },
+            { usage: { dbSizeCalculatedAt: null } },
+            { usage: { dbSizeCalculatedAt: { lt: staleBefore } } },
+          ],
         },
       });
       if (stale > 0) await this.usage.refreshProjectDbSizes(teamId ? { teamId } : undefined);
