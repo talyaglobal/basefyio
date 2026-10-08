@@ -135,8 +135,9 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
 
   return (
     <DashboardContext.Provider value={contextValue}>
-      <div className="flex min-h-screen bg-muted/30">
-        <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-zinc-950 text-zinc-300">
+      <div className="min-h-screen bg-muted/30">
+        {/* Fixed, not sticky: html/body set overflow-x hidden, which breaks sticky. */}
+        <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-zinc-950 text-zinc-300">
           <div className="flex items-center gap-2.5 px-4 py-5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
               <BarChart3 className="h-4 w-4 text-white" />
@@ -196,8 +197,8 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
+        <main className="min-w-0 pl-60">
+          <div className="mx-auto max-w-[1600px] px-6 py-8">{children}</div>
         </main>
       </div>
     </DashboardContext.Provider>
