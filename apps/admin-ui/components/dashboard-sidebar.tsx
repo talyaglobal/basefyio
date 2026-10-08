@@ -138,16 +138,29 @@ const ROOT_NAV_ITEMS: NavItem[] = [
   },
 ];
 
+/**
+ * Admin routes are served from admin.<domain> and everything else from
+ * app.<domain> (see middleware.ts). Point each link at its own host so the
+ * address shown on hover is where the link really goes.
+ */
+function hrefForHost(href: string, host: string) {
+  const isAdmin = href === '/dashboard/admin' || href.startsWith('/dashboard/admin/');
+  if (host.startsWith('app.') && isAdmin) return `https://admin.${host.slice('app.'.length)}${href}`;
+  if (host.startsWith('admin.') && !isAdmin) return `https://app.${host.slice('admin.'.length)}${href}`;
+  return href;
+}
+
 function renderNavLink(
   { href, label, icon: Icon, isActive }: NavItem,
   pathname: string,
   collapsed: boolean,
+  host: string,
 ) {
   const active = isActive(pathname);
   return (
     <Link
       key={href}
-      href={href}
+      href={hrefForHost(href, host)}
       title={collapsed ? label : undefined}
       className={cn(
         'flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors',
@@ -182,6 +195,7 @@ export function DashboardSidebar({
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [host, setHost] = useState('');
   const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
@@ -203,6 +217,7 @@ export function DashboardSidebar({
     } catch {
       /* ignore */
     }
+    setHost(window.location.hostname);
     setHydrated(true);
   }, []);
 
@@ -271,11 +286,11 @@ export function DashboardSidebar({
     >
 
       <nav className="flex flex-1 flex-col gap-0.5 p-2 overflow-y-auto">
-        {items.map((item) => renderNavLink(item, pathname, collapsed))}
+        {items.map((item) => renderNavLink(item, pathname, collapsed, host))}
 
         {rootItems.length > 0 && (
           <div className="mt-auto flex flex-col gap-0.5 border-t border-border pt-2">
-            {rootItems.map((item) => renderNavLink(item, pathname, collapsed))}
+            {rootItems.map((item) => renderNavLink(item, pathname, collapsed, host))}
           </div>
         )}
       </nav>
