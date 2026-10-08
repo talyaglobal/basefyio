@@ -698,6 +698,9 @@ model ProjectUsage {
   periodStart         DateTime  @default(now()) @map("period_start")
   /// Null until the storage cron has walked this project's buckets once.
   storageCalculatedAt DateTime? @map("storage_calculated_at")
+  /// When pg_database_size last ran for this project. Kept apart from
+  /// lastCalculatedAt, which the storage pass and counter flushes also bump.
+  dbSizeCalculatedAt  DateTime? @map("db_size_calculated_at")
   lastCalculatedAt    DateTime  @default(now()) @map("last_calculated_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)

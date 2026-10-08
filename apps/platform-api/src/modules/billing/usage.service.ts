@@ -133,8 +133,8 @@ export class UsageService {
       byTeam.set(p.teamId, (byTeam.get(p.teamId) ?? BigInt(0)) + bytes);
       await this.prisma.projectUsage.upsert({
         where: { projectId: p.id },
-        update: { dbSizeBytes: bytes, teamId: p.teamId, lastCalculatedAt: now },
-        create: { projectId: p.id, teamId: p.teamId, dbSizeBytes: bytes, lastCalculatedAt: now },
+        update: { dbSizeBytes: bytes, teamId: p.teamId, lastCalculatedAt: now, dbSizeCalculatedAt: now },
+        create: { projectId: p.id, teamId: p.teamId, dbSizeBytes: bytes, lastCalculatedAt: now, dbSizeCalculatedAt: now },
       });
     }
     for (const [teamId, bytes] of byTeam) {
