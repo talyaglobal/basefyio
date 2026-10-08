@@ -19,6 +19,7 @@ import {
   Rocket,
   Search,
   Sparkles,
+  TrendingUp,
   Trophy,
   UserCircle,
   Users,
@@ -116,6 +117,12 @@ const ROOT_NAV_ITEMS: NavItem[] = [
     label: 'Go-To-Market',
     icon: Rocket,
     isActive: (p) => p.startsWith('/dashboard/admin/go-to-market'),
+  },
+  {
+    href: '/dashboard/admin/marketing-strategy',
+    label: 'Marketing Strategy',
+    icon: TrendingUp,
+    isActive: (p) => p.startsWith('/dashboard/admin/marketing-strategy'),
   },
   {
     href: '/dashboard/admin/seo',
