@@ -44,10 +44,11 @@ function LoginForm() {
   const searchParams = useSearchParams();
   // Where to land after auth: a `?next=` path (must be a same-origin path) or
   // the dashboard. Lets the marketing Feedback button return here then go to
-  // the feedback composer once signed in.
+  // the feedback composer once signed in. The admin host lands on the console.
   const safeNext = () => {
     const n = searchParams.get('next');
-    return n && n.startsWith('/') && !n.startsWith('//') ? n : '/dashboard';
+    if (n && n.startsWith('/') && !n.startsWith('//')) return n;
+    return window.location.hostname.startsWith('admin.') ? '/dashboard/admin' : '/dashboard';
   };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -121,7 +122,7 @@ function LoginForm() {
       toast.success('Welcome back');
       const cliState = searchParams.get('cli_state');
       const retried = searchParams.get('retried');
-      window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : '/dashboard');
+      window.location.assign(cliState ? `/cli-authorize?cli_state=${cliState}${retried ? '&retried=1' : ''}` : safeNext());
     } catch (err: any) {
       const rawMessage = String(err?.message || '');
       const normalizedMessage = rawMessage.toUpperCase();
