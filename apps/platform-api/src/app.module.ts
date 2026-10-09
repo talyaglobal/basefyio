@@ -33,6 +33,11 @@ import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
 import { ManagementModule } from './modules/management/management.module';
 import { RootConsoleModule } from './modules/root-console/root-console.module';
 import { HealthController } from './modules/health/health.controller';
+import {
+  MetricsController,
+  MetricsInterceptor,
+} from './modules/health/metrics.controller';
+import { MetricsService } from './modules/health/metrics.service';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -115,9 +120,11 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     RagModule,
     AgentModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, MetricsController],
   providers: [
+    MetricsService,
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ProxyThrottlerGuard },
   ],
 })
