@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { formatBytes, formatCount, formatDate, formatUsd, monthLabel, timeAgo } from '@/components/console/format';
 import { ErrorState, PageHeader, Panel, Spinner, StatCard, StatusBadge, td, tdRight, th, thRight } from '@/components/console/ui';
+import { DiskPanel } from '@/components/console/disk-panel';
 
 const CATEGORY_LABELS: Record<StorageCategory, string> = {
   project: 'Live projects',
@@ -115,6 +116,10 @@ export default function ConsoleOverviewPage() {
           value={formatBytes(storage.totalBytes || footprint.projectStorageBytes)}
           hint={`${formatCount(storage.bucketCount)} buckets · ${formatBytes(footprint.bandwidthMonthBytes)} egress`}
         />
+      </div>
+
+      <div className="mt-4">
+        <DiskPanel initial={data.disk?.filesystems} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-5">

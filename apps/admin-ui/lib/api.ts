@@ -1,5 +1,5 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
-import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage } from './console-types';
+import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type {
   AuthTokens,
   ColumnInfo,
@@ -2489,6 +2489,9 @@ export const api = {
     },
     storage() {
       return request<ConsoleStorage>('/admin/console/storage');
+    },
+    disk() {
+      return request<ConsoleDisk>('/admin/console/disk');
     },
     refreshStorage() {
       return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });

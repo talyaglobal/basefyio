@@ -154,6 +154,18 @@ export default () => ({
       .filter(Boolean),
   },
 
+  /** Root console → Server disk. Paths are inside the API container. */
+  disk: {
+    /** A path on the filesystem that carries Docker's data root; the container's own root does. */
+    dataPath: process.env.DISK_PROBE_DATA_PATH || '/',
+    /** An empty host directory bind-mounted read-only so the system disk can be measured. */
+    systemPath: process.env.DISK_PROBE_SYSTEM_PATH || '/host/system',
+    walArchivePath: process.env.POSTGRES_WAL_ARCHIVE_DIR || '/var/lib/postgresql/wal_archive',
+    pitrScratchPath: '/pitr-scratch',
+    warnPercent: parseInt(process.env.DISK_WARN_PERCENT || '80', 10),
+    criticalPercent: parseInt(process.env.DISK_CRITICAL_PERCENT || '90', 10),
+  },
+
   docker: {
     socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock',
     network: process.env.DOCKER_NETWORK || 'v0-kolaybase_default',
