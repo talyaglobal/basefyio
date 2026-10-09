@@ -688,7 +688,9 @@ export class RootConsoleService {
 }
 
 function categorize(bucket: string, projectStatus: string | undefined): StorageCategory {
-  if (PLATFORM_BUCKETS.includes(bucket)) return 'platform';
+  // Backups, exports and imports live in `-platform-` buckets too; without this
+  // they read as "no owning project", which invites someone to reclaim them.
+  if (PLATFORM_BUCKETS.includes(bucket) || /^(bf|kb)-platform-/.test(bucket)) return 'platform';
   if (!projectStatus) return 'orphan';
   return projectStatus === 'DELETED' || projectStatus === 'DEACTIVATED' ? 'deleted_project' : 'project';
 }
