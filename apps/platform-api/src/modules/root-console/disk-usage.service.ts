@@ -5,7 +5,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../storage/storage.service';
+import { BucketInventoryEntry, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
 
 /**
  * Server disk figures for the root console.
@@ -87,6 +87,39 @@ const WALK_FILE_CAP = 250_000;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const sleep = (ms: number) => new Promise<null>((resolve) => setTimeout(() => resolve(null), ms));
+
+/** Buckets that hold our own backups rather than customer or platform files. */
+const BACKUP_BUCKETS = new Set(['bf-platform-pitr', 'bf-platform-auto-backups']);
+/** Platform-owned buckets carry a `-platform-` infix under either naming generation. */
+const PLATFORM_BUCKET_RE = /^(bf|kb)-platform-/;
+
+type BucketGroup = 'project' | 'stale' | 'backups' | 'platform' | 'orphan';
+
+/** Sort the bucket inventory into what the disk panel shows. */
+function splitBuckets(
+  buckets: BucketInventoryEntry[],
+  statusByProject: Map<string, string>,
+): Record<BucketGroup, { bytes: number; buckets: number }> {
+  const out: Record<BucketGroup, { bytes: number; buckets: number }> = {
+    project: { bytes: 0, buckets: 0 },
+    stale: { bytes: 0, buckets: 0 },
+    backups: { bytes: 0, buckets: 0 },
+    platform: { bytes: 0, buckets: 0 },
+    orphan: { bytes: 0, buckets: 0 },
+  };
+  for (const b of buckets) {
+    let group: BucketGroup;
+    if (BACKUP_BUCKETS.has(b.bucket)) group = 'backups';
+    else if (PLATFORM_BUCKETS.includes(b.bucket) || PLATFORM_BUCKET_RE.test(b.bucket)) group = 'platform';
+    else {
+      const status = b.projectId ? statusByProject.get(b.projectId) : undefined;
+      group = !status ? 'orphan' : status === 'DELETED' || status === 'DEACTIVATED' ? 'stale' : 'project';
+    }
+    out[group].bytes += b.sizeBytes;
+    out[group].buckets += 1;
+  }
+  return out;
+}
 
 @Injectable()
 export class DiskUsageService {
@@ -212,16 +245,29 @@ export class DiskUsageService {
     const walArchivePath = this.config.get<string>('disk.walArchivePath') || '/var/lib/postgresql/wal_archive';
     const pitrScratchPath = this.config.get<string>('disk.pitrScratchPath') || '/pitr-scratch';
 
-    const [databases, inventory, walBytes, scratchBytes, docker] = await Promise.all([
+    const [databases, inventory, projects, walBytes, scratchBytes, docker] = await Promise.all([
       this.databaseSizes(),
       this.storage.getBucketInventory().catch(() => null),
+      this.prisma.project.findMany({ select: { id: true, status: true } }).catch(() => []),
       this.directoryBytes(walArchivePath),
       this.directoryBytes(pitrScratchPath),
       this.dockerUsage(),
     ]);
 
     const now = new Date().toISOString();
-    const fileBytes = inventory ? inventory.buckets.reduce((s, b) => s + b.sizeBytes, 0) : null;
+    const files = inventory ? splitBuckets(inventory.buckets, new Map(projects.map((p) => [p.id, p.status]))) : null;
+    const fileItem = (
+      key: string,
+      label: string,
+      part: { bytes: number; buckets: number } | undefined,
+      hint: string,
+    ): ConsoleDiskItem => ({
+      key,
+      label,
+      bytes: part ? part.bytes : null,
+      hint: part ? `${part.buckets} bucket${part.buckets === 1 ? '' : 's'} · ${hint}` : 'Bucket inventory not measured yet',
+      measuredAt: inventory?.measuredAt ?? null,
+    });
 
     const items: ConsoleDiskItem[] = [
       {
@@ -245,13 +291,26 @@ export class DiskUsageService {
         hint: databases?.platformNames.length ? databases.platformNames.join(', ') : 'Control plane and auth',
         measuredAt: databases ? now : null,
       },
-      {
-        key: 'file_storage',
-        label: 'File storage',
-        bytes: fileBytes,
-        hint: inventory ? `${inventory.buckets.length} buckets, object sizes` : 'Bucket inventory not measured yet',
-        measuredAt: inventory?.measuredAt ?? null,
-      },
+      fileItem('project_files', 'Project files', files?.project, 'buckets of active and paused projects'),
+      fileItem(
+        'backups',
+        'Backups',
+        files?.backups,
+        'point-in-time recovery bases and WAL, nightly auto-backups',
+      ),
+      fileItem(
+        'stale_files',
+        'Files of deleted projects',
+        files?.stale,
+        'left behind by deleted or deactivated projects',
+      ),
+      fileItem('platform_files', 'Platform files', files?.platform, 'feedback attachments, exports, imports, marketing'),
+      fileItem(
+        'orphan_files',
+        'Buckets with no owning project',
+        files?.orphan,
+        'mostly legacy kb- names from before the rename',
+      ),
       {
         key: 'wal_archive',
         label: 'WAL archive spool',
