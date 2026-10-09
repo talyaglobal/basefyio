@@ -281,6 +281,14 @@ services:
       # At-rest encryption key for project DB credentials (base64/hex 32 bytes).
       # Empty = passthrough (no encryption). Set in .env.production.
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
+      # How strictly API keys are bound. Both refuse by default; set either to
+      # "log" to record the call and allow it instead, which is how a hole gets
+      # measured before it is closed.
+      #   SERVICE_KEY_PROJECT_BINDING — a service key aimed at another project.
+      #   ANON_WRITE_BINDING          — a bare anon key on a route that wants a
+      #                                 signed-in end user (storage writes).
+      SERVICE_KEY_PROJECT_BINDING: ${SERVICE_KEY_PROJECT_BINDING:-}
+      ANON_WRITE_BINDING: ${ANON_WRITE_BINDING:-}
       # Distribution analytics (Management → Analytics). Stars/forks + npm work
       # without a token; clones/views/referrers need a GitHub PAT (repo scope).
       GITHUB_INSIGHTS_TOKEN: ${GITHUB_INSIGHTS_TOKEN:-}
