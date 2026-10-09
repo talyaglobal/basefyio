@@ -374,6 +374,10 @@ services:
     volumes:
       - pgbouncer_config:/etc/pgbouncer
       - /var/run/docker.sock:/var/run/docker.sock
+      # Root console → Server disk: an empty host directory bind-mounted so the
+      # API can statfs() the system disk without seeing anything else on it. The
+      # container's own root already sits on the Docker data volume.
+      - /srv/basefyio-diskprobe:/host/system:ro
       # PITR: postgres archives finished WAL here; the API ships each segment to
       # object storage and deletes the local copy. Without this mount the spool
       # is invisible to the API and grows without bound.

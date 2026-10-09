@@ -2,12 +2,16 @@ import { Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { RootConsoleService } from './root-console.service';
+import { DiskUsageService } from './disk-usage.service';
 
 /** The root console on admin.<domain>: platform-wide figures, root only. */
 @Controller('admin/console')
 @UseGuards(JwtAuthGuard, RootRoleGuard)
 export class RootConsoleController {
-  constructor(private readonly console: RootConsoleService) {}
+  constructor(
+    private readonly console: RootConsoleService,
+    private readonly diskUsage: DiskUsageService,
+  ) {}
 
   @Get('overview')
   overview() {
@@ -22,6 +26,12 @@ export class RootConsoleController {
   @Get('projects/:id')
   project(@Param('id', ParseUUIDPipe) id: string) {
     return this.console.getProject(id);
+  }
+
+  /** Host disks and what fills the data volume. */
+  @Get('disk')
+  disk() {
+    return this.diskUsage.getDisk();
   }
 
   @Get('storage')

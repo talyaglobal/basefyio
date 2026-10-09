@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectCostService } from '../billing/project-cost.service';
 import type { CostLine, ProjectCostReport } from '../billing/project-cost.pricing';
 import { BucketInventory, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
+import { DiskUsageService } from './disk-usage.service';
 
 /** Cost figures for one project, ours and the customer's, for the current calendar month. */
 export interface ConsoleProjectCost {
@@ -101,6 +102,7 @@ export class RootConsoleService {
     private readonly config: ConfigService,
     private readonly costs: ProjectCostService,
     private readonly storage: StorageService,
+    private readonly disk: DiskUsageService,
   ) {}
 
   // ── Overview ─────────────────────────────────────────────
@@ -281,6 +283,8 @@ export class RootConsoleService {
       topByCost: top((p) => p.projectedRawUsd),
       topByFootprint: top((p) => p.dbSizeBytes + p.storageBytes),
       storagePending: report.storagePending,
+      // statfs only — the full breakdown is its own request.
+      disk: { filesystems: await this.disk.getFilesystems() },
     };
   }
 

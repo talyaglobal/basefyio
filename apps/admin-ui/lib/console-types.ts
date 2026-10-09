@@ -84,6 +84,45 @@ export interface ConsoleOverview {
   topByCost: ConsoleTopProject[];
   topByFootprint: ConsoleTopProject[];
   storagePending: boolean;
+  disk: { filesystems: ConsoleFilesystem[] };
+}
+
+// ── Server disk ──────────────────────────────────────────
+
+export interface ConsoleFilesystem {
+  key: 'data' | 'system';
+  label: string;
+  mount: string | null;
+  available: boolean;
+  totalBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  usedPercent: number;
+  warnPercent: number;
+  criticalPercent: number;
+  note: string;
+}
+
+export interface ConsoleDiskItem {
+  key: string;
+  label: string;
+  bytes: number | null;
+  hint: string;
+  measuredAt: string | null;
+}
+
+export interface ConsoleDisk {
+  generatedAt: string;
+  filesystems: ConsoleFilesystem[];
+  breakdown: {
+    items: ConsoleDiskItem[];
+    accountedBytes: number;
+    unaccountedBytes: number | null;
+    measuredAt: string | null;
+    pending: boolean;
+  };
+  docker: { rootDir: string | null; volumes: number; dedicatedDbVolumes: number } | null;
+  guard: { warnPercent: number; criticalPercent: number; schedule: string };
 }
 
 export interface ConsoleProjectRow {
