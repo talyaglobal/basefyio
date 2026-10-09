@@ -3,40 +3,40 @@
 Measured from the tree on 2026-10-09 by `tools/scoreboard/run.mjs`.
 Weights are the benchmark's; the rival column is the score it assigns Supabase.
 
-**Total: 56.4 / 100** (rival 88.5)
+**Total: 60.1 / 100** (rival 88.5)
 
 | # | Category | Weight | basefyio | Rival | Gap |
 |---|---|---|---|---|---|
-| 1 | Security & tenant isolation | 12 | 76 | 90 | 14 |
+| 1 | Security & tenant isolation | 12 | 91 | 90 | -1 |
 | 2 | Postgres database | 8 | 73 | 95 | 22 |
-| 3 | Auto REST API | 10 | 83 | 95 | 12 |
+| 3 | Auto REST API | 10 | 100 | 95 | -5 |
 | 4 | Authentication | 10 | 68 | 92 | 24 |
-| 5 | Storage | 6 | 53 | 88 | 35 |
+| 5 | Storage | 6 | 44 | 88 | 44 |
 | 6 | Realtime | 8 | 23 | 90 | 67 |
 | 7 | Edge functions | 7 | 0 | 88 | 88 |
 | 8 | SDKs & CLI | 7 | 53 | 95 | 42 |
 | 9 | Dashboard & developer experience | 6 | 90 | 90 | 0 |
 | 10 | Self-hosting & data ownership | 6 | 58 | 60 | 2 |
-| 11 | Scalability & high availability | 6 | 10 | 90 | 80 |
+| 11 | Scalability & high availability | 6 | 25 | 90 | 65 |
 | 12 | Backups, branching & operations | 4 | 53 | 85 | 32 |
 | 13 | AI & vector search | 3 | 69 | 80 | 11 |
-| 14 | Migration & onboarding | 2 | 84 | 70 | -14 |
-| 15 | Testing & code quality | 2 | 62 | 85 | 23 |
+| 14 | Migration & onboarding | 2 | 74 | 70 | -4 |
+| 15 | Testing & code quality | 2 | 64 | 85 | 21 |
 | 16 | Docs, community & ecosystem | 3 | 38 | 95 | 58 |
 
 ## Checks
 
-### Security & tenant isolation — 76/100
+### Security & tenant isolation — 91/100
 
 - **yes** API keys are bound to their own project — apps/platform-api/src/common/guards/api-key.guard.ts:78
-- **yes** key-authed SQL runs under a Postgres role, never as owner — apps/platform-api/src/common/guards/api-key-scope.contract.spec.ts:155, apps/platform-api/src/modules/projects/collection.controller.ts:35 (+6 more); owner is not a fallback
-- **yes** routes declare how much key authority they need — 14 declarations — apps/platform-api/src/common/guards/api-key-scope.contract.spec.ts:58, apps/platform-api/src/modules/agent/agent-creation.controller.ts:35 (+12 more)
+- **yes** key-authed SQL runs under a Postgres role, never as owner — apps/platform-api/src/modules/projects/collection.controller.ts:35, apps/platform-api/src/modules/projects/project-data.controller.ts:34 (+5 more); owner is not a fallback
+- **yes** routes declare how much key authority they need — 13 declarations — apps/platform-api/src/modules/agent/agent-creation.controller.ts:35, apps/platform-api/src/modules/agent/agent.controller.ts:32 (+11 more)
 - **yes** the scope check cannot be bypassed by forgetting a guard — enforced inside ApiKeyGuard itself
 - **yes** connection strings are not reachable with the public key — ProjectDataController is service-key only
 - **yes** key-authed requests reach the audit log — audit-log.interceptor.ts records the key and its tier
-- **no** SECURITY DEFINER functions cannot be called to escape RLS — /rest/v1/rpc never checks prosecdef — a definer function runs as owner
+- **yes** SECURITY DEFINER functions cannot be called to escape RLS — apps/platform-api/src/modules/projects/public-api.service.ts:220
 - **yes** the realtime stream goes through the key guard — stream uses ApiKeyGuard
-- **no** DDL and policy verbs are denied to non-owner callers — the SQL denylist omits DDL and policy statements
+- **yes** DDL and policy verbs are denied to non-owner callers — apps/platform-api/src/modules/sql/sql-guard.ts:53
 - **no** audit records can be shipped to a SIEM — audit stays in the platform database only
 - **50%** the panel can require a second factor — apps/platform-api/src/modules/projects/project-auth.controller.ts:320 — per project user, not for panel sign-in
 
@@ -47,20 +47,20 @@ Weights are the benchmark's; the rival column is the score it assigns Supabase.
 - **yes** PostGIS available — docker/postgres/Dockerfile
 - **no** extensions created on provisioning — created: none — apps/platform-api/src/modules/projects/project-database.service.ts:6, apps/platform-api/src/modules/sql/sql-guard.ts:22 (+1 more)
 - **yes** connection pooling in front of Postgres — docker-compose.prod.yml:213, docker-compose.yml:77
-- **30%** per-project roles beyond the owner — roles are created (apps/platform-api/src/modules/projects/supabase-import.service.ts:1511, apps/platform-api/src/modules/sql/sql-guard.spec.ts:12 (+1 more)) but only anon/authenticated/service, no least-privilege owner split
+- **30%** per-project roles beyond the owner — roles are created (apps/platform-api/src/modules/projects/supabase-import.service.ts:1511, apps/platform-api/src/modules/sql/sql-guard.ts:11) but only anon/authenticated/service, no least-privilege owner split
 - **50%** per-project connection limits — apps/platform-api/src/modules/pgbouncer/pgbouncer.service.ts:90, docker-compose.prod.yml:297 — a global cap, not per project
-- **yes** credentials encrypted at rest — apps/platform-api/src/common/crypto/field-crypto.spec.ts:2, apps/platform-api/src/common/crypto/field-crypto.ts:9 (+1 more)
+- **yes** credentials encrypted at rest — apps/platform-api/src/common/crypto/field-crypto.ts:9, apps/platform-api/src/prisma/prisma.service.ts:41
 
-### Auto REST API — 83/100
+### Auto REST API — 100/100
 
 - **yes** reads: embedded resources through foreign keys — postgrest/schema-cache.ts resolves relationships
 - **yes** reads: boolean trees (or / and / not) — apps/platform-api/src/modules/projects/postgrest/builder.ts:5, apps/platform-api/src/modules/projects/postgrest/parser.ts:8 (+1 more)
-- **yes** reads: full-text search operators — apps/platform-api/src/modules/projects/postgrest/builder.ts:347, apps/platform-api/src/modules/projects/postgrest/parser.ts:142 (+2 more)
-- **yes** reads: JSON path traversal — apps/platform-api/src/modules/projects/postgrest/builder.ts:100, apps/platform-api/src/modules/projects/postgrest/parser.ts:45 (+2 more)
-- **yes** values are bound, never interpolated into SQL — apps/platform-api/src/modules/projects/postgrest/builder.ts:64
-- **no** writes use the same parser as reads — update and delete still use the old flat filter parser — no or/and/not on writes
+- **yes** reads: full-text search operators — apps/platform-api/src/modules/projects/postgrest/builder.ts:370, apps/platform-api/src/modules/projects/postgrest/parser.ts:142 (+1 more)
+- **yes** reads: JSON path traversal — apps/platform-api/src/modules/projects/postgrest/builder.ts:123, apps/platform-api/src/modules/projects/postgrest/parser.ts:45 (+1 more)
+- **yes** values are bound, never interpolated into SQL — apps/platform-api/src/modules/projects/postgrest/builder.ts:87
+- **yes** writes use the same parser as reads — one parser for reads and writes
 - **yes** schemas other than public are reachable — apps/platform-api/src/modules/projects/supabase-import.service.ts:2084
-- **yes** rows can be counted exactly alongside a page — apps/platform-api/src/modules/data-query/data-query.service.ts:323, apps/platform-api/src/modules/projects/postgrest/builder.ts:46 (+2 more)
+- **yes** rows can be counted exactly alongside a page — apps/platform-api/src/modules/data-query/data-query.service.ts:323, apps/platform-api/src/modules/projects/postgrest/builder.ts:46 (+1 more)
 
 ### Authentication — 68/100
 
@@ -71,28 +71,28 @@ Weights are the benchmark's; the rival column is the score it assigns Supabase.
 - **no** phone or SMS sign-in — no phone channel
 - **no** anonymous users that can be upgraded later — not supported
 - **no** SAML for enterprise tenants — not supported
-- **yes** an isolated realm per project — apps/platform-api/src/common/guards/api-key.guard.spec.ts:18, apps/platform-api/src/common/guards/api-key.guard.ts:62 (+9 more)
-- **yes** end-user tokens are verified, not merely decoded — apps/platform-api/src/common/guards/api-key.guard.spec.ts:52, apps/platform-api/src/common/guards/api-key.guard.ts:102
+- **yes** an isolated realm per project — apps/platform-api/src/common/guards/api-key.guard.ts:62, apps/platform-api/src/modules/projects/project-archive-import.service.ts:113 (+8 more)
+- **yes** end-user tokens are verified, not merely decoded — apps/platform-api/src/common/guards/api-key.guard.ts:102
 - **yes** transactional email works without a third-party account — apps/platform-api/src/modules/projects/project-sdk-auth.service.ts:15
 
-### Storage — 53/100
+### Storage — 44/100
 
-- **yes** buckets, upload, download, signed URLs — apps/platform-api/src/common/guards/api-key-scope.contract.spec.ts:100, apps/platform-api/src/modules/storage/storage.controller.ts:270 (+1 more)
-- **yes** public and private buckets — apps/platform-api/src/common/guards/api-key-scope.contract.spec.ts:114, apps/platform-api/src/modules/storage/storage.controller.ts:103
+- **yes** buckets, upload, download, signed URLs — apps/platform-api/src/modules/storage/storage.controller.ts:270, apps/platform-api/src/modules/storage/storage.service.ts:686
+- **yes** public and private buckets — apps/platform-api/src/modules/storage/storage.controller.ts:103
 - **yes** bucket administration is not reachable with the public key — service-key default on StorageController
 - **no** per-object access policies — access is per bucket; a private object is readable by any key holder
-- **yes** resumable uploads for large files — apps/platform-api/src/modules/billing/academic-domains.ts:6
+- **no** resumable uploads for large files — single-request uploads only
 - **no** image transformation on read — no transforms
 - **10%** the file limit is above a few tens of megabytes — 50 MB ceiling
 - **no** storage can be pointed at the customer's own object store — MinIO is wired in directly
 
 ### Realtime — 23/100
 
-- **yes** clients can subscribe to changes — apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts:69
+- **yes** clients can subscribe to changes — apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts:90
 - **no** changes are read from the database log, not only from API writes — only writes that pass through the API broadcast; direct SQL is invisible
 - **no** row-level policies are applied per subscriber — every subscriber sees every change in the project
 - **no** presence — who else is here — not supported
-- **40%** broadcast between clients without a database round trip — apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts:41, apps/platform-api/src/modules/realtime-data/realtime-data.service.ts:4 — server-to-client only, not client-to-client
+- **40%** broadcast between clients without a database round trip — apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts:51, apps/platform-api/src/modules/realtime-data/realtime-data.service.ts:4 — server-to-client only, not client-to-client
 - **no** more than one server can serve subscriptions — subscribers live in a process-local Map — apps/platform-api/src/modules/realtime-data/realtime-data.service.ts:50
 
 ### Edge functions — 0/100
@@ -131,14 +131,14 @@ Weights are the benchmark's; the rival column is the score it assigns Supabase.
 - **no** images are signed and ship an SBOM — neither
 - **no** the customer can bring their own TLS certificate — Traefik with Let's Encrypt is the only path
 
-### Scalability & high availability — 10/100
+### Scalability & high availability — 25/100
 
 - **no** the API runs as more than one replica — one container
 - **no** a Postgres standby exists — a single Postgres instance holds every project
 - **no** failover is automatic — manual recovery only
 - **no** read traffic can be sent to a replica — all reads hit the primary
-- **no** metrics are exported for monitoring — no Prometheus endpoint
-- **yes** a health endpoint exists — apps/platform-api/src/modules/health/health.controller.ts:8
+- **yes** metrics are exported for monitoring — apps/platform-api/src/modules/health/metrics.service.ts:10
+- **yes** a health endpoint exists — apps/platform-api/src/modules/health/health.controller.ts:8, apps/platform-api/src/modules/health/metrics.controller.ts:68
 
 ### Backups, branching & operations — 53/100
 
@@ -157,18 +157,18 @@ Weights are the benchmark's; the rival column is the score it assigns Supabase.
 - **no** more than one embedding provider — one provider; its key going cold stops retrieval
 - **no** the model and the country data goes to are visible to the customer — not surfaced
 
-### Migration & onboarding — 84/100
+### Migration & onboarding — 74/100
 
 - **yes** an importer for an existing hosted project — supabase-import.service.ts
 - **yes** schema, rows, users and files all come across — apps/platform-api/src/modules/projects/supabase-import.service.ts:795, apps/platform-api/src/modules/queue/import.processor.ts:192
 - **yes** a second pass can fill in what a first run missed — apps/platform-api/src/modules/projects/supabase-import.service.ts:750, apps/platform-api/src/modules/queue/import.processor.ts:174
 - **yes** existing client code keeps working after the move — PostgREST-compatible query parsing
 - **no** an imported table keeps its primary key, so a later sync can match rows — tables arrive without keys, so the sync pass cannot match rows and a full re-import is the only repair
-- **yes** the import reports a row count per table against the source — apps/platform-api/src/modules/provisioning/provisioning-executor.service.spec.ts:564
+- **no** the import reports a row count per table against the source — counts are reported, but not reconciled against the source
 
-### Testing & code quality — 62/100
+### Testing & code quality — 64/100
 
-- **66%** a unit test suite of real size — 529 cases
+- **71%** a unit test suite of real size — 570 cases
 - **yes** the security guards are covered — api-key.guard.spec.ts
 - **yes** a tripwire on what the public key may reach — api-key-scope.contract.spec.ts
 - **no** storage, realtime and auth admin are covered — 0 of 3 areas have a spec
