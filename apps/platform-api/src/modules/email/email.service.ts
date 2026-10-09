@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import { MetricsService } from '../health/metrics.service';
 import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
 import { inviteTemplate } from './templates/invite.template';
@@ -17,23 +18,84 @@ import { projectReauthTemplate } from './templates/project-reauth.template';
 import { signupVerifyEmailTemplate } from './templates/signup-verify-email.template';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend | null = null;
   private readonly fromEmail: string;
   private readonly replyTo: string;
   private readonly appUrl: string;
 
-  constructor(private readonly config: ConfigService) {
+  /**
+   * What we last knew about whether mail can actually leave.
+   *
+   * 'unchecked' until the startup probe answers. Kept so /health can say so:
+   * a dead provider key rejected every send for weeks while the only sign was
+   * an ERROR line in a log nobody reads, and the first person to notice was a
+   * customer who never got a password reset.
+   */
+  private deliverability: {
+    state: 'unchecked' | 'ok' | 'failing' | 'not-configured';
+    detail?: string;
+    checkedAt?: string;
+  } = { state: 'unchecked' };
+
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {
     const apiKey = this.config.get<string>('resend.apiKey');
     if (apiKey) {
       this.resend = new Resend(apiKey);
     } else {
+      this.deliverability = { state: 'not-configured' };
       this.logger.warn('RESEND_API_KEY is not set — emails will not be sent');
     }
     this.fromEmail = this.config.get<string>('resend.fromEmail')!;
     this.replyTo = this.config.get<string>('resend.replyTo')!;
     this.appUrl = this.config.get<string>('appUrl')!;
+  }
+
+  /**
+   * Ask the provider whether the key works, once, at startup.
+   *
+   * Cheaper than discovering it on the first password reset, and it fails in
+   * the one place an operator looks. Never throws: mail being down must not
+   * stop the API from starting, since everything else still works.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.resend) return;
+    try {
+      const probe = await this.resend.domains.list();
+      if (probe.error) {
+        this.markFailing(`${probe.error.name ?? 'error'} — ${probe.error.message ?? 'unknown'}`);
+        return;
+      }
+      this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
+      this.logger.log('[EMAIL] Provider key accepted — mail can be sent');
+    } catch (err: any) {
+      // A network blip at boot is not proof the key is bad, so say what
+      // happened rather than condemning the key.
+      this.deliverability = {
+        state: 'unchecked',
+        detail: `startup probe did not complete: ${err?.message ?? err}`,
+        checkedAt: new Date().toISOString(),
+      };
+      this.logger.warn(`[EMAIL] Could not verify the provider key at startup: ${err?.message ?? err}`);
+    }
+  }
+
+  private markFailing(detail: string): void {
+    this.deliverability = { state: 'failing', detail, checkedAt: new Date().toISOString() };
+    this.metrics?.increment('email_provider_rejected');
+    this.logger.error(
+      `[EMAIL] MAIL IS NOT BEING DELIVERED — the provider rejected the request: ${detail}. ` +
+        'Password resets, team invitations and verification codes are all silently failing until this is fixed.',
+    );
+  }
+
+  /** What /health reports, so a dead mail path is visible without reading logs. */
+  getDeliverability(): { state: string; detail?: string; checkedAt?: string } {
+    return this.deliverability;
   }
 
   async sendSignupVerifyEmail(to: string, otp: string, firstName?: string) {
@@ -276,9 +338,15 @@ export class EmailService {
             `From: ${this.fromEmail}\n` +
             `Error: ${result.error.name || ''} — ${result.error.message || JSON.stringify(result.error)}`,
         );
+        this.markFailing(`${result.error.name || ''} — ${result.error.message || 'rejected'}`);
         return null;
       }
 
+      if (this.deliverability.state !== 'ok') {
+        this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
+        this.logger.log('[EMAIL] Delivery recovered');
+      }
+      this.metrics?.increment('email_sent');
       this.logger.log(`[EMAIL] ✓ Sent successfully: "${params.subject}" → ${params.to} (ID: ${result.data?.id || 'unknown'})`);
       return result;
     } catch (error: any) {
@@ -289,6 +357,7 @@ export class EmailService {
         `Status: ${error.statusCode || 'unknown'}`,
         error.stack
       );
+      this.metrics?.increment('email_send_failed');
       return null;
     }
   }

@@ -37,7 +37,7 @@ import {
   MetricsController,
   MetricsInterceptor,
 } from './modules/health/metrics.controller';
-import { MetricsService } from './modules/health/metrics.service';
+import { ObservabilityModule } from './modules/health/observability.module';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -119,10 +119,11 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DrizzleModule,
     RagModule,
     AgentModule,
+    // Global, and listed first in spirit: anything may count an event.
+    ObservabilityModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [
-    MetricsService,
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ProxyThrottlerGuard },
