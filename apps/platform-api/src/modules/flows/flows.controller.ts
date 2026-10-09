@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -16,8 +17,16 @@ import {
 import { FlowsService } from './flows.service';
 import { FlowDefinitionInput } from './flow.types';
 
+/**
+ * Automations.
+  *
+  * A flow holds URLs, headers and preconfigured actions including outbound
+  * HTTP. Reading one discloses whatever it embeds; updating one repoints a live
+  * automation, and triggering one spends money.
+ */
 @Controller('projects/:projectId/flows')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class FlowsController {
   constructor(private readonly flows: FlowsService) {}
 

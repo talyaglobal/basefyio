@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { CollectionService } from './collection.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -23,8 +24,19 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 
+/**
+ * Document collections, administrative side.
+  *
+  * Connects as the database owner with no role switch, so RLS does not apply:
+  * create and drop collections, read every document, and a filter-driven bulk
+  * delete that empties the collection when the filter is empty.
+  *
+  * The browser-facing equivalent is /rest/v1/collections, which runs under
+  * SET LOCAL ROLE and is governed by policy.
+ */
 @Controller('projects/:projectId/collections')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class CollectionController {
   constructor(
     private readonly collectionService: CollectionService,

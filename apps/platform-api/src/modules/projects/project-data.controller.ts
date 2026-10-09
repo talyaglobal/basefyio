@@ -17,6 +17,7 @@ import { ProjectDataService } from './project-data.service';
 import { ProjectsService } from './projects.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -26,8 +27,25 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 
+/**
+ * Tables, rows and connection strings.
+  *
+  * Every route here runs on a pool connected as the project's database OWNER,
+  * with no SET LOCAL ROLE, so RLS does not apply to any of it: DDL, arbitrary
+  * row reads and writes, DROP TABLE. GET connect goes further and returns the
+  * database password and the project's own service key.
+  *
+  * None of that may be reachable with the anon key, which ships inside every
+  * customer's browser bundle — it was a one-request path from the public key to
+  * owner credentials, which made every other control here moot.
+  *
+  * The dashboard and the CLI both call these with a dashboard JWT and are
+  * unaffected. Browser data access belongs on /rest/v1, which is role-switched
+  * and policy-governed.
+ */
 @Controller('projects/:projectId')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class ProjectDataController {
   constructor(
     private readonly dataService: ProjectDataService,

@@ -17,10 +17,19 @@ import {
 } from '@nestjs/common';
 import { DataEngineService } from './data-engine.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { AnonKeyAllowed, ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 
+/**
+ * The data engine.
+  *
+  * Entity creation is DDL, and every data route can trigger provisioning as a
+  * side effect. The engine client runs as owner with no role switch, so none of
+  * it is policy-governed.
+ */
 @Controller('v1/projects/:projectId')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class DataEngineController {
   constructor(private readonly dataEngine: DataEngineService) {}
 
@@ -177,6 +186,7 @@ export class DataEngineController {
   // ── Health ───────────────────────────────────────────
 
   @Get('data-engine/health')
+  @AnonKeyAllowed() // liveness only
   async health(@Param('projectId') projectId: string) {
     const available = this.dataEngine.isAvailable();
     const reachable = available ? await this.dataEngine.ping() : false;

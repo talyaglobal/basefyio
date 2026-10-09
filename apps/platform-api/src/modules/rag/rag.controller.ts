@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { RagService } from './rag.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -18,8 +19,15 @@ import { ListRagDocumentsQuery } from './dto/list-rag-documents.query';
 import { ReindexDto } from './dto/reindex.dto';
 import { RagSearchQuery } from './dto/rag-search.query';
 
+/**
+ * Retrieval over the project's corpus.
+  *
+  * Indexing and searching both bill the embedding provider per call, and the
+  * vector store has no row-level policy, so a search reads the whole corpus.
+ */
 @Controller('projects/:projectId/rag')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class RagController {
   constructor(private readonly rag: RagService) {}
 

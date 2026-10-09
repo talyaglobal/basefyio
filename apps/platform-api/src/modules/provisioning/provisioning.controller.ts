@@ -15,6 +15,7 @@ import { CreateProvisioningProjectDto } from './dto/create-provisioning-project.
 import { CreateProvisioningOperationDto } from './dto/create-provisioning-operation.dto';
 import { ListResourcesQuery } from './dto/list-resources.query';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { ModuleEnabledGuard } from '../../common/guards/module-enabled.guard';
 import {
   CurrentUser,
@@ -22,9 +23,18 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequireModule } from '../../common/decorators/require-module.decorator';
 
+/**
+ * Provisioning.
+  *
+  * Creates projects and executes infrastructure operations against credential
+  * storage. Like the structures controller these only fail today because the
+  * handlers dereference a non-optional current user; any refactor that made it
+  * optional would open the most dangerous surface in the app silently.
+ */
 @Controller('v1/provisioning')
 @UseGuards(JwtOrApiKeyGuard, ModuleEnabledGuard)
 @RequireModule('provisioning')
+@ServiceKeyOnly()
 export class ProvisioningController {
   constructor(
     private readonly service: ProvisioningService,
