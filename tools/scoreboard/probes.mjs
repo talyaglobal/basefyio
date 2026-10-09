@@ -275,7 +275,7 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('access is per bucket; a private object is readable by any key holder');
       }),
       check('resumable uploads for large files', 1, () => {
-        const f = marker(/\btus\b|resumable/i, API.concat(SDK));
+        const f = marker(/tus-js|@tus\/|resumableUpload|createUploadSession/, API.concat(SDK));
         return f.n ? yes(f.where) : no('single-request uploads only');
       }),
       check('image transformation on read', 1, () => {
@@ -602,7 +602,7 @@ export const CATEGORIES = [
     checks: [
       check('a unit test suite of real size', 2, () => {
         let n = 0;
-        for (const f of sources(['apps/platform-api/src'], ['.spec.ts'])) {
+        for (const f of sources(['apps/platform-api/src'], ['.spec.ts'], { includeTests: true })) {
           n += (readFileSync(f, 'utf8').match(/\n\s*(it|test)\(/g) ?? []).length;
         }
         return n >= 800 ? yes(`${n} cases`) : part(Math.min(n / 800, 0.95), `${n} cases`);
@@ -617,12 +617,12 @@ export const CATEGORIES = [
           : no('a deleted decorator would pass unnoticed')),
       check('storage, realtime and auth admin are covered', 1.5, () => {
         const specs = ['modules/storage', 'modules/realtime-data', 'modules/projects/project-auth']
-          .map((d) => sources([`apps/platform-api/src/${d}`], ['.spec.ts']).length)
+          .map((d) => sources([`apps/platform-api/src/${d}`], ['.spec.ts'], { includeTests: true }).length)
           .filter((n) => n > 0).length;
         return part(specs / 3, `${specs} of 3 areas have a spec`);
       }),
       check('an end-to-end suite exercises the real stack', 1.5, () => {
-        const n = sources(['apps/platform-api/test', 'e2e'], ['.ts']).length;
+        const n = sources(['apps/platform-api/test', 'e2e'], ['.ts'], { includeTests: true }).length;
         return n >= 10 ? yes(`${n} files`) : part(Math.min(n / 10, 0.4), `${n} files — smoke level`);
       }),
       check('this scoreboard is measured rather than asserted', 1, () =>

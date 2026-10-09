@@ -37,8 +37,23 @@ export class RealtimeDataStreamController {
 
   /**
    * SSE stream of data change events for one project.
-   * EventSource cannot set headers, so the project API key arrives as
-   * `?apikey=` — anon or service key both subscribe (broadcast model).
+   *
+   * EventSource cannot set headers, so the key has to arrive as `?apikey=`.
+   * That is why this route resolves the key itself instead of going through
+   * ApiKeyGuard — and it has to keep the guard's rule about which key may
+   * travel in a URL. A URL ends up in access logs, browser history and
+   * Referer headers, so the secret service key is refused here: it was
+   * accepted, which handed the one key that bypasses every policy to anything
+   * that reads a log line.
+   *
+   * The anon key stays accepted, since a browser has no other way to open the
+   * stream. What it can see is bounded by the project's realtime bindings —
+   * only entities the owner has enabled broadcast at all. It is not yet
+   * bounded per subscriber: every subscriber on an enabled entity sees every
+   * change to it, because no row-level policy is evaluated per event. An
+   * entity whose rows are not all public should be left unbound until that
+   * exists.
+   *
    * channels: comma list of `table:<name>` / `collection:<name>`, or omit for all.
    */
   @Get('stream')
@@ -53,9 +68,15 @@ export class RealtimeDataStreamController {
 
     const project = await this.prisma.project.findFirst({
       where: { OR: [{ anonKey: key }, { serviceKey: key }], status: 'ACTIVE' },
-      select: { id: true },
+      select: { id: true, anonKey: true, serviceKey: true },
     });
     if (!project) throw new UnauthorizedException('Invalid API key');
+
+    if (project.serviceKey === key) {
+      throw new UnauthorizedException(
+        'The service key must never be sent in a URL, where it would reach access logs, browser history and Referer headers. Subscribe with the anon key.',
+      );
+    }
 
     const channels = (channelsRaw || '')
       .split(',')

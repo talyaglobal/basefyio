@@ -15,7 +15,7 @@ import {
 } from '../projects/project-activity.service';
 import { EmbeddingService } from '../embedding/embedding.service';
 import { ProjectsService } from '../projects/projects.service';
-import { findForbiddenSqlPattern } from './sql-guard';
+import { findForbiddenSqlPattern, SqlCallerRole } from './sql-guard';
 
 /** Postgres "insufficient_privilege" — SET LOCAL ROLE raises this when the
  *  connecting db user was never granted membership in the target role. */
@@ -140,7 +140,9 @@ export class SqlService implements OnModuleDestroy {
       }
     }
 
-    this.validateQuery(query);
+    // A dashboard team member is the owner in the SQL editor and keeps DDL; a
+    // key-authed caller is only as privileged as the role it runs under.
+    this.validateQuery(query, opts?.rls ? opts.rls.role : 'owner');
 
     // Bound values are never part of the statement, so `validateQuery` never
     // sees them — which is the point rather than a gap. The guard scans the SQL
@@ -438,10 +440,14 @@ export class SqlService implements OnModuleDestroy {
     return s.includes(';');
   }
 
-  private validateQuery(query: string) {
-    const pattern = findForbiddenSqlPattern(query);
+  private validateQuery(query: string, role: SqlCallerRole) {
+    const pattern = findForbiddenSqlPattern(query, role);
     if (pattern) {
-      throw new BadRequestException(`Forbidden SQL operation: ${pattern}`);
+      throw new BadRequestException(
+        role === 'owner' || role === 'service_role'
+          ? `Forbidden SQL operation: ${pattern}`
+          : `Forbidden SQL operation: ${pattern}. Schema and policy changes need the service key and must be made from your server, not over the anon key.`,
+      );
     }
   }
 }

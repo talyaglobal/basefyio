@@ -140,23 +140,40 @@ export class PublicApiService {
         };
       };
 
-      try {
-        return await run(false);
-      } catch (err) {
-        if (
-          err instanceof PostgrestParseError &&
-          (err.code === 'PGRST200' || err.code === 'PGRST204' || err.code === 'PGRST205')
-        ) {
-          this.schemaCache.invalidate(projectId);
-          try {
-            return await run(true);
-          } catch (retryErr) {
-            throw this.toHttp(retryErr);
-          }
-        }
-        throw this.toHttp(err);
-      }
+      return this.withSchemaRetry(projectId, run);
     });
+  }
+
+  /**
+   * Run something that reads the cached schema, and give it one more chance
+   * with a fresh one.
+   *
+   * The URL cannot carry foreign keys or a column list, so a request naming a
+   * relation or column the cache has not seen looks like a bad request and is
+   * actually a stale cache — a table created a moment ago surfaces exactly
+   * this way. Only the three codes that mean "not in the schema" are retried;
+   * anything else is the caller's error and is reported as it is.
+   */
+  private async withSchemaRetry<T>(
+    projectId: string,
+    run: (force: boolean) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await run(false);
+    } catch (err) {
+      if (
+        err instanceof PostgrestParseError &&
+        (err.code === 'PGRST200' || err.code === 'PGRST204' || err.code === 'PGRST205')
+      ) {
+        this.schemaCache.invalidate(projectId);
+        try {
+          return await run(true);
+        } catch (retryErr) {
+          throw this.toHttp(retryErr);
+        }
+      }
+      throw this.toHttp(err);
+    }
   }
 
   /** Map a parse failure to a 400 that keeps PostgREST's error code; anything
@@ -173,9 +190,20 @@ export class PublicApiService {
   }
 
   /**
-   * Call a public-schema SQL function as an API endpoint (Supabase rpc()).
-   * Args bind by name; runs under the caller's RLS role like every other
-   * data-plane request.
+   * Call a public-schema SQL function as an API endpoint.
+   *
+   * Args bind by name, and the call runs under the caller's role like every
+   * other data-plane request — but that is not by itself enough. A function
+   * declared SECURITY DEFINER executes as whoever owns it, which here is the
+   * database owner, and the owner is not subject to row-level policy. Such a
+   * function is therefore a hole straight through RLS, callable with the
+   * public anon key, and `prokind = 'f'` does not notice it.
+   *
+   * So a definer function is refused for a caller who has not signed in. The
+   * owner of the project can still write one and reach it from their server
+   * with the service key, or from an app with a signed-in user, which is the
+   * usual reason to write one. An anonymous caller gets the invoker-rights
+   * functions only, where their policies still apply.
    */
   async rpc(
     projectId: string,
@@ -189,6 +217,7 @@ export class PublicApiService {
     return this.withRls(projectId, ctx, async (client) => {
       const meta = await client.query(
         `SELECT p.oid::regprocedure AS signature,
+                p.prosecdef AS definer,
                 COALESCE(array_to_json(p.proargnames), '[]'::json) AS argnames
            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'
@@ -197,6 +226,11 @@ export class PublicApiService {
       );
       if (meta.rowCount === 0) {
         throw new BadRequestException(`Function "${fnName}" not found`);
+      }
+      if (meta.rows[0].definer && ctx.role === 'anon') {
+        throw new ForbiddenException(
+          `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`,
+        );
       }
       const argNames: string[] = meta.rows[0].argnames ?? [];
       const provided = Object.keys(args).filter((k) => argNames.includes(k));
@@ -270,29 +304,39 @@ export class PublicApiService {
     ctx: RlsContext,
   ) {
     this.validateTableName(table);
+    const parsed = parseQuery(query);
 
     return this.withRls(projectId, ctx, async (client) => {
-      const { where, params } = this.parseFilters(query);
-      if (!where) {
-        throw new BadRequestException('PATCH requires at least one filter to prevent full-table updates');
-      }
-
       const setCols = Object.keys(body);
       if (!setCols.length) throw new BadRequestException('No data to update');
 
-      let idx = params.length;
-      const setClause = setCols
-        .map((k) => {
-          idx++;
-          return `${this.quoteIdent(k, 'update column')} = $${idx}`;
-        })
-        .join(', ');
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const builder = new SelectBuilder(schema, this.schemaCache);
+        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
+        if (!where) {
+          throw new BadRequestException(
+            'PATCH requires at least one filter to prevent full-table updates',
+          );
+        }
 
-      const setValues = setCols.map((k) => body[k] ?? null);
-      const sql = `UPDATE "${table}" SET ${setClause} WHERE ${where} RETURNING *`;
+        // The filter's parameters are bound first, so the assignments continue
+        // the numbering from where it left off.
+        let idx = params.length;
+        const setClause = setCols
+          .map((k) => {
+            idx++;
+            return `${this.quoteIdent(k, 'update column')} = $${idx}`;
+          })
+          .join(', ');
+        const setValues = setCols.map((k) => body[k] ?? null);
 
-      const result = await client.query(sql, [...params, ...setValues]);
-      return { __rows: result.rows, __count: result.rowCount };
+        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
+        const result = await client.query(sql, [...params, ...setValues]);
+        return { __rows: result.rows, __count: result.rowCount };
+      };
+
+      return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
       for (const row of r.__rows ?? []) {
         this.realtimeData.publishChange(projectId, {
@@ -311,17 +355,25 @@ export class PublicApiService {
     ctx: RlsContext,
   ) {
     this.validateTableName(table);
+    const parsed = parseQuery(query);
 
     return this.withRls(projectId, ctx, async (client) => {
-      const { where, params } = this.parseFilters(query);
-      if (!where) {
-        throw new BadRequestException('DELETE requires at least one filter to prevent full-table deletes');
-      }
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const builder = new SelectBuilder(schema, this.schemaCache);
+        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
+        if (!where) {
+          throw new BadRequestException(
+            'DELETE requires at least one filter to prevent full-table deletes',
+          );
+        }
 
-      const sql = `DELETE FROM "${table}" WHERE ${where} RETURNING *`;
+        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
+        const result = await client.query(sql, params);
+        return { __rows: result.rows, __count: result.rowCount };
+      };
 
-      const result = await client.query(sql, params);
-      return { __rows: result.rows, __count: result.rowCount };
+      return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
       for (const row of r.__rows ?? []) {
         this.realtimeData.publishChange(projectId, {
@@ -473,152 +525,6 @@ export class PublicApiService {
     } finally {
       client.release();
     }
-  }
-
-  private parseSelect(selectParam?: string): string {
-    if (!selectParam) return '*';
-
-    const cols = selectParam.split(',').map((c) => c.trim()).filter(Boolean);
-    if (!cols.length) return '*';
-
-    // PostgREST-compatible: `?select=*` (or `*` mixed with explicit columns)
-    // means "all columns". Without this, sanitizeIdentifier strips the star
-    // and we emit `SELECT "" FROM ...` → Postgres "zero-length delimited
-    // identifier" 500.
-    return cols
-      .map((c) => {
-        if (c === '*') return '*';
-        const safe = this.sanitizeIdentifier(c);
-        if (!safe) {
-          throw new BadRequestException(`Invalid column in select: "${c}"`);
-        }
-        return `"${safe}"`;
-      })
-      .join(', ');
-  }
-
-  private parseFilters(
-    query: Record<string, string | string[]>,
-  ): { where: string; params: unknown[] } {
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-
-    for (const [key, raw] of Object.entries(query)) {
-      if (RESERVED_PARAMS.has(key)) continue;
-      if (!key.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) continue;
-
-      const values = Array.isArray(raw) ? raw : [raw];
-
-      for (const value of values) {
-        const parsed = this.parseOperatorValue(key, value, params.length);
-        if (parsed) {
-          clauses.push(parsed.clause);
-          params.push(...parsed.values);
-        }
-      }
-    }
-
-    return {
-      where: clauses.length ? clauses.join(' AND ') : '',
-      params,
-    };
-  }
-
-  private parseOperatorValue(
-    column: string,
-    value: string,
-    paramOffset: number,
-  ): ParsedFilter | null {
-    const dotIdx = value.indexOf('.');
-    if (dotIdx === -1) return null;
-
-    const op = value.substring(0, dotIdx);
-    const val = value.substring(dotIdx + 1);
-    const sqlOp = OPERATOR_MAP[op];
-
-    if (!sqlOp) return null;
-
-    const col = this.quoteIdent(column, 'filter column');
-
-    if (op === 'is') {
-      if (val === 'null') return { clause: `${col} IS NULL`, values: [] };
-      if (val === 'true') return { clause: `${col} IS TRUE`, values: [] };
-      if (val === 'false') return { clause: `${col} IS FALSE`, values: [] };
-      return null;
-    }
-
-    if (op === 'in') {
-      const items = val
-        .replace(/^\(/, '')
-        .replace(/\)$/, '')
-        .split(',')
-        .map((s) => s.trim());
-
-      const placeholders: string[] = [];
-      const values: unknown[] = [];
-      for (const item of items) {
-        values.push(item);
-        placeholders.push(`$${paramOffset + values.length}`);
-      }
-
-      return {
-        clause: `${col} IN (${placeholders.join(', ')})`,
-        values,
-      };
-    }
-
-    if (op === 'like' || op === 'ilike') {
-      const pattern = val.replace(/\*/g, '%');
-      return {
-        clause: `${col} ${sqlOp} $${paramOffset + 1}`,
-        values: [pattern],
-      };
-    }
-
-    return {
-      clause: `${col} ${sqlOp} $${paramOffset + 1}`,
-      values: [val],
-    };
-  }
-
-  private parseOrder(orderParam?: string): string {
-    if (!orderParam) return '';
-
-    return orderParam
-      .split(',')
-      .map((part) => {
-        const [col, dir] = part.trim().split('.');
-        const safeCol = this.quoteIdent(col, 'order column');
-        const safeDir = dir?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-        const nulls = safeDir === 'DESC' ? 'NULLS LAST' : 'NULLS FIRST';
-        return `${safeCol} ${safeDir} ${nulls}`;
-      })
-      .join(', ');
-  }
-
-  private parsePagination(
-    query: Record<string, string | string[]>,
-    paramOffset: number,
-  ): { limitClause: string; limitParams: unknown[] } {
-    const parts: string[] = [];
-    const params: unknown[] = [];
-
-    const limit = parseInt(query.limit as string, 10);
-    if (!isNaN(limit) && limit > 0) {
-      params.push(Math.min(limit, 1000));
-      parts.push(`LIMIT $${paramOffset + params.length}`);
-    } else {
-      params.push(100);
-      parts.push(`LIMIT $${paramOffset + params.length}`);
-    }
-
-    const offset = parseInt(query.offset as string, 10);
-    if (!isNaN(offset) && offset > 0) {
-      params.push(offset);
-      parts.push(`OFFSET $${paramOffset + params.length}`);
-    }
-
-    return { limitClause: parts.join(' '), limitParams: params };
   }
 
   private validateTableName(name: string) {

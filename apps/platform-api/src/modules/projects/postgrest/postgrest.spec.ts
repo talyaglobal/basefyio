@@ -221,3 +221,92 @@ describe('count', () => {
     expect(params).toEqual(['x']);
   });
 });
+
+/**
+ * Writes get the same filter language as reads.
+ *
+ * update and delete used to run through a separate, flat filter parser: no
+ * or/and/not, no casts, no JSON paths. A client that could express a condition
+ * on a read found the same condition rejected on a write, and the two parsers
+ * drifted apart with every operator added to one of them.
+ */
+describe('PostgREST builder — write filters', () => {
+  const where = (table: string, qs: Record<string, string>) => {
+    const { schema, cache } = fixtureSchema();
+    const b = new SelectBuilder(schema, cache);
+    return b.buildWriteWhere(table, parseQuery(qs));
+  };
+
+  it('aliases the table so the clause reads the same as a select', () => {
+    const { alias, where: w } = where('posts', { id: 'eq.1' });
+    expect(alias).toMatch(/^_bf\d+$/);
+    expect(w).toContain(`${alias}."id"`);
+  });
+
+  it('binds values rather than writing them into the statement', () => {
+    const { where: w, params } = where('posts', { title: 'eq.hello' });
+    expect(w).toMatch(/"title" = \$1/);
+    expect(params).toEqual(['hello']);
+    expect(w).not.toContain('hello');
+  });
+
+  it('supports an or group, which the old write parser could not express', () => {
+    const { where: w } = where('posts', { or: '(title.eq.a,title.eq.b)' });
+    expect(w).toMatch(/"title" = \$1 OR .*"title" = \$2/);
+  });
+
+  it('supports and nested inside or', () => {
+    const { where: w } = where('posts', { or: '(title.eq.a,and(title.eq.b,author_id.eq.5))' });
+    expect(w).toMatch(/OR \(.*"title" = \$2 AND .*"author_id" = \$3\)/);
+  });
+
+  it('supports negation', () => {
+    const { where: w } = where('posts', { title: 'not.eq.spam' });
+    expect(w).toMatch(/NOT \(.*"title" = \$1\)/);
+  });
+
+  it('supports in lists with one placeholder each', () => {
+    const { where: w, params } = where('posts', { id: 'in.(1,2,3)' });
+    expect(w).toMatch(/"id" IN \(\$1, \$2, \$3\)/);
+    expect(params).toEqual(['1', '2', '3']);
+  });
+
+  it('supports a JSON path', () => {
+    const { where: w } = where('users', { profile: 'eq.x' });
+    expect(w).toMatch(/"profile" = \$1/);
+  });
+
+  it('supports is.null without binding a parameter', () => {
+    const { where: w, params } = where('posts', { body: 'is.null' });
+    expect(w).toMatch(/"body" IS NULL/);
+    expect(params).toEqual([]);
+  });
+
+  /**
+   * An empty clause is how the service knows to refuse: an UPDATE or DELETE
+   * with no filter takes the whole table.
+   */
+  it('returns an empty clause when nothing filters, so the caller can refuse', () => {
+    expect(where('posts', {}).where).toBe('');
+  });
+
+  it('ignores select, order and limit, which do not belong on a write', () => {
+    const { where: w, params } = where('posts', {
+      id: 'eq.1',
+      select: '*,comments(body)',
+      order: 'created_at.desc',
+      limit: '10',
+    });
+    expect(w).toMatch(/"id" = \$1/);
+    expect(w).not.toMatch(/json_agg|ORDER BY|LIMIT/);
+    expect(params).toEqual(['1']);
+  });
+
+  it('still rejects an unknown column', () => {
+    expect(() => where('posts', { nope: 'eq.1' })).toThrow(PostgrestParseError);
+  });
+
+  it('still rejects an unknown table', () => {
+    expect(() => where('nonexistent', { id: 'eq.1' })).toThrow(PostgrestParseError);
+  });
+});
