@@ -56,6 +56,29 @@ export class SelectBuilder {
     return { sql, params: this.params };
   }
 
+  /**
+   * The WHERE clause for a statement that changes rows.
+   *
+   * UPDATE and DELETE want the same filter language a read has — or/and/not,
+   * casts, JSON paths, the whole operator set — and none of the rest of it:
+   * no embeds, no ordering, no paging. Postgres accepts an alias on both
+   * statements, so the clause comes out exactly as it does for a select and
+   * the statement reads `UPDATE "t" AS _bf0 SET … WHERE _bf0."x" = $1`.
+   *
+   * Returns an empty clause when the query carries no filter. The caller
+   * decides what that means; for a write it means refusing, since an
+   * unfiltered UPDATE or DELETE takes the whole table.
+   */
+  buildWriteWhere(
+    table: string,
+    query: ParsedQuery,
+  ): { alias: string; where: string; params: unknown[] } {
+    const info = this.table(table);
+    const alias = this.nextAlias();
+    const where = this.buildWhere(alias, info, query, '');
+    return { alias, where, params: this.params };
+  }
+
   /** The parameters accumulated so far, exposed for callers that compose counts. */
   get boundParams(): unknown[] {
     return this.params;

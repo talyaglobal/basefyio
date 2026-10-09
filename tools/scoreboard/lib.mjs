@@ -5,9 +5,22 @@ export const ROOT = new URL('../../', import.meta.url).pathname.replace(/^\/([A-
 
 const SKIP = new Set(['node_modules', '.git', 'dist', '.next', 'coverage', 'graphify-out', '.turbo']);
 
-/** Every source file under the given roots, as absolute paths. */
-export function sources(roots, exts = ['.ts', '.tsx', '.mjs', '.yml', '.yaml', '.json', '.prisma']) {
+/**
+ * Every source file under the given roots, as absolute paths.
+ *
+ * Test files are excluded unless asked for. A spec may name any capability in
+ * order to assert its absence, or in a fixture, or in prose — so it is never
+ * evidence that the capability exists. Leaving them in had the probe for
+ * resumable uploads citing a billing fixture and the one for image transforms
+ * citing a SQL guard spec, both of which raised the score for nothing.
+ */
+export function sources(
+  roots,
+  exts = ['.ts', '.tsx', '.mjs', '.yml', '.yaml', '.json', '.prisma'],
+  { includeTests = false } = {},
+) {
   const out = [];
+  const isTest = (name) => /\.(spec|test)\.[cm]?[jt]sx?$/.test(name);
   const walk = (dir) => {
     let entries;
     try {
@@ -19,13 +32,15 @@ export function sources(roots, exts = ['.ts', '.tsx', '.mjs', '.yml', '.yaml', '
       if (SKIP.has(e.name)) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (exts.some((x) => e.name.endsWith(x))) out.push(p);
+      else if (exts.some((x) => e.name.endsWith(x)) && (includeTests || !isTest(e.name))) out.push(p);
     }
   };
   for (const r of roots) {
     const abs = join(ROOT, r);
     if (!existsSync(abs)) continue;
-    if (statSync(abs).isFile()) out.push(abs);
+    if (statSync(abs).isFile()) {
+      if (includeTests || !isTest(abs)) out.push(abs);
+    }
     else walk(abs);
   }
   return out;
@@ -37,10 +52,10 @@ export function sources(roots, exts = ['.ts', '.tsx', '.mjs', '.yml', '.yaml', '
  * Returns locations rather than a bare count so a check can cite where its
  * verdict came from. A score with no citation is an opinion.
  */
-export function hits(pattern, roots, exts) {
+export function hits(pattern, roots, exts, opts) {
   const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
   const found = [];
-  for (const file of sources(roots, exts)) {
+  for (const file of sources(roots, exts, opts)) {
     let text;
     try {
       text = readFileSync(file, 'utf8');
