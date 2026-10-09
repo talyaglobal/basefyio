@@ -1,10 +1,11 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import {
@@ -36,6 +37,8 @@ export interface ForeignKeyInfo {
 
 @Injectable()
 export class ProjectDataService {
+  private readonly logger = new Logger(ProjectDataService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -74,11 +77,54 @@ export class ProjectDataService {
     return { pool, project };
   }
 
+  /**
+   * Let a panel read see every row, including on tables that force policy on
+   * their owner.
+   *
+   * A table with FORCE ROW LEVEL SECURITY applies its policies to the table
+   * owner too, and the panel connects as exactly that owner. On a schema that
+   * uses it, every count came back 0 and every grid came back empty while the
+   * rows were all there — the owner could not see their own data anywhere in
+   * the product, because the SQL editor and a direct connection use the same
+   * role and are filtered the same way.
+   *
+   * service_role carries BYPASSRLS and the project's owner is a member of it,
+   * so a read can borrow it for the length of one transaction. SET LOCAL
+   * confines that to the transaction, and the caller is already a team member
+   * proven by a dashboard session, so this grants no authority they did not
+   * have — it shows them their own rows.
+   *
+   * Deliberately reads only. Writes stay as the owner: bypassing policy on a
+   * write would also bypass every WITH CHECK the schema relies on, and would
+   * change what current_user reports to the customer's own triggers.
+   *
+   * Returns whether the elevation took, so the answer can say so rather than
+   * quietly showing rows a policy would have hidden. Projects whose database
+   * predates service_role simply keep the old behaviour.
+   */
+  private async elevateForRead(client: PoolClient): Promise<boolean> {
+    try {
+      await client.query('SET LOCAL ROLE service_role');
+      return true;
+    } catch (err: any) {
+      this.logger.debug(
+        `Reading as the project owner without elevation: ${err?.message ?? err}`,
+      );
+      return false;
+    }
+  }
+
   async listTables(projectId: string, ownerId?: string): Promise<TableInfo[]> {
     const { pool } = await this.getProjectPool(projectId, ownerId);
     const client = await pool.connect();
 
     try {
+      // A transaction so the read can borrow service_role for its length.
+      // Without it, a schema that forces policy on the table owner counts
+      // every table as empty — see elevateForRead.
+      await client.query('BEGIN');
+      await this.elevateForRead(client);
+
       // First pass: cheap n_live_tup read for every table. This populates the
       // sidebar instantly even on schemas with hundreds of tables.
       const result = await client.query(`
@@ -122,7 +168,11 @@ export class ProjectDataService {
           }
         }),
       );
+      await client.query('COMMIT');
       return refinements;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw err;
     } finally {
       client.release();
       await pool.end();
@@ -195,6 +245,7 @@ export class ProjectDataService {
     try {
       // Wrap in explicit transaction so SET LOCAL takes effect
       await client.query('BEGIN');
+      const rlsBypassed = await this.elevateForRead(client);
 
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
@@ -335,6 +386,9 @@ export class ProjectDataService {
         page,
         limit,
         totalPages: Math.max(1, Math.ceil(total / limit)),
+        // Reported rather than assumed, so the grid can say that what it
+        // shows is not what a policy-bound caller would see.
+        rlsBypassed,
       };
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
