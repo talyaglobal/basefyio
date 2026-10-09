@@ -20,6 +20,11 @@ import { Response } from 'express';
 import { StorageService } from './storage.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import {
+  AnonKeyAllowed,
+  AuthenticatedKeyOnly,
+  ServiceKeyOnly,
+} from '../../common/decorators/api-key-scope.decorator';
+import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
@@ -30,8 +35,22 @@ import {
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
+/**
+ * Buckets and objects.
+ *
+ * The controller defaults to the service key, so a route added here later is
+ * closed until someone states otherwise. Carved out of that default: object
+ * reads and writes need a signed-in end user, and the two routes a browser
+ * reaches with no headers at all — a public file's URL and the download behind
+ * it — stay public, because an <img src> cannot send an apikey header.
+ *
+ * A private bucket is still readable by anyone holding the public key through
+ * the download route. Closing that needs per-object access policies, which is
+ * a feature rather than a guard change.
+ */
 @Controller('projects/:projectId/storage')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class StorageController {
   constructor(
     private readonly storage: StorageService,
@@ -41,6 +60,7 @@ export class StorageController {
   // ── Buckets ────────────────────────────────────────────
 
   @Get('buckets')
+  @AuthenticatedKeyOnly()
   async listBuckets(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
@@ -97,6 +117,7 @@ export class StorageController {
   }
 
   @Get('buckets/:bucketName/public-url')
+  @AnonKeyAllowed()
   async getPublicUrl(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -109,6 +130,7 @@ export class StorageController {
   // ── Folders & Objects ──────────────────────────────────
 
   @Post('buckets/:bucketName/folders')
+  @AuthenticatedKeyOnly()
   async createFolder(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -126,6 +148,7 @@ export class StorageController {
   }
 
   @Post('buckets/:bucketName/objects/exists')
+  @AuthenticatedKeyOnly()
   async findExisting(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -142,6 +165,7 @@ export class StorageController {
   }
 
   @Post('buckets/:bucketName/objects/move')
+  @AuthenticatedKeyOnly()
   async moveObjects(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -165,6 +189,7 @@ export class StorageController {
   }
 
   @Get('buckets/:bucketName/objects')
+  @AuthenticatedKeyOnly()
   async listObjects(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -175,6 +200,7 @@ export class StorageController {
   }
 
   @Post('buckets/:bucketName/objects')
+  @AuthenticatedKeyOnly()
   @UseInterceptors(FileInterceptor('file'))
   async uploadObject(
     @Param('projectId') projectId: string,
@@ -208,7 +234,11 @@ export class StorageController {
     return uploaded;
   }
 
+  // A browser loads a file through an <img>, <video> or <a download>, none of
+  // which can set an apikey header, so this route is the one that stays open to
+  // the public key. It is what getPublicUrl() points at.
   @Get('buckets/:bucketName/objects/download')
+  @AnonKeyAllowed()
   async downloadObject(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -236,6 +266,7 @@ export class StorageController {
   }
 
   @Get('buckets/:bucketName/objects/url')
+  @AuthenticatedKeyOnly()
   async getPresignedUrl(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,
@@ -261,6 +292,7 @@ export class StorageController {
   }
 
   @Delete('buckets/:bucketName/objects')
+  @AuthenticatedKeyOnly()
   async deleteObjects(
     @Param('projectId') projectId: string,
     @Param('bucketName') bucketName: string,

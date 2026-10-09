@@ -7,9 +7,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import jwksClient, { JwksClient } from 'jwks-rsa';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  API_KEY_SCOPE_KEY,
+  ApiKeyScope,
+} from '../decorators/api-key-scope.decorator';
 
 export type PgRequestRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -31,6 +36,7 @@ export class ApiKeyGuard implements CanActivate {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -86,13 +92,12 @@ export class ApiKeyGuard implements CanActivate {
         // When the Bearer token is just the project key (not a user JWT), treat
         // the caller as anon instead of rejecting it as an invalid access token.
         if (token === apiKey || token === project.anonKey || token === project.serviceKey) {
-          request.apiKeyPayload = {
+          return this.admit(context, request, {
             projectId: project.id,
             role: isService ? 'service' : 'anon',
             dbRole,
             jwtClaims: undefined,
-          } as ApiKeyPayload;
-          return true;
+          });
         }
         const claims = await this.verifyProjectJwt(token, project.keycloakRealm);
         if (claims) {
@@ -108,14 +113,74 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
-    request.apiKeyPayload = {
+    return this.admit(context, request, {
       projectId: project.id,
       role: isService ? 'service' : 'anon',
       dbRole,
       jwtClaims,
-    } as ApiKeyPayload;
+    });
+  }
 
+  /**
+   * The single exit from canActivate: publish the payload, then check it
+   * against the route's declared scope.
+   *
+   * Both steps belong together. There are two ways out of the key-resolution
+   * logic above — the mirrored-key shortcut and the normal path — and a scope
+   * check written at only one of them is a hole that reads as covered.
+   */
+  private admit(context: ExecutionContext, request: any, payload: ApiKeyPayload): boolean {
+    request.apiKeyPayload = payload;
+    this.assertScope(context, request, payload);
     return true;
+  }
+
+  /**
+   * Refuse a key that does not carry the authority the route asks for.
+   *
+   * An unmarked route keeps its present behaviour: this closes the holes it is
+   * pointed at without changing every caller at once. Marking a controller
+   * 'service' covers the routes written on it later too, which is the point —
+   * the dangerous default is the one that has to be stated.
+   */
+  private assertScope(context: ExecutionContext, request: any, payload: ApiKeyPayload): void {
+    const scope = this.reflector.getAllAndOverride<ApiKeyScope>(API_KEY_SCOPE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!scope || scope === 'anon') return;
+    if (payload.role === 'service') return;
+
+    if (scope === 'authenticated' && payload.dbRole === 'authenticated') return;
+
+    const route = `${request.method} ${request.originalUrl ?? request.url ?? ''}`.split('?')[0];
+
+    if (scope === 'authenticated') {
+      // An app that writes with a bare anon key and no signed-in user stops
+      // working the moment this is enforced. That is the point, but a
+      // self-hosted operator who knows they have such an app needs a way to
+      // keep it running while they fix it, so the tier can be put in
+      // log-only mode. The default is to refuse.
+      if (this.config.get<string>('ANON_WRITE_BINDING') === 'log') {
+        this.logger.warn(
+          `ANON WRITE: project ${payload.projectId} used its public anon key on ${route}, which requires a signed-in user — allowed because ANON_WRITE_BINDING=log`,
+        );
+        return;
+      }
+      this.logger.warn(
+        `Refused anon key of project ${payload.projectId} on a route requiring a signed-in user (${route})`,
+      );
+      throw new ForbiddenException(
+        'This route requires a signed-in user. Send the end user\'s access token as a Bearer token alongside the anon key, or call it with the service key from your server.',
+      );
+    }
+
+    this.logger.warn(
+      `Refused anon key of project ${payload.projectId} on a service-key route (${route})`,
+    );
+    throw new ForbiddenException(
+      'This route requires the service key and must be called from your server, never from a browser. The anon key is public and cannot be used here.',
+    );
   }
 
   /**
@@ -133,11 +198,12 @@ export class ApiKeyGuard implements CanActivate {
    * naming the caller's own project with a body naming a victim's must not pass
    * on the strength of the path.
    *
-   * The anon key is refused outright — it is public, so no legitimate caller
-   * holds another project's. The service key is secret, and some internal tool
-   * may hold one key for several projects; until that is ruled out, a mismatch
-   * is logged rather than refused. Set SERVICE_KEY_PROJECT_BINDING=enforce to
-   * refuse those too.
+   * Both keys are refused. The anon key always was: it is public, so no
+   * legitimate caller holds another project's. The service key was only
+   * logged at first, in case an internal tool held one key for several
+   * projects — over the days that followed, prod recorded no such caller, so
+   * it is refused now too. Set SERVICE_KEY_PROJECT_BINDING=log to go back to
+   * logging if a self-hosted deployment turns out to have one.
    */
   private assertKeyMatchesTargetProject(
     request: any,
@@ -162,16 +228,17 @@ export class ApiKeyGuard implements CanActivate {
       throw new ForbiddenException('This API key does not belong to the requested project');
     }
 
-    if (this.config.get<string>('SERVICE_KEY_PROJECT_BINDING') === 'enforce') {
+    if (this.config.get<string>('SERVICE_KEY_PROJECT_BINDING') === 'log') {
       this.logger.warn(
-        `Refused service key of project ${keyProjectId} used against project ${foreign} (${route})`,
+        `CROSS-PROJECT SERVICE KEY: key of project ${keyProjectId} used against project ${foreign} (${route}) — allowed because SERVICE_KEY_PROJECT_BINDING=log`,
       );
-      throw new ForbiddenException('This API key does not belong to the requested project');
+      return;
     }
 
     this.logger.warn(
-      `CROSS-PROJECT SERVICE KEY: key of project ${keyProjectId} used against project ${foreign} (${route}) — allowed for now, will be refused once binding is enforced`,
+      `Refused service key of project ${keyProjectId} used against project ${foreign} (${route})`,
     );
+    throw new ForbiddenException('This API key does not belong to the requested project');
   }
 
   /**

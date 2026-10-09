@@ -13,6 +13,7 @@ import { Response } from 'express';
 import { AgentCreationService } from './agent-creation.service';
 import { AgentRunnerService } from './agent-runner.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -23,8 +24,15 @@ import { CreateAgentVersionDto } from './dto/create-agent-version.dto';
 import { ListAgentsQuery } from './dto/list-agents.query';
 import { CreateRunDto } from './dto/create-run.dto';
 
+/**
+ * Agent definitions and runs.
+  *
+  * An agent definition is configuration: rewriting its prompt or tools hijacks
+  * what it does. Starting a run bills LLM inference with no per-caller cap.
+ */
 @Controller('projects/:projectId/agents')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class AgentCreationController {
   constructor(
     private readonly agentCreation: AgentCreationService,

@@ -12,13 +12,21 @@ import { ExecuteJsQueryDto } from './dto/execute-js-query.dto';
 import { ExecuteAggregationDto } from './dto/execute-aggregation.dto';
 import { SaveQueryDto } from './dto/save-query.dto';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 
+/**
+ * Ad-hoc query execution.
+  *
+  * Runs an arbitrary query or aggregation DSL against the owner pool with no
+  * role switch, so it reads across every row regardless of policy.
+ */
 @Controller('v1/projects/:projectId/data-query')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class DataQueryController {
   constructor(private readonly dataQuery: DataQueryService) {}
 

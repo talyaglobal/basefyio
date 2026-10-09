@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -18,8 +19,17 @@ import { AddMessageDto } from './dto/add-message.dto';
 import { ListThreadsQuery } from './dto/list-threads.query';
 import { ListMessagesQuery } from './dto/list-messages.query';
 
+/**
+ * Agent threads and memory.
+  *
+  * These rows live in the platform database rather than the project's, so there
+  * is no row-level policy behind them, and no handler checks that a thread
+  * belongs to the caller. Until that ownership check exists a browser cannot be
+  * allowed to read threads at all — it would read every user's.
+ */
 @Controller('projects/:projectId/agent')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 export class AgentController {
   constructor(private readonly agent: AgentService) {}
 

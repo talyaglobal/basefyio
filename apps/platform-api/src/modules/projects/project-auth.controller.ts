@@ -26,6 +26,7 @@ import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -150,8 +151,21 @@ function parsePasswordPolicy(s: string) {
   };
 }
 
+/**
+ * The project's user directory and realm configuration.
+ *
+ * Every route here is administration: listing and deleting users, resetting
+ * passwords, revoking sessions, rewriting the auth config and the identity
+ * providers. None of it has a legitimate caller in a browser, and the anon key
+ * that browsers carry is public — so the whole controller is service-key only.
+ *
+ * Reached with a dashboard JWT this is unchanged; the owner still manages their
+ * users from the panel. End-user flows (sign-up, sign-in, password-reset
+ * requests) live on ProjectSdkAuthController and stay public.
+ */
 @Controller('projects/:projectId/auth')
 @UseGuards(JwtOrApiKeyGuard)
+@ServiceKeyOnly()
 @UseInterceptors(KeycloakFailureInterceptor)
 export class ProjectAuthController {
   constructor(

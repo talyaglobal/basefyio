@@ -11,6 +11,11 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import {
+  AnonKeyAllowed,
+  AuthenticatedKeyOnly,
+  ServiceKeyOnly,
+} from '../../common/decorators/api-key-scope.decorator';
 import { TenantEmbeddingService } from './tenant-embedding.service';
 
 @Controller('rest/v1/embeddings')
@@ -26,6 +31,7 @@ export class TenantEmbeddingPublicController {
    * Body: { content, namespace?, metadata? }
    */
   @Post()
+  @ServiceKeyOnly()
   async store(
     @Body()
     body: {
@@ -48,6 +54,7 @@ export class TenantEmbeddingPublicController {
    * Body: { items: [{ content, namespace?, metadata? }, ...] }
    */
   @Post('batch')
+  @ServiceKeyOnly()
   async storeBatch(
     @Body()
     body: {
@@ -72,6 +79,7 @@ export class TenantEmbeddingPublicController {
    * Body: { query, namespace?, threshold?, limit?, filter? }
    */
   @Post('search')
+  @AuthenticatedKeyOnly()
   async search(
     @Body()
     body: {
@@ -95,6 +103,7 @@ export class TenantEmbeddingPublicController {
    * Body: { ids: ["uuid1", "uuid2"] }
    */
   @Delete()
+  @ServiceKeyOnly()
   async deleteByIds(
     @Body() body: { ids: string[] },
     @Req() req: Request,
@@ -115,6 +124,7 @@ export class TenantEmbeddingPublicController {
    * DELETE /rest/v1/embeddings/namespace/:namespace
    */
   @Delete('namespace')
+  @ServiceKeyOnly()
   async deleteByNamespace(
     @Body() body: { namespace: string },
     @Req() req: Request,
@@ -138,6 +148,7 @@ export class TenantEmbeddingPublicController {
    * GET /rest/v1/embeddings/status
    */
   @Get('status')
+  @AnonKeyAllowed()
   async status(@Req() req: Request) {
     const payload = this.getPayload(req);
     return this.tenantEmbedding.getStatus(payload.projectId);
@@ -149,6 +160,14 @@ export class TenantEmbeddingPublicController {
     return payload;
   }
 
+  /**
+   * Kept for the error message it produces, but it is no longer the control.
+   *
+   * It passes for dbRole 'authenticated', which an anon key reaches by simply
+   * carrying any valid end-user token — so it read as a service-key check
+   * while admitting the public key. Every write route now declares
+   * @ServiceKeyOnly(), which the guard enforces before the handler runs.
+   */
   private assertWriteAccess(payload: ApiKeyPayload): void {
     if (payload.dbRole === 'anon') {
       throw new ForbiddenException(

@@ -22,6 +22,41 @@ export class AuditLogInterceptor implements NestInterceptor {
     return 'UNKNOWN';
   }
 
+  /**
+   * Who made this request, for requests that carry an API key instead of a
+   * dashboard session.
+   *
+   * These were not recorded at all: the audit log kept only requests with a
+   * JWT user, so everything the SDK and every key-authed caller did was
+   * invisible — including, before the keys were bound to their project, a key
+   * reaching another tenant. An attack over the public key left no trace.
+   *
+   * There is no platform user behind a key, so the project stands in as the
+   * actor and the role says which key was used and whether an end user had
+   * signed in behind it.
+   */
+  private resolveApiKeyActor(
+    request: any,
+  ): { actorUserId: string; actorRole: string; projectId: string } | null {
+    const key = request?.apiKeyPayload;
+    if (!key?.projectId) return null;
+
+    const sub =
+      key.jwtClaims && typeof key.jwtClaims.sub === 'string' ? key.jwtClaims.sub : undefined;
+    const role =
+      key.role === 'service'
+        ? 'SERVICE_KEY'
+        : key.dbRole === 'authenticated'
+          ? 'ANON_KEY_USER'
+          : 'ANON_KEY';
+
+    return {
+      actorUserId: sub ? `project:${key.projectId}/user:${sub}` : `project:${key.projectId}`,
+      actorRole: role,
+      projectId: key.projectId,
+    };
+  }
+
   private normalizeResourceType(url: string): string {
     const clean = (url || '').split('?')[0];
     const parts = clean.split('/').filter(Boolean);
@@ -92,9 +127,11 @@ export class AuditLogInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
     const { method, url, user } = request;
-    const shouldAudit = method !== 'OPTIONS' && !!user?.sub;
+    const keyActor = this.resolveApiKeyActor(request);
+    const actorUserId = user?.sub ?? keyActor?.actorUserId;
+    const shouldAudit = method !== 'OPTIONS' && !!actorUserId;
     const traceId = request?.traceId || 'unknown';
-    const actorRole = this.getActorRole(user);
+    const actorRole = user?.sub ? this.getActorRole(user) : (keyActor?.actorRole ?? 'UNKNOWN');
     const resourceType = this.normalizeResourceType(url);
     const action = `${method} ${url.split('?')[0]}`;
     const now = Date.now();
@@ -103,12 +140,12 @@ export class AuditLogInterceptor implements NestInterceptor {
       tap(() => {
         const duration = Date.now() - now;
         this.logger.log(
-          `${method} ${url} — user=${user?.sub ?? 'anonymous'} — ${duration}ms`,
+          `${method} ${url} — user=${actorUserId ?? 'anonymous'} — ${duration}ms`,
         );
         if (shouldAudit) {
           void this.persistAudit({
             traceId,
-            actorUserId: user.sub,
+            actorUserId: actorUserId as string,
             actorRole,
             action,
             resourceType,
@@ -127,7 +164,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         if (shouldAudit) {
           void this.persistAudit({
             traceId,
-            actorUserId: user.sub,
+            actorUserId: actorUserId as string,
             actorRole,
             action,
             resourceType,
