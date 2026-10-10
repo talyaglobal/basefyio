@@ -317,7 +317,14 @@ export class ProjectSdkAuthService {
   /* ───────── OAuth Provider Sign In ───────── */
   async getOAuthRedirectUrl(projectId: string, provider: string, redirectTo?: string) {
     const project = await this.getProject(projectId);
-    const keycloakUrl = this.config.get<string>('keycloak.url');
+    // The only Keycloak URL in this service that a browser opens, so the only
+    // one that must be the public hostname. The rest are server-to-server
+    // token and userinfo calls and stay on the internal address. This returned
+    // http://keycloak:8080, which resolves inside the Docker network and
+    // nowhere else, so the address handed to the customer's app was
+    // unreachable even once the redirect URI was registered.
+    const keycloakUrl =
+      this.config.get<string>('keycloak.publicUrl') || this.config.get<string>('keycloak.url');
     const apiBase = this.getPublicApiBase();
     const callbackUrl = `${apiBase}/rest/v1/auth/callback/${projectId}/${provider}`;
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
