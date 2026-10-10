@@ -322,6 +322,16 @@ export class ProjectSdkAuthService {
     const callbackUrl = `${apiBase}/rest/v1/auth/callback/${projectId}/${provider}`;
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
 
+    // Keycloak refuses an authorization request whose redirect_uri matches
+    // nothing, and the anon client is created without any — so this has to be
+    // registered before the caller is sent there, not after. One wildcard
+    // covers every provider for this project; see the method for why it is not
+    // broader than that.
+    await this.keycloak.ensureAnonClientRedirectUri(
+      project.keycloakRealm,
+      `${apiBase}/rest/v1/auth/callback/${projectId}/*`,
+    );
+
     const stateData = JSON.stringify({
       redirectTo: redirectTo || '/',
     });
