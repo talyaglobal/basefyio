@@ -220,6 +220,22 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
         full audit logging of every query.
       </p>
 
+      <h3 id="schema-migrations">Schema migrations</h3>
+      <p>
+        Project keys are data credentials. The <code>anon</code>, <code>authenticated</code> and
+        <code> service_role</code> database roles hold table and function privileges only, so no key
+        — the secret service key included — can run DDL. A migration runner that sends
+        <code> CREATE TABLE</code> or <code>CREATE VIEW</code> through the API with the service key
+        gets <code>permission denied for schema public</code>.
+      </p>
+      <p>
+        Run migrations as the database owner instead, over a direct Postgres connection. The project&apos;s
+        Connection panel in the dashboard gives you the owner URI through the connection pooler — point
+        your migration tool (Prisma, Drizzle, Flyway, psql, your own runner) at it. The pooler presents a
+        self-signed certificate, so use <code>sslmode=require</code>. Team members can also apply schema
+        changes from the dashboard SQL Editor or Table Editor, which run as the owner.
+      </p>
+
       <h3>Table Editor</h3>
       <p>
         Visual spreadsheet-style editor for your database tables. Create tables, add/edit/delete columns,
