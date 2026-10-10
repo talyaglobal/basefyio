@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -63,11 +64,18 @@ Server → Service Key (apikey header)
       <ul>
         <li><code>anon</code> — Unauthenticated users (public access)</li>
         <li><code>authenticated</code> — Signed-in users (JWT verified)</li>
-        <li><code>service_role</code> — Server-side admin (bypasses all RLS)</li>
+        <li><code>service_role</code> — Server-side data access (reads and writes every row, bypassing all RLS)</li>
       </ul>
       <p>
         The API automatically switches to the correct role based on the request&apos;s authentication context
         using <code>SET LOCAL ROLE</code> inside a transaction.
+      </p>
+      <p>
+        All three are <strong>data</strong> roles: they hold table and function privileges, not schema
+        privileges. None of them — <code>service_role</code> included — can run DDL such as
+        <code> CREATE TABLE</code> or <code>CREATE VIEW</code>, so a project key cannot change your
+        schema even if it leaks. Schema changes belong to the database owner; see
+        <Link href="/docs#schema-migrations"> schema migrations</Link>.
       </p>
 
       <h3>Writing RLS Policies</h3>
