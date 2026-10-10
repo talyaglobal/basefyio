@@ -314,6 +314,11 @@ services:
       MINIO_PUBLIC_PORT: 443
       MINIO_PUBLIC_SSL: "true"
       RESEND_API_KEY: ${RESEND_API_KEY}
+      # The mail provider's API base. The Resend SDK reads RESEND_BASE_URL from
+      # the environment itself, so pointing it at a Resend-compatible provider
+      # needs no code change — only this variable, which compose has to pass
+      # through or it never reaches the container.
+      RESEND_BASE_URL: ${RESEND_BASE_URL:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
       REDIS_URL: redis://redis:6379
