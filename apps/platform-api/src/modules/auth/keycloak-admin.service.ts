@@ -480,6 +480,53 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Realm "${realmName}" created`);
   }
 
+  /**
+   * Register the OAuth callback on a project's anon client.
+   *
+   * The anon client is created with the standard flow enabled but no redirect
+   * URIs, and Keycloak refuses an authorization request whose redirect_uri
+   * matches nothing — so every social sign-in failed with "Invalid parameter:
+   * redirect_uri" on every project that configured one. Email and password
+   * sign-in kept working, because that uses the direct grant and never
+   * redirects, which is why the gap went unnoticed.
+   *
+   * The project id is not known when the client is created — the row does not
+   * exist yet — so the URI is written here instead, at the one moment both the
+   * realm and the project are known: just before an authorization request is
+   * handed out. Idempotent, so it costs one read on every sign-in after the
+   * first and repairs a client that predates the fix.
+   *
+   * Only the exact callback for this project is added, with the wildcard
+   * confined to the provider segment. A broader pattern on a redirect URI is
+   * an open redirect, which is the hole this kind of setting usually opens.
+   */
+  async ensureAnonClientRedirectUri(realmName: string, callbackUri: string): Promise<void> {
+    await this.ensureAuth();
+    const anonClientId = `${realmName}-anon`;
+
+    const found = await this.withRetry(`findClient(${anonClientId})`, () =>
+      this.client.clients.find({ realm: realmName, clientId: anonClientId }),
+    );
+    const existing = found?.[0];
+    if (!existing?.id) {
+      this.logger.warn(
+        `Cannot register the OAuth callback: client "${anonClientId}" does not exist in realm "${realmName}"`,
+      );
+      return;
+    }
+
+    const current = existing.redirectUris ?? [];
+    if (current.includes(callbackUri)) return;
+
+    await this.withRetry(`updateClientRedirectUris(${anonClientId})`, () =>
+      this.client.clients.update(
+        { realm: realmName, id: existing.id! },
+        { ...existing, redirectUris: [...current, callbackUri] },
+      ),
+    );
+    this.logger.log(`Registered OAuth callback on "${anonClientId}": ${callbackUri}`);
+  }
+
   async createClients(realmName: string): Promise<ProjectClients> {
     await this.ensureAuth();
 
