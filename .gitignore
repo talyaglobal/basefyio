@@ -54,3 +54,12 @@ graphify-out/
 # Deployment secrets (generated on the server, never committed)
 /secrets/
 *.keyfile
+
+# Internal assessments and customer documents. The repository is public: a
+# capability scoreboard tells a stranger which areas are weakest and what to
+# try first, and a customer's requirements document is theirs, not ours to
+# publish. The tool that produces the scoreboard stays; its output does not.
+docs/scoreboard.md
+docs/*.pdf
+docs/*.xlsx
+docs/*.docx
