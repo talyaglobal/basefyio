@@ -1,3 +1,6 @@
+// Must precede every other import: the mail SDK reads its API base from the
+// environment once, when it is first required.
+import './mail-provider-env';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

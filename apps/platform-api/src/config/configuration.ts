@@ -1,3 +1,4 @@
+import { resolveMailBaseUrl } from '../mail-provider-env';
 export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
@@ -67,8 +68,14 @@ export default () => ({
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
+  // The mailer speaks the Resend HTTP contract, but the provider behind it is
+  // configurable: the SDK reads RESEND_BASE_URL from the environment, so
+  // pointing it elsewhere is configuration rather than code. The key is read
+  // from the provider-neutral name first so the fallback can be retired once
+  // nothing is left on the old provider.
   resend: {
-    apiKey: process.env.RESEND_API_KEY || '',
+    apiKey: process.env.TSMART_SEND_API_KEY || process.env.RESEND_API_KEY || '',
+    baseUrl: resolveMailBaseUrl() || 'https://api.resend.com',
     fromEmail: process.env.RESEND_FROM_EMAIL || 'basefyio <noreply@basefyio.com>',
     replyTo: process.env.RESEND_REPLY_TO || 'support@basefyio.com',
   },

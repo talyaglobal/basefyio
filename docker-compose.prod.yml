@@ -313,6 +313,9 @@ services:
       MINIO_PUBLIC_ENDPOINT: storage.${DOMAIN}
       MINIO_PUBLIC_PORT: 443
       MINIO_PUBLIC_SSL: "true"
+      # Provider-neutral key, read first by the mailer; RESEND_API_KEY stays
+      # as the fallback until nothing is left on the old provider.
+      TSMART_SEND_API_KEY: ${TSMART_SEND_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       # The mail provider's API base. The Resend SDK reads RESEND_BASE_URL from
       # the environment itself, so pointing it at a Resend-compatible provider

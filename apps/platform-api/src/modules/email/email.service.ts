@@ -48,7 +48,7 @@ export class EmailService implements OnModuleInit {
       this.resend = new Resend(apiKey);
     } else {
       this.deliverability = { state: 'not-configured' };
-      this.logger.warn('RESEND_API_KEY is not set — emails will not be sent');
+      this.logger.warn('No mail provider API key is set — emails will not be sent');
     }
     this.fromEmail = this.config.get<string>('resend.fromEmail')!;
     this.replyTo = this.config.get<string>('resend.replyTo')!;
@@ -67,6 +67,14 @@ export class EmailService implements OnModuleInit {
     try {
       const probe = await this.resend.domains.list();
       if (probe.error) {
+        // A sending-only key is refused on the domains endpoint and is still a
+        // working key — reporting mail as down for it would be worse than not
+        // probing at all.
+        if (String(probe.error.name ?? '') === 'restricted_api_key') {
+          this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
+          this.logger.log('[EMAIL] Provider key accepted (sending-only) — mail can be sent');
+          return;
+        }
         this.markFailing(`${probe.error.name ?? 'error'} — ${probe.error.message ?? 'unknown'}`);
         return;
       }
@@ -334,7 +342,7 @@ export class EmailService implements OnModuleInit {
       // hiding a fully-broken email pipeline. Treat result.error as a failure.
       if (result.error) {
         this.logger.error(
-          `[EMAIL] ✗ Rejected by Resend: "${params.subject}" → ${params.to}\n` +
+          `[EMAIL] ✗ Rejected by the mail provider: "${params.subject}" → ${params.to}\n` +
             `From: ${this.fromEmail}\n` +
             `Error: ${result.error.name || ''} — ${result.error.message || JSON.stringify(result.error)}`,
         );
