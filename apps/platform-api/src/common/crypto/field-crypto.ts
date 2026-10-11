@@ -50,7 +50,17 @@ export function encryptField(value: string | null | undefined): string | null | 
   if (value == null || value === '') return value;
   if (isEncrypted(value)) return value;
   const key = getKey();
-  if (!key) return value; // encryption disabled — keep plaintext
+  if (!key) {
+    // Returning the plaintext here meant a project database password was
+    // written to the table in clear with nothing to show for it: the column
+    // looked the same, no log, no error, and the next reader assumed the
+    // encryption named in the schema comment had happened. Refusing to write
+    // is the smaller harm, and the message says exactly what to set.
+    throw new Error(
+      'DB_CRED_ENC_KEY is not set, so this credential cannot be encrypted at rest. ' +
+        'Set it to 32 random bytes as base64 or 64 hex characters before storing project credentials.',
+    );
+  }
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const ct = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
@@ -62,7 +72,10 @@ export function encryptField(value: string | null | undefined): string | null | 
 export function decryptField(value: string | null | undefined): string | null | undefined {
   if (value == null || !isEncrypted(value)) return value;
   const key = getKey();
-  if (!key) return value; // misconfig: can't decrypt — surface ciphertext rather than crash
+  // Reading stays tolerant on purpose: a missing key must not turn every
+  // existing row into an exception. The write path above is where the
+  // damage would be done, so that is where it refuses.
+  if (!key) return value;
   const buf = Buffer.from(value.slice(PREFIX.length), 'base64');
   const iv = buf.subarray(0, 12);
   const tag = buf.subarray(12, 28);
