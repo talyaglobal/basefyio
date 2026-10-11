@@ -19,6 +19,9 @@ import { signupVerifyEmailTemplate } from './templates/signup-verify-email.templ
 
 @Injectable()
 export class EmailService implements OnModuleInit {
+  /** Provider errors that mean the key is unusable, as opposed to limited. */
+  private static readonly KEY_IS_BAD = new Set(['invalid_api_key', 'missing_api_key']);
+
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend | null = null;
   private readonly fromEmail: string;
@@ -67,12 +70,19 @@ export class EmailService implements OnModuleInit {
     try {
       const probe = await this.resend.domains.list();
       if (probe.error) {
-        // A sending-only key is refused on the domains endpoint and is still a
-        // working key — reporting mail as down for it would be worse than not
-        // probing at all.
-        if (String(probe.error.name ?? '') === 'restricted_api_key') {
+        // Only a refusal that means the KEY ITSELF is bad counts as mail being
+        // down. The probe reads the domains endpoint, which a key can be
+        // refused on for reasons that have nothing to do with sending — it may
+        // be scoped to sending only, or its creator may lack a console right.
+        // Listing those instead would mean a false 'mail is down' every time
+        // the provider adds a new one, so the narrow list is the one that
+        // condemns the key and everything else is treated as valid-but-limited.
+        const err = String(probe.error.name ?? '');
+        if (!EmailService.KEY_IS_BAD.has(err)) {
           this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
-          this.logger.log('[EMAIL] Provider key accepted (sending-only) — mail can be sent');
+          this.logger.log(
+            `[EMAIL] Provider key accepted (limited: ${err || 'unspecified'}) — mail can be sent`,
+          );
           return;
         }
         this.markFailing(`${probe.error.name ?? 'error'} — ${probe.error.message ?? 'unknown'}`);

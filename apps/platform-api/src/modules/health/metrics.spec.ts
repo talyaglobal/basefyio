@@ -136,3 +136,40 @@ describe('MetricsInterceptor', () => {
     expect(m.render()).toMatch(/\{method="POST",status="403"\}/);
   });
 });
+
+/**
+ * The startup probe reads the provider's domains endpoint, which a perfectly
+ * good key can be refused on — it may be scoped to sending only, or its
+ * creator may lack a console right the provider started checking. Treating
+ * every refusal as "mail is down" would raise a false alarm each time the
+ * provider adds a reason, so only a refusal naming the key itself counts.
+ */
+describe('EmailService — what counts as a dead key', () => {
+  const makeService = async (probeError: { name: string } | null) => {
+    const { EmailService } = await import('../email/email.service');
+    const svc = new EmailService(
+      { get: (k: string) => (k === 'resend.apiKey' ? 'ts_key' : 'x') } as any,
+      undefined,
+    );
+    (svc as any).resend = {
+      domains: { list: async () => (probeError ? { error: probeError } : { data: [] }) },
+    };
+    await svc.onModuleInit();
+    return svc.getDeliverability();
+  };
+
+  it.each([['restricted_api_key'], ['invalid_permission'], ['something_new_next_year']])(
+    'treats %s as a valid but limited key',
+    async (name) => {
+      expect((await makeService({ name })).state).toBe('ok');
+    },
+  );
+
+  it.each([['invalid_api_key'], ['missing_api_key']])('treats %s as mail being down', async (name) => {
+    expect((await makeService({ name })).state).toBe('failing');
+  });
+
+  it('treats a clean probe as working', async () => {
+    expect((await makeService(null)).state).toBe('ok');
+  });
+});
