@@ -44,7 +44,7 @@ export class FlowsService {
     await this.projects.findOne(projectId, userId);
   }
 
-  private validate(dto: FlowDefinitionInput): void {
+  private async validate(dto: FlowDefinitionInput): Promise<void> {
     if (!dto?.name?.trim()) throw new BadRequestException('name is required');
     if (!dto.trigger || !TRIGGER_TYPES.includes(dto.trigger.type)) {
       throw new BadRequestException(`trigger.type must be one of ${TRIGGER_TYPES.join(', ')}`);
@@ -58,7 +58,7 @@ export class FlowsService {
       }
       if (a.type === 'http.request') {
         if (!a.url) throw new BadRequestException('http.request action requires a url');
-        assertSafeUrl(a.url);
+        await assertSafeUrl(a.url);
       }
     }
   }
@@ -81,7 +81,7 @@ export class FlowsService {
   async create(projectId: string, dto: FlowDefinitionInput, userId?: string) {
     await this.assertProject(projectId, userId);
     await this.entitlement.assertCan(projectId, EntitlementKey.FLOWS);
-    this.validate(dto);
+    await this.validate(dto);
     return this.prisma.flow.create({
       data: {
         projectId,
@@ -95,7 +95,7 @@ export class FlowsService {
 
   async update(projectId: string, id: string, dto: FlowDefinitionInput, userId?: string) {
     await this.get(projectId, id, userId);
-    this.validate(dto);
+    await this.validate(dto);
     return this.prisma.flow.update({
       where: { id },
       data: {
@@ -203,7 +203,7 @@ export class FlowsService {
     }
     if (action.type === 'http.request') {
       if (!action.url) return { type: 'http.request', ok: false, detail: 'missing url' };
-      assertSafeUrl(action.url);
+      await assertSafeUrl(action.url);
       try {
         const res = await axios.request({
           method: action.method || 'POST',
