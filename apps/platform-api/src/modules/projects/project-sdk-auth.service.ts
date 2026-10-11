@@ -359,8 +359,18 @@ export class ProjectSdkAuthService {
 
   async handleOAuthCallback(projectId: string, provider: string, code: string, state: string) {
     const project = await this.getProject(projectId);
-    const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
-    const { redirectTo } = stateData;
+
+    // state arrives from the browser and anyone can call this URL, so it is
+    // not ours to trust. Parsing it unguarded turned a malformed value into
+    // a 500 with a stack trace, which is both the wrong answer and more than
+    // the caller should learn.
+    let redirectTo = '/';
+    try {
+      const parsed = JSON.parse(Buffer.from(state ?? '', 'base64url').toString());
+      if (parsed && typeof parsed.redirectTo === 'string') redirectTo = parsed.redirectTo;
+    } catch {
+      throw new BadRequestException('Invalid OAuth state');
+    }
 
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const apiBase = this.getPublicApiBase();
