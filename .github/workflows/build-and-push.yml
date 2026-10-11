@@ -15,7 +15,11 @@ jobs:
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASSWORD }}
+          # An SSH key rather than a password: the password is a long-lived
+          # secret that also works for an interactive login, and the server
+          # still accepts password auth, so anything that learns it has a
+          # shell. This key authorises this workflow and nothing else.
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           command_timeout: 30m
           script: |
             set -e
