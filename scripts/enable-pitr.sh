@@ -13,7 +13,15 @@
 # Safe to re-run — every step checks whether it has already been applied.
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/kolaybase}"
+# The deployment directory is not hardcoded here on purpose: the deploy
+# workflow keeps it in a secret, and this repository is public, so naming it
+# in a tracked script would undo that for no benefit. Pass it in:
+#   DEPLOY_DIR=/path/to/deployment ./scripts/enable-pitr.sh
+DEPLOY_DIR="${DEPLOY_DIR:-}"
+if [ -z "$DEPLOY_DIR" ]; then
+  echo "DEPLOY_DIR is not set. Point it at the directory holding docker-compose.prod.yml." >&2
+  exit 1
+fi
 ENV_FILE="$DEPLOY_DIR/.env.production"
 COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.production"
 
