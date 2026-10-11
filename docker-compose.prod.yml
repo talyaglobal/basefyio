@@ -316,6 +316,10 @@ services:
       # Provider-neutral key, read first by the mailer; RESEND_API_KEY stays
       # as the fallback until nothing is left on the old provider.
       TSMART_SEND_API_KEY: ${TSMART_SEND_API_KEY:-}
+      # Protects the stored QuickBooks OAuth tokens. It must not be derived
+      # from another credential: it used to fall back to the Keycloak admin
+      # password, so rotating that silently made the tokens unreadable.
+      QB_ENCRYPTION_KEY: ${QB_ENCRYPTION_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       # The mail provider's API base. The Resend SDK reads RESEND_BASE_URL from
       # the environment itself, so pointing it at a Resend-compatible provider

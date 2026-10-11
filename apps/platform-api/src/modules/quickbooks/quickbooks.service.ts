@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import axios from 'axios';
@@ -38,12 +38,27 @@ export class QuickbooksService {
   }
 
   // ── token encryption (AES-256-GCM) ────────────────────────
+  /**
+   * The key these tokens are encrypted under.
+   *
+   * It used to fall back to the Keycloak admin password and then to a literal
+   * published in this repository, with a published salt — so the stored
+   * OAuth tokens were decryptable by anyone who read the source. Worse, the
+   * borrowed password tied this data to a credential with its own reasons to
+   * change: rotating Keycloak silently made the tokens unreadable, which is
+   * exactly what happened before this was fixed.
+   *
+   * It now depends on nothing else and refuses to run without one, because a
+   * derived-from-whatever-is-handy key reads as encryption while providing
+   * none.
+   */
   private key(): Buffer {
-    const secret =
-      process.env.QB_ENCRYPTION_KEY ||
-      this.config.get<string>('keycloak.adminPassword') ||
-      process.env.KEYCLOAK_ADMIN_PASSWORD ||
-      'basefyio-quickbooks-default-key';
+    const secret = process.env.QB_ENCRYPTION_KEY;
+    if (!secret || secret.length < 16) {
+      throw new ServiceUnavailableException(
+        'QuickBooks is not configured: QB_ENCRYPTION_KEY must be set to a value of at least 16 characters. It is the only thing protecting the stored OAuth tokens and must not be derived from another credential.',
+      );
+    }
     return crypto.scryptSync(secret, 'basefyio.quickbooks.v1', 32);
   }
   private encrypt(plain: string): string {
