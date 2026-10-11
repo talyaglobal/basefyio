@@ -73,3 +73,21 @@ docs/*.docx
 .env.*.bak
 .env.*.bak.*
 *.env.backup
+.astro/
+
+# Editor, OS and tool droppings that should never reach a public repository.
+.turbo/
+.vercel/
+.netlify/
+*.local
+*.cache
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+pnpm-debug.log*
+.AppleDouble
+.LSOverride
+ehthumbs.db
+Desktop.ini
+*~
