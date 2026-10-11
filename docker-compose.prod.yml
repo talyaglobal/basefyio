@@ -329,6 +329,10 @@ services:
       ADMIN_URL: https://admin.${DOMAIN}
       CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
+      # The pooler's admin credential. Without this the service generates a
+      # random one per process; set it so the value survives a restart. It is
+      # never a published default — the one that used to be here was.
+      PGBOUNCER_ADMIN_PASSWORD: ${PGBOUNCER_ADMIN_PASSWORD:-}
       PGBOUNCER_PORT: 6432
       PGBOUNCER_EXTERNAL_HOST: db.${DOMAIN}
       PGBOUNCER_EXTERNAL_PORT: 6432

@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join, relative, resolve } from 'path';
+import { join, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
 import { execFile } from 'child_process';
 import AdmZip = require('adm-zip');
@@ -218,7 +218,18 @@ export class ProjectArchiveImportService {
         // Bucket may already exist.
       }
 
-      const bucketDir = join(storageRoot, bucketName);
+      // The name comes from the uploaded archive, and createBucket above is
+      // wrapped in a bare catch, so its validation cannot be relied on here.
+      // join() normalises "..", which let a crafted archive walk out of the
+      // extraction directory and read the container filesystem — every
+      // tenant's database password among it, echoed back through the
+      // per-object warnings. Resolve, then require the result to stay inside.
+      const bucketDir = resolve(storageRoot, bucketName);
+      const root = resolve(storageRoot);
+      if (bucketDir !== root && !bucketDir.startsWith(root + sep)) {
+        warnings.push(`Storage bucket skipped: "${bucketName}" resolves outside the archive`);
+        continue;
+      }
       if (!existsSync(bucketDir)) continue;
       const files = await this.listFiles(bucketDir);
       for (const filePath of files) {

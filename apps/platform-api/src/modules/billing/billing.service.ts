@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import {
   Injectable,
   Logger,
@@ -448,7 +449,11 @@ export class BillingService implements OnModuleInit {
       throw new BadRequestException('Please wait a moment before requesting a new code.');
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Math.random is not a cryptographic generator: its output is predictable
+    // from previous values, and this code is a verification credential sent by
+    // email. auth.service.ts already uses randomInt for exactly this, so the
+    // difference here was an oversight rather than a decision.
+    const otp = String(randomInt(100000, 1000000));
     await this.redis.set(this.studentOtpKey(teamId, clean), otp, 600); // 10 min
     await this.redis.set(rateKey, '1', 60);
     await this.email.sendStudentVerifyEmail(clean, otp).catch((err) => {

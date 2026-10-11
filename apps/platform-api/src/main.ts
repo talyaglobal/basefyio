@@ -35,13 +35,20 @@ async function bootstrap() {
       if (!origin) return callback(null, true);
       // Dashboard / admin-ui origins — static allowlist.
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      // All other origins are allowed because SDK endpoints (rest/v1, sql,
-      // storage) are protected by apikey header validation (ApiKeyGuard),
-      // not cookies. Rejecting unknown origins would block legitimate SDK
-      // users building browser apps against their basefyio project.
+      // Every other origin is allowed on purpose: a customer builds a browser
+      // app against their own project, and the SDK surface (rest/v1, sql,
+      // storage) is authorised by the apikey header, which an attacker page
+      // cannot obtain just by being open in the same browser.
       callback(null, true);
     },
-    credentials: true,
+    // Not credentialed, and that is what makes reflecting every origin safe.
+    // Nothing here authenticates with cookies — tokens travel in the
+    // Authorization header, which a page on another origin cannot read. With
+    // credentials enabled, reflecting every origin would instead let any site
+    // make authenticated requests for whoever is signed in. No client sends
+    // credentials: 'include', so switching this off changes nothing today and
+    // stops a future cookie from silently becoming a cross-site hole.
+    credentials: false,
     allowedHeaders: [
       'Content-Type',
       'Authorization',

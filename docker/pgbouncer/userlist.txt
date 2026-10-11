@@ -1,3 +1,6 @@
-;; User credentials are managed dynamically by PgBouncerService
-;; Format: "username" "md5<hash>"
-"pgbouncer_admin" "pgbouncer_admin_pass"
+# Generated at runtime by PgBouncerService, which rewrites this file with one
+# line per project database user plus the admin user, then reloads the pooler.
+#
+# No credential is kept here. An admin line used to sit in this file in
+# cleartext and the same value was a fallback in the service, so the published
+# repository carried a working password for a pooler whose port is public.

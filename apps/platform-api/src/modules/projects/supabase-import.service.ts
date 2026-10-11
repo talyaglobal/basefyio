@@ -555,6 +555,14 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
     const projectId = (job.data as ImportJobData).projectId;
 
+    // userId was accepted and never used. Cancelling runs forceDelete on the
+    // job’s project, so any signed-in account that knew a job id could
+    // permanently destroy another customer's project — database, realm and
+    // row. findOne asserts team membership and throws NotFound otherwise,
+    // which is also the right answer for a job that is not yours: it should
+    // not confirm the id exists.
+    await this.projectsService.findOne(projectId, userId);
+
     this.markJobCancelled(String(jobId));
     this.logger.log(`Marked job ${jobId} as cancelled, waiting for processor to stop...`);
 

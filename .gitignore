@@ -63,3 +63,13 @@ docs/scoreboard.md
 docs/*.pdf
 docs/*.xlsx
 docs/*.docx
+
+# Environment files and their backups. A pre-publication .env.production.example
+# reached the public history and carried live production secrets; the pattern
+# below is deliberately wider than the filename that leaked, because the next
+# one will have a different name.
+.env.production*
+.env.prod*
+.env.*.bak
+.env.*.bak.*
+*.env.backup

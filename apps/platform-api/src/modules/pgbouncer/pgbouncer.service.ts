@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import {
   Injectable,
   Logger,
@@ -143,12 +144,37 @@ ${tlsLines}`;
     }
   }
 
+  /**
+   * The pooler's admin password.
+   *
+   * This used to fall back to a literal that is published in this repository,
+   * while the override was never passed through in any compose file — so the
+   * published value was the live one. The pooler listens on 0.0.0.0 with
+   * auth_type = plain and port 6432 is public, so that literal let a stranger
+   * open the admin console and run SHOW, PAUSE, KILL or SHUTDOWN against every
+   * tenant's connections.
+   *
+   * A random value is generated when none is configured rather than throwing,
+   * so an existing self-hosted install keeps starting — but it is never a
+   * value anyone can read. The same process writes the userlist and opens the
+   * admin connection, so a generated password is consistent for both.
+   */
+  private readonly adminPassword: string = (() => {
+    const configured = process.env.PGBOUNCER_ADMIN_PASSWORD;
+    if (configured) return configured;
+    const generated = randomBytes(24).toString('base64url');
+    new Logger(PgBouncerService.name).warn(
+      'PGBOUNCER_ADMIN_PASSWORD is not set — generated a random one for this process. Set it explicitly so the value survives a restart.',
+    );
+    return generated;
+  })();
+
   private buildUserlist(
     projects: { dbUser: string; dbPassword: string }[],
   ): string {
     const lines = projects.map((p) => `"${p.dbUser}" "${p.dbPassword}"`);
 
-    lines.push(`"pgbouncer_admin" "${process.env.PGBOUNCER_ADMIN_PASSWORD || 'pgbouncer_admin_pass'}"`);
+    lines.push(`"pgbouncer_admin" "${this.adminPassword}"`);
 
     return lines.join('\n') + '\n';
   }
@@ -162,7 +188,7 @@ ${tlsLines}`;
       port,
       database: 'pgbouncer',
       user: 'pgbouncer_admin',
-      password: process.env.PGBOUNCER_ADMIN_PASSWORD || 'pgbouncer_admin_pass',
+      password: this.adminPassword,
       connectionTimeoutMillis: 5000,
     });
 
