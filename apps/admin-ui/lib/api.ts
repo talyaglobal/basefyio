@@ -2110,6 +2110,50 @@ export const api = {
     },
   },
 
+  /**
+   * Assistant history, stored per signed-in person rather than per browser.
+   * Every route takes the user from the token, so there is no id to pass and
+   * no way to ask for someone else's conversation.
+   */
+  aiChat: {
+    listSessions(teamId: string) {
+      return request<
+        {
+          id: string;
+          title: string | null;
+          projectId: string | null;
+          createdAt: string;
+          updatedAt: string;
+          messageCount: number;
+        }[]
+      >(`/ai/chat/sessions?teamId=${encodeURIComponent(teamId)}`);
+    },
+    getSession(id: string) {
+      return request<{
+        id: string;
+        title: string | null;
+        messages: { id: string; role: string; content: string; createdAt: string }[];
+      }>(`/ai/chat/sessions/${encodeURIComponent(id)}`);
+    },
+    createSession(teamId: string, projectId?: string, title?: string) {
+      return request<{ id: string; title: string | null }>('/ai/chat/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, projectId, title }),
+      });
+    },
+    appendMessages(id: string, messages: { role: string; content: string }[]) {
+      return request<{ appended: number }>(
+        `/ai/chat/sessions/${encodeURIComponent(id)}/messages`,
+        { method: 'POST', body: JSON.stringify({ messages }) },
+      );
+    },
+    deleteSession(id: string) {
+      return request<{ deleted: boolean }>(`/ai/chat/sessions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+
   billing: {
     plans(): Promise<any[]> {
       // Uses a dedicated cached route (5-min ISR) instead of the force-dynamic proxy

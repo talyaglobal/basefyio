@@ -78,24 +78,22 @@ function getSessionTitle(session: ChatSession): string {
   return first.content.length > 22 ? first.content.slice(0, 22) + '…' : first.content;
 }
 
-function loadSessions(key: string): ChatSession[] {
+/**
+ * Read whatever history the browser still holds.
+ *
+ * The server is where history lives now; this is only read once, to carry a
+ * person's existing conversations up the first time they sign in after the
+ * change, and the key is cleared afterwards so it cannot drift.
+ */
+function readLegacySessions(key: string): ChatSession[] {
   try {
     const raw = localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ChatSession[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {}
-  return [{ id: genId(), messages: [] }];
-}
-
-function saveSessions(sessions: ChatSession[], key: string) {
-  try {
-    const trimmed = sessions
-      .slice(-10)
-      .map((s) => ({ ...s, messages: s.messages.slice(-40) }));
-    localStorage.setItem(key, JSON.stringify(trimmed));
-  } catch {}
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatSession[];
+    return Array.isArray(parsed) ? parsed.filter((s) => s?.messages?.length) : [];
+  } catch {
+    return [];
+  }
 }
 
 function extractSQLBlocks(text: string): string[] {
@@ -239,22 +237,98 @@ export function AiAssistant() {
   const initSession = (): ChatSession => ({ id: genId(), messages: [] });
   const [sessions, setSessions] = useState<ChatSession[]>(() => [initSession()]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[0].id);
+  /** Turns already sent to the server, so a sync appends only what is new. */
+  const syncedCountRef = useRef<Record<string, number>>({});
 
-  // Load sessions from localStorage when storageKey is first available or changes (team switch)
+  // Load this person's history from the server. It is keyed to them by their
+  // token, not by anything the browser supplies, so another account signing in
+  // on the same machine sees its own conversations and not these.
   useEffect(() => {
-    if (!storageKey) return;
+    if (!storageKey || !activeTeamId) return;
     if (storageKey === prevStorageKeyRef.current) return;
     prevStorageKeyRef.current = storageKey;
-    const loaded = loadSessions(storageKey);
-    setSessions(loaded);
-    setActiveSessionId(loaded[loaded.length - 1].id);
-  }, [storageKey]);
 
-  // Persist sessions whenever they change (only when we have a valid key)
+    let cancelled = false;
+    (async () => {
+      try {
+        let summaries = await api.aiChat.listSessions(activeTeamId);
+
+        // First sign-in after history moved server-side: carry up whatever the
+        // browser still holds, once, then forget it locally.
+        if (summaries.length === 0) {
+          const legacy = readLegacySessions(storageKey);
+          for (const s of legacy.slice(-10)) {
+            const created = await api.aiChat.createSession(activeTeamId);
+            await api.aiChat.appendMessages(
+              created.id,
+              s.messages.map((m) => ({ role: m.role, content: m.content })),
+            );
+          }
+          if (legacy.length) summaries = await api.aiChat.listSessions(activeTeamId);
+        }
+        try {
+          localStorage.removeItem(storageKey);
+        } catch {}
+
+        if (cancelled) return;
+        if (!summaries.length) {
+          const fresh = initSession();
+          setSessions([fresh]);
+          setActiveSessionId(fresh.id);
+          return;
+        }
+
+        // Oldest first, so the newest conversation ends up selected.
+        const ordered = [...summaries].reverse();
+        const full = await Promise.all(ordered.map((s) => api.aiChat.getSession(s.id)));
+        if (cancelled) return;
+
+        const loaded: ChatSession[] = full.map((s) => ({
+          id: s.id,
+          messages: s.messages.map((m) => ({
+            id: m.id,
+            role: m.role as Message['role'],
+            content: m.content,
+          })) as Message[],
+        }));
+        for (const s of loaded) syncedCountRef.current[s.id] = s.messages.length;
+        setSessions(loaded);
+        setActiveSessionId(loaded[loaded.length - 1].id);
+      } catch {
+        // History is a convenience: if it cannot be fetched the assistant still
+        // answers, so start a blank conversation rather than blocking the panel.
+        if (!cancelled) {
+          const fresh = initSession();
+          setSessions([fresh]);
+          setActiveSessionId(fresh.id);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storageKey, activeTeamId]);
+
+  // Push new turns up as they appear. Only the tail is sent, so a long
+  // conversation is not re-uploaded on every keystroke.
   useEffect(() => {
-    if (!storageKey) return;
-    saveSessions(sessions, storageKey);
-  }, [sessions, storageKey]);
+    if (!activeTeamId) return;
+    const timer = setTimeout(() => {
+      for (const s of sessions) {
+        const already = syncedCountRef.current[s.id] ?? 0;
+        if (s.messages.length <= already) continue;
+        const pending = s.messages.slice(already).map((m) => ({ role: m.role, content: m.content }));
+        syncedCountRef.current[s.id] = s.messages.length;
+        api.aiChat
+          .appendMessages(s.id, pending)
+          .catch(() => {
+            // Let the next change retry from where this one left off.
+            syncedCountRef.current[s.id] = already;
+          });
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [sessions, activeTeamId]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
@@ -276,21 +350,39 @@ export function AiAssistant() {
     );
   }, [activeSessionId]);
 
-  const newChat = useCallback(() => {
-    const id = genId();
-    setSessions((prev) => [...prev, { id, messages: [] }]);
-    setActiveSessionId(id);
-  }, []);
+  // A conversation is created on the server first, because its id is what the
+  // messages will be filed under. Creating one locally and syncing later would
+  // mean the first turns had nowhere to go.
+  const newChat = useCallback(async () => {
+    if (!activeTeamId) return;
+    try {
+      const created = await api.aiChat.createSession(activeTeamId);
+      syncedCountRef.current[created.id] = 0;
+      setSessions((prev) => [...prev, { id: created.id, messages: [] }]);
+      setActiveSessionId(created.id);
+    } catch {
+      // Offline or the call failed: open a local conversation so the panel
+      // still works. It syncs on the next successful create.
+      const id = genId();
+      setSessions((prev) => [...prev, { id, messages: [] }]);
+      setActiveSessionId(id);
+    }
+  }, [activeTeamId]);
 
-  const closeSession = useCallback((id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSessions((prev) => {
-      if (prev.length === 1) return [{ id: genId(), messages: [] }];
-      const next = prev.filter((s) => s.id !== id);
-      if (activeSessionId === id) setActiveSessionId(next[next.length - 1].id);
-      return next;
-    });
-  }, [activeSessionId]);
+  const closeSession = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      api.aiChat.deleteSession(id).catch(() => {});
+      delete syncedCountRef.current[id];
+      setSessions((prev) => {
+        if (prev.length === 1) return [{ id: genId(), messages: [] }];
+        const next = prev.filter((s) => s.id !== id);
+        if (activeSessionId === id) setActiveSessionId(next[next.length - 1].id);
+        return next;
+      });
+    },
+    [activeSessionId],
+  );
 
   // ── Mode ─────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<AiMode>(() => {

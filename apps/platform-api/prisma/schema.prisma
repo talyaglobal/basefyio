@@ -1611,21 +1611,21 @@ enum BlueprintStatus {
 /// heuristic business/application model. Generation (DDL/runtime) is layered on
 /// later; this stage covers analyze -> draft -> approve.
 model Blueprint {
-  id               String          @id @default(uuid())
-  teamId           String          @map("team_id")
-  projectId        String?         @map("project_id")
-  name             String
-  status           BlueprintStatus @default(DRAFT)
-  domain           String?
-  dataModel        Json            @map("data_model")
-  businessModel    Json?           @map("business_model")
-  applicationModel Json?           @map("application_model")
+  id                 String          @id @default(uuid())
+  teamId             String          @map("team_id")
+  projectId          String?         @map("project_id")
+  name               String
+  status             BlueprintStatus @default(DRAFT)
+  domain             String?
+  dataModel          Json            @map("data_model")
+  businessModel      Json?           @map("business_model")
+  applicationModel   Json?           @map("application_model")
   /// Snapshot of the data model as last generated into the project DB; the
   /// "from" side when planning schema migrations.
-  generatedDataModel Json?         @map("generated_data_model")
-  createdBy        String?         @map("created_by")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
+  generatedDataModel Json?           @map("generated_data_model")
+  createdBy          String?         @map("created_by")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
 
   versions ApplicationVersion[]
 
@@ -1723,41 +1723,41 @@ enum MarketingAssetStatus {
 /// pipeline produced is kept so a campaign can be reviewed, re-rendered, or
 /// re-published without regenerating from scratch.
 model MarketingCampaign {
-  id           String                  @id @default(uuid())
+  id            String                  @id @default(uuid())
   /// Short internal name so the list stays scannable.
-  name         String
+  name          String
   /// The human brief the campaign was generated from.
-  brief        String
+  brief         String
   /// Target channel as Pubbler names it (instagram, x, linkedin, ...).
-  channel      String                  @default("instagram")
+  channel       String                  @default("instagram")
   /// Pubbler integration (channel account) id the post is pushed to.
-  integrationId String?                @map("integration_id")
-  status       MarketingCampaignStatus @default(DRAFT)
+  integrationId String?                 @map("integration_id")
+  status        MarketingCampaignStatus @default(DRAFT)
   /// Content language the copy is written in (ISO-639-1).
-  language     String                  @default("en")
+  language      String                  @default("en")
   /// Free-form tone/brand guidance handed to Claude verbatim.
-  tone         String?
+  tone          String?
 
   /// Claude's output: caption, hashtags, image prompt, video prompt, voiceover.
-  caption      String?
-  hashtags     String[]                @default([])
-  imagePrompt  String?                 @map("image_prompt")
-  videoPrompt  String?                 @map("video_prompt")
-  voiceScript  String?                 @map("voice_script")
+  caption     String?
+  hashtags    String[] @default([])
+  imagePrompt String?  @map("image_prompt")
+  videoPrompt String?  @map("video_prompt")
+  voiceScript String?  @map("voice_script")
 
   /// Pubbler post id once pushed, plus how it was pushed (draft/now/schedule).
-  pubblerPostId String?                @map("pubbler_post_id")
-  publishMode   String?                @map("publish_mode")
-  publishedAt   DateTime?              @map("published_at")
+  pubblerPostId String?   @map("pubbler_post_id")
+  publishMode   String?   @map("publish_mode")
+  publishedAt   DateTime? @map("published_at")
 
   /// Last pipeline error, surfaced in the dashboard instead of only the logs.
-  error        String?
+  error String?
 
-  createdBy    String?                 @map("created_by")
-  createdAt    DateTime                @default(now()) @map("created_at")
-  updatedAt    DateTime                @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  assets       MarketingAsset[]
+  assets MarketingAsset[]
 
   @@index([status])
   @@index([createdAt])
@@ -1789,4 +1789,47 @@ model MarketingAsset {
 
   @@index([campaignId])
   @@map("marketing_asset")
+}
+
+/// One conversation in the dashboard assistant.
+///
+/// Chat history used to live in the browser's localStorage, keyed by user and
+/// team. That meant it was lost on a cache clear, absent on a second device,
+/// and readable by anyone with the browser profile — it was never protected by
+/// being signed in. Holding it here makes it follow the person instead of the
+/// machine, and makes "only your own history" something the database enforces
+/// rather than something the client happens to do.
+///
+/// userId is the platform user. Every read is filtered by it; a session is
+/// never fetched by id alone.
+model AiChatSession {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  teamId    String   @map("team_id")
+  /// The project the conversation was started against, if any. Kept for
+  /// context, never used for access control — the user owns the session.
+  projectId String?  @map("project_id")
+  title     String?  @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages AiChatMessage[]
+
+  @@index([userId, teamId, updatedAt(sort: Desc)])
+  @@map("ai_chat_sessions")
+}
+
+/// A single turn in an AiChatSession. Reachable only through its session, so
+/// the session's ownership check covers it.
+model AiChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  role      String   @db.VarChar(16)
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("ai_chat_messages")
 }

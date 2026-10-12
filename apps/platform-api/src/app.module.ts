@@ -55,6 +55,7 @@ import { DataStructuresModule } from './modules/data-structures/data-structures.
 import { ProvisioningModule } from './modules/provisioning/provisioning.module';
 import { DrizzleModule } from './db/drizzle/drizzle.module';
 import { RagModule } from './modules/rag/rag.module';
+import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { AgentModule } from './modules/agent/agent.module';
 import configuration from './config/configuration';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
@@ -119,6 +120,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     DrizzleModule,
     RagModule,
     AgentModule,
+    AiChatModule,
     // Global: anything may count an event.
     MetricsModule,
   ],
