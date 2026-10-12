@@ -10,6 +10,7 @@ import { ProjectDataService } from './project-data.service';
 import { ProjectAuthController } from './project-auth.controller';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { ProjectSdkAuthController } from './project-sdk-auth.controller';
+import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { PublicApiController } from './public-api.controller';
 import { PublicApiService } from './public-api.service';
@@ -47,6 +48,7 @@ import { PublicCollectionApiService } from './public-collection-api.service';
     ProjectDatabaseController,
     ProjectAuthController,
     ProjectSdkAuthController,
+    ProjectOAuthCallbackController,
     PublicApiController,
     CollectionController,
     PublicCollectionApiController,

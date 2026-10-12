@@ -247,40 +247,6 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.getOAuthRedirectUrl(projectId, provider, redirectTo);
   }
 
-  @UseGuards()
-  @Get('callback/:projectId/:provider')
-  async oauthCallback(
-    @Res() res: Response,
-    @Param('projectId') projectId: string,
-    @Param('provider') provider: string,
-    @Query('code') code: string,
-    @Query('state') state: string,
-  ) {
-    const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
-
-    // SECURITY: Only allow relative paths to prevent open redirect token theft.
-    // Absolute URLs (including http://localhost) are rejected — the OAuth flow
-    // should redirect back to the same app via a relative path.
-    let safeRedirect = result.redirectTo || '/';
-    if (
-      !safeRedirect.startsWith('/') ||
-      safeRedirect.startsWith('//') ||
-      safeRedirect.includes('://') ||
-      safeRedirect.includes('\\')
-    ) {
-      safeRedirect = '/';
-    }
-
-    const params = new URLSearchParams({
-      access_token: result.accessToken,
-      refresh_token: result.refreshToken,
-      expires_in: String(result.expiresIn),
-      token_type: result.tokenType || 'Bearer',
-      provider,
-    });
-    res.redirect(`${safeRedirect}#${params.toString()}`);
-  }
-
   private getPayload(req: Request): ApiKeyPayload {
     const payload = (req as any).apiKeyPayload as ApiKeyPayload | undefined;
     if (!payload) throw new ForbiddenException('API key required');
