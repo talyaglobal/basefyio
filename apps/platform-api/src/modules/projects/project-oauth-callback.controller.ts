@@ -24,6 +24,19 @@ import { ProjectSdkAuthService } from './project-sdk-auth.service';
  * with no guard asks why, and the answer is here — which is better than a
  * bypass flag on ApiKeyGuard that the next route could acquire by accident.
  */
+
+/** A path on this host, or an http(s) URL. Nothing else reaches Location. */
+function isFollowableRedirect(value: string | undefined): value is string {
+  if (!value || value.includes('\\')) return false;
+  if (value.startsWith('/')) return !value.startsWith('//');
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 @Controller('rest/v1/auth')
 export class ProjectOAuthCallbackController {
   constructor(private readonly sdkAuth: ProjectSdkAuthService) {}
@@ -38,17 +51,14 @@ export class ProjectOAuthCallbackController {
   ) {
     const result = await this.sdkAuth.handleOAuthCallback(projectId, provider, code, state);
 
-    // Only a relative path may be followed. An absolute URL here would hand
-    // the tokens in the fragment to whatever host it named.
-    let safeRedirect = result.redirectTo || '/';
-    if (
-      !safeRedirect.startsWith('/') ||
-      safeRedirect.startsWith('//') ||
-      safeRedirect.includes('://') ||
-      safeRedirect.includes('\\')
-    ) {
-      safeRedirect = '/';
-    }
+    // The service has already measured this against the project's registered
+    // redirect URLs (oauth-redirect.util.ts), which is the only place that can:
+    // the value rides in the OAuth state, through the browser. Rejecting every
+    // absolute URL here, as this did, is what kept a customer app on its own
+    // host from ever receiving the tokens — a relative path resolves against
+    // this API, not the app. What stays here is a shape check, so no change in
+    // that service can ever put a javascript: or data: URL in Location.
+    const safeRedirect = isFollowableRedirect(result.redirectTo) ? result.redirectTo : '/';
 
     const params = new URLSearchParams({
       access_token: result.accessToken,

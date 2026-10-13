@@ -394,6 +394,10 @@ model ProjectAuthConfig {
   changeEmailBody       String? @map("change_email_body") @db.Text
   reauthSubject         String? @map("reauth_subject")
   reauthBody            String? @map("reauth_body") @db.Text
+  /// Absolute URLs this project's app may be sent back to after a social
+  /// sign-in. The OAuth state is browser-supplied, so only a path inside one of
+  /// these is followed; see oauth-redirect.util.ts.
+  redirectUrls          String[] @default([]) @map("redirect_urls")
   googleEnabled         Boolean @default(false) @map("google_enabled")
   googleClientId        String? @map("google_client_id")
   googleClientSecret    String? @map("google_client_secret")

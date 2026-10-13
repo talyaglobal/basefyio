@@ -708,6 +708,8 @@ export interface ProjectAuthConfig {
   changeEmailBody: string | null;
   reauthSubject: string | null;
   reauthBody: string | null;
+  /** App URLs a social sign-in may return the browser to. */
+  redirectUrls: string[];
   googleEnabled: boolean;
   googleClientId: string | null;
   googleClientSecret: string | null;

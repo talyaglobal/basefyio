@@ -106,6 +106,7 @@ export class ProjectAuthConfigService {
       result[field] = config[field] ?? null;
     }
 
+    result.redirectUrls = Array.isArray(config.redirectUrls) ? config.redirectUrls : [];
     result.googleEnabled = config.googleEnabled ?? false;
     result.googleClientId = config.googleClientId ?? null;
     result.googleClientSecret = config.googleClientSecret ? '••••••••' : null;

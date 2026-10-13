@@ -18,6 +18,7 @@ import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
+import { describeAllowedRedirects, resolveOAuthRedirect } from './oauth-redirect.util';
 
 type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
@@ -315,6 +316,14 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── OAuth Provider Sign In ───────── */
+  /** ProjectAuthConfig.redirectUrls — the app URLs this project registered. */
+  private async allowedRedirectUrls(projectId: string): Promise<string[]> {
+    const config = (await this.authConfig.getRaw(projectId)) as { redirectUrls?: unknown };
+    return Array.isArray(config?.redirectUrls)
+      ? config.redirectUrls.filter((url): url is string => typeof url === 'string')
+      : [];
+  }
+
   async getOAuthRedirectUrl(projectId: string, provider: string, redirectTo?: string) {
     const project = await this.getProject(projectId);
     // The only Keycloak URL in this service that a browser opens, so the only
@@ -339,8 +348,19 @@ export class ProjectSdkAuthService {
       `${apiBase}/rest/v1/auth/callback/${projectId}/*`,
     );
 
+    // Checked here, where the caller still holds the project's API key, so a
+    // wrong URL is a clear 400 instead of a browser that comes back from the
+    // provider with nowhere to land.
+    const allowed = await this.allowedRedirectUrls(projectId);
+    const resolvedRedirect = resolveOAuthRedirect(redirectTo, allowed);
+    if (!resolvedRedirect) {
+      throw new BadRequestException(
+        `redirect_to is not a registered redirect URL for this project (allowed: ${describeAllowedRedirects(allowed)})`,
+      );
+    }
+
     const stateData = JSON.stringify({
-      redirectTo: redirectTo || '/',
+      redirectTo: resolvedRedirect,
     });
     const state = Buffer.from(stateData).toString('base64url');
 
@@ -364,12 +384,23 @@ export class ProjectSdkAuthService {
     // not ours to trust. Parsing it unguarded turned a malformed value into
     // a 500 with a stack trace, which is both the wrong answer and more than
     // the caller should learn.
-    let redirectTo = '/';
+    let requestedRedirect = '/';
     try {
       const parsed = JSON.parse(Buffer.from(state ?? '', 'base64url').toString());
-      if (parsed && typeof parsed.redirectTo === 'string') redirectTo = parsed.redirectTo;
+      if (parsed && typeof parsed.redirectTo === 'string') requestedRedirect = parsed.redirectTo;
     } catch {
       throw new BadRequestException('Invalid OAuth state');
+    }
+
+    // Signing the state would not help: it travelled through the browser, so
+    // the allowlist is what decides. A value that is no longer registered
+    // falls back to the API host, where the tokens are already visible.
+    const redirectTo =
+      resolveOAuthRedirect(requestedRedirect, await this.allowedRedirectUrls(projectId)) ?? '/';
+    if (redirectTo !== requestedRedirect) {
+      this.logger.warn(
+        `OAuth state asked for an unregistered redirect on project ${projectId}: ${requestedRedirect.slice(0, 200)}`,
+      );
     }
 
     const keycloakUrl = this.config.get<string>('keycloak.url');

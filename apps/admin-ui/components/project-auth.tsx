@@ -956,6 +956,8 @@ function ProvidersTab({
         <p>Configure sign-in providers for your app. Users can sign in with enabled providers via basefyio Auth SDK.</p>
       </div>
 
+      <RedirectUrlsCard projectId={projectId} config={config} onSaved={onSaved} />
+
       {PROVIDER_DEFS.map((p) => (
         <ProviderCard
           key={p.id}
@@ -970,6 +972,117 @@ function ProvidersTab({
           onSaved={onSaved}
         />
       ))}
+    </div>
+  );
+}
+
+function RedirectUrlsCard({
+  projectId,
+  config,
+  onSaved,
+}: {
+  projectId: string;
+  config: ProjectAuthConfig;
+  onSaved: (c: ProjectAuthConfig) => void;
+}) {
+  const [urls, setUrls] = useState<string[]>(config.redirectUrls ?? []);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save(next: string[]) {
+    setSaving(true);
+    try {
+      const updated = await api.projects.updateAuthConfig(projectId, { redirectUrls: next });
+      setUrls(updated.redirectUrls ?? next);
+      onSaved(updated);
+      toast.success('Redirect URLs saved');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function add() {
+    let value = draft.trim();
+    while (value.endsWith('/')) value = value.slice(0, -1);
+    if (!value) return;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('scheme');
+    } catch {
+      toast.error('Enter a full http(s) URL, e.g. https://app.example.com/auth/callback');
+      return;
+    }
+    if (urls.includes(value)) {
+      setDraft('');
+      return;
+    }
+    setDraft('');
+    void save([...urls, value]);
+  }
+
+  return (
+    <div className="rounded-lg border p-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <Globe className="h-5 w-5 text-muted-foreground" />
+        <div>
+          <h3 className="text-sm font-semibold">Redirect URLs</h3>
+          <p className="text-xs text-muted-foreground">
+            Where a social sign-in may send the browser back to. Pass one as
+            <code className="mx-1 font-mono">redirect_to</code>
+            and the tokens arrive in that URL&apos;s fragment.
+          </p>
+        </div>
+      </div>
+
+      {urls.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          None yet — without one, sign-in can only return to a path on the API host,
+          which is no use to an app on its own domain.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {urls.map((url) => (
+            <li key={url} className="flex items-center gap-2">
+              <Input value={url} readOnly className="font-mono text-xs bg-muted" />
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                disabled={saving}
+                onClick={() => void save(urls.filter((u) => u !== url))}
+                aria-label={`Remove ${url}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="https://app.example.com/auth/callback"
+          className="font-mono text-xs"
+        />
+        <Button variant="outline" className="shrink-0" disabled={saving} onClick={add}>
+          <Plus className="mr-1 h-4 w-4" /> Add
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A URL also covers the paths under it, so
+        <code className="mx-1 font-mono">https://app.example.com</code>
+        allows any callback on that origin. Anything not listed falls back to the API host.
+      </p>
     </div>
   );
 }
