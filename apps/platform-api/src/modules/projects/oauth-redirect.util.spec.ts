@@ -66,6 +66,6 @@ describe('oauth-redirect.util', () => {
     expect(describeAllowedRedirects(ALLOWED)).toBe(
       'https://admin.talyasmart.com/login/google, http://localhost:3000',
     );
-    expect(describeAllowedRedirects([])).toContain('URL configuration');
+    expect(describeAllowedRedirects([])).toContain('Providers → Redirect URLs');
   });
 });
