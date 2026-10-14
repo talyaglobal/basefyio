@@ -27,6 +27,7 @@ export class UsageTrackingMiddleware implements NestMiddleware {
   private static readonly CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
   private static readonly MAX_CACHE_SIZE = 500;
   private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly TSMART_FEED_PREFIX = '/api/integrations/tsmart/';
 
   private ownerCache = new Map<string, { owner: ResolvedOwner; expiresAt: number }>();
 
@@ -56,6 +57,13 @@ export class UsageTrackingMiddleware implements NestMiddleware {
     // Skip non-API routes — only track public REST/data API calls
     const path = req.originalUrl || req.url;
     if (!path.startsWith('/rest/') && !path.startsWith('/api/')) {
+      return next();
+    }
+
+    // The tsmart billing feed is platform-to-platform: it must never count
+    // against a project, even if the caller sent x-project-id or apikey.
+    // Lower-cased because Express matches routes case-insensitively.
+    if (path.toLowerCase().startsWith(UsageTrackingMiddleware.TSMART_FEED_PREFIX)) {
       return next();
     }
 
