@@ -362,6 +362,10 @@ services:
       PUBBLER_API_URL: ${PUBBLER_API_URL:-}
       PUBBLER_API_KEY: ${PUBBLER_API_KEY:-}
       PUBBLER_DEFAULT_INTEGRATION_ID: ${PUBBLER_DEFAULT_INTEGRATION_ID:-}
+      # tsmart.ai billing feed (GET /api/integrations/tsmart/projects). Holds the
+      # sha256 (64 hex chars) of the bearer token tsmart sends — never the token.
+      # Empty = the endpoint answers 404. See docs/integrations/tsmart.md.
+      TSMART_INTEGRATION_TOKEN_SHA256: ${TSMART_INTEGRATION_TOKEN_SHA256:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       # QuickBooks Online

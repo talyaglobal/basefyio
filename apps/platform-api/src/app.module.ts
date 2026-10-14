@@ -24,6 +24,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { TsmartIntegrationModule } from './modules/integrations/tsmart/tsmart-integration.module';
 import { TeamIntegrationsModule } from './modules/team-integrations/team-integrations.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -95,6 +96,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     FeedbackModule,
     PgBouncerModule,
     IntegrationsModule,
+    TsmartIntegrationModule,
     TeamIntegrationsModule,
     RedisModule,
     AiModule,
