@@ -436,7 +436,8 @@ export class AgentRunnerService {
       case 'nebius-private':
         return process.env.NEBIUS_API_BASE_URL ?? undefined;
       case 'ollama':
-        return process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
+        // `||`, not `??`: compose passes an unset variable through as "".
+        return process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
       default:
         return undefined;
     }

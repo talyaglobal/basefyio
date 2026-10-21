@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "basefyio"
+version = "0.1.0"
+description = "basefyio Python client: database queries, authentication and file storage over the platform HTTP API"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "basefyio" }]
+keywords = ["basefyio", "backend", "database", "storage", "auth", "sdk", "postgres"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Database",
+  "Topic :: Software Development :: Libraries",
+  "Typing :: Typed",
+]
+dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/talyaglobal/basefyio/tree/main/packages/sdk-python"
+Source = "https://github.com/talyaglobal/basefyio"
+Issues = "https://github.com/talyaglobal/basefyio/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/basefyio"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/basefyio", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,7 +1,19 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
+import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
+import type {
+  EmbeddingDisclosure,
+  EmbeddingProviderCatalogue,
+  EmbeddingStatus,
+  SetEmbeddingProviderBody,
+  SetEmbeddingProviderResult,
+} from './embeddings';
 import type {
   AuthTokens,
+  MfaStatus,
+  TeamSecurity,
+  AuditSinkStatus,
+  AuditSinkTestResult,
   ColumnInfo,
   ConnectionStrings,
   GitHubBranch,
@@ -17,6 +29,10 @@ import type {
   ProjectActivityItem,
   ProjectArchiveImportResponse,
   CloudBackupItem,
+  BackupHealth,
+  BackupVerification,
+  PreviewBranchCreateResponse,
+  PreviewBranchListItem,
   PitrRecoveryWindow,
   ProjectAuthConfig,
   ProjectExportJobResponse,
@@ -35,6 +51,8 @@ import type {
   SupabaseImportRequest,
   SupabaseImportJobResponse,
   SupabaseValidateResult,
+  RepairImportKeysRequest,
+  PrimaryKeyRepairSummary,
   TableInfo,
   TableRows,
   DataImportInspectResult,
@@ -266,6 +284,27 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password, captchaAnswer }),
       });
+    },
+    mfaStatus() {
+      return request<MfaStatus>('/auth/mfa');
+    },
+    mfaEnrollUrl(next?: string) {
+      return request<{ url: string }>('/auth/mfa/enroll-url', {
+        method: 'POST',
+        body: JSON.stringify(next ? { next } : {}),
+      });
+    },
+    disableMfa(password: string, code: string) {
+      return request<{ message: string; removed: number }>('/auth/mfa', {
+        method: 'DELETE',
+        body: JSON.stringify({ password, code }),
+      });
+    },
+    resetManagementUserMfa(userId: string) {
+      return request<{ message: string; removed: number }>(
+        `/auth/management/users/${userId}/reset-mfa`,
+        { method: 'POST' },
+      );
     },
     getCaptcha(email: string) {
       return request<{ required: boolean; question?: string; expiresInSeconds?: number }>(
@@ -595,6 +634,15 @@ export const api = {
         body: JSON.stringify({ name }),
       });
     },
+    getSecurity(teamId: string) {
+      return request<TeamSecurity>(`/teams/${teamId}/security`);
+    },
+    setRequireMfa(teamId: string, requireMfa: boolean) {
+      return request<{ id: string; requireMfa: boolean; requireMfaUpdatedAt: string | null }>(
+        `/teams/${teamId}/security`,
+        { method: 'PATCH', body: JSON.stringify({ requireMfa }) },
+      );
+    },
     listMembers(teamId: string) {
       return request<TeamMember[]>(`/teams/${teamId}/members`);
     },
@@ -795,6 +843,39 @@ export const api = {
     dbSetExtension(projectId: string, data: { name: string; enabled: boolean }) {
       return request<{ message: string }>(`/projects/${projectId}/database/extensions`, { method: 'PUT', body: JSON.stringify(data) });
     },
+    dbInstallDefaultExtensions(projectId: string) {
+      return request<{ installed: string[]; skipped: { statement: string; error: string }[]; error?: string }>(
+        `/projects/${projectId}/database/extensions/defaults`,
+        { method: 'POST' },
+      );
+    },
+    // Row-level security policies. `dryRun` returns the SQL without running it;
+    // `dryRun` + `check` runs it inside a transaction that is rolled back.
+    dbPolicies(projectId: string) {
+      return request<RlsPoliciesOverview>(`/projects/${projectId}/database/policies`);
+    },
+    dbCreatePolicy(projectId: string, data: RlsPolicyInput & RlsMutationOptions) {
+      return request<RlsMutationResult>(`/projects/${projectId}/database/policies`, { method: 'POST', body: JSON.stringify(data) });
+    },
+    dbReplacePolicy(projectId: string, table: string, name: string, data: Omit<RlsPolicyInput, 'table'> & RlsMutationOptions) {
+      return request<RlsMutationResult>(
+        `/projects/${projectId}/database/policies/${encodeURIComponent(table)}/${encodeURIComponent(name)}`,
+        { method: 'PUT', body: JSON.stringify(data) },
+      );
+    },
+    dbDropPolicy(projectId: string, table: string, name: string, opts: RlsMutationOptions = {}) {
+      const qs = new URLSearchParams();
+      if (opts.dryRun) qs.set('dryRun', 'true');
+      if (opts.check) qs.set('check', 'true');
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return request<RlsMutationResult>(
+        `/projects/${projectId}/database/policies/${encodeURIComponent(table)}/${encodeURIComponent(name)}${suffix}`,
+        { method: 'DELETE' },
+      );
+    },
+    dbSetRls(projectId: string, data: { table: string; enabled: boolean; force?: boolean } & RlsMutationOptions) {
+      return request<RlsMutationResult>(`/projects/${projectId}/database/policies/rls`, { method: 'POST', body: JSON.stringify(data) });
+    },
     listRealtimeBindings(projectId: string) {
       return request<{ kind: 'table' | 'collection'; entity: string; createdAt: string }[]>(
         `/projects/${projectId}/realtime-bindings`,
@@ -865,6 +946,13 @@ export const api = {
       return request<{ message: string }>(`/projects/import-supabase/jobs/${jobId}/cancel`, {
         method: 'POST',
       });
+    },
+    /** Add the source's primary keys to imported tables that arrived without one (dry run by request). */
+    repairSupabaseImportKeys(projectId: string, data: RepairImportKeysRequest) {
+      return request<PrimaryKeyRepairSummary>(
+        `/projects/${projectId}/import-supabase/repair-keys`,
+        { method: 'POST', body: JSON.stringify(data) },
+      );
     },
     startExport(projectId: string, options?: ProjectExportRequest) {
       return request<ProjectExportJobResponse>(`/projects/${projectId}/export`, {
@@ -1005,6 +1093,29 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       });
+    },
+    /** Off-site copy state, local encryption and restore-verification verdicts for the Backup page. */
+    backupHealth(projectId: string) {
+      return request<BackupHealth>(`/projects/${projectId}/backups/health`);
+    },
+    listBackupVerifications(projectId: string, limit = 10) {
+      return request<BackupVerification[]>(`/projects/${projectId}/backups/verifications?limit=${limit}`);
+    },
+    /** Rebuild the newest nightly archive into a throwaway database now; the verdict lands in backupHealth(). */
+    verifyBackup(projectId: string) {
+      return request<{ verificationId: string }>(`/projects/${projectId}/backups/verify`, { method: 'POST' });
+    },
+    listBranches(projectId: string) {
+      return request<PreviewBranchListItem[]>(`/projects/${projectId}/branches`);
+    },
+    createBranch(projectId: string, data: { name: string; dataMode?: 'schema' | 'full' }) {
+      return request<PreviewBranchCreateResponse>(`/projects/${projectId}/branches`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    deleteBranch(projectId: string, branchId: string) {
+      return request<{ message: string }>(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' });
     },
 
     streamImportProgress(
@@ -1336,6 +1447,35 @@ export const api = {
         body: JSON.stringify(password ? { password } : {}),
       });
     },
+    createReadonlyRole(projectId: string) {
+      return request<{ user: string; password: string; warnings: string[] }>(
+        `/projects/${projectId}/db-readonly-role`,
+        { method: 'POST' },
+      );
+    },
+    rotateReadonlyPassword(projectId: string, password?: string) {
+      return request<{ password: string }>(`/projects/${projectId}/db-readonly-password`, {
+        method: 'PATCH',
+        body: JSON.stringify(password ? { password } : {}),
+      });
+    },
+    dropReadonlyRole(projectId: string) {
+      return request<{ message: string; warnings: string[] }>(
+        `/projects/${projectId}/db-readonly-role`,
+        { method: 'DELETE' },
+      );
+    },
+    setDbConnectionLimit(projectId: string, maxDbConnections: number | null) {
+      return request<{
+        maxDbConnections: number | null;
+        planCeiling: number;
+        effective: number | null;
+        source: 'project' | 'plan' | 'platform' | 'none';
+      }>(`/projects/${projectId}/db-connection-limit`, {
+        method: 'PATCH',
+        body: JSON.stringify({ maxDbConnections }),
+      });
+    },
     realmInfo(projectId: string) {
       return request<RealmInfo>(`/projects/${projectId}/auth`);
     },
@@ -1375,6 +1515,19 @@ export const api = {
       return request<{ message: string }>(`/projects/${projectId}/auth/users/${userId}/credentials/${credentialId}`, {
         method: 'DELETE',
       });
+    },
+    /** Reset an authenticator app the user enrolled through the SDK. */
+    removeRealmUserAppMfa(projectId: string, userId: string) {
+      return request<{ enabled: false }>(`/projects/${projectId}/auth/users/${userId}/mfa`, {
+        method: 'DELETE',
+      });
+    },
+    /** Delete anonymous users older than N days; dryRun only counts them. */
+    purgeAnonymousUsers(projectId: string, body: { olderThanDays?: number; dryRun?: boolean }) {
+      return request<{ matched: number; deleted: number; olderThanDays: number; dryRun: boolean }>(
+        `/projects/${projectId}/auth/anonymous/purge`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
     },
     getAuthPolicies(projectId: string) {
       return request<RealmPolicies>(`/projects/${projectId}/auth/policies`);
@@ -2065,6 +2218,74 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ sources, destFolder }) },
       );
     },
+    getPolicies(projectId: string) {
+      return request<import('./types').StoragePolicy[]>(`/projects/${projectId}/storage/policies`);
+    },
+    setPolicy(projectId: string, bucketName: string, mode: import('./types').StoragePolicyMode, pathPrefix = '') {
+      return request<import('./types').StoragePolicy>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/policy`,
+        { method: 'PUT', body: JSON.stringify({ mode, pathPrefix }) },
+      );
+    },
+    removePolicy(projectId: string, bucketName: string, pathPrefix = '') {
+      return request<{ removed: number }>(
+        `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/policy?pathPrefix=${encodeURIComponent(pathPrefix)}`,
+        { method: 'DELETE' },
+      );
+    },
+    /**
+     * Large files go up in chunks through a resumable session, so no single
+     * request has to carry the whole file through the proxy. A failed chunk is
+     * retried after re-reading the server's offset.
+     */
+    async uploadResumable(
+      projectId: string,
+      bucketName: string,
+      path: string,
+      file: File,
+      onProgress?: (progress: import('./types').UploadProgress) => void,
+    ) {
+      type Session = { id: string; offset: number; size: number; chunkSize: number };
+      const sessions = `/projects/${projectId}/storage/buckets/${encodeURIComponent(bucketName)}/upload-sessions`;
+      const session = await request<Session>(sessions, {
+        method: 'POST',
+        body: JSON.stringify({ path, size: file.size, contentType: file.type || undefined }),
+      });
+      const report = (uploaded: number) =>
+        onProgress?.({ uploaded, total: file.size, percent: file.size === 0 ? 100 : Math.floor((uploaded / file.size) * 100) });
+
+      let offset = session.offset;
+      let failures = 0;
+      report(offset);
+      while (offset < file.size) {
+        const slice = file.slice(offset, Math.min(offset + session.chunkSize, file.size));
+        const token = getAccessToken();
+        const res = await fetch(`/api/proxy${sessions}/${session.id}`, {
+          method: 'PATCH',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'Upload-Offset': String(offset),
+            'Content-Type': 'application/offset+octet-stream',
+          },
+          body: slice,
+        });
+        if (res.ok) {
+          const body = await parseOkJsonBody<{ offset?: number }>(res);
+          offset = typeof body?.offset === 'number' && body.offset > offset ? body.offset : offset + slice.size;
+          failures = 0;
+        } else if ((res.status === 409 || res.status >= 500) && failures < 3) {
+          failures++;
+          await new Promise((r) => setTimeout(r, 500 * 2 ** (failures - 1)));
+          const fresh = await request<Session>(`${sessions}/${session.id}`);
+          offset = fresh.offset;
+        } else {
+          const body = await res.json().catch(() => ({} as { message?: string }));
+          throw new Error(body.message || `Upload failed: ${res.status}`);
+        }
+        report(offset);
+      }
+      return request<StorageObject>(`${sessions}/${session.id}/complete`, { method: 'POST' });
+    },
   },
 
   folders: {
@@ -2467,16 +2688,42 @@ export const api = {
     getAuditLog(id: string) {
       return request<AuditLogEntry>(`/observability/audit-logs/${id}`);
     },
+    auditSinkStatus() {
+      return request<AuditSinkStatus>('/observability/audit-sink');
+    },
+    auditSinkTest() {
+      return request<AuditSinkTestResult>('/observability/audit-sink/test', { method: 'POST' });
+    },
   },
 
   embeddings: {
     getStatus(projectId: string) {
-      return request<{
-        pgvectorEnabled: boolean;
-        pgvectorEnabledAt: string | null;
-        hasApiKey: boolean;
-        embeddingCount: number | null;
-      }>(`/projects/${projectId}/embeddings/status`);
+      return request<EmbeddingStatus>(`/projects/${projectId}/embeddings/status`);
+    },
+    /** Providers the project may choose from, and which platform keys exist. */
+    providers(projectId: string) {
+      return request<EmbeddingProviderCatalogue>(`/projects/${projectId}/embeddings/providers`);
+    },
+    /**
+     * Switch provider / model / endpoint. Rejects with code
+     * EMBEDDING_MODEL_CHANGE_REQUIRES_REEMBED until `reembed: true` confirms
+     * rewriting the vectors the project already holds.
+     */
+    setProvider(projectId: string, body: SetEmbeddingProviderBody) {
+      return request<SetEmbeddingProviderResult>(`/projects/${projectId}/embeddings/provider`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+    reembed(projectId: string) {
+      return request<{ queued: boolean; total: number }>(
+        `/projects/${projectId}/embeddings/reembed`,
+        { method: 'POST' },
+      );
+    },
+    /** Provider, model, vector width and the country the project's text goes to. */
+    disclosure(projectId: string) {
+      return request<EmbeddingDisclosure>(`/projects/${projectId}/ai/disclosure`);
     },
     enable(projectId: string) {
       return request<{ message: string; projectId: string }>(

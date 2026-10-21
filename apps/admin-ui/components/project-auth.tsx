@@ -101,6 +101,31 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
     }
   }, [projectId, loadAll]);
 
+  const [purging, setPurging] = useState(false);
+  const purgeAnonymous = useCallback(async () => {
+    setPurging(true);
+    try {
+      const preview = await api.projects.purgeAnonymousUsers(projectId, { olderThanDays: 30, dryRun: true });
+      if (preview.matched === 0) {
+        toast.info('No anonymous users older than 30 days');
+        return;
+      }
+      const ok = await confirmDialog({
+        title: 'Purge anonymous users',
+        description: `Delete ${preview.matched} anonymous user${preview.matched === 1 ? '' : 's'} created more than 30 days ago? Their sessions have already expired. This cannot be undone.`,
+        destructive: true,
+      });
+      if (!ok) return;
+      const result = await api.projects.purgeAnonymousUsers(projectId, { olderThanDays: 30 });
+      toast.success(`Deleted ${result.deleted} anonymous user${result.deleted === 1 ? '' : 's'}`);
+      await loadAll();
+    } catch (err: any) {
+      toast.error(err?.message || 'Purge failed');
+    } finally {
+      setPurging(false);
+    }
+  }, [projectId, loadAll]);
+
   useLiveProjectRefresh(projectId, ['auth.'], loadAll);
 
   useEffect(() => {
@@ -158,6 +183,12 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
           <Button variant="outline" size="icon" onClick={loadAll}>
             <RefreshCw className="h-4 w-4" />
           </Button>
+          {activeTab === 'users' && users.some((u) => u.isAnonymous) && (
+            <Button variant="outline" onClick={purgeAnonymous} disabled={purging} title="Delete anonymous users created more than 30 days ago">
+              <Trash2 className="mr-2 h-4 w-4" />
+              {purging ? 'Purging…' : 'Purge anonymous'}
+            </Button>
+          )}
           {activeTab === 'users' && (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -315,7 +346,14 @@ function UsersTab({
                 onClick={() => setViewingUser(u)}
               >
                 <td className="px-4 py-2">
-                  <div className="font-medium">{u.email}</div>
+                  <div className="flex items-center gap-2 font-medium">
+                    {u.email}
+                    {u.isAnonymous && (
+                      <Badge variant="outline" className="text-[10px] uppercase" title="Created by anonymous sign-in; no real email">
+                        Anonymous
+                      </Badge>
+                    )}
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
                   </div>
@@ -665,10 +703,15 @@ function MfaTab({ projectId }: { projectId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  async function removeFactor(userId: string, credentialId: string, email: string) {
+  async function removeFactor(userId: string, credentialId: string, email: string, source?: string) {
     if (!(await confirmDialog({ title: 'Reset MFA', description: `Remove this MFA factor for "${email}"? They will need to re-enroll.`, destructive: true }))) return;
     setBusy(true);
-    try { await api.projects.removeRealmUserMfa(projectId, userId, credentialId); toast.success('MFA factor removed'); await load(); }
+    try {
+      if (source === 'basefyio') await api.projects.removeRealmUserAppMfa(projectId, userId);
+      else await api.projects.removeRealmUserMfa(projectId, userId, credentialId);
+      toast.success('MFA factor removed');
+      await load();
+    }
     catch (err: any) { toast.error(err.message); }
     finally { setBusy(false); }
   }
@@ -681,7 +724,7 @@ function MfaTab({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
         <Info className="h-4 w-4 shrink-0" />
-        <p>Users with an enrolled MFA factor (authenticator app / security key). Removing a factor forces re-enrollment on next login.</p>
+        <p>Users with an enrolled MFA factor: authenticator apps enrolled through the SDK (client.auth.enrollMfa) and factors set up in the hosted login (authenticator app / security key). Removing a factor forces re-enrollment on next login.</p>
       </div>
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{users.length} user{users.length === 1 ? '' : 's'} with MFA</p>
@@ -702,9 +745,10 @@ function MfaTab({ projectId }: { projectId: string }) {
                   <div key={f.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="uppercase">{f.type}</Badge>
+                      <Badge variant="outline" className="text-[10px]">{f.source === 'basefyio' ? 'SDK' : 'Hosted login'}</Badge>
                       <span className="text-muted-foreground">{f.userLabel || ''} {f.createdDate ? `· enrolled ${fmtDateOnly(f.createdDate)}` : ''}</span>
                     </div>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy} onClick={() => removeFactor(u.id, f.id, u.email)}>Remove</Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy} onClick={() => removeFactor(u.id, f.id, u.email, f.source)}>Remove</Button>
                   </div>
                 ))}
               </div>
@@ -1228,6 +1272,8 @@ function SettingsTab({
   const [emailVerification, setEmailVerification] = useState(config.requireEmailVerify);
   const [minPwLen, setMinPwLen] = useState(String(config.minPasswordLength));
   const [tokenExpiry, setTokenExpiry] = useState(String(config.tokenExpirySeconds));
+  const [allowAnonymous, setAllowAnonymous] = useState(config.allowAnonymous ?? false);
+  const [enforceMfa, setEnforceMfa] = useState(config.mfaEnforceEnrollment ?? false);
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -1238,6 +1284,8 @@ function SettingsTab({
         requireEmailVerify: emailVerification,
         minPasswordLength: parseInt(minPwLen, 10) || 6,
         tokenExpirySeconds: parseInt(tokenExpiry, 10) || 1800,
+        allowAnonymous,
+        mfaEnforceEnrollment: enforceMfa,
       });
       onSaved(updated);
       toast.success('Settings saved');
@@ -1260,6 +1308,25 @@ function SettingsTab({
           description="Users can create accounts via SDK (client.auth.signUp)"
           checked={selfSignup}
           onChange={setSelfSignup}
+        />
+        <ToggleSetting
+          label="Allow anonymous sign-in"
+          description="client.auth.signInAnonymously() creates a temporary user whose tokens carry is_anonymous: true (readable in policies through auth.jwt()). It can be turned into a real account later with upgradeAnonymous(), keeping the same user id. Off by default."
+          checked={allowAnonymous}
+          onChange={setAllowAnonymous}
+        />
+      </div>
+
+      <div className="rounded-lg border p-6 space-y-4">
+        <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+          Multi-factor authentication
+        </h3>
+        <ToggleSetting
+          label="Enforce MFA enrollment at sign-in"
+          description="Users you marked with “Require MFA enrollment” get no session until they enroll an authenticator app through the SDK (an enrollment challenge is returned instead). Off: they sign in and the response carries mfaEnrollmentRequired for your app to prompt."
+          checked={enforceMfa}
+          onChange={setEnforceMfa}
         />
       </div>
 

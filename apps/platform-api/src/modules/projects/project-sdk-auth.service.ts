@@ -19,6 +19,7 @@ import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { describeAllowedRedirects, resolveOAuthRedirect } from './oauth-redirect.util';
+import { ProjectMfaService } from './project-mfa.service';
 
 type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
@@ -64,6 +65,7 @@ export class ProjectSdkAuthService {
     private readonly http: HttpService,
     private readonly config: ConfigService,
     private readonly authConfig: ProjectAuthConfigService,
+    private readonly mfa: ProjectMfaService,
   ) {}
 
   private getRealmAnonClientId(realmName: string): string {
@@ -109,16 +111,7 @@ export class ProjectSdkAuthService {
     }
 
     if (cfg.requireEmailVerify) {
-      const otp = this.generateOtp();
-      const tokenData = JSON.stringify({ userId, realmName: project.keycloakRealm, projectId });
-      await this.redis.set(`verify_email:${projectId}:${otp}`, tokenData, 86400);
-
-      const apiBase = this.getPublicApiBase();
-      const verifyUrl = `${apiBase}/rest/v1/auth/verify-email-callback?otp=${otp}&apikey=${project.anonKey}`;
-
-      this.sendEmail(projectId, data.email, project.name, 'verify', {
-        otp, verify_url: verifyUrl,
-      }).catch((err) => this.logger.warn(`Verification email failed: ${err.message}`));
+      await this.issueEmailVerification(project, userId, data.email);
     } else {
       await this.keycloak.setEmailVerified(project.keycloakRealm, userId);
     }
@@ -132,14 +125,193 @@ export class ProjectSdkAuthService {
   }
 
   /* ───────── Sign In ───────── */
-  async signin(projectId: string, email: string, password: string, clientIp?: string) {
+  /**
+   * Password sign-in. For a user with an enrolled authenticator the tokens are
+   * not returned here: they are parked under a challenge that
+   * completeMfaChallenge releases on a valid code. Everyone else gets the
+   * response this always produced, plus `mfaEnrollmentRequired` when an
+   * administrator asked them to enroll.
+   */
+  async signin(
+    projectId: string,
+    email: string,
+    password: string,
+    clientIp?: string,
+    totp?: string,
+  ) {
     const project = await this.getProject(projectId);
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
     const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, kcClientId, email, password, false, clientIp,
+      project.keycloakRealm, kcClientId, email, password, false, clientIp, { projectId, totp },
     );
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
-    return { ...tokens, userId: user?.id, emailVerified: user?.emailVerified ?? false };
+    const sub = this.decodeJwtPayload(tokens.accessToken)?.sub;
+    const userId: string | undefined = typeof sub === 'string' && sub ? sub : user?.id;
+    const emailVerified = user?.emailVerified ?? false;
+    const response = { ...tokens, userId, emailVerified };
+    if (!userId) return { ...response, mfaEnrollmentRequired: false };
+
+    const mfa = await this.mfa.getState(projectId, userId);
+    const account = user?.email ?? email;
+    if (mfa?.verifiedAt) {
+      return this.mfa.createChallenge(
+        projectId, project.keycloakRealm, userId, tokens, 'verify', { emailVerified, account },
+      );
+    }
+    if (mfa?.enrollmentRequiredAt) {
+      const cfg = await this.authConfig.getOrCreate(projectId);
+      if (cfg.mfaEnforceEnrollment) {
+        return this.mfa.createChallenge(
+          projectId, project.keycloakRealm, userId, tokens, 'enroll', { emailVerified, account },
+        );
+      }
+    }
+    return { ...response, mfaEnrollmentRequired: !!mfa?.enrollmentRequiredAt };
+  }
+
+  /* ───────── Multi-factor authentication ───────── */
+
+  /**
+   * Who an MFA management call acts for: the signed-in user, or — when the
+   * project enforces enrollment and the user has no session yet — the user
+   * named by an enrollment challenge, whose password was already checked.
+   */
+  private async resolveMfaActor(
+    projectId: string,
+    actor: { userId?: string; email?: string; challengeId?: string },
+  ): Promise<{ userId: string; account: string; challengeId?: string }> {
+    if (actor.userId) return { userId: actor.userId, account: actor.email ?? actor.userId };
+    if (actor.challengeId) {
+      const stored = await this.mfa.peekChallenge(projectId, actor.challengeId);
+      if (stored.kind !== 'enroll') {
+        throw new BadRequestException(
+          'This challenge expects a code from the enrolled authenticator; call /mfa/challenge instead.',
+        );
+      }
+      return {
+        userId: stored.userId,
+        account: stored.account ?? stored.userId,
+        challengeId: actor.challengeId,
+      };
+    }
+    throw new ForbiddenException(
+      "This route acts on the signed-in user. Send the user's access token as a Bearer token alongside the anon key, or the enrollment challengeId.",
+    );
+  }
+
+  async mfaStatus(projectId: string, userId: string) {
+    return this.mfa.status(projectId, userId);
+  }
+
+  async beginMfaEnrollment(
+    projectId: string,
+    actor: { userId?: string; email?: string; challengeId?: string },
+  ) {
+    const project = await this.getProject(projectId);
+    const who = await this.resolveMfaActor(projectId, actor);
+    return this.mfa.beginEnrollment(projectId, who.userId, {
+      issuer: project.name,
+      account: who.account,
+    });
+  }
+
+  /** Confirms the new factor; through an enrollment challenge it also releases the parked tokens. */
+  async confirmMfaEnrollment(
+    projectId: string,
+    actor: { userId?: string; email?: string; challengeId?: string },
+    code: string,
+  ) {
+    const who = await this.resolveMfaActor(projectId, actor);
+    const result = await this.mfa.confirmEnrollment(projectId, who.userId, code);
+    if (!who.challengeId) return result;
+    const released = await this.mfa.consumeChallenge(projectId, who.challengeId);
+    return {
+      ...result,
+      ...released.tokens,
+      userId: released.userId,
+      emailVerified: released.emailVerified,
+    };
+  }
+
+  /** Second step of sign-in: a valid code (or recovery code) releases the parked tokens. */
+  async completeMfaChallenge(
+    projectId: string,
+    challengeId: string,
+    input: { code?: string; recoveryCode?: string },
+  ) {
+    return this.mfa.verifyChallenge(projectId, challengeId, input, (stored) =>
+      this.revokeRefreshToken(
+        stored.realm,
+        this.getRealmAnonClientId(stored.realm),
+        stored.tokens.refreshToken,
+      ),
+    );
+  }
+
+  async disableMfa(
+    projectId: string,
+    userId: string,
+    input: { code?: string; recoveryCode?: string; force?: boolean },
+  ) {
+    return this.mfa.disable(projectId, userId, input);
+  }
+
+  async regenerateMfaRecoveryCodes(projectId: string, userId: string, code: string) {
+    return this.mfa.regenerateRecoveryCodes(projectId, userId, code);
+  }
+
+  /**
+   * End the Keycloak session behind tokens that will never be handed out (a
+   * challenge destroyed after too many wrong codes). Best-effort: the tokens
+   * are gone from Redis either way.
+   */
+  async revokeRefreshToken(realmName: string, clientId: string, refreshToken: string): Promise<void> {
+    const keycloakUrl = this.config.get<string>('keycloak.url');
+    const logoutUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/logout`;
+    try {
+      await firstValueFrom(
+        this.http.post(
+          logoutUrl,
+          new URLSearchParams({ client_id: clientId, refresh_token: refreshToken }).toString(),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+        ),
+      );
+    } catch (err: any) {
+      this.logger.warn(`Could not revoke a parked session in realm "${realmName}": ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * Claims of a token Keycloak just handed us over the internal network: read,
+   * not verified — verification is the guard's job on the way back in.
+   */
+  private decodeJwtPayload(token: string | undefined): Record<string, unknown> | null {
+    const part = token?.split('.')[1];
+    if (!part) return null;
+    try {
+      return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /* ───────── Email verification ───────── */
+  /** The one-time code and link that prove an address; shared by sign-up and the anonymous upgrade. */
+  async issueEmailVerification(
+    project: { id: string; name: string; keycloakRealm: string; anonKey: string },
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const otp = this.generateOtp();
+    const tokenData = JSON.stringify({ userId, realmName: project.keycloakRealm, projectId: project.id });
+    await this.redis.set(`verify_email:${project.id}:${otp}`, tokenData, 86400);
+
+    const apiBase = this.getPublicApiBase();
+    const verifyUrl = `${apiBase}/rest/v1/auth/verify-email-callback?otp=${otp}&apikey=${project.anonKey}`;
+
+    this.sendEmail(project.id, email, project.name, 'verify', {
+      otp, verify_url: verifyUrl,
+    }).catch((err) => this.logger.warn(`Verification email failed: ${err.message}`));
   }
 
   /* ───────── Verify Email ───────── */
@@ -166,7 +338,10 @@ export class ProjectSdkAuthService {
   async forgotPassword(projectId: string, email: string) {
     const project = await this.getProject(projectId);
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
-    if (!user) return { message: 'If an account exists, a reset code has been sent' };
+    // An anonymous identity has no reachable address; answer as for an unknown one.
+    if (!user || this.keycloak.isAnonymousUser(user)) {
+      return { message: 'If an account exists, a reset code has been sent' };
+    }
 
     const otp = this.generateOtp();
     const tokenData = JSON.stringify({ userId: user.id, realmName: project.keycloakRealm, projectId });
@@ -200,7 +375,9 @@ export class ProjectSdkAuthService {
   async sendMagicLink(projectId: string, email: string) {
     const project = await this.getProject(projectId);
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
-    if (!user) return { message: 'If an account exists, a magic link has been sent' };
+    if (!user || this.keycloak.isAnonymousUser(user)) {
+      return { message: 'If an account exists, a magic link has been sent' };
+    }
 
     const otp = this.generateOtp();
     const tokenData = JSON.stringify({ userId: user.id, email, realmName: project.keycloakRealm, projectId });
@@ -468,6 +645,7 @@ export class ProjectSdkAuthService {
         username: data.preferred_username,
         firstName: data.given_name,
         lastName: data.family_name,
+        isAnonymous: data.is_anonymous === true || data.is_anonymous === 'true',
       };
     } catch {
       throw new UnauthorizedException('Invalid or expired access token');
@@ -489,13 +667,20 @@ export class ProjectSdkAuthService {
     return headers;
   }
 
-  private async authenticateInRealm(
+  /**
+   * The password grant against a realm's anon client. `opts.totp` is passed on
+   * for accounts with a Keycloak-side authenticator; `opts.projectId` lets the
+   * self-heal below record an administrator's MFA request before clearing it.
+   * Public so the anonymous sign-in can mint tokens the same way.
+   */
+  async authenticateInRealm(
     realmName: string,
     clientId: string,
     email: string,
     password: string,
     retried = false,
     clientIp?: string,
+    opts: { projectId?: string; totp?: string } = {},
   ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
@@ -507,6 +692,7 @@ export class ProjectSdkAuthService {
       grant_type: 'password', client_id: clientId, username: email, password,
       scope: 'openid email profile',
     });
+    if (opts.totp) params.set('totp', opts.totp);
 
     try {
       const { data } = await firstValueFrom(
@@ -533,7 +719,7 @@ export class ProjectSdkAuthService {
       ) {
         const fixed = await this.keycloak.ensureRealmClientDirectGrant(realmName, clientId);
         if (fixed) {
-          return this.authenticateInRealm(realmName, clientId, email, password, true, clientIp);
+          return this.authenticateInRealm(realmName, clientId, email, password, true, clientIp, opts);
         }
         throw new UnauthorizedException(
           'Auth is misconfigured for this project (direct access grants). Please retry shortly.',
@@ -544,19 +730,19 @@ export class ProjectSdkAuthService {
       // grant resolves the literal username, so a user whose KC username drifted
       // from their email (e.g. an email change) fails here even with the right
       // password. Resolve the real username by email and retry once.
+      type RealmUserLite = {
+        id?: string;
+        username?: string;
+        emailVerified?: boolean;
+        requiredActions?: string[];
+        firstName?: string;
+        lastName?: string;
+      };
+      let user: RealmUserLite | null = null;
       if (kcError === 'invalid_grant' && !retried) {
-        const user = (await this.keycloak
+        user = (await this.keycloak
           .findUserInRealm(realmName, email)
-          .catch(() => null)) as
-          | {
-              id?: string;
-              username?: string;
-              emailVerified?: boolean;
-              requiredActions?: string[];
-              firstName?: string;
-              lastName?: string;
-            }
-          | null;
+          .catch(() => null)) as RealmUserLite | null;
         if (user?.id) {
           // A fully-set-up account can still fail the grant ("Account is not fully
           // set up") when realm-default required actions or — on Keycloak 24 —
@@ -574,6 +760,17 @@ export class ProjectSdkAuthService {
               !user.firstName?.trim() ||
               !user.lastName?.trim());
           if (blocked) {
+            // Clearing the required actions also drops CONFIGURE_TOTP, which is
+            // how an administrator asks for MFA enrollment. Keep that request
+            // on our side first, so it survives the heal, shows up in the
+            // sign-in response, and is enforced when the project opts in.
+            if (opts.projectId && user.requiredActions?.includes('CONFIGURE_TOTP')) {
+              await this.mfa
+                .setEnrollmentRequired(opts.projectId, user.id, true)
+                .catch((e: any) =>
+                  this.logger.warn(`Could not record the MFA enrollment request: ${e?.message ?? e}`),
+                );
+            }
             await this.keycloak
               .clearRealmUserLoginBlockers(realmName, user.id)
               .catch(() => {});
@@ -591,6 +788,7 @@ export class ProjectSdkAuthService {
                   new URLSearchParams({
                     grant_type: 'password', client_id: clientId, username: realUsername, password,
                     scope: 'openid email profile',
+                    ...(opts.totp ? { totp: opts.totp } : {}),
                   }).toString(),
                   { headers: this.tokenHeaders(clientIp) },
                 ),
@@ -606,6 +804,23 @@ export class ProjectSdkAuthService {
               /* fall through to invalid-credentials below */
             }
           }
+        }
+      }
+
+      // An authenticator enrolled through the hosted login lives in Keycloak,
+      // and makes the direct grant demand a `totp` parameter; its absence looks
+      // exactly like a wrong password. Say what is actually missing so the app
+      // can ask for the code and send it with the next sign-in.
+      if (kcError === 'invalid_grant' && !opts.totp && user?.id) {
+        const hasOtp = await this.keycloak
+          .userHasOtpCredential(realmName, user.id)
+          .catch(() => false);
+        if (hasOtp) {
+          throw new UnauthorizedException({
+            message:
+              'This account uses an authenticator app. Send its current code as `totp` together with the email and password.',
+            code: 'totp_required',
+          });
         }
       }
 
@@ -638,7 +853,7 @@ export class ProjectSdkAuthService {
     }
   }
 
-  private async getProject(projectId: string) {
+  async getProject(projectId: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, status: 'ACTIVE' },
       select: { id: true, name: true, keycloakRealm: true, anonKey: true },

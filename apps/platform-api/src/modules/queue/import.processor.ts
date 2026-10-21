@@ -40,6 +40,11 @@ export interface ImportJobData {
    * between hours and minutes once a project has been imported once.
    */
   mode?: 'full' | 'sync';
+  /**
+   * Sync only: add the source's primary key to tables imported without one
+   * before comparing them, so they can be matched row by row. Opt-in.
+   */
+  repairKeys?: boolean;
 }
 
 export interface ImportJobProgress {
@@ -123,6 +128,44 @@ export class ImportProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Keep the sync's own report beside the full-import snapshot.
+   *
+   * A sync's totals mean "rows added", not "rows in the project", so they must
+   * not replace the import log the overview reads. They go under `lastSync`,
+   * where the dashboard can show which tables still differ after a reload.
+   */
+  private async persistSyncLog(projectId: string, progress: ImportProgress): Promise<void> {
+    try {
+      const row = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { supabaseImportLog: true },
+      });
+      const existing = row?.supabaseImportLog;
+      const current =
+        existing && typeof existing === 'object' && !Array.isArray(existing)
+          ? (existing as Record<string, unknown>)
+          : {};
+      const lastSync = {
+        database: progress.database,
+        auth: progress.auth,
+        storage: progress.storage,
+        warnings: progress.warnings,
+        ...(progress.tables ? { tables: progress.tables } : {}),
+        ...(progress.verification ? { verification: progress.verification } : {}),
+        completedAt: new Date().toISOString(),
+      };
+      await this.prisma.project.update({
+        where: { id: projectId },
+        // Interface-typed arrays (TableReconciliation[]) have no index
+        // signature, so Prisma's JSON type needs the detour through unknown.
+        data: { supabaseImportLog: { ...current, lastSync } as unknown as Prisma.InputJsonValue },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not persist the sync log for project ${projectId}: ${err.message}`);
+    }
+  }
+
   private async runImport(job: Job<ImportJobData>): Promise<ImportProgress> {
     const jobId = String(job.id);
     const { baseUrl, serviceRoleKey, projectId, projectName } = job.data;
@@ -176,6 +219,7 @@ export class ImportProcessor extends WorkerHost {
           async (detail: string, percent: number, strategy?: string) => {
             await onProgress({ step: 'database', detail, percent, strategy });
           },
+          { repairKeys: !!job.data.repairKeys },
         );
 
         checkCancelled();
@@ -218,6 +262,8 @@ export class ImportProcessor extends WorkerHost {
           title: 'Supabase sync completed',
           detail: `${progress.database.rows} row(s) across ${progress.database.tables} table(s); ${progress.auth.users} user(s); ${progress.storage.objects} file(s).`,
         });
+
+        await this.persistSyncLog(projectId, progress);
 
         return progress;
       } catch (err: any) {
@@ -344,13 +390,15 @@ export class ImportProcessor extends WorkerHost {
       `${progress.storage.objects} objects`,
     );
 
-    const logPayload: Prisma.InputJsonValue = {
+    const logPayload = {
       database: progress.database,
       auth: progress.auth,
       storage: progress.storage,
       warnings: progress.warnings,
+      ...(progress.tables ? { tables: progress.tables } : {}),
+      ...(progress.verification ? { verification: progress.verification } : {}),
       completedAt: new Date().toISOString(),
-    };
+    } as unknown as Prisma.InputJsonValue;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {

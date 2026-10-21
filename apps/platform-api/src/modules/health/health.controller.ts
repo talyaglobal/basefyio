@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
+import { CronLeaderService } from '../cluster/cron-leader.service';
 import { EmailService } from '../email/email.service';
 
 /**
@@ -19,7 +20,10 @@ import { EmailService } from '../email/email.service';
 @SkipThrottle()
 @Controller('health')
 export class HealthController {
-  constructor(private readonly email: EmailService) {}
+  constructor(
+    private readonly email: EmailService,
+    private readonly leader: CronLeaderService,
+  ) {}
 
   @Get()
   check() {
@@ -30,6 +34,14 @@ export class HealthController {
       status: degraded ? 'degraded' : 'ok',
       checks: {
         email: mail,
+      },
+      // Which replica answered, and whether it is the one running the scheduled
+      // jobs. Behind the proxy several replicas share one hostname, so this is
+      // how an operator tells them apart; with one replica it names the build.
+      instance: {
+        id: this.leader.getInstanceId(),
+        role: this.leader.getRole(),
+        imageTag: process.env.IMAGE_TAG || 'unknown',
       },
     };
   }

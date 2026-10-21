@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   BrainCircuit,
@@ -9,35 +9,58 @@ import {
   Database,
   Eye,
   EyeOff,
+  Globe,
   Key,
   Loader2,
+  RefreshCw,
   Search,
+  Server,
   Sparkles,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import type {
+  EmbeddingDisclosure,
+  EmbeddingProviderCatalogue,
+  EmbeddingStatus,
+  SetEmbeddingProviderBody,
+} from '@/lib/embeddings';
 import { useProject } from '@/contexts/project-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 
-interface EmbeddingStatus {
-  pgvectorEnabled: boolean;
-  pgvectorEnabledAt: string | null;
-  hasApiKey: boolean;
-  embeddingCount: number | null;
-}
+/** Select value meaning "no project override — follow the platform setting". */
+const PLATFORM_DEFAULT = '__platform__';
+const REEMBED_POLL_MS = 5000;
 
 export default function EmbeddingsPage() {
   const { project } = useProject();
   const [status, setStatus] = useState<EmbeddingStatus | null>(null);
+  const [disclosure, setDisclosure] = useState<EmbeddingDisclosure | null>(null);
+  const [catalogue, setCatalogue] = useState<EmbeddingProviderCatalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [savingKey, setSavingKey] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
+  // Provider form
+  const [providerSel, setProviderSel] = useState(PLATFORM_DEFAULT);
+  const [model, setModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [formSeeded, setFormSeeded] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [reembedding, setReembedding] = useState(false);
   // Public REST base (`<public api>/api/rest/v1`) as the backend reports it —
   // the global `/api` prefix and the production host are only known there.
   const [restUrl, setRestUrl] = useState(
@@ -47,8 +70,12 @@ export default function EmbeddingsPage() {
   const fetchStatus = useCallback(async () => {
     if (!project) return;
     try {
-      const s = await api.embeddings.getStatus(project.id);
+      const [s, d] = await Promise.all([
+        api.embeddings.getStatus(project.id),
+        api.embeddings.disclosure(project.id).catch(() => null),
+      ]);
       setStatus(s);
+      setDisclosure(d);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load embedding status');
     } finally {
@@ -62,11 +89,51 @@ export default function EmbeddingsPage() {
 
   useEffect(() => {
     if (!project) return;
+    api.embeddings
+      .providers(project.id)
+      .then(setCatalogue)
+      .catch(() => undefined); // the provider card says so when the list is missing
+  }, [project]);
+
+  useEffect(() => {
+    if (!project) return;
     api.projects
       .connect(project.id)
       .then((conn) => conn?.restUrl && setRestUrl(conn.restUrl))
       .catch(() => undefined); // keep the fallback; the status card reports real errors
   }, [project]);
+
+  // Seed the provider form once from the saved configuration.
+  useEffect(() => {
+    if (!status || formSeeded) return;
+    if (status.configSource === 'project') {
+      setProviderSel(status.provider);
+      setModel(status.model);
+      setBaseUrl(status.baseUrl ?? '');
+    } else {
+      setProviderSel(PLATFORM_DEFAULT);
+      setModel('');
+      setBaseUrl('');
+    }
+    setFormSeeded(true);
+  }, [status, formSeeded]);
+
+  // Follow a running re-embed.
+  const reembedActive =
+    status?.reembed?.status === 'QUEUED' || status?.reembed?.status === 'RUNNING';
+  useEffect(() => {
+    if (!reembedActive) return;
+    const timer = setInterval(fetchStatus, REEMBED_POLL_MS);
+    return () => clearInterval(timer);
+  }, [reembedActive, fetchStatus]);
+
+  const selectedOption = useMemo(
+    () =>
+      catalogue?.providers.find(
+        (p) => p.id === (providerSel === PLATFORM_DEFAULT ? status?.provider : providerSel),
+      ) ?? null,
+    [catalogue, providerSel, status?.provider],
+  );
 
   const handleToggle = async (enabled: boolean) => {
     if (!project) return;
@@ -104,6 +171,66 @@ export default function EmbeddingsPage() {
     }
   };
 
+  const applyProvider = async (body: SetEmbeddingProviderBody) => {
+    if (!project) return;
+    const res = await api.embeddings.setProvider(project.id, body);
+    toast.success(
+      res.reembed.queued
+        ? `Provider set to ${res.model}; re-embedding ${res.reembed.total.toLocaleString()} vectors`
+        : `Provider set to ${res.model}`,
+    );
+    setFormSeeded(false);
+    await fetchStatus();
+  };
+
+  const handleSaveProvider = async () => {
+    if (!project) return;
+    const body: SetEmbeddingProviderBody =
+      providerSel === PLATFORM_DEFAULT
+        ? { provider: null }
+        : { provider: providerSel, model: model.trim() || null, baseUrl: baseUrl.trim() || null };
+    setSavingProvider(true);
+    try {
+      await applyProvider(body);
+    } catch (err: any) {
+      if (err?.code === 'EMBEDDING_MODEL_CHANGE_REQUIRES_REEMBED') {
+        const ok = await confirmDialog({
+          title: 'Re-embed existing vectors?',
+          description: err.message,
+          confirmText: 'Switch and re-embed',
+          destructive: true,
+        });
+        if (ok) {
+          try {
+            await applyProvider({ ...body, reembed: true });
+          } catch (retryErr: any) {
+            toast.error(retryErr.message || 'Failed to switch provider');
+          }
+        }
+      } else {
+        toast.error(err.message || 'Failed to switch provider');
+      }
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const handleReembed = async () => {
+    if (!project) return;
+    setReembedding(true);
+    try {
+      const res = await api.embeddings.reembed(project.id);
+      toast.success(
+        res.queued ? `Re-embedding ${res.total.toLocaleString()} vectors` : 'Nothing to re-embed',
+      );
+      await fetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to start the re-embed');
+    } finally {
+      setReembedding(false);
+    }
+  };
+
   const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -124,6 +251,12 @@ export default function EmbeddingsPage() {
   }
 
   const restPath = restUrl.replace(/^https?:\/\/[^/]+/, '');
+  const providerName = status?.providerName ?? 'OpenAI';
+  const modelName = status?.model ?? 'text-embedding-3-small';
+  const dims = disclosure?.provider.dimensions ?? status?.dimensions ?? null;
+  const storedDims = disclosure?.provider.storedDimensions ?? status?.storedDimensions ?? null;
+  const reembed = status?.reembed ?? null;
+  const keyRequired = selectedOption ? selectedOption.requiresApiKey : status?.requiresApiKey ?? true;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
@@ -188,22 +321,176 @@ export default function EmbeddingsPage() {
         )}
       </div>
 
-      {/* Card 2: OpenAI API Key */}
+      {/* Re-embed progress */}
+      {reembed && reembed.status !== 'COMPLETED' && (
+        <div
+          className={`rounded-xl border p-4 ${
+            reembed.status === 'FAILED' ? 'border-destructive/40 bg-destructive/5' : 'bg-card'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              {reembed.status === 'FAILED' ? (
+                <RefreshCw className="h-4 w-4 text-destructive" />
+              ) : (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              <span>
+                {reembed.status === 'FAILED'
+                  ? `Re-embed failed after ${reembed.done.toLocaleString()} of ${reembed.total.toLocaleString()} vectors`
+                  : reembed.status === 'QUEUED'
+                    ? `Re-embed queued (${reembed.total.toLocaleString()} vectors)`
+                    : `Re-embedding ${reembed.done.toLocaleString()} / ${reembed.total.toLocaleString()} vectors with ${reembed.model}`}
+              </span>
+            </div>
+            {reembed.status === 'FAILED' && (
+              <Button size="sm" variant="outline" onClick={handleReembed} disabled={reembedding}>
+                {reembedding ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Retry'}
+              </Button>
+            )}
+          </div>
+          {reembed.status === 'FAILED' && reembed.error && (
+            <p className="mt-2 text-xs text-muted-foreground">{reembed.error}</p>
+          )}
+          {reembed.status !== 'FAILED' && reembed.total > 0 && (
+            <div className="mt-3 h-1.5 w-full overflow-hidden rounded bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${Math.min(100, Math.round((reembed.done / reembed.total) * 100))}%` }}
+              />
+            </div>
+          )}
+          {reembed.status !== 'FAILED' && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Search relevance is reduced until every vector is rewritten with the new model.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Card 2: Embedding provider */}
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/10">
+            <Server className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-semibold">Embedding provider</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Which service turns your text into vectors. Leave it on the platform default, or pick a provider
+              and model for this project.
+            </p>
+          </div>
+          {status && (
+            <Badge variant="outline" className="shrink-0">
+              {status.configSource === 'project' ? 'Project override' : 'Platform default'}
+            </Badge>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="embedding-provider">Provider</Label>
+            <Select value={providerSel} onValueChange={setProviderSel}>
+              <SelectTrigger id="embedding-provider">
+                <SelectValue placeholder="Select a provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PLATFORM_DEFAULT}>
+                  Platform default
+                  {catalogue ? ` (${catalogue.providers.find((p) => p.id === catalogue.platformProvider)?.name ?? catalogue.platformProvider} · ${catalogue.platformModel})` : ''}
+                </SelectItem>
+                {(catalogue?.providers ?? []).map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                    {p.selfHosted ? '' : ` · ${p.dataRegion.label}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="embedding-model">Model</Label>
+            <Input
+              id="embedding-model"
+              value={model}
+              disabled={providerSel === PLATFORM_DEFAULT}
+              placeholder={
+                providerSel === PLATFORM_DEFAULT
+                  ? catalogue?.platformModel ?? 'platform model'
+                  : `${selectedOption?.defaultModel ?? ''} (default)`
+              }
+              onChange={(e) => setModel(e.target.value)}
+            />
+          </div>
+          {providerSel !== PLATFORM_DEFAULT && selectedOption?.supportsBaseUrl && (
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="embedding-base-url">Endpoint (optional)</Label>
+              <Input
+                id="embedding-base-url"
+                value={baseUrl}
+                placeholder={
+                  selectedOption.selfHosted
+                    ? 'https://ollama.example.com — leave empty for the platform host'
+                    : 'https://… an OpenAI-compatible gateway; leave empty for the provider'
+                }
+                onChange={(e) => setBaseUrl(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Public https hosts only
+                {catalogue?.allowPrivateBaseUrl ? ' (private hosts are allowed on this server)' : ''}.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button onClick={handleSaveProvider} disabled={savingProvider || !catalogue}>
+            {savingProvider ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save provider'}
+          </Button>
+          {selectedOption && providerSel !== PLATFORM_DEFAULT && (
+            <span className="text-xs text-muted-foreground">
+              {selectedOption.requiresApiKey
+                ? selectedOption.platformKeyAvailable
+                  ? `Uses the platform ${selectedOption.name} key unless you set a project key below.`
+                  : `Needs a ${selectedOption.name} API key — add one below.`
+                : 'No API key needed.'}
+            </span>
+          )}
+          {!catalogue && (
+            <span className="text-xs text-muted-foreground">Provider list unavailable.</span>
+          )}
+        </div>
+        {status?.pgvectorEnabled && (status.embeddingCount ?? 0) > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Changing the model re-embeds the {status.embeddingCount?.toLocaleString()} vectors this project
+            already holds; you will be asked to confirm.
+          </p>
+        )}
+      </div>
+
+      {/* Card 3: Provider API key */}
       <div className="rounded-xl border bg-card p-6">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
             <Key className="h-5 w-5 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="flex-1">
-            <h2 className="text-base font-semibold">OpenAI API Key</h2>
+            <h2 className="text-base font-semibold">{providerName} API key</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Per-project key for generating embeddings. If not set, the platform-level key is used.
+              {keyRequired
+                ? 'Per-project key for generating embeddings. If not set, the platform-level key is used.'
+                : 'Optional for a self-hosted provider — only needed when the host sits behind an authenticating proxy.'}
             </p>
           </div>
           {status?.hasApiKey && (
             <Badge variant="outline" className="shrink-0 gap-1.5">
               <Check className="h-3 w-3 text-emerald-500" />
-              Key available
+              {status.keySource === 'project'
+                ? 'Project key'
+                : status.keySource === 'platform'
+                  ? 'Platform key'
+                  : 'No key needed'}
             </Badge>
           )}
         </div>
@@ -215,7 +502,7 @@ export default function EmbeddingsPage() {
               <Input
                 id="embedding-api-key"
                 type={showKey ? 'text' : 'password'}
-                placeholder="sk-..."
+                placeholder={status?.provider === 'openai' ? 'sk-...' : 'API key'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="pr-10"
@@ -244,7 +531,112 @@ export default function EmbeddingsPage() {
         </div>
       </div>
 
-      {/* Card 3: API Usage Guide */}
+      {/* Card 4: Where your data goes */}
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+            <Globe className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-semibold">Where your data goes</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              The text you store or search is sent to the provider below to be turned into vectors. The vectors
+              stay in your project database.
+            </p>
+          </div>
+          {disclosure?.provider.selfHosted && (
+            <Badge variant="outline" className="shrink-0">Self-hosted</Badge>
+          )}
+        </div>
+
+        {disclosure ? (
+          <dl className="mt-4 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted-foreground">Provider</dt>
+              <dd>
+                {disclosure.provider.name}
+                <span className="text-muted-foreground"> · {disclosure.provider.endpointHost}</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Model</dt>
+              <dd>
+                <code className="rounded bg-muted px-1">{disclosure.provider.model}</code>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Vector dimensions</dt>
+              <dd>
+                {disclosure.provider.dimensions != null
+                  ? `${disclosure.provider.dimensions}${
+                      disclosure.provider.padded && disclosure.provider.storedDimensions
+                        ? ` (stored padded to ${disclosure.provider.storedDimensions})`
+                        : ''
+                    }`
+                  : disclosure.provider.storedDimensions
+                    ? `store holds ${disclosure.provider.storedDimensions}`
+                    : 'not determined'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Data region</dt>
+              <dd>
+                {disclosure.dataRegion.label}
+                {disclosure.dataRegion.code && !disclosure.dataRegion.label.includes(disclosure.dataRegion.code) && (
+                  <span className="text-muted-foreground"> ({disclosure.dataRegion.code})</span>
+                )}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-muted-foreground">Retention at the provider</dt>
+              <dd>
+                {disclosure.processing.retention}
+                {disclosure.processing.policyUrl && (
+                  <>
+                    {' '}
+                    <a
+                      href={disclosure.processing.policyUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      Data-usage policy
+                    </a>
+                  </>
+                )}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-muted-foreground">Vector storage</dt>
+              <dd>
+                {disclosure.storage.engine}
+                <span className="text-muted-foreground"> · region {disclosure.storage.region.label}</span>
+              </dd>
+            </div>
+            {disclosure.fallback && (
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-muted-foreground">Failover</dt>
+                <dd>
+                  {disclosure.fallback.name} · {disclosure.fallback.model} · {disclosure.fallback.dataRegion.label}
+                  {disclosure.fallback.vectorSpaceDiffers && (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      — a different vector space; relevance drops while the fallback is in use
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {disclosure.status !== 'ok' && disclosure.statusMessage && (
+              <div className="sm:col-span-2 text-destructive">{disclosure.statusMessage}</div>
+            )}
+          </dl>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">Disclosure unavailable.</p>
+        )}
+      </div>
+
+      {/* Card 5: API Usage Guide */}
       {status?.pgvectorEnabled && (
         <div className="rounded-xl border bg-card p-6">
           <div className="flex items-start gap-3">
@@ -270,6 +662,7 @@ export default function EmbeddingsPage() {
                   { method: 'POST', path: `${restPath}/embeddings/search`, desc: 'Semantic search' },
                   { method: 'DELETE', path: `${restPath}/embeddings`, desc: 'Delete by IDs' },
                   { method: 'GET', path: `${restPath}/embeddings/status`, desc: 'Check status' },
+                  { method: 'GET', path: `${restPath}/embeddings/disclosure`, desc: 'Provider, model and data region' },
                 ].map((ep) => (
                   <div key={ep.path + ep.method} className="flex items-center gap-2 text-sm">
                     <span className="w-16 shrink-0 rounded bg-muted px-1.5 py-0.5 text-center text-xs font-mono font-medium">
@@ -396,7 +789,13 @@ const results = await fetch('${restUrl}/embeddings/search', {
               <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
                 <li className="flex items-start gap-2">
                   <Search className="mt-0.5 h-3 w-3 shrink-0" />
-                  <span>Text is converted to a 1536-dimensional vector using OpenAI's <code className="rounded bg-background px-1">text-embedding-3-small</code> model</span>
+                  <span>
+                    Text is converted to a {dims != null ? `${dims}-dimensional` : ''} vector using {providerName}
+                    's <code className="rounded bg-background px-1">{modelName}</code> model
+                    {dims != null && storedDims != null && dims < storedDims
+                      ? `, stored zero-padded to ${storedDims} dimensions`
+                      : ''}
+                  </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Database className="mt-0.5 h-3 w-3 shrink-0" />

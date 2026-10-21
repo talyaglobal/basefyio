@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Database management — Indexes / Triggers / Functions / Extensions for the
- * project database. Postgres functions created here are
+ * Database management — Indexes / Triggers / Functions / Extensions / Policies
+ * for the project database. Postgres functions created here are
  * instantly callable as APIs via POST /rest/v1/rpc/{name}.
  */
 
@@ -18,8 +18,9 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Loader2, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { RlsPolicyEditor } from '@/components/rls-policy-editor';
 
-type Tab = 'indexes' | 'triggers' | 'functions' | 'extensions';
+type Tab = 'indexes' | 'triggers' | 'functions' | 'extensions' | 'policies';
 
 // Singular labels — plural forms are irregular, so a naive slice() mangles them
 // ("triggers" → "trigge", "indexes" → "indexx").
@@ -28,6 +29,7 @@ const TAB_SINGULAR: Record<Tab, string> = {
   triggers: 'trigger',
   functions: 'function',
   extensions: 'extension',
+  policies: 'policy',
 };
 
 const FN_TEMPLATE = `CREATE OR REPLACE FUNCTION hello(name text)
@@ -61,6 +63,12 @@ export default function DatabasePage() {
   const [fnSql, setFnSql] = useState(FN_TEMPLATE);
 
   const load = useCallback(async (t: Tab) => {
+    if (t === 'policies') {
+      // The policy editor loads its own data.
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data =
@@ -96,6 +104,30 @@ export default function DatabasePage() {
     }
   }
 
+  async function installDefaultExtensions() {
+    const ok = await confirmDialog({
+      title: 'Install recommended extensions',
+      description:
+        'Installs pg_trgm, pgcrypto, unaccent, btree_gist, uuid-ossp and vector into this database — the set every new project starts with. Extensions already present are left as they are.',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const r = await api.projects.dbInstallDefaultExtensions(id);
+      if (r.error) {
+        toast.error(r.error);
+      } else {
+        const skipped = r.skipped.length ? ` · ${r.skipped.length} skipped` : '';
+        toast.success(`Installed: ${r.installed.join(', ') || 'nothing new'}${skipped}`);
+      }
+      await load(tab);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const tabBtn = (t: Tab, label: string) => (
     <button
       key={t}
@@ -112,10 +144,17 @@ export default function DatabasePage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">Database</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => load(tab)}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
-          {tab !== 'extensions' && (
+          {tab !== 'policies' && (
+            <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => load(tab)}>
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
+          {tab === 'extensions' && (
+            <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={installDefaultExtensions} disabled={busy}>
+              Install recommended extensions
+            </Button>
+          )}
+          {tab !== 'extensions' && tab !== 'policies' && (
             <Button size="sm" className="whitespace-nowrap" onClick={() => setDialogOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4 shrink-0" />
               New {TAB_SINGULAR[tab]}
@@ -129,6 +168,7 @@ export default function DatabasePage() {
         {tabBtn('triggers', 'Triggers')}
         {tabBtn('functions', 'Functions')}
         {tabBtn('extensions', 'Extensions')}
+        {tabBtn('policies', 'Policies')}
       </div>
 
       {tab === 'functions' && (
@@ -139,7 +179,9 @@ export default function DatabasePage() {
         </p>
       )}
 
-      {loading ? (
+      {tab === 'policies' ? (
+        <RlsPolicyEditor projectId={id} />
+      ) : loading ? (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

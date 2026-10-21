@@ -18,11 +18,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
+    // A stable machine-readable code a handler chose to attach (`new ConflictException({ code, message })`).
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
       message = typeof res === 'string' ? res : (res as any).message || message;
+      if (typeof res === 'object' && res && typeof (res as any).code === 'string') {
+        code = (res as any).code;
+      }
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
       // Don't leak internal error details to the client
@@ -32,6 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       message,
+      ...(code ? { code } : {}),
       timestamp: new Date().toISOString(),
     });
   }

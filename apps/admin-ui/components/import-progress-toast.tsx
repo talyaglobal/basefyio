@@ -179,6 +179,15 @@ export function ImportProgressToast() {
                 <span>{activeImport.result.auth.users} users</span>
                 <span>{activeImport.result.storage.objects} files</span>
               </div>
+              {(() => {
+                const differing =
+                  activeImport.result.tables?.filter((t) => t.rowCountMismatch).length ?? 0;
+                return differing > 0 ? (
+                  <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-400">
+                    {differing} table(s) differ from the source
+                  </p>
+                ) : null;
+              })()}
               {activeImport.result.warnings.length > 0 && (
                 <div className="mt-2 rounded-md border border-amber-300/80 bg-amber-50/90 p-2 dark:border-amber-700 dark:bg-amber-950/50">
                   <p className="text-[11px] font-medium text-amber-800 dark:text-amber-400">

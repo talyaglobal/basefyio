@@ -39,6 +39,8 @@ import {
   MetricsInterceptor,
 } from './modules/health/metrics.controller';
 import { MetricsModule } from './modules/health/metrics.module';
+import { AuditSinkModule } from './common/audit/audit-sink.module';
+import { ClusterModule } from './modules/cluster/cluster.module';
 import { InfrastructureModule } from './modules/infrastructure/infrastructure.module';
 import { ObservabilityModule } from './modules/observability/observability.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -125,6 +127,10 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     AiChatModule,
     // Global: anything may count an event.
     MetricsModule,
+    // Global: audit rows are forwarded to the operator's log pipeline (off unless configured).
+    AuditSinkModule,
+    // Global: one replica owns the scheduled jobs; health and metrics report which.
+    ClusterModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [

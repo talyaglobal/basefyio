@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { AuditLog, Prisma, User, UserRole } from '@prisma/client';
+import { AuditSinkService } from '../../common/audit/audit-sink.service';
+import { toAuditEvent } from '../../common/audit/audit-event';
 
 type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -36,6 +38,7 @@ export class ObservabilityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    @Optional() private readonly auditSink?: AuditSinkService,
   ) {}
 
   private incrementMetric(key: string) {
@@ -185,6 +188,27 @@ export class ObservabilityService {
         } as Prisma.InputJsonValue,
       },
     });
+
+    try {
+      this.auditSink?.enqueue(
+        toAuditEvent({
+          id: row.id,
+          createdAt: row.createdAt,
+          source: 'root_action',
+          traceId: row.traceId,
+          actorUserId: row.actorUserId,
+          actorRole: row.actorRole,
+          action: row.action,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+          severity: row.severity,
+          success: row.success,
+          latencyMs: params.latencyMs,
+        }),
+      );
+    } catch (err: any) {
+      this.logger.warn(`Failed to forward root action audit: ${err?.message || err}`);
+    }
 
     await this.evaluateAlertRules(params, row.id);
     return row;

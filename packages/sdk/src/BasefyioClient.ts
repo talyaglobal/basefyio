@@ -47,7 +47,9 @@ export class BasefyioClient {
     this.storage = new StorageClient(this.http, this.projectId);
     this.collections = new CollectionManager(this.http, this.projectId);
     this.data = new DataEngineClient(this.http, this.projectId);
-    this.realtime = new RealtimeClient(apiUrl, apiKey);
+    this.realtime = new RealtimeClient(apiUrl, apiKey, {
+      tokenAccessor: () => this.auth.getAccessToken(),
+    });
   }
 
   /**

@@ -5,11 +5,18 @@ import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
 import { EmbeddingProcessor } from './embedding.processor';
 import { SchemaIndexerService } from './schema-indexer.service';
+import { EmbeddingProviderService } from './providers/embedding-provider.service';
 
 @Global()
 @Module({
   imports: [BullModule.registerQueue({ name: EMBEDDING_QUEUE })],
-  providers: [EmbeddingService, VectorStoreService, EmbeddingProcessor, SchemaIndexerService],
-  exports: [EmbeddingService, VectorStoreService, SchemaIndexerService],
+  providers: [
+    EmbeddingProviderService,
+    EmbeddingService,
+    VectorStoreService,
+    EmbeddingProcessor,
+    SchemaIndexerService,
+  ],
+  exports: [EmbeddingProviderService, EmbeddingService, VectorStoreService, SchemaIndexerService],
 })
 export class EmbeddingModule {}

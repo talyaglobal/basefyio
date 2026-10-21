@@ -1105,6 +1105,16 @@ export class ProjectDataService {
       keycloakUrl: this.config.get('keycloak.publicUrl') || this.config.get('keycloak.url'),
       anonKey: project.anonKey,
       serviceKey: project.serviceKey,
+      // SELECT-only companion role; null until the team creates it.
+      readonly:
+        project.dbReadonlyUser && project.dbReadonlyPassword
+          ? {
+              user: project.dbReadonlyUser as string,
+              password: project.dbReadonlyPassword as string,
+              uri: buildPostgresUri(directHost, directPort, project.dbReadonlyUser, project.dbReadonlyPassword, db),
+              poolerUri: buildPostgresUri(extPoolerHost, extPoolerPort, project.dbReadonlyUser, project.dbReadonlyPassword, db),
+            }
+          : null,
     };
   }
 }

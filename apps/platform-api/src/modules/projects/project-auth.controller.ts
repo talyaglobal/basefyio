@@ -25,6 +25,7 @@ import { ConfigService } from '@nestjs/config';
 import { ProjectsService } from './projects.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import { ProjectMfaService } from './project-mfa.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
@@ -174,6 +175,7 @@ export class ProjectAuthController {
     private readonly authConfigService: ProjectAuthConfigService,
     private readonly configService: ConfigService,
     private readonly activity: ProjectActivityService,
+    private readonly mfa: ProjectMfaService,
   ) {}
 
   @Get()
@@ -332,6 +334,10 @@ export class ProjectAuthController {
       'CONFIGURE_TOTP',
       enabled,
     );
+    // The Keycloak required action covers the hosted login; the SDK sign-in
+    // clears it to complete the password grant, so the request is kept on
+    // our side too, where the SDK flow reads and (when enforced) honours it.
+    await this.mfa.setEnrollmentRequired(projectId, userId, enabled);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_UPDATED,
@@ -341,13 +347,102 @@ export class ProjectAuthController {
   }
 
   // ── MFA ──
+  /**
+   * Every enrolled factor, wherever it lives: Keycloak credentials (hosted
+   * login, `source: 'keycloak'`) and authenticator apps enrolled through the
+   * SDK (`source: 'basefyio'`).
+   */
   @Get('mfa')
   async listMfaUsers(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.listMfaUsers(project.keycloakRealm);
+    const [fromKeycloak, fromApp] = await Promise.all([
+      this.keycloak.listMfaUsers(project.keycloakRealm),
+      this.mfa.listEnrolled(projectId),
+    ]);
+    type Factor = { id: string; type: string; userLabel: string | null; createdDate: number | null; source: 'keycloak' | 'basefyio' };
+    type Entry = { id: string; email: string; firstName: string; lastName: string; factors: Factor[] };
+    const byUser = new Map<string, Entry>(
+      fromKeycloak.map((u: any) => [
+        u.id as string,
+        { ...u, factors: (u.factors as Factor[]).map((f) => ({ ...f, source: 'keycloak' as const })) },
+      ]),
+    );
+    for (const row of fromApp) {
+      const factor: Factor = {
+        id: `app-totp-${row.keycloakUserId}`,
+        type: 'totp',
+        userLabel: 'Authenticator app',
+        createdDate: row.verifiedAt ? row.verifiedAt.getTime() : null,
+        source: 'basefyio',
+      };
+      const existing = byUser.get(row.keycloakUserId);
+      if (existing) {
+        existing.factors.push(factor);
+        continue;
+      }
+      const kcUser = await this.keycloak
+        .getRealmUserById(project.keycloakRealm, row.keycloakUserId)
+        .catch(() => null);
+      byUser.set(row.keycloakUserId, {
+        id: row.keycloakUserId,
+        email: kcUser?.email ?? '',
+        firstName: kcUser?.firstName ?? '',
+        lastName: kcUser?.lastName ?? '',
+        factors: [factor],
+      });
+    }
+    return Array.from(byUser.values());
+  }
+
+  /** Reset an authenticator app enrolled through the SDK (the person re-enrolls at next sign-in). */
+  @Delete('users/:userId/mfa')
+  async removeAppMfa(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    await this.projectsService.findOne(projectId, user?.sub);
+    const result = await this.mfa.disable(projectId, userId, { force: true });
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.AUTH_USER_UPDATED,
+      title: `MFA authenticator reset: ${userId}`,
+    });
+    return result;
+  }
+
+  // ── Anonymous users ──
+  /**
+   * Delete anonymous users whose sessions have long expired. Dry-run reports
+   * the count without deleting. One page (500) per call.
+   */
+  @Post('anonymous/purge')
+  async purgeAnonymousUsers(
+    @Param('projectId') projectId: string,
+    @Body() body: { olderThanDays?: number; dryRun?: boolean },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const olderThanDays = Math.max(1, Math.floor(Number(body?.olderThanDays) || 30));
+    const dryRun = body?.dryRun === true;
+    const result = await this.keycloak.purgeAnonymousUsers(
+      project.keycloakRealm,
+      olderThanDays,
+      500,
+      dryRun,
+    );
+    if (!dryRun && result.deleted > 0) {
+      await this.activity.append(projectId, {
+        userId: user?.sub,
+        kind: ProjectActivityKind.AUTH_USER_DELETED,
+        title: `Anonymous users purged: ${result.deleted}`,
+        detail: `older than ${olderThanDays} days`,
+      });
+    }
+    return { ...result, olderThanDays, dryRun };
   }
 
   @Delete('users/:userId/credentials/:credentialId')
@@ -476,6 +571,7 @@ export class ProjectAuthController {
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
     const result = await this.keycloak.deleteUser(project.keycloakRealm, userId);
+    await this.mfa.forgetUser(projectId, userId).catch(() => undefined);
     await this.activity.append(projectId, {
       userId: user?.sub,
       kind: ProjectActivityKind.AUTH_USER_DELETED,

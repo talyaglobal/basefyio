@@ -1,0 +1,52 @@
+# Hostname routing for the `tls` profile in docker-compose.yml.
+#
+# Written as a file-provider configuration rather than container labels so the
+# profile can be added without changing any other service. Traefik renders this
+# file as a Go template; `{{ env "DOMAIN" }}` reads the DOMAIN variable passed to
+# the traefik container, so one .env value names every host.
+http:
+  routers:
+    app:
+      rule: 'Host(`app.{{ env "DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: admin-ui
+      tls: {}
+    api:
+      rule: 'Host(`api.{{ env "DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: platform-api
+      tls: {}
+    auth:
+      rule: 'Host(`auth.{{ env "DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: keycloak
+      tls: {}
+    storage:
+      rule: 'Host(`storage.{{ env "DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: minio
+      tls: {}
+
+  services:
+    admin-ui:
+      loadBalancer:
+        servers:
+          - url: http://admin-ui:3000
+        # Dashboard event streams must not be buffered.
+        responseForwarding:
+          flushInterval: 100ms
+    platform-api:
+      loadBalancer:
+        servers:
+          - url: http://platform-api:4000
+        # Realtime subscriptions are server-sent events; flush frames as they come.
+        responseForwarding:
+          flushInterval: 100ms
+    keycloak:
+      loadBalancer:
+        servers:
+          - url: http://keycloak:8080
+    minio:
+      loadBalancer:
+        servers:
+          - url: http://minio:9000

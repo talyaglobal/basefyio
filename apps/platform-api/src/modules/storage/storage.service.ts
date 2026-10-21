@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomBytes } from 'crypto';
 import * as Minio from 'minio';
+import { StorageClientSet, buildStorageClients } from './storage-client.factory';
 import { Readable } from 'stream';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
@@ -62,6 +63,9 @@ const MARKETING_ASSETS_BUCKET = 'bf-platform-marketing';
 /** Buckets the platform itself owns, as opposed to customer projects. */
 export const PLATFORM_BUCKETS: readonly string[] = [FEEDBACK_ATTACHMENTS_BUCKET, MARKETING_ASSETS_BUCKET];
 
+const UNSUPPORTED_BUCKET_POLICIES =
+  'This object store does not support anonymous bucket policies. Keep the bucket private and serve files through signed URLs or the download route.';
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -70,38 +74,27 @@ export class StorageService {
   private publicEndpoint: string;
   private publicPort: number;
   private publicSsl: boolean;
+  /** Driver, addressing style and capabilities of the configured store. */
+  private readonly caps: StorageClientSet;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly quota: QuotaService,
   ) {
-    const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
-    const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
-
-    this.client = new Minio.Client({
-      endPoint: this.config.get<string>('minio.endpoint') || 'localhost',
-      port: this.config.get<number>('minio.port') || 9000,
-      useSSL: this.config.get<boolean>('minio.useSsl') || false,
-      accessKey,
-      secretKey,
-    });
-
-    this.publicEndpoint = this.config.get<string>('minio.publicEndpoint') || 'localhost';
-    this.publicPort = this.config.get<number>('minio.publicPort') || 9000;
-    this.publicSsl = this.config.get<string>('minio.publicSsl') === 'true';
-
-    this.publicClient = new Minio.Client({
-      endPoint: this.publicEndpoint,
-      port: this.publicPort,
-      useSSL: this.publicSsl,
-      accessKey,
-      secretKey,
-    });
+    // One place decides which store this is: MINIO_* by default, S3_* when
+    // STORAGE_DRIVER=s3. Everything below only ever sees an S3 client.
+    const set = buildStorageClients(this.config);
+    this.caps = set;
+    this.client = set.client;
+    this.publicClient = set.publicClient;
+    this.publicEndpoint = set.publicEndpoint;
+    this.publicPort = set.publicPort;
+    this.publicSsl = set.publicSsl;
   }
 
   private minioBucketName(projectSlug: string, bucketName: string): string {
-    return `bf-${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return `${this.caps.bucketPrefix}${projectSlug}-${bucketName}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
   /**
@@ -110,6 +103,16 @@ export class StorageService {
    * shortly after boot instead of waiting up to six hours for the cron.
    */
   async onModuleInit(): Promise<void> {
+    this.logger.log(`Storage driver: ${this.caps.describe()}`);
+    if (this.caps.driver === 's3') {
+      // Not fatal: a wrong credential or region shows up here instead of on
+      // the first upload.
+      try {
+        await this.client.listBuckets();
+      } catch (err: any) {
+        this.logger.warn(`Object store probe failed (${this.caps.describe()}): ${err?.message ?? err}`);
+      }
+    }
     try {
       const unmeasured = await this.prisma.project.count({
         where: {
@@ -133,7 +136,7 @@ export class StorageService {
    * of {@link minioBucketName} for that slug (any logical bucket name).
    */
   private minioProjectPrefix(projectSlug: string): string {
-    return `bf-${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return `${this.caps.bucketPrefix}${projectSlug}-`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   }
 
   /**
@@ -224,10 +227,14 @@ export class StorageService {
     const exists = await this.client.bucketExists(minioBucket);
     if (exists) throw new ConflictException(`Bucket "${name}" already exists`);
 
+    // Checked before the bucket exists, so a store without bucket policies
+    // does not end up with a private bucket the caller believes is public.
+    if (isPublic) this.assertBucketPoliciesSupported();
+
     await this.client.makeBucket(minioBucket);
 
     if (isPublic) {
-      await this.client.setBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
+      await this.applyBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
     }
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
@@ -313,9 +320,11 @@ export class StorageService {
     if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
 
     if (isPublic) {
-      await this.client.setBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
-    } else {
-      await this.client.setBucketPolicy(minioBucket, '');
+      this.assertBucketPoliciesSupported();
+      await this.applyBucketPolicy(minioBucket, this.publicBucketPolicy(minioBucket));
+    } else if (this.caps.supportsBucketPolicies) {
+      // A store without policies never had a public bucket; nothing to clear.
+      await this.applyBucketPolicy(minioBucket, '');
     }
 
     return { public: isPublic };
@@ -415,7 +424,35 @@ export class StorageService {
       (this.publicSsl && this.publicPort === 443) || (!this.publicSsl && this.publicPort === 80);
     const host = omitPort ? this.publicEndpoint : `${this.publicEndpoint}:${this.publicPort}`;
     const clean = (path || '').replace(/^\/+/, '');
-    return `${scheme}://${host}/${minioBucket}/${clean}`;
+    // Virtual-host addressing (AWS without path-style) carries the bucket in the host.
+    return this.caps.virtualHost
+      ? `${scheme}://${minioBucket}.${host}/${clean}`
+      : `${scheme}://${host}/${minioBucket}/${clean}`;
+  }
+
+  /** Which store this is and what it can do — for routes that must adapt (e.g. refuse "public" on R2). */
+  get capabilities(): Pick<StorageClientSet, 'driver' | 'supportsBucketPolicies' | 'virtualHost' | 'bucketPrefix'> {
+    const { driver, supportsBucketPolicies, virtualHost, bucketPrefix } = this.caps;
+    return { driver, supportsBucketPolicies, virtualHost, bucketPrefix };
+  }
+
+  private assertBucketPoliciesSupported(): void {
+    if (!this.caps.supportsBucketPolicies) {
+      throw new BadRequestException(UNSUPPORTED_BUCKET_POLICIES);
+    }
+  }
+
+  /** `setBucketPolicy`, with a store that lacks the call reported as a clear 400 instead of a 500. */
+  private async applyBucketPolicy(minioBucket: string, policy: string): Promise<void> {
+    try {
+      await this.client.setBucketPolicy(minioBucket, policy);
+    } catch (err: any) {
+      const code = String(err?.code ?? '');
+      if (code === 'NotImplemented' || code === 'MethodNotAllowed' || code === 'NotSupported') {
+        throw new BadRequestException(UNSUPPORTED_BUCKET_POLICIES);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -592,6 +629,7 @@ export class StorageService {
     body: Readable,
     size: number,
     contentType: string,
+    meta: Record<string, string> = {},
   ) {
     if (!path || path === '/') {
       throw new BadRequestException('File path is required');
@@ -615,6 +653,7 @@ export class StorageService {
 
     await this.client.putObject(minioBucket, objectName, body, declared as number, {
       'Content-Type': contentType,
+      ...meta,
     });
 
     const stat = await this.client.statObject(minioBucket, objectName);
@@ -698,6 +737,74 @@ export class StorageService {
     const url = await this.publicClient.presignedGetObject(minioBucket, objectName, expiry);
 
     return { url, expiresIn: expiry };
+  }
+
+  // ── For sibling services (upload sessions, access rules) ─
+
+  /** Project access check for routes implemented outside this service. */
+  async resolveProject(projectId: string, userId?: string) {
+    return this.assertProjectAccess(projectId, userId);
+  }
+
+  /** Project access check plus bucket existence; returns the physical bucket name too. */
+  async resolveBucket(projectId: string, userId: string | undefined, bucketName: string) {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const exists = await this.client.bucketExists(minioBucket);
+    if (!exists) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    return { project, minioBucket };
+  }
+
+  /** Physical bucket name for a project row already at hand (no access check). */
+  physicalBucketName(project: { slug: string; storagePrefix?: string | null }, bucketName: string): string {
+    return this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+  }
+
+  bucketIsPublic(minioBucket: string): Promise<boolean> {
+    return this.isBucketPublic(minioBucket);
+  }
+
+  /** `statObject` that answers null for a missing key instead of throwing. */
+  async statObjectIn(minioBucket: string, key: string): Promise<Minio.BucketItemStat | null> {
+    try {
+      return await this.client.statObject(minioBucket, key);
+    } catch (err: any) {
+      if (err?.code === 'NotFound' || err?.code === 'NoSuchKey') return null;
+      throw err;
+    }
+  }
+
+  // Native multipart primitives behind the resumable upload sessions. The
+  // session row tracks the parts; the client library keeps listParts protected.
+
+  beginMultipart(minioBucket: string, key: string, headers: Record<string, string>): Promise<string> {
+    return this.client.initiateNewMultipartUpload(minioBucket, key, headers);
+  }
+
+  async putPart(minioBucket: string, key: string, uploadId: string, partNumber: number, body: Buffer): Promise<string> {
+    const res = await this.client.uploadPart(
+      { bucketName: minioBucket, objectName: key, uploadID: uploadId, partNumber, headers: {} },
+      body,
+    );
+    return res.etag;
+  }
+
+  async finishMultipart(
+    minioBucket: string,
+    key: string,
+    uploadId: string,
+    parts: { part: number; etag: string }[],
+  ): Promise<void> {
+    await this.client.completeMultipartUpload(minioBucket, key, uploadId, parts);
+  }
+
+  async abortMultipart(minioBucket: string, key: string, uploadId: string): Promise<void> {
+    try {
+      await this.client.abortMultipartUpload(minioBucket, key, uploadId);
+    } catch (err: any) {
+      if (err?.code === 'NoSuchUpload' || err?.code === 'NotFound') return;
+      throw err;
+    }
   }
 
   // ── Usage accounting ───────────────────────────────────

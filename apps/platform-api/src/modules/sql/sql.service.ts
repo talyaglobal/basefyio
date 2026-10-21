@@ -15,6 +15,7 @@ import {
 } from '../projects/project-activity.service';
 import { EmbeddingService } from '../embedding/embedding.service';
 import { ProjectsService } from '../projects/projects.service';
+import { jwtClaimSettings } from '../projects/jwt-claim-settings';
 import { findForbiddenSqlPattern, SqlCallerRole } from './sql-guard';
 
 /** Postgres "insufficient_privilege" — SET LOCAL ROLE raises this when the
@@ -392,6 +393,11 @@ export class SqlService implements OnModuleDestroy {
         await client.query(`SELECT set_config('request.jwt.role', $1, true)`, [
           rls.role,
         ]);
+        // Single-claim keys for helpers written against request.jwt.claim.<name>
+        // (imported schemas); see jwt-claim-settings.ts.
+        for (const [key, value] of jwtClaimSettings(rls.role, rls.jwtClaims)) {
+          await client.query(`SELECT set_config($1, $2, true)`, [key, value]);
+        }
         const out = await fn(client);
         await client.query('COMMIT');
         return out;

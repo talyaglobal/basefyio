@@ -61,6 +61,67 @@ describe('MetricsService', () => {
     m.increment('anon_key_refused', 2);
     expect(m.render()).toMatch(/basefyio_events_total\{event="anon_key_refused"\} 3/);
   });
+
+  /**
+   * A gauge is a fact about this process, not a count: setting it again for the
+   * same labels replaces the value rather than adding a second sample.
+   */
+  it('publishes a registered gauge once per label set, latest value wins', () => {
+    const m = new MetricsService();
+    m.setGauge('basefyio_cron_leader', 'Runs the schedule.', 'instance_id="a"', 1);
+    m.setGauge('basefyio_cron_leader', 'Runs the schedule.', 'instance_id="a"', 0);
+    const text = m.render();
+    expect(text).toMatch(/# HELP basefyio_cron_leader Runs the schedule\./);
+    expect(text).toMatch(/# TYPE basefyio_cron_leader gauge/);
+    expect(text).toMatch(/basefyio_cron_leader\{instance_id="a"\} 0\n/);
+    expect(text).not.toMatch(/basefyio_cron_leader\{instance_id="a"\} 1/);
+  });
+
+  it('keeps separate samples for separate label sets of one gauge', () => {
+    const m = new MetricsService();
+    m.setGauge('basefyio_build_info', 'Build.', 'instance_id="a",image_tag="x"', 1);
+    m.setGauge('basefyio_build_info', 'Build.', 'instance_id="b",image_tag="x"', 1);
+    const text = m.render();
+    expect(text).toMatch(/basefyio_build_info\{instance_id="a",image_tag="x"\} 1/);
+    expect(text).toMatch(/basefyio_build_info\{instance_id="b",image_tag="x"\} 1/);
+    expect(text.match(/# TYPE basefyio_build_info gauge/g)).toHaveLength(1);
+  });
+});
+
+describe('HealthController', () => {
+  const build = async (mailState: string, role = 'leader') => {
+    const { HealthController } = await import('./health.controller');
+    const email = { getDeliverability: () => ({ state: mailState }) } as any;
+    const leader = { getInstanceId: () => 'api-1-c0ffee', getRole: () => role } as any;
+    return new HealthController(email, leader);
+  };
+
+  afterEach(() => {
+    delete process.env.IMAGE_TAG;
+  });
+
+  /**
+   * Behind the proxy every replica shares one hostname. The body is the only
+   * place an operator can read which one answered and whether it is the one
+   * running the scheduled jobs.
+   */
+  it('names the replica that answered, its role and the build it runs', async () => {
+    process.env.IMAGE_TAG = 'abc123def456';
+    const body = (await build('ok')).check();
+    expect(body.status).toBe('ok');
+    expect(body.instance).toEqual({ id: 'api-1-c0ffee', role: 'leader', imageTag: 'abc123def456' });
+  });
+
+  it('reports an unknown build when no tag was passed to the container', async () => {
+    expect((await build('ok', 'follower')).check().instance).toMatchObject({ role: 'follower', imageTag: 'unknown' });
+  });
+
+  /** The proxy routes on the status code, so a dead mail key must stay a 200 with status "degraded". */
+  it('keeps the degraded verdict for a failing mail key alongside the instance block', async () => {
+    const body = (await build('failing')).check();
+    expect(body.status).toBe('degraded');
+    expect(body.checks.email).toEqual({ state: 'failing' });
+  });
 });
 
 describe('MetricsController', () => {

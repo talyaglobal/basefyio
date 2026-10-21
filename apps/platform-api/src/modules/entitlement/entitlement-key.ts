@@ -10,4 +10,6 @@ export enum EntitlementKey {
   EXTERNAL_DB_ACCESS = 'external_db_access',
   MIGRATION_ASSESSMENT = 'migration_assessment',
   SCHEMA_MIGRATIONS = 'schema_migrations',
+  /** Preview branches (child projects populated from a parent's database). */
+  PROJECT_BRANCHES = 'project_branches',
 }

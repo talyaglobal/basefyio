@@ -94,15 +94,24 @@ export interface Project {
   databaseType?: 'RELATIONAL' | 'NOSQL';
   /** Max rows the Data grid loads per table (plan-gated: 1000 / 10000 / 100000). */
   maxRowsPerTable?: number;
+  /** Pooler connection cap override; null = plan / platform default. */
+  maxDbConnections?: number | null;
   createdAt: string;
   updatedAt: string;
-  importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP';
+  importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH';
   /** Persisted summary from the last completed Supabase import (if any). */
   supabaseImportLog?: unknown;
   github?: GitHubIntegration;
   vercel?: VercelIntegration;
   pgvectorEnabled?: boolean;
   pgvectorEnabledAt?: string | null;
+  /** Set when this project is a preview branch of another; null for ordinary projects. */
+  previewBranch?: PreviewBranch | null;
+  parentProjectId?: string | null;
+  branchName?: string | null;
+  branchDataMode?: 'schema' | 'full' | null;
+  branchSyncStatus?: 'pending' | 'ready' | 'failed' | null;
+  branchSyncError?: string | null;
 }
 
 /** Single row from `GET /projects/:id/activity` */
@@ -160,6 +169,10 @@ export interface ProjectListItem {
   teamName?: string | null;
   /** Trash only: whether this user may restore / permanently delete it. */
   canManage?: boolean;
+  /** Preview branch of another project when set. */
+  parentProjectId?: string | null;
+  branchName?: string | null;
+  branchSyncStatus?: 'pending' | 'ready' | 'failed' | null;
 }
 
 export interface Team {
@@ -170,6 +183,8 @@ export interface Team {
   role: 'OWNER' | 'ADMIN' | 'MEMBER';
   memberCount: number;
   projectCount: number;
+  /** Members must sign in with an authenticator. */
+  requireMfa?: boolean;
 }
 
 export interface TeamMember {
@@ -210,6 +225,77 @@ export interface AuthTokens {
   tokenType?: string;
   hasPendingInvites?: boolean;
   forcePasswordChange?: boolean;
+}
+
+/** Sign-in answered without tokens: the account has an authenticator and a code is needed. */
+export interface LoginMfaRequired {
+  mfaRequired: true;
+}
+
+/** Sign-in answered without tokens: a team requires an authenticator the account does not have yet. */
+export interface LoginMfaEnrollmentRequired {
+  mfaEnrollmentRequired: true;
+  enrollUrl: string;
+  requiredBy: string[];
+}
+
+export type LoginResult = AuthTokens | LoginMfaRequired | LoginMfaEnrollmentRequired;
+
+export interface MfaFactor {
+  id: string;
+  type: string;
+  userLabel: string | null;
+  createdDate: number | null;
+}
+
+export interface MfaStatus {
+  /** False when the server's sign-in flow does not verify codes; enrolment is then disabled. */
+  available: boolean;
+  enabled: boolean;
+  enrolledAt: string | null;
+  factors: MfaFactor[];
+  requiredByTeams: Array<{ id: string; name: string }>;
+  enrollUrl: string | null;
+}
+
+export interface TeamSecurity {
+  requireMfa: boolean;
+  requireMfaUpdatedAt: string | null;
+  available: boolean;
+  members: Array<{
+    userId: string;
+    email: string;
+    name: string;
+    role: 'OWNER' | 'ADMIN' | 'MEMBER';
+    mfaEnabled: boolean;
+  }>;
+}
+
+export interface AuditSinkTargetStatus {
+  name: string;
+  target: string;
+  inFlight: boolean;
+  sent: number;
+  failed: number;
+  lastSuccessAt: string | null;
+  lastError: { at: string; message: string } | null;
+}
+
+export interface AuditSinkStatus {
+  enabled: boolean;
+  problems: string[];
+  targets: AuditSinkTargetStatus[];
+  queue: { depth: number; max: number };
+  counters: { enqueued: number; dropped: number };
+  batchSize: number;
+  flushMs: number;
+}
+
+export interface AuditSinkTestResult {
+  ok: boolean;
+  enabled: boolean;
+  problems: string[];
+  targets: Array<{ name: string; ok: boolean; error: string | null }>;
 }
 
 export interface UserInfo {
@@ -601,6 +687,8 @@ export interface RealmUser {
   emailVerified?: boolean;
   phoneNumber?: string | null;
   phoneVerified?: boolean;
+  /** Created by anonymous sign-in; the email is a placeholder. */
+  isAnonymous?: boolean;
   createdTimestamp: number;
 }
 
@@ -640,6 +728,8 @@ export interface MfaFactor {
   type: string;
   userLabel: string | null;
   createdDate: number | null;
+  /** 'basefyio' — authenticator app enrolled through the SDK; 'keycloak' — set up in the hosted login. */
+  source?: 'keycloak' | 'basefyio';
 }
 
 export interface MfaUser {
@@ -734,6 +824,10 @@ export interface ProjectAuthConfig {
   twitterEnabled: boolean;
   twitterClientId: string | null;
   twitterClientSecret: string | null;
+  /** Anonymous sign-in (client.auth.signInAnonymously) is allowed. */
+  allowAnonymous?: boolean;
+  /** Users flagged "Require MFA enrollment" get no session until they enroll. */
+  mfaEnforceEnrollment?: boolean;
 }
 
 export interface ConnectionStrings {
@@ -753,6 +847,14 @@ export interface ConnectionStrings {
   anonKey: string;
   serviceKey: string;
   canResetDbPassword?: boolean;
+  /** SELECT-only companion role (<user>_readonly); null until the team creates it. */
+  readonly?: { user: string; password: string; uri: string; poolerUri: string } | null;
+  /** Pooler connection cap for this database and where it comes from. */
+  pooler?: {
+    effective: number | null;
+    source: 'project' | 'plan' | 'platform' | 'none';
+    planCeiling: number;
+  };
 }
 
 export interface StorageBucket {
@@ -772,6 +874,27 @@ export interface StorageObject {
   etag?: string;
 }
 
+/** How API-key callers may reach a bucket or a key prefix; team members and the service key are never restricted. */
+export type StoragePolicyMode = 'public-read' | 'authenticated-read' | 'owner-only';
+
+export interface StoragePolicy {
+  id: string;
+  projectId: string;
+  bucket: string;
+  /** '' = the whole bucket */
+  pathPrefix: string;
+  mode: StoragePolicyMode;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UploadProgress {
+  uploaded: number;
+  total: number;
+  percent: number;
+}
+
 export interface SupabaseImportRequest {
   supabaseUrl: string;
   serviceRoleKey: string;
@@ -787,6 +910,54 @@ export interface SupabaseImportRequest {
    * existingProjectId.
    */
   mode?: 'full' | 'sync';
+  /**
+   * Sync only: add the source's primary key to tables imported without one
+   * before comparing them. Off by default; each repaired table is locked
+   * briefly while its index builds.
+   */
+  repairKeys?: boolean;
+}
+
+/** Add the source's primary keys to imported tables that arrived without one. */
+export interface RepairImportKeysRequest {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  databasePassword?: string;
+  /** Report what would be done without running any DDL. */
+  dryRun?: boolean;
+  /** Only these tables; defaults to every table without a key. */
+  tables?: string[];
+}
+
+export type PrimaryKeyRepairStatus =
+  | 'present'
+  | 'added'
+  | 'would_add'
+  | 'no_source_key'
+  | 'column_missing'
+  | 'not_unique'
+  | 'failed'
+  | 'pending';
+
+export interface PrimaryKeyRepairResult {
+  table: string;
+  columns: string[];
+  status: PrimaryKeyRepairStatus;
+  duplicateGroups?: number;
+  nullRows?: number;
+  sql?: string;
+  error?: string;
+}
+
+export interface PrimaryKeyRepairSummary {
+  dryRun: boolean;
+  examined: number;
+  added: number;
+  wouldAdd: number;
+  skipped: number;
+  failed: number;
+  pending: number;
+  results: PrimaryKeyRepairResult[];
 }
 
 export interface SupabaseImportJobResponse {
@@ -829,6 +1000,84 @@ export interface CloudBackupItem {
   lastModified: string;
   /** auto = scheduled daily backup (7-day retention); manual = user export (24h). */
   kind?: 'manual' | 'auto';
+  /** Stored encrypted at rest (BACKUP_ENCRYPT_LOCAL); restore decrypts transparently. */
+  encrypted?: boolean;
+}
+
+export type BackupVerificationStatus = 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED';
+
+/** One restore drill: the newest nightly archive rebuilt into a throwaway database and compared. */
+export interface BackupVerification {
+  id: string;
+  projectId: string;
+  trigger: 'scheduled' | 'manual' | string;
+  status: BackupVerificationStatus;
+  backupObjectKey: string | null;
+  backupTakenAt: string | null;
+  archiveBytes: number | null;
+  tablesExpected: number | null;
+  tablesRestored: number | null;
+  rowsMismatched: number | null;
+  psqlErrorCount: number | null;
+  /** False for archives that predate dump-time counts: only table presence was checked. */
+  countsCompared: boolean;
+  details: {
+    missingTables?: string[];
+    mismatches?: { schema: string; table: string; expected: number; actual: number | null }[];
+    compared?: number;
+    psqlErrors?: string[];
+  } | null;
+  error: string | null;
+  requestedBy: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+}
+
+/** `GET /projects/:id/backups/health` */
+export interface BackupHealth {
+  offsite: {
+    enabled: boolean;
+    encrypted: boolean;
+    misconfigured: boolean;
+    reason: string | null;
+    endpoint: string | null;
+    bucket: string | null;
+    /** Keyed by the local object key of a backup. */
+    copies: Record<string, { status: 'UPLOADED' | 'FAILED'; createdAt: string; encrypted: boolean; error: string | null }>;
+  };
+  localEncryption: boolean;
+  verification: { enabled: boolean; running: boolean; latest: BackupVerification | null };
+  verifications: BackupVerification[];
+}
+
+/** The branch facet of a project created as a preview branch of another. */
+export interface PreviewBranch {
+  parentProjectId: string;
+  parentName: string | null;
+  parentSlug: string | null;
+  branchName: string;
+  dataMode: 'schema' | 'full' | null;
+  syncStatus: 'pending' | 'ready' | 'failed' | null;
+  syncError: string | null;
+}
+
+export interface PreviewBranchListItem {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  branchName: string;
+  dataMode: 'schema' | 'full' | null;
+  syncStatus: 'pending' | 'ready' | 'failed' | null;
+  syncError: string | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export interface PreviewBranchCreateResponse {
+  project: { id: string; name: string; slug: string; status: string; teamId: string; createdAt: string };
+  previewBranch: PreviewBranch | null;
 }
 
 /** What range of timestamps a project database can be recovered to. */
@@ -846,6 +1095,28 @@ export interface PitrRecoveryWindow {
   baseBackupCount: number;
   walSegmentCount: number;
   retentionDays: number;
+}
+
+/** How the source's row count was obtained during an import. */
+export type SourceCountMethod = 'direct' | 'rest' | 'rest-planned' | 'unavailable';
+
+export type PrimaryKeyState = 'present' | 'added' | 'missing' | 'unknown';
+
+/** One imported table reconciled against the source. */
+export interface TableReconciliation {
+  table: string;
+  /** Rows the source reports; null when it could not be counted. */
+  sourceRows: number | null;
+  /** Rows the run believes it wrote (full import) or added (sync). */
+  importedRows: number;
+  /** Rows the destination holds after the run. */
+  destinationRows: number | null;
+  /** Source and destination disagree (never set from an estimated count). */
+  rowCountMismatch: boolean;
+  sourceCountMethod: SourceCountMethod;
+  primaryKey: PrimaryKeyState;
+  strategy?: string;
+  note?: string;
 }
 
 export interface ImportProgressData {
@@ -873,6 +1144,17 @@ export interface ImportProgressData {
     objectsInTarget?: number;
     bucketsInTarget?: number;
   };
+  /** One line per table: source count, rows sent, rows here, key state. */
+  tables?: TableReconciliation[];
+}
+
+function normalizeReconciliation(raw: unknown): TableReconciliation[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const rows = raw.filter(
+    (t): t is TableReconciliation =>
+      !!t && typeof t === 'object' && typeof (t as TableReconciliation).table === 'string',
+  );
+  return rows.length ? rows : undefined;
 }
 
 /** Ensures SSE/job payloads always yield full lists for the result UI. */
@@ -902,11 +1184,19 @@ export function normalizeImportProgressData(
     // what the destination actually holds, and dropping it here would leave the
     // result screen showing the importer's own optimistic tallies.
     verification: raw?.verification,
+    tables: normalizeReconciliation(raw?.tables),
   };
 }
 
+/** A sync run's own report, kept beside the full-import snapshot. */
+export type ProjectSupabaseSyncLog = ImportProgressData & {
+  completedAt?: string;
+};
+
 export type ProjectSupabaseImportLog = ImportProgressData & {
   completedAt?: string;
+  /** The most recent sync; its totals mean "rows added", not "rows here". */
+  lastSync?: ProjectSupabaseSyncLog;
 };
 
 export function parseProjectSupabaseImportLog(
@@ -917,7 +1207,18 @@ export function parseProjectSupabaseImportLog(
   const base = normalizeImportProgressData(o as Partial<ImportProgressData>);
   const completedAt =
     typeof o.completedAt === 'string' ? o.completedAt : undefined;
-  return { ...base, completedAt };
+  const syncRaw = o.lastSync;
+  const lastSync =
+    syncRaw && typeof syncRaw === 'object'
+      ? {
+          ...normalizeImportProgressData(syncRaw as Partial<ImportProgressData>),
+          completedAt:
+            typeof (syncRaw as Record<string, unknown>).completedAt === 'string'
+              ? ((syncRaw as Record<string, unknown>).completedAt as string)
+              : undefined,
+        }
+      : undefined;
+  return { ...base, completedAt, ...(lastSync ? { lastSync } : {}) };
 }
 
 export interface ImportJobProgressEvent {
@@ -1501,3 +1802,4 @@ export interface PlatformCostReport {
   teams: PlatformTeamCost[];
   storagePending: boolean;
 }
+

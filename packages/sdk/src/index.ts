@@ -2,6 +2,15 @@ export { createClient, BasefyioClient } from './BasefyioClient.js';
 export { QueryBuilder, OrConditionBuilder } from './modules/database.js';
 export { StorageClient, StorageBucketApi } from './modules/storage.js';
 export { AuthClient } from './modules/auth.js';
+export type {
+  MfaChallenge,
+  SignInResponse,
+  SignInWithTotp,
+  MfaEnrollment,
+  MfaEnrollmentResult,
+  MfaStatus,
+  AnonymousUpgradeCredentials,
+} from './modules/auth.js';
 export { CollectionManager, CollectionClient, DocumentQuery } from './modules/collection.js';
 
 export { BASEFYIO_DEFAULT_API_URL } from './lib/types.js';
@@ -54,3 +63,25 @@ export type {
   RealtimeSubscribeOptions,
   RealtimeSubscription,
 } from './modules/realtime.js';
+
+export { RealtimeChannel } from './modules/realtime.js';
+export type {
+  RealtimeClientOptions,
+  RealtimeTransport,
+  RealtimeChannelOptions,
+  RealtimeBroadcastMessage,
+  RealtimePresenceEvent,
+  RealtimePresenceMember,
+  RealtimeReady,
+} from './modules/realtime.js';
+
+export type {
+  ImageTransform,
+  PublicUrlOptions,
+  ResumableUploadOptions,
+  UploadProgress,
+  UploadSession,
+  StoragePolicyMode,
+  StoragePolicy,
+  SetStoragePolicyInput,
+} from './modules/storage.js';

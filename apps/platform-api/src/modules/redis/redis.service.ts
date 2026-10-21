@@ -71,4 +71,23 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   getClient(): Redis {
     return this.client;
   }
+
+  /** True once the shared client has a live connection. */
+  isReady(): boolean {
+    return this.client?.status === 'ready';
+  }
+
+  /** Publish on a pub/sub channel; resolves to the number of receivers. */
+  async publish(channel: string, message: string): Promise<number> {
+    return this.client.publish(channel, message);
+  }
+
+  /**
+   * A dedicated connection for SUBSCRIBE. A connection in subscriber mode can
+   * run no other command, so it must never be the shared client.
+   */
+  createSubscriber(): Redis {
+    if (!this.client) throw new Error('Redis client is not initialised yet');
+    return this.client.duplicate();
+  }
 }

@@ -29,23 +29,63 @@ Give each token the **fewest scopes** it needs. Prefer short expiries for automa
 
 ## Scopes
 
-Tokens are scoped as `resource:action`:
+Tokens are scoped as `resource:action`. The catalogue a token can be created with
+(`apps/platform-api/src/modules/api-tokens/api-tokens.constants.ts`):
 
 | Scope | Grants |
 |---|---|
-| `account:read` | read your profile & teams |
-| `projects:read` / `projects:write` | list/inspect · create, rename, pause, restore, delete |
-| `data:read` / `data:write` | list/read tables & collections · insert/update/delete rows |
-| `sql:run` | run SQL against a project's database |
-| `storage:read` / `storage:write` | list/download · upload/delete buckets & objects |
-| `auth:read` / `auth:write` | list realm users/sessions · create/update/reset/repair |
+| `account:read` / `account:write` | read your profile and teams · update profile and notification preferences |
+| `team:read` / `team:write` | list teams, members, invitations · invite, remove, change member roles |
+| `billing:read` / `billing:write` | read plan, subscription, usage, invoices · change plan, manage the subscription |
+| `projects:read` / `projects:write` | list/inspect · create, rename, deactivate, restore, delete |
+| `settings:read` / `settings:write` | project settings, folders and tags |
+| `data:read` / `data:write` | read rows and documents · insert, update, delete |
+| `schema:write` | create/alter/drop tables, collections and objects |
+| `sql:run` | run SQL against a project database |
+| `embeddings:read` / `embeddings:write` | vector search · build and update embedding indexes |
+| `storage:read` / `storage:write` | list/download · upload/delete buckets and objects |
+| `auth:read` / `auth:write` | list realm users/sessions · create/update/reset users, repair the realm |
 | `realtime:read` / `realtime:write` | list bindings · enable/disable broadcasting |
-| `flows:read` / `flows:write` | list · create/trigger automation flows |
-| `blueprints:read` / `blueprints:write` | list · analyze/approve/generate (App Builder) |
-| `billing:read` | read plan, subscription and invoices |
+| `flows:read` / `flows:write` | list flows and runs · create, edit, trigger |
+| `functions:read` / `functions:write` | functions and their logs · deploy, update, invoke |
+| `blueprints:read` / `blueprints:write` | list · analyze, approve, generate (App Builder) |
+| `integrations:read` / `integrations:write` | list · connect and disconnect integrations |
+| `backups:read` / `backups:write` | list backups and export jobs · create, export, restore |
+| `secrets:read` / `secrets:write` | read project keys and connection info · rotate them |
+| `logs:read` | activity history and logs |
 
 A **read** call needs the matching `:read` scope; a **write/mutating** call needs
-`:write` (or `sql:run` for SQL). A request whose token lacks the scope returns **403**.
+`:write` (or `sql:run` for SQL). A request whose token lacks the scope returns **403**
+(`API token is missing required scope(s): …`).
+
+## Where a token is accepted today
+
+A token is honoured only by routes guarded with `JwtOrPlatformTokenGuard`
+(`apps/platform-api/src/modules/api-tokens/jwt-or-platform-token.guard.ts`); the
+scope check is `ScopesGuard` on the same route. Every other management route is
+guarded by the dashboard's Keycloak JWT alone and answers **401** to a token. As of
+this writing the token-enabled surface is:
+
+| Method | Path | Scope | Purpose |
+|---|---|---|---|
+| GET | `/api/projects/:projectId/realtime-bindings` | `realtime:read` | list which tables/collections broadcast |
+| PUT | `/api/projects/:projectId/realtime-bindings` | `realtime:write` | enable/disable one entity |
+| GET | `/api/projects/:id/backups/health` | `backups:read` | off-site copy state and the latest restore verifications |
+| GET | `/api/projects/:id/backups/verifications` | `backups:read` | restore-verification history |
+| POST | `/api/projects/:id/backups/verify` | `backups:write` | restore the newest nightly backup into a throwaway database now |
+| GET | `/api/projects/:id/branches` | `projects:read` | list the project's preview branches |
+| POST | `/api/projects/:id/branches` | `projects:write` | create a preview branch |
+| DELETE | `/api/projects/:id/branches/:branchId` | `projects:write` | move a preview branch to the trash |
+
+`POST /api/projects/backups/offsite/reconcile` sits behind the same guard without a scope; it is
+restricted to platform operators, so a token answers 403 there unless its owner is one.
+The routes are described in [reference/project-admin-api.md](./reference/project-admin-api.md).
+
+The scope catalogue above is wider than that surface on purpose: scope strings are
+stable and tokens store them verbatim, so a token created today keeps working as
+routes adopt the guard. For everything else, use a **project key**: the service key
+for a project's own data plane (`/api/rest/v1`, `/api/sql/execute`,
+`/api/projects/:id/storage`, …), as documented in [docs/README.md](./README.md).
 
 ## Using a token
 
@@ -61,15 +101,11 @@ Authorization: Bearer bf_pat_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 TOKEN=bf_pat_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 BASE=https://api.basefyio.com/api
 
-# List your projects        (scope: projects:read)
-curl -s $BASE/projects -H "Authorization: Bearer $TOKEN"
+# Which entities broadcast realtime events   (scope: realtime:read)
+curl -s $BASE/projects/<PROJECT_ID>/realtime-bindings \
+  -H "Authorization: Bearer $TOKEN"
 
-# Run SQL on a project       (scope: sql:run)
-curl -s -X POST $BASE/projects/<PROJECT_ID>/sql \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"query":"select count(*) from orders"}'
-
-# Enable realtime on a table (scope: realtime:write)
+# Enable realtime on a table                 (scope: realtime:write)
 curl -s -X PUT $BASE/projects/<PROJECT_ID>/realtime-bindings \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"kind":"table","entity":"orders","enabled":true}'
@@ -84,16 +120,22 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-// discover projects
-const projects = await (await fetch(`${BASE}/projects`, { headers })).json();
+// which entities broadcast
+const bindings = await (
+  await fetch(`${BASE}/projects/${process.env.PROJECT_ID}/realtime-bindings`, { headers })
+).json();
 
-// run a query on the first one
-const res = await fetch(`${BASE}/projects/${projects[0].id}/sql`, {
-  method: 'POST', headers,
-  body: JSON.stringify({ query: 'select now()' }),
+// turn realtime on for a table
+await fetch(`${BASE}/projects/${process.env.PROJECT_ID}/realtime-bindings`, {
+  method: 'PUT', headers,
+  body: JSON.stringify({ kind: 'table', entity: 'orders', enabled: true }),
 });
-console.log(await res.json());
+console.log(bindings);
 ```
+
+To run SQL from automation, use the project's service key against `POST /api/sql/execute`
+with `{ "projectId": "<PROJECT_ID>", "query": "select count(*) from orders" }` — see
+[docs/reference/sql-api.md](./reference/sql-api.md).
 
 The token acts **as you**, limited to its scopes and (if set) its team. It can only
 reach projects in teams you belong to — cross-tenant access is not possible.
@@ -105,6 +147,24 @@ reach projects in teams you belong to — cross-tenant access is not possible.
 - **Roll** — generates a new secret and invalidates the old one (use if a token leaked).
 - **Revoke** — disables the token immediately; requests with it then return `401`.
 - **Expiry** — an expired token returns `401`; create a new one to continue.
+
+### Managing tokens over the API
+
+The same operations are available to a dashboard session (a Keycloak JWT). A token cannot be used
+to create or manage tokens — these routes answer `401` to a `bf_pat_…` bearer.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/account/api-tokens/scopes` | the scope catalogue, grouped as in the table above |
+| GET | `/api/account/api-tokens` | your tokens (never the secret) |
+| POST | `/api/account/api-tokens` | `{ name, scopes, teamId?, expiresAt? }` — create; the answer carries `token`, shown this once |
+| PATCH | `/api/account/api-tokens/:id` | `{ name?, scopes?, expiresAt? }` — rename, change scopes or expiry |
+| POST | `/api/account/api-tokens/:id/roll` | new secret, old one invalid; the answer carries the new `token` |
+| DELETE | `/api/account/api-tokens/:id` | revoke → `{ revoked: true }` |
+
+`scopes` must name at least one scope from the catalogue (400 `unknown scope: …` otherwise) and
+`expiresAt` must be an ISO timestamp in the future; on `PATCH`, `expiresAt: null` removes the
+expiry. A `teamId` you are not a member of is 403.
 
 ## Security best practices
 
@@ -127,6 +187,9 @@ reach projects in teams you belong to — cross-tenant access is not possible.
 
 ## API tokens vs. the Codefyio adapter
 
-If you're driving basefyio from the **Codefyio IDE**, you can use its
-[adapter](./CODEFYIO_ADAPTER.md) instead — its auth-exchange also accepts an API
-token, and the same scope rules apply.
+If you're driving basefyio from the **Codefyio IDE**, use its
+[adapter](./CODEFYIO_ADAPTER.md) instead. The adapter's `/_codefyio/auth/exchange`
+takes a token issued by Codefyio (`codefyioToken`) and mints its own short-lived
+session; it does not take a `bf_pat_…` token.
+
+Part of the basefyio documentation — index: [README.md](./README.md).

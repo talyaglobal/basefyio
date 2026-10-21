@@ -26,6 +26,9 @@ export class MetricsService {
 
   private readonly counters = new Map<string, number>();
 
+  /** Facts about this process that rarely change: which build it runs, whether it owns the schedule. */
+  private readonly gauges = new Map<string, { help: string; samples: Map<string, number> }>();
+
   /**
    * Record one finished request.
    *
@@ -44,6 +47,22 @@ export class MetricsService {
   /** Bump a named counter, for events worth alerting on. */
   increment(name: string, by = 1): void {
     this.counters.set(name, (this.counters.get(name) ?? 0) + by);
+  }
+
+  /**
+   * Publish a gauge, replacing any earlier value for the same label set.
+   *
+   * The label string is emitted verbatim (`instance_id="api-1"`), so the caller
+   * owns the cardinality: these are per-process facts — the replica's identity,
+   * the build it runs, whether it holds the schedule — never per-request ones.
+   */
+  setGauge(name: string, help: string, labels: string, value: number): void {
+    let gauge = this.gauges.get(name);
+    if (!gauge) {
+      gauge = { help, samples: new Map() };
+      this.gauges.set(name, gauge);
+    }
+    gauge.samples.set(labels, value);
   }
 
   render(): string {
@@ -68,6 +87,10 @@ export class MetricsService {
     add('basefyio_process_cpu_seconds_total', 'counter', 'User plus system CPU time.', [
       ['', (cpu.user + cpu.system) / 1e6],
     ]);
+
+    for (const [name, gauge] of this.gauges) {
+      add(name, 'gauge', gauge.help, [...gauge.samples]);
+    }
 
     add(
       'basefyio_http_requests_total',

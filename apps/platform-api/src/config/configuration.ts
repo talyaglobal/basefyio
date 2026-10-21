@@ -1,4 +1,12 @@
 import { resolveMailBaseUrl } from '../mail-provider-env';
+
+/** An optional integer env value: unset or blank means "not configured". */
+const optionalInt = (value: string | undefined): number | undefined => {
+  if (value == null || value.trim() === '') return undefined;
+  const n = parseInt(value, 10);
+  return Number.isNaN(n) ? undefined : n;
+};
+
 export default () => ({
   port: parseInt(process.env.PORT || '4000', 10),
   appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
@@ -39,12 +47,80 @@ export default () => ({
     publicSsl: process.env.MINIO_PUBLIC_SSL || 'false',
   },
 
+  /**
+   * Object storage behind the storage module. `minio` (default) keeps the
+   * `MINIO_*` wiring above; `s3` points the same client at any S3-compatible
+   * store (AWS S3, Cloudflare R2, Hetzner Object Storage, a remote MinIO).
+   */
+  storage: {
+    driver: (process.env.STORAGE_DRIVER || 'minio').toLowerCase(),
+    /** Prefix of every physical bucket name. Change only on a fresh install. */
+    bucketPrefix: process.env.STORAGE_BUCKET_PREFIX || 'bf-',
+    s3: {
+      /** URL or host[:port], e.g. https://s3.eu-central-1.amazonaws.com or fsn1.your-objectstorage.com */
+      endpoint: process.env.S3_ENDPOINT || '',
+      region: process.env.S3_REGION || 'us-east-1',
+      accessKey: process.env.S3_ACCESS_KEY || '',
+      secretKey: process.env.S3_SECRET_KEY || '',
+      useSsl: process.env.S3_USE_SSL !== 'false',
+      /** false = virtual-host addressing (recommended for AWS). */
+      pathStyle: process.env.S3_PATH_STYLE !== 'false',
+      /** Host used in public and presigned URLs when it differs from the endpoint (CDN, custom domain). */
+      publicEndpoint: process.env.S3_PUBLIC_ENDPOINT || '',
+      /** Set false on stores without PutBucketPolicy (Cloudflare R2). */
+      bucketPolicies: process.env.S3_BUCKET_POLICIES !== 'false',
+    },
+    /** Single-request upload ceiling in MB; the code default is 500. */
+    maxUploadMb: parseInt(process.env.STORAGE_MAX_UPLOAD_MB || '500', 10),
+    /** Disk spool for uploads in flight; empty = <os tmp>/basefyio-uploads */
+    uploadTmpDir: process.env.STORAGE_UPLOAD_TMP_DIR || '',
+    maxConcurrentUploads: parseInt(process.env.STORAGE_MAX_CONCURRENT_UPLOADS || '8', 10),
+    resumable: {
+      /** Default chunk for resumable uploads in MB (clamped to 5–64). */
+      chunkMb: parseInt(process.env.STORAGE_RESUMABLE_CHUNK_MB || '8', 10),
+      /** Ceiling for one resumable upload in MB. */
+      maxMb: parseInt(process.env.STORAGE_MAX_RESUMABLE_MB || '5120', 10),
+      /** Hours before an unfinished session is aborted by the hourly sweep. */
+      ttlHours: parseInt(process.env.STORAGE_RESUMABLE_TTL_HOURS || '24', 10),
+    },
+    transform: {
+      maxDimension: parseInt(process.env.STORAGE_TRANSFORM_MAX_DIMENSION || '4096', 10),
+      maxSourceMb: parseInt(process.env.STORAGE_TRANSFORM_MAX_SOURCE_MB || '25', 10),
+      maxPixels: parseInt(process.env.STORAGE_TRANSFORM_MAX_PIXELS || '50000000', 10),
+      maxConcurrent: parseInt(process.env.STORAGE_TRANSFORM_MAX_CONCURRENT || '4', 10),
+      cacheSeconds: parseInt(process.env.STORAGE_TRANSFORM_CACHE_SECONDS || '3600', 10),
+    },
+  },
+
   pgbouncer: {
     host: process.env.PGBOUNCER_HOST || 'pgbouncer',
     port: parseInt(process.env.PGBOUNCER_PORT || '6432', 10),
     externalHost: process.env.PGBOUNCER_EXTERNAL_HOST || 'localhost',
     externalPort: parseInt(process.env.PGBOUNCER_EXTERNAL_PORT || '6432', 10),
     configDir: process.env.PGBOUNCER_CONFIG_DIR || '/etc/pgbouncer',
+    /** Pooler globals written into pgbouncer.ini; the long-standing literal values stay the defaults. */
+    maxClientConn: parseInt(process.env.PGBOUNCER_MAX_CLIENT_CONN || '1000', 10),
+    defaultPoolSize: parseInt(process.env.PGBOUNCER_DEFAULT_POOL_SIZE || '20', 10),
+    minPoolSize: parseInt(process.env.PGBOUNCER_MIN_POOL_SIZE || '5', 10),
+    reservePoolSize: parseInt(process.env.PGBOUNCER_RESERVE_POOL_SIZE || '5', 10),
+    /**
+     * Per-database cap (pool_size + max_db_connections) applied when neither the
+     * project nor its plan sets one. Unset = no per-database cap, which is the
+     * ini the pooler has always run with.
+     */
+    defaultMaxDbConnections: optionalInt(process.env.PGBOUNCER_DEFAULT_MAX_DB_CONNECTIONS),
+    /** Upper bound for any project or plan value. */
+    maxDbConnectionsCeiling: parseInt(process.env.PGBOUNCER_MAX_DB_CONNECTIONS_CEILING || '100', 10),
+    /** Also cap client connections per database (PgBouncer 1.24+, verified at runtime before it is written). */
+    dbClientLimits: process.env.PGBOUNCER_DB_CLIENT_LIMITS === 'true',
+  },
+
+  /** What a freshly provisioned project database receives besides its owner role. */
+  provisioning: {
+    /** Install sql/default-extensions.sql into new (non-imported) project databases. */
+    defaultExtensions: process.env.PROVISION_DEFAULT_EXTENSIONS !== 'false',
+    /** Create the SELECT-only companion role <dbUser>_readonly for new projects. */
+    readonlyRole: process.env.PROVISION_READONLY_ROLE !== 'false',
   },
 
   /**
@@ -118,10 +194,40 @@ export default () => ({
   embedding: {
     /** Set to "false" to disable all embedding / vector search without removing the module. */
     enabled: process.env.EMBEDDING_ENABLED !== 'false',
-    /** OpenAI embedding model. text-embedding-3-small is cost-effective and high quality. */
-    model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
-    /** Hard cap on daily OpenAI token usage to prevent runaway costs (default 1M). */
+    /** Embedding provider for the platform store: openai (default) | ollama | cohere. */
+    provider: process.env.EMBEDDING_PROVIDER || 'openai',
+    /** Model id at the provider. Empty = the provider's default (text-embedding-3-small for OpenAI). */
+    model: process.env.EMBEDDING_MODEL || '',
+    /** Custom endpoint for the platform provider (an OpenAI-compatible gateway, a remote Ollama). */
+    baseUrl: process.env.EMBEDDING_BASE_URL || '',
+    /** Request-side output width for models that support it (OpenAI v3, Cohere v4). Empty = model default. */
+    dimensions: process.env.EMBEDDING_DIMENSIONS || '',
+    /** Hard cap on daily embedding token usage to prevent runaway costs (default 1M). */
     maxDailyTokens: parseInt(process.env.EMBEDDING_MAX_DAILY_TOKENS || '1000000', 10),
+    /** Provider used when the primary fails with auth / quota / unreachable errors. Empty = no failover. */
+    fallback: {
+      provider: process.env.EMBEDDING_FALLBACK_PROVIDER || '',
+      model: process.env.EMBEDDING_FALLBACK_MODEL || '',
+      baseUrl: process.env.EMBEDDING_FALLBACK_BASE_URL || '',
+      dimensions: process.env.EMBEDDING_FALLBACK_DIMENSIONS || '',
+    },
+    /** How long a failed primary is skipped before it is tried again. */
+    failoverCooldownSec: parseInt(process.env.EMBEDDING_FAILOVER_COOLDOWN_SEC || '60', 10),
+    /** Allow per-project endpoints on loopback / private / link-local hosts (self-hosters with a LAN Ollama). */
+    allowPrivateBaseUrl: process.env.EMBEDDING_ALLOW_PRIVATE_BASE_URL === 'true',
+    /** Largest vector store a project may re-embed in place after a model change. */
+    reembedMaxRows: parseInt(process.env.EMBEDDING_REEMBED_MAX_ROWS || '200000', 10),
+    /** ISO country code of the host that stores vectors and runs Ollama (e.g. DE). Empty = "not specified" in the disclosure. */
+    hostRegion: process.env.PLATFORM_REGION || '',
+    ollama: {
+      /** Shared with the agent module; a trailing /v1 is tolerated. */
+      baseUrl: process.env.OLLAMA_BASE_URL || '',
+      /** Optional bearer token for an Ollama behind an authenticating proxy. */
+      apiKey: process.env.OLLAMA_API_KEY || '',
+    },
+    cohere: {
+      apiKey: process.env.COHERE_API_KEY || '',
+    },
   },
 
   oauth: {

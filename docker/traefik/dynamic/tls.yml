@@ -1,0 +1,18 @@
+# TLS with a certificate you supply.
+#
+# Loaded by the `tls` profile in docker-compose.yml, which mounts your PEM
+# certificate (full chain) and private key at the two paths below from
+# TLS_CERT_FILE and TLS_KEY_FILE. Traefik watches this directory, so replacing
+# the files on renewal is picked up without a restart.
+tls:
+  certificates:
+    - certFile: /certs/tls.crt
+      keyFile: /certs/tls.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/tls.crt
+        keyFile: /certs/tls.key
+  options:
+    default:
+      minVersion: VersionTLS12

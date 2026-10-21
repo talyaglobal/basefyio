@@ -12,6 +12,7 @@ import { UsageService } from '../billing/usage.service';
 import { BillingService } from '../billing/billing.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { getDisplayName } from '../../common/utils/display-name';
+import { PlatformMfaService, mfaUnavailable } from '../auth/platform-mfa.service';
 
 @Injectable()
 export class TeamsService {
@@ -24,6 +25,7 @@ export class TeamsService {
     private readonly usageService: UsageService,
     private readonly billing: BillingService,
     private readonly realtime: RealtimeEventsService,
+    private readonly mfa: PlatformMfaService,
   ) {}
 
   private async teamUserIds(teamId: string): Promise<string[]> {
@@ -116,6 +118,7 @@ export class TeamsService {
       role: m.role,
       memberCount: m.team._count.members,
       projectCount: m.team._count.projects,
+      requireMfa: m.team.requireMfa,
     }));
   }
 
@@ -824,5 +827,94 @@ export class TeamsService {
     });
 
     return { message: `Member role updated to ${newRole}` };
+  }
+
+  // ── Security: two-factor policy ──
+
+  /** The team's two-factor policy and each member's enrolment, as of their last sign-in. */
+  async getSecurity(teamId: string, userId: string) {
+    await this.assertOwnerOrAdmin(teamId, userId);
+    const [team, members, available] = await Promise.all([
+      this.prisma.team.findUnique({
+        where: { id: teamId },
+        select: { requireMfa: true, requireMfaUpdatedAt: true },
+      }),
+      this.prisma.teamMember.findMany({
+        where: { teamId },
+        select: {
+          role: true,
+          user: { select: { id: true, email: true, firstName: true, lastName: true, mfaEnrolledAt: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.mfa.isAvailable(),
+    ]);
+    if (!team) throw new NotFoundException('Team not found');
+    return {
+      requireMfa: team.requireMfa,
+      requireMfaUpdatedAt: team.requireMfaUpdatedAt,
+      available,
+      members: members.map((m) => ({
+        userId: m.user.id,
+        email: m.user.email,
+        name: getDisplayName(m.user),
+        role: m.role,
+        mfaEnabled: m.user.mfaEnrolledAt != null,
+      })),
+    };
+  }
+
+  /**
+   * Owner only. Enabling requires the owner to have an authenticator first —
+   * otherwise they lock the team behind a factor nobody has — and a sign-in
+   * flow that actually checks codes. Members are asked to enrol at their next
+   * sign-in; live sessions are untouched. Disabling releases any member who
+   * was marked for setup and is not required by another team.
+   */
+  async setRequireMfa(teamId: string, ownerUserId: string, enabled: boolean) {
+    await this.assertOwner(teamId, ownerUserId);
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { requireMfa: true },
+    });
+    if (!team) throw new NotFoundException('Team not found');
+
+    if (enabled) {
+      if (!(await this.mfa.isAvailable())) {
+        throw mfaUnavailable('a two-factor requirement cannot be enabled');
+      }
+      if (!(await this.mfa.hasOtp(ownerUserId))) {
+        throw new ConflictException({
+          code: 'MFA_OWNER_FIRST',
+          message: 'Set up an authenticator on your own account before requiring one for the team.',
+        });
+      }
+    }
+
+    const updated = await this.prisma.team.update({
+      where: { id: teamId },
+      data: { requireMfa: enabled, requireMfaUpdatedAt: new Date() },
+      select: { id: true, requireMfa: true, requireMfaUpdatedAt: true },
+    });
+
+    if (!enabled && team.requireMfa) {
+      const members = await this.prisma.teamMember.findMany({ where: { teamId }, select: { userId: true } });
+      for (const m of members) {
+        if (await this.mfa.requiredElsewhere(m.userId, teamId)) continue;
+        await this.mfa.releasePendingSetup(m.userId);
+      }
+    }
+
+    this.logger.log(`Team "${teamId}" two-factor requirement ${enabled ? 'enabled' : 'disabled'} by ${ownerUserId}`);
+    await this.realtime.publish({
+      entityType: 'team',
+      action: 'updated',
+      entityId: teamId,
+      actorUserId: ownerUserId,
+      teamId,
+      userIds: await this.teamUserIds(teamId),
+      payload: { requireMfa: enabled },
+    });
+    return updated;
   }
 }

@@ -1,0 +1,4 @@
+# Default location for TLS_CERT_FILE / TLS_KEY_FILE (see the `tls` profile in
+# docker-compose.yml). Certificates and keys placed here must never be committed.
+*
+!.gitignore

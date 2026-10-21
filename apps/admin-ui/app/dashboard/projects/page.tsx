@@ -52,6 +52,7 @@ import {
   ExternalLink,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   GripVertical,
   Info,
   Pencil,
@@ -2133,6 +2134,15 @@ function ProjectListRow({
           Created by {project.createdByName ?? 'Unknown'} - {formatDateTime(project.createdAt)} - Size: {formatSize(project.projectSizeBytes)}
         </p>
       </div>
+      {project.parentProjectId && (
+        <span
+          className="status-badge inline-flex items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+          title={`Preview branch${project.branchName ? ` "${project.branchName}"` : ''} of another project`}
+        >
+          <GitBranch className="h-3 w-3" />
+          {project.branchName ?? 'Branch'}
+        </span>
+      )}
       <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
         {project.status}
       </span>
@@ -2597,6 +2607,15 @@ function DroppableProjectCard({
           >
             {project.databaseType === 'NOSQL' ? 'NoSQL' : 'PostgreSQL'}
           </span>
+          {project.parentProjectId && (
+            <span
+              className="status-badge inline-flex items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+              title={`Preview branch${project.branchName ? ` "${project.branchName}"` : ''} of another project`}
+            >
+              <GitBranch className="h-3 w-3" />
+              {project.branchName ?? 'Branch'}
+            </span>
+          )}
         </div>
         {/* Checkbox – always visible, click to select */}
         <span

@@ -49,11 +49,14 @@ export class BasefyioFetchClient {
 
     if (!res.ok) {
       let message = `Request failed with status ${res.status}`;
+      let code: string | undefined;
       try {
         const body = await res.json();
         message = body.message || message;
+        if (typeof body.code === 'string') code = body.code;
       } catch {}
       const err: BasefyioError = { message, status: res.status };
+      if (code) err.code = code;
       throw err;
     }
 
@@ -99,5 +102,10 @@ export class BasefyioFetchClient {
 
   getBaseUrl() {
     return this.baseUrl;
+  }
+
+  /** The project key this client was created with (needed for URLs a browser loads without headers). */
+  getApiKey() {
+    return this.apiKey;
   }
 }

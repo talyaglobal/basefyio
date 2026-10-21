@@ -13,12 +13,17 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
+import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import { AuthenticatedKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 
 @Controller('rest/v1/auth')
 @UseGuards(ApiKeyGuard)
 export class ProjectSdkAuthController {
-  constructor(private readonly sdkAuth: ProjectSdkAuthService) {}
+  constructor(
+    private readonly sdkAuth: ProjectSdkAuthService,
+    private readonly anonymousAuth: ProjectAnonymousAuthService,
+  ) {}
 
   /** Real end-user IP from the proxy chain (first X-Forwarded-For hop). */
   private clientIp(req: Request): string | undefined {
@@ -37,13 +42,18 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.signup(projectId, body, this.clientIp(req));
   }
 
+  /**
+   * Answers with tokens, or — for a user with an enrolled authenticator — with
+   * `{ mfaRequired: true, challengeId }` to be completed at /mfa/challenge.
+   * `totp` is for accounts whose authenticator lives in the hosted login.
+   */
   @Post('signin')
   async signin(
     @Req() req: Request,
-    @Body() body: { email: string; password: string },
+    @Body() body: { email: string; password: string; totp?: string },
   ) {
     const { projectId } = this.getPayload(req);
-    return this.sdkAuth.signin(projectId, body.email, body.password, this.clientIp(req));
+    return this.sdkAuth.signin(projectId, body.email, body.password, this.clientIp(req), body.totp);
   }
 
   @Post('verify-email')
@@ -245,6 +255,126 @@ export class ProjectSdkAuthController {
   ) {
     const { projectId } = this.getPayload(req);
     return this.sdkAuth.getOAuthRedirectUrl(projectId, provider, redirectTo);
+  }
+
+  // ── Multi-factor authentication ──
+
+  /** Second step of sign-in: the challenge plus a code (or recovery code) releases the parked tokens. */
+  @Post('mfa/challenge')
+  async completeMfaChallenge(
+    @Req() req: Request,
+    @Body() body: { challengeId: string; code?: string; recoveryCode?: string },
+  ) {
+    const { projectId } = this.getPayload(req);
+    return this.sdkAuth.completeMfaChallenge(projectId, body?.challengeId, {
+      code: body?.code,
+      recoveryCode: body?.recoveryCode,
+    });
+  }
+
+  @Get('mfa')
+  @AuthenticatedKeyOnly()
+  async mfaStatus(@Req() req: Request) {
+    const payload = this.getPayload(req);
+    return this.sdkAuth.mfaStatus(payload.projectId, this.requireUser(payload).userId);
+  }
+
+  /**
+   * Start enrolling an authenticator app. Normally for the signed-in user; when
+   * the project enforces enrollment, the sign-in challenge stands in for the
+   * session (the password has already been checked).
+   */
+  @Post('mfa/enroll')
+  async enrollMfa(@Req() req: Request, @Body() body: { challengeId?: string }) {
+    const payload = this.getPayload(req);
+    return this.sdkAuth.beginMfaEnrollment(payload.projectId, this.mfaActor(payload, body?.challengeId));
+  }
+
+  @Post('mfa/verify-enrollment')
+  async verifyMfaEnrollment(
+    @Req() req: Request,
+    @Body() body: { code: string; challengeId?: string },
+  ) {
+    const payload = this.getPayload(req);
+    return this.sdkAuth.confirmMfaEnrollment(
+      payload.projectId,
+      this.mfaActor(payload, body?.challengeId),
+      body?.code ?? '',
+    );
+  }
+
+  /** Needs the factor itself (a code or a recovery code); the service key may reset a user by id. */
+  @Post('mfa/disable')
+  @AuthenticatedKeyOnly()
+  async disableMfa(
+    @Req() req: Request,
+    @Body() body: { code?: string; recoveryCode?: string; userId?: string },
+  ) {
+    const payload = this.getPayload(req);
+    if (payload.role === 'service' && body?.userId) {
+      return this.sdkAuth.disableMfa(payload.projectId, body.userId, { force: true });
+    }
+    const { userId } = this.requireUser(payload);
+    return this.sdkAuth.disableMfa(payload.projectId, userId, {
+      code: body?.code,
+      recoveryCode: body?.recoveryCode,
+    });
+  }
+
+  @Post('mfa/recovery-codes')
+  @AuthenticatedKeyOnly()
+  async regenerateRecoveryCodes(@Req() req: Request, @Body() body: { code: string }) {
+    const payload = this.getPayload(req);
+    const { userId } = this.requireUser(payload);
+    return this.sdkAuth.regenerateMfaRecoveryCodes(payload.projectId, userId, body?.code ?? '');
+  }
+
+  // ── Anonymous users ──
+
+  /** A session without an account; off unless the project allows it. */
+  @Post('signin/anonymous')
+  async signInAnonymously(@Req() req: Request) {
+    const { projectId } = this.getPayload(req);
+    return this.anonymousAuth.signInAnonymously(projectId, this.clientIp(req));
+  }
+
+  /** Turn the anonymous user behind the Bearer token into an email/password account. */
+  @Post('anonymous/upgrade')
+  @AuthenticatedKeyOnly()
+  async upgradeAnonymous(
+    @Req() req: Request,
+    @Body() body: { email: string; password: string; firstName?: string; lastName?: string },
+  ) {
+    const payload = this.getPayload(req);
+    this.requireUser(payload);
+    return this.anonymousAuth.upgradeAnonymous(
+      payload.projectId,
+      payload.jwtClaims,
+      body,
+      this.clientIp(req),
+    );
+  }
+
+  /** The verified end user behind the request, or a clear refusal. */
+  private requireUser(payload: ApiKeyPayload): { userId: string; email?: string } {
+    const sub = payload.jwtClaims?.sub;
+    if (typeof sub !== 'string' || !sub) {
+      throw new ForbiddenException(
+        "This route acts on the signed-in user. Send the user's access token as a Bearer token alongside the anon key.",
+      );
+    }
+    const email = payload.jwtClaims?.email;
+    return { userId: sub, email: typeof email === 'string' ? email : undefined };
+  }
+
+  /** A signed-in user when there is one, otherwise the enrollment challenge the body names. */
+  private mfaActor(payload: ApiKeyPayload, challengeId?: string) {
+    const sub = payload.jwtClaims?.sub;
+    if (typeof sub === 'string' && sub) {
+      const email = payload.jwtClaims?.email;
+      return { userId: sub, email: typeof email === 'string' ? email : undefined };
+    }
+    return { challengeId };
   }
 
   private getPayload(req: Request): ApiKeyPayload {

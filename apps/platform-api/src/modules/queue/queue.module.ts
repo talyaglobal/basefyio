@@ -13,6 +13,8 @@ export const DATA_IMPORT_QUEUE = 'data-import';
 export const EMBEDDING_QUEUE = 'embedding';
 /** RAG document ingest/index jobs (chunk → embed → store). */
 export const RAG_INDEX_QUEUE = 'rag-index';
+/** Per-project vector store maintenance (re-embed after an embedding provider switch). */
+export const TENANT_EMBEDDING_QUEUE = 'tenant-embedding';
 /** Project automation flows (trigger → actions), executed asynchronously. */
 export const FLOW_QUEUE = 'flow';
 
@@ -55,6 +57,7 @@ export const FLOW_QUEUE = 'flow';
       { name: DATA_IMPORT_QUEUE },
       { name: EMBEDDING_QUEUE },
       { name: RAG_INDEX_QUEUE },
+      { name: TENANT_EMBEDDING_QUEUE },
       { name: FLOW_QUEUE },
     ),
   ],
