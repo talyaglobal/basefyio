@@ -62,11 +62,30 @@ jobs:
             # leaves the database alone.
             PG_REF=ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres
             PG_HASH=$(sha256sum docker/postgres/Dockerfile | cut -c1-12)
+            # The hash tag can disappear while the image itself is still the
+            # one postgres runs: the host's disk guard prunes unused images
+            # with -a when the disk passes 90%. Rebuilding then yields a new id
+            # and recreates postgres and Keycloak (that happened on 2026-10-21).
+            # Each build records its Dockerfile hash as a label; when the
+            # running container's image carries this hash, re-tag it instead.
+            # An image built before the label existed has none and is taken as
+            # current, since the Dockerfile rarely changes; set
+            # FORCE_POSTGRES_BUILD=1 on the host to override.
+            PG_RUNNING=$(docker inspect kolaybase-postgres-1 --format '{{.Image}}' 2>/dev/null || true)
+            PG_RUNNING_HASH=""
+            if [ -n "$PG_RUNNING" ]; then
+              PG_RUNNING_HASH=$(docker image inspect "$PG_RUNNING" --format '{{index .Config.Labels "io.basefyio.dockerfile-sha"}}' 2>/dev/null || true)
+              [ "$PG_RUNNING_HASH" = "<no value>" ] && PG_RUNNING_HASH=""
+            fi
             if docker image inspect "$PG_REF:$PG_HASH" >/dev/null 2>&1; then
               echo "=== Postgres image unchanged ($PG_HASH) ==="
+            elif [ -n "$PG_RUNNING" ] && [ "${FORCE_POSTGRES_BUILD:-0}" != "1" ] \
+                 && { [ "$PG_RUNNING_HASH" = "$PG_HASH" ] || [ -z "$PG_RUNNING_HASH" ]; }; then
+              echo "=== Postgres hash tag missing; re-tagging the running image (${PG_RUNNING_HASH:-unlabelled}) ==="
+              docker tag "$PG_RUNNING" "$PG_REF:$PG_HASH"
             else
               echo "=== Building Postgres ($PG_HASH) ==="
-              docker build -t "$PG_REF:$PG_HASH" docker/postgres
+              docker build --label "io.basefyio.dockerfile-sha=$PG_HASH" -t "$PG_REF:$PG_HASH" docker/postgres
             fi
             docker tag "$PG_REF:$PG_HASH" "$PG_REF:latest"
 
