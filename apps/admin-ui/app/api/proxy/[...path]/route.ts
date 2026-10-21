@@ -58,11 +58,13 @@ async function proxy(
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const contentType = request.headers.get('content-type') || '';
   const isMultipart = contentType.includes('multipart/form-data');
+  // Raw binary bodies (resumable upload chunks) must not be read as text.
+  const isBinaryBody = isMultipart || contentType.includes('application/offset+octet-stream');
 
   try {
     let body: BodyInit | null = null;
     if (hasBody) {
-      if (isMultipart) {
+      if (isBinaryBody) {
         body = await request.arrayBuffer();
       } else {
         body = await request.text();

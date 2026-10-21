@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
 import { mapPgError } from './pg-error.util';
+import { jwtClaimSettings } from './jwt-claim-settings';
 import { parseQuery } from './postgrest/parser';
 import { SelectBuilder } from './postgrest/builder';
 import { SchemaCache } from './postgrest/schema-cache';
@@ -511,6 +512,11 @@ export class PublicApiService {
         `SELECT set_config('request.jwt.role', $1, true)`,
         [ctx.role],
       );
+      // Single-claim keys for helpers written against request.jwt.claim.<name>
+      // (imported schemas); see jwt-claim-settings.ts.
+      for (const [key, value] of jwtClaimSettings(ctx.role, ctx.jwtClaims)) {
+        await client.query(`SELECT set_config($1, $2, true)`, [key, value]);
+      }
 
       const result = await fn(client);
       await client.query('COMMIT');

@@ -131,6 +131,8 @@ export class ProjectAuthConfigService {
     result.twitterEnabled = config.twitterEnabled ?? false;
     result.twitterClientId = config.twitterClientId ?? null;
     result.twitterClientSecret = config.twitterClientSecret ? '••••••••' : null;
+    result.allowAnonymous = config.allowAnonymous ?? false;
+    result.mfaEnforceEnrollment = config.mfaEnforceEnrollment ?? false;
 
     return result;
   }

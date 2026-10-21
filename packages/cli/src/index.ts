@@ -254,6 +254,75 @@ migration
     await migrationStatus();
   });
 
+// ── Backups ─────────────────────────────────────────────────
+
+const backup = program
+  .command('backup')
+  .description('Back up the project (database, auth users, storage, config) and manage its cloud backups');
+
+backup
+  .command('create')
+  .description('Export the project to a .zip archive and download it')
+  .option('-o, --out <file>', 'Where to save the archive (default: <slug>-backup-<timestamp>.zip)')
+  .option('--no-wait', 'Start the export job and return at once (fetch it later with backup download)')
+  .option('--skip-database', 'Leave the database dump out')
+  .option('--skip-auth', 'Leave auth users out')
+  .option('--skip-storage', 'Leave storage objects out')
+  .option('--skip-config', 'Leave project configuration out')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--timeout <minutes>', 'How long to wait for the export job', '60')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { backupCreate } = await import('./commands/backup.js');
+    await backupCreate(options);
+  });
+
+backup
+  .command('list')
+  .description('List the cloud backups kept for the project (daily automatic + manual exports)')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--kind <kind>', 'auto | manual | all', 'all')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (options) => {
+    const { backupList } = await import('./commands/backup.js');
+    await backupList(options);
+  });
+
+backup
+  .command('status <jobId>')
+  .description('Show the state of an export job started with backup create')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (jobId, options) => {
+    const { backupStatus } = await import('./commands/backup.js');
+    await backupStatus(jobId, options);
+  });
+
+backup
+  .command('download <jobId>')
+  .description('Download the archive of a finished export job (kept on the server for 24 hours)')
+  .option('-o, --out <file>', 'Where to save the archive (default: the export filename)')
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .action(async (jobId, options) => {
+    const { backupDownload } = await import('./commands/backup.js');
+    await backupDownload(jobId, options);
+  });
+
+program
+  .command('restore <target>')
+  .description(
+    'Restore a project from a local .zip archive or a cloud backup (object key, filename, #n from backup list, latest, latest:auto, latest:manual)',
+  )
+  .option('-p, --project <id>', 'Project ID (default: the linked project)')
+  .option('--new-project <name>', 'Restore into a new project with this name instead of replacing the current one')
+  .option('--team <id>', "Team for --new-project (default: the project's team)")
+  .option('-y, --yes', 'Skip the confirmation prompt (required when not running in a terminal)')
+  .option('--json', 'Machine-readable output (best effort: the shape may change between versions)')
+  .action(async (target, options) => {
+    const { restoreCommand } = await import('./commands/backup.js');
+    await restoreCommand(target, options);
+  });
+
 // ── Top-level shortcuts ──────────────────────────────────────
 
 program

@@ -272,12 +272,20 @@ services:
   # ── Applications (pulled from GHCR) ────────────────────
 
   platform-api:
-    image: ghcr.io/${GHCR_OWNER}/basefyio-api:latest
+    # The deploy workflow tags every build with its git sha and exports
+    # IMAGE_TAG for the compose up, so what runs is always a known artefact and
+    # a rollback is `IMAGE_TAG=<previous sha> … up -d`. Without the variable
+    # this resolves to :latest exactly as before, so the documented emergency
+    # command keeps working.
+    image: ghcr.io/${GHCR_OWNER}/basefyio-api:${IMAGE_TAG:-latest}
     restart: always
     environment:
       PORT: 4000
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=1536
+      # Which build this container runs; reported by /api/health and /api/metrics
+      # so replicas behind the proxy can be told apart.
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
       # At-rest encryption key for project DB credentials (base64/hex 32 bytes).
       # Empty = passthrough (no encryption). Set in .env.production.
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
@@ -294,7 +302,9 @@ services:
       GITHUB_INSIGHTS_TOKEN: ${GITHUB_INSIGHTS_TOKEN:-}
       GITHUB_INSIGHTS_REPO: ${GITHUB_INSIGHTS_REPO:-talyaglobal/basefyio}
       NPM_INSIGHTS_PACKAGES: ${NPM_INSIGHTS_PACKAGES:-basefyio-cli}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase?connection_limit=20&pool_timeout=30
+      # Prisma pool size per replica. Every replica opens its own pool against
+      # max_connections=200, so lower this when raising API_REPLICAS.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/kolaybase?connection_limit=${API_DB_CONNECTION_LIMIT:-20}&pool_timeout=30
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
@@ -305,6 +315,14 @@ services:
       KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      # Audit forwarding (off until set). Webhook: HTTPS endpoint receiving
+      # NDJSON batches with a bearer token. Syslog: RFC 5424 over udp or tcp.
+      AUDIT_FORWARD_URL: ${AUDIT_FORWARD_URL:-}
+      AUDIT_FORWARD_TOKEN: ${AUDIT_FORWARD_TOKEN:-}
+      AUDIT_FORWARD_FORMAT: ${AUDIT_FORWARD_FORMAT:-}
+      AUDIT_SYSLOG_HOST: ${AUDIT_SYSLOG_HOST:-}
+      AUDIT_SYSLOG_PORT: ${AUDIT_SYSLOG_PORT:-}
+      AUDIT_SYSLOG_PROTOCOL: ${AUDIT_SYSLOG_PROTOCOL:-}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -350,6 +368,21 @@ services:
       VERCEL_CLIENT_ID: ${VERCEL_CLIENT_ID:-}
       VERCEL_CLIENT_SECRET: ${VERCEL_CLIENT_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Embeddings: provider selection, failover and the data disclosure (all unset = OpenAI, as before)
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      EMBEDDING_FALLBACK_PROVIDER: ${EMBEDDING_FALLBACK_PROVIDER:-}
+      EMBEDDING_FALLBACK_MODEL: ${EMBEDDING_FALLBACK_MODEL:-}
+      EMBEDDING_FALLBACK_BASE_URL: ${EMBEDDING_FALLBACK_BASE_URL:-}
+      EMBEDDING_FAILOVER_COOLDOWN_SEC: ${EMBEDDING_FAILOVER_COOLDOWN_SEC:-}
+      EMBEDDING_ALLOW_PRIVATE_BASE_URL: ${EMBEDDING_ALLOW_PRIVATE_BASE_URL:-}
+      EMBEDDING_REEMBED_MAX_ROWS: ${EMBEDDING_REEMBED_MAX_ROWS:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      PLATFORM_REGION: ${PLATFORM_REGION:-}
       # Marketing agency (Claude copy, fal.ai visuals, ElevenLabs voice, Pubbler)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
@@ -417,6 +450,15 @@ services:
       - internal
       - web
     deploy:
+      # Horizontal scale. 1 = today's single container. Compose leaves this
+      # field out of the service hash, so changing it never recreates the
+      # existing container — it only adds or removes siblings. Before raising
+      # it: PGBOUNCER_ADMIN_PASSWORD must be set (each process would otherwise
+      # write its own into userlist.txt), the host needs the memory limit below
+      # free per extra replica, and the Prisma pool (API_DB_CONNECTION_LIMIT)
+      # multiplies by the replica count. Scheduled jobs run on one elected
+      # replica (ClusterModule); realtime events fan out through Redis.
+      replicas: ${API_REPLICAS:-1}
       resources:
         limits:
           memory: 2G
@@ -447,7 +489,7 @@ services:
       - traefik.http.services.api.loadbalancer.healthcheck.timeout=5s
 
   admin-ui:
-    image: ghcr.io/${GHCR_OWNER}/basefyio-ui:latest
+    image: ghcr.io/${GHCR_OWNER}/basefyio-ui:${IMAGE_TAG:-latest}
     restart: always
     environment:
       HOSTNAME: 0.0.0.0
@@ -485,7 +527,7 @@ services:
       - traefik.http.services.ui.loadbalancer.healthcheck.timeout=5s
 
   website:
-    image: ghcr.io/${GHCR_OWNER}/basefyio-website:latest
+    image: ghcr.io/${GHCR_OWNER}/basefyio-website:${IMAGE_TAG:-latest}
     restart: always
     environment:
       HOSTNAME: 0.0.0.0

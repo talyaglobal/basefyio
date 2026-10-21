@@ -15,7 +15,7 @@ import { firstValueFrom } from 'rxjs';
 import { Pool } from 'pg';
 import { randomBytes, randomUUID } from 'crypto';
 import { Readable } from 'stream';
-import * as Docker from 'dockerode';
+import Docker = require('dockerode');
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { ProjectsService } from './projects.service';
@@ -25,6 +25,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
 import { ProjectActivityKind, ProjectActivityService } from './project-activity.service';
+import { Prisma } from '@prisma/client';
+import {
+  SupabaseImportKeysService,
+  type PrimaryKeyRepairSummary,
+} from './supabase-import-keys.service';
+import type { RepairImportKeysDto } from './dto/repair-import-keys.dto';
 
 /** Known built-in PostgreSQL base type identifiers (without [] suffix).
  *  Anything NOT in this set is treated as a custom/enum type and falls back
@@ -75,7 +81,50 @@ export interface ImportProgress {
     objectsInTarget?: number;
     bucketsInTarget?: number;
   };
+  /**
+   * One line per table: what the source holds, what was sent, what arrived.
+   * The totals above cannot say *which* table lost rows; this can.
+   */
+  tables?: TableReconciliation[];
 }
+
+/** How the source's row count was obtained. */
+export type SourceCountMethod =
+  /** `count(*)` over the direct database connection. */
+  | 'direct'
+  /** Exact count over the API (`Prefer: count=exact`). */
+  | 'rest'
+  /** The planner's estimate over the API — the exact count timed out. */
+  | 'rest-planned'
+  /** The source could not be counted. */
+  | 'unavailable';
+
+export type PrimaryKeyState = 'present' | 'added' | 'missing' | 'unknown';
+
+export interface TableReconciliation {
+  /** Public table name. */
+  table: string;
+  /** Rows the source reports; null when it could not be counted. */
+  sourceRows: number | null;
+  /** Rows this run believes it wrote (full import) or added (sync). */
+  importedRows: number;
+  /** Rows the destination holds after the run, read back from the database. */
+  destinationRows: number | null;
+  /** Source and destination disagree (never set from an estimated count). */
+  rowCountMismatch: boolean;
+  sourceCountMethod: SourceCountMethod;
+  primaryKey: PrimaryKeyState;
+  /** Copy strategy that filled the table ('Direct SQL', 'PostgREST', …). */
+  strategy?: string;
+  /** Short reason when something about this table needs attention. */
+  note?: string;
+}
+
+/** Longest a single source count may take before it is given up on. */
+const SOURCE_COUNT_CEILING_MS = 15_000;
+
+/** A serial default as the API describes it: `nextval('items_id_seq'::regclass)`. */
+const SEQUENCE_DEFAULT_RE = /^nextval\('(?:public\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?'::regclass\)$/;
 
 interface SupabaseColumn {
   column_name: string;
@@ -84,6 +133,8 @@ interface SupabaseColumn {
   column_default: string | null;
   character_maximum_length: number | null;
   udt_name: string;
+  /** Part of the table's primary key (from the API's schema description). */
+  is_primary_key?: boolean;
 }
 
 interface SupabaseTable {
@@ -160,6 +211,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
     private readonly activity: ProjectActivityService,
+    private readonly keys: SupabaseImportKeysService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
   ) {}
 
@@ -336,6 +388,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     supabaseDatabasePassword?: string,
     existingProjectId?: string,
     mode: 'full' | 'sync' = 'full',
+    repairKeys = false,
   ) {
     const baseUrl = supabaseUrl.replace(/\/+$/, '');
     const headers = {
@@ -425,6 +478,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       keycloakRealm: project.keycloakRealm,
       preserveProjectOnCancel,
       mode,
+      repairKeys: mode === 'sync' && repairKeys,
     };
 
     // Managed Redis/BullMQ deployments may leave queues paused after restarts.
@@ -656,6 +710,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
       let rowsInTarget = 0;
       const emptyTables: string[] = [];
+      const destinationCounts = new Map<string, number>();
 
       for (const { name } of tables) {
         // Identifier comes from the catalogue, but quote it anyway rather than
@@ -665,11 +720,22 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           const { rows } = await pool.query<{ n: string }>(`select count(*) as n from ${ident}`);
           const n = Number(rows[0]?.n ?? 0);
           rowsInTarget += n;
+          destinationCounts.set(name, n);
           if (n === 0) emptyTables.push(name);
         } catch (err: any) {
           progress.warnings.push(`Verification: could not count "${name}": ${err.message}`);
         }
       }
+
+      // Which tables can be matched row by row later. One catalogue query for
+      // all of them; a failure here leaves the key state unknown, not wrong.
+      let keyedTables: Set<string> | null = null;
+      try {
+        keyedTables = await this.keys.listKeyedTables(pool);
+      } catch (err: any) {
+        this.logger.warn(`Could not read primary keys for verification: ${err.message}`);
+      }
+      this.reconcileTables(progress, destinationCounts, keyedTables);
 
       const matchesReported = rowsInTarget === progress.database.rows;
       progress.verification = {
@@ -703,6 +769,72 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.verifyStorage(project, progress);
+  }
+
+  /**
+   * Settle the per-table report against what the destination holds.
+   *
+   * The copy loop recorded what the source reported and what it believed it
+   * wrote; this adds what is actually there, names every table that differs,
+   * and every table that has no key — the two facts a person needs before
+   * trusting a migration or planning a sync. An estimated source count is
+   * shown but never called a mismatch.
+   */
+  private reconcileTables(
+    progress: ImportProgress,
+    destinationCounts: Map<string, number>,
+    keyedTables: Set<string> | null,
+  ): void {
+    const entries = (progress.tables ??= []);
+    const byName = new Map(entries.map((e) => [e.table, e]));
+
+    for (const [table, n] of destinationCounts) {
+      let entry = byName.get(table);
+      if (!entry) {
+        entry = {
+          table,
+          sourceRows: null,
+          importedRows: 0,
+          destinationRows: null,
+          rowCountMismatch: false,
+          sourceCountMethod: 'unavailable',
+          primaryKey: 'unknown',
+        };
+        entries.push(entry);
+        byName.set(table, entry);
+      }
+      entry.destinationRows = n;
+      if (entry.primaryKey === 'unknown' && keyedTables) {
+        entry.primaryKey = keyedTables.has(table) ? 'present' : 'missing';
+      }
+      entry.rowCountMismatch =
+        entry.sourceRows != null &&
+        entry.sourceCountMethod !== 'rest-planned' &&
+        entry.sourceRows !== n;
+    }
+
+    const mismatched = entries.filter((e) => e.rowCountMismatch);
+    for (const e of mismatched.slice(0, 10)) {
+      const diff = (e.sourceRows ?? 0) - (e.destinationRows ?? 0);
+      progress.warnings.push(
+        `Reconciliation: "${e.table}" has ${e.sourceRows} row(s) at the source and ${e.destinationRows} here ` +
+          `(${Math.abs(diff)} ${diff > 0 ? 'missing' : 'extra'}).`,
+      );
+    }
+    if (mismatched.length > 10) {
+      progress.warnings.push(
+        `Reconciliation: ${mismatched.length - 10} more table(s) differ from the source.`,
+      );
+    }
+
+    const keyless = entries.filter((e) => e.primaryKey === 'missing');
+    if (keyless.length) {
+      progress.warnings.push(
+        `${keyless.length} table(s) have no primary key, so a later sync cannot match their rows: ` +
+          `${keyless.slice(0, 10).map((e) => e.table).join(', ')}${keyless.length > 10 ? ', …' : ''}. ` +
+          `Use "Add missing primary keys" to repair.`,
+      );
+    }
   }
 
   /**
@@ -744,6 +876,134 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Put the source's primary keys on tables that were imported without one.
+   *
+   * The platform keeps neither the source URL nor its keys, so they are
+   * re-entered, exactly as for a re-import. With a database password the key
+   * comes from the source catalogue; without one, from the API's schema
+   * description, which names the key for every published table. The DDL
+   * itself is guarded in SupabaseImportKeysService: unique and non-null rows
+   * only, short lock timeout, one transaction per table, a time budget.
+   */
+  async repairImportedPrimaryKeys(
+    projectId: string,
+    userId: string,
+    dto: RepairImportKeysDto,
+  ): Promise<PrimaryKeyRepairSummary> {
+    const project = await this.projectsService.getProjectForSupabaseImport(projectId, userId);
+    const baseUrl = dto.supabaseUrl.replace(/\/+$/, '');
+    const headers = {
+      apikey: dto.serviceRoleKey,
+      Authorization: `Bearer ${dto.serviceRoleKey}`,
+    };
+    await this.validateConnection(baseUrl, headers);
+
+    const sourceKeys = new Map<string, string[]>();
+    let sourcePool: Pool | null = null;
+    const pwd = dto.databasePassword?.trim();
+    if (pwd) {
+      const ref = this.resolveSupabaseProjectRef(baseUrl, dto.serviceRoleKey);
+      if (ref) sourcePool = await this.openSupabaseSourcePool(ref, pwd);
+    }
+    try {
+      if (sourcePool) {
+        for (const [table, columns] of await this.keys.keysFromSourceCatalog(sourcePool)) {
+          sourceKeys.set(table, columns);
+        }
+      }
+      // The schema description covers what the catalogue could not — or all of
+      // it, when there is no database connection.
+      try {
+        const openApi = await this.fetchOpenApiSpec(baseUrl, headers);
+        for (const [table, columns] of this.keys.keysFromOpenApi(openApi)) {
+          if (!sourceKeys.has(table)) sourceKeys.set(table, columns);
+        }
+      } catch (err: any) {
+        if (!sourcePool) {
+          throw new BadRequestException(`Could not read the source schema: ${err.message}`);
+        }
+        this.logger.warn(`Schema description unavailable, using the catalogue alone: ${err.message}`);
+      }
+    } finally {
+      if (sourcePool) await sourcePool.end().catch(() => undefined);
+    }
+
+    const pool = new Pool({
+      host: project.dbHost,
+      port: project.dbPort,
+      database: project.dbName,
+      user: project.dbUser,
+      password: project.dbPassword,
+      max: 1,
+      connectionTimeoutMillis: 15_000,
+      statement_timeout: 120_000,
+    });
+    let summary: PrimaryKeyRepairSummary;
+    try {
+      await this.connectPoolWithRetry(pool, project.dbName, 2);
+      const client = await pool.connect();
+      try {
+        summary = await this.keys.repairPrimaryKeys(client, sourceKeys, {
+          dryRun: !!dto.dryRun,
+          tables: dto.tables,
+          budgetMs: 60_000,
+        });
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+
+    if (!dto.dryRun && summary.added > 0) {
+      const added = summary.results.filter((r) => r.status === 'added');
+      await this.recordRepairedKeys(project.id, added.map((r) => r.table));
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Primary keys added after import',
+        detail: added
+          .map((r) => `${r.table} (${r.columns.join(', ')})`)
+          .join(', ')
+          .slice(0, 2000),
+        metadata: { added: summary.added, skipped: summary.skipped, failed: summary.failed },
+      });
+    }
+    return summary;
+  }
+
+  /** Mark repaired tables in the stored import log so the dashboard agrees with the database. */
+  private async recordRepairedKeys(projectId: string, tables: string[]): Promise<void> {
+    try {
+      const row = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { supabaseImportLog: true },
+      });
+      const log = row?.supabaseImportLog;
+      if (!log || typeof log !== 'object' || Array.isArray(log)) return;
+
+      const mark = (list: unknown) =>
+        Array.isArray(list)
+          ? list.map((e: any) =>
+              e && typeof e === 'object' && tables.includes(e.table) ? { ...e, primaryKey: 'added' } : e,
+            )
+          : list;
+      const next: Record<string, unknown> = { ...(log as Record<string, unknown>) };
+      if (Array.isArray(next.tables)) next.tables = mark(next.tables);
+      const lastSync = next.lastSync;
+      if (lastSync && typeof lastSync === 'object' && Array.isArray((lastSync as any).tables)) {
+        next.lastSync = { ...(lastSync as Record<string, unknown>), tables: mark((lastSync as any).tables) };
+      }
+      await this.prisma.project.update({
+        where: { id: projectId },
+        data: { supabaseImportLog: next as Prisma.InputJsonValue },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not record repaired keys on the import log: ${err.message}`);
+    }
+  }
+
+  /**
    * Fetch what the source has gained, and leave the rest alone.
    *
    * A full import rebuilds every table from nothing, which on a large project
@@ -762,6 +1022,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     progress: ImportProgress,
     jobId = '',
     onProgress?: (detail: string, percent: number, strategy?: string) => Promise<void>,
+    options?: { repairKeys?: boolean },
   ): Promise<void> {
     const pwd: string | undefined = project.supabaseDatabasePassword;
     const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
@@ -794,18 +1055,72 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       await this.connectPoolWithRetry(pool, project.dbName);
 
       const tables = await this.tablesInDependencyOrder(pool);
+      const entries = (progress.tables ??= []);
+      const repaired = new Set<string>();
+
+      // A table that arrived without its key cannot be compared. The source's
+      // own catalogue knows the key, so it can be added here first — only when
+      // asked, since building the index locks the table for a moment, and only
+      // where the rows here are unique on it.
+      if (options?.repairKeys) {
+        if (onProgress) await onProgress('Adding missing primary keys...', 4, 'Direct SQL');
+        try {
+          const sourceKeys = await this.keys.keysFromSourceCatalog(sourcePool);
+          const summary = await this.keys.repairPrimaryKeys(pool, sourceKeys, {
+            budgetMs: 10 * 60_000,
+          });
+          for (const r of summary.results) {
+            if (r.status === 'added') {
+              repaired.add(r.table);
+            } else if (r.status !== 'present' && r.status !== 'no_source_key') {
+              progress.warnings.push(
+                `Table "${r.table}": primary key not added — ${this.keys.describe(r)}.`,
+              );
+            }
+          }
+          if (summary.added > 0) {
+            this.logger.log(`Sync: added a primary key to ${summary.added} table(s)`);
+          }
+        } catch (err: any) {
+          progress.warnings.push(`Primary keys could not be repaired: ${err.message}`);
+        }
+      }
 
       let examined = 0;
       let changed = 0;
       const refused: string[] = [];
 
+      const record = (name: string, patch: Partial<TableReconciliation>): TableReconciliation => {
+        let entry = entries.find((e) => e.table === name);
+        if (!entry) {
+          entry = {
+            table: name,
+            sourceRows: null,
+            importedRows: 0,
+            destinationRows: null,
+            rowCountMismatch: false,
+            sourceCountMethod: 'unavailable',
+            primaryKey: repaired.has(name) ? 'added' : 'unknown',
+          };
+          entries.push(entry);
+        }
+        Object.assign(entry, patch);
+        return entry;
+      };
+
       const level = async (name: string): Promise<void> => {
-        const copied = await this.syncTable(sourcePool, pool, name);
+        const { copied, sourceRows, destinationRows } = await this.syncTable(sourcePool, pool, name);
         if (copied > 0) {
           changed++;
           progress.database.rows += copied;
           this.logger.log(`Sync: "${name}" gained ${copied} row(s)`);
         }
+        const entry = record(name, {
+          sourceRows,
+          destinationRows: destinationRows + copied,
+          sourceCountMethod: 'direct',
+        });
+        entry.importedRows += copied;
       };
 
       for (const name of tables) {
@@ -840,6 +1155,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         } catch (err: any) {
           this.logger.warn(`Sync: "${name}" could not be compared: ${err.message}`);
           progress.warnings.push(`Table "${name}" could not be synced: ${err.message}`);
+          record(name, { note: String(err.message ?? err) });
         }
       }
 
@@ -936,7 +1252,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * and offered to an insert that ignores keys already present, which is slower
    * but always correct.
    */
-  private async syncTable(sourcePool: Pool, pool: Pool, table: string): Promise<number> {
+  private async syncTable(
+    sourcePool: Pool,
+    pool: Pool,
+    table: string,
+  ): Promise<{ copied: number; sourceRows: number; destinationRows: number }> {
     const ident = `"public"."${table.replace(/"/g, '""')}"`;
 
     const [{ rows: srcCount }, { rows: dstCount }] = await Promise.all([
@@ -945,7 +1265,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     ]);
     const source = Number(srcCount[0]?.n ?? 0);
     const destination = Number(dstCount[0]?.n ?? 0);
-    if (source <= destination) return 0;
+    if (source <= destination) {
+      return { copied: 0, sourceRows: source, destinationRows: destination };
+    }
 
     const { rows: keyCols } = await pool.query<{ column_name: string }>(
       `select a.attname as column_name
@@ -956,7 +1278,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     );
     if (keyCols.length === 0) {
       throw new Error(
-        `no primary key, so new rows cannot be told from existing ones (source has ${source - destination} more)`,
+        `no primary key, so new rows cannot be told from existing ones (source has ${source - destination} more). ` +
+          `Enable "Add missing primary keys" on the sync, or run the repair from the import log`,
       );
     }
     const keys = keyCols.map((k) => `"${k.column_name.replace(/"/g, '""')}"`);
@@ -1020,7 +1343,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       offset += pageSize;
     }
 
-    return copied;
+    return { copied, sourceRows: source, destinationRows: destination };
   }
 
   /**
@@ -1265,6 +1588,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         column_default: colSpec.default ?? null,
         character_maximum_length: colSpec.maxLength ?? null,
         udt_name: colSpec.format || colSpec.type || 'text',
+        is_primary_key: this.keys.isPrimaryKeyNote(colSpec.description),
       });
     }
 
@@ -1970,6 +2294,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Counting the source over the API needs a client; the copy loop makes its
+    // own per table, this one lives for the whole import.
+    const restCounter = sourcePool ? null : this.restClient(baseUrl, headers);
+    const entries = (progress.tables ??= []);
 
     try {
       for (let i = 0; i < tables.length; i++) {
@@ -1989,7 +2317,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             : this.extractColumnsFromOpenApi(openApi, table.table_name);
 
           if (!schemaApplied) {
-            await this.createLocalTable(pool, table.table_name, columns);
+            const created = await this.createLocalTable(pool, table.table_name, columns);
+            if (created.error) {
+              progress.warnings.push(
+                `Table "${table.table_name}": created without its primary key (${created.error}).`,
+              );
+            }
           }
           progress.database.tables++;
 
@@ -2048,10 +2381,31 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           }
 
           progress.database.rows += rowCount;
-          if (rowCount === 0) {
-            const hint = sourcePool
-              ? 'table may be empty or SELECT failed'
-              : 'RLS may be blocking reads — provide Database Password for direct Postgres copy';
+
+          // One count per table, once it is done: the only way to know whether
+          // what arrived is what the source holds.
+          const sourceCount = await this.countSourceRows(sourcePool, restCounter, table.table_name);
+          entries.push({
+            table: table.table_name.replace(/[^a-zA-Z0-9_]/g, ''),
+            sourceRows: sourceCount.rows,
+            importedRows: rowCount,
+            destinationRows: null,
+            rowCountMismatch: false,
+            sourceCountMethod: sourceCount.method,
+            primaryKey: 'unknown',
+            strategy: strategyUsed,
+          });
+
+          // An empty table is only worth a warning when the source is not
+          // empty too — or when nobody could tell.
+          if (rowCount === 0 && sourceCount.rows !== 0) {
+            const hint =
+              sourceCount.rows != null
+                ? `the source has ${sourceCount.rows} row(s) that could not be read` +
+                  (sourcePool ? '' : ' — RLS may be blocking reads; provide the database password for a direct copy')
+                : sourcePool
+                  ? 'table may be empty or SELECT failed'
+                  : 'RLS may be blocking reads — provide Database Password for direct Postgres copy';
             progress.warnings.push(
               `Table "${table.table_name}": 0 rows imported (${hint})`,
             );
@@ -2069,6 +2423,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           progress.warnings.push(
             `Table "${table.table_name}": ${err.message}`,
           );
+          entries.push({
+            table: table.table_name.replace(/[^a-zA-Z0-9_]/g, ''),
+            sourceRows: null,
+            importedRows: 0,
+            destinationRows: null,
+            rowCountMismatch: false,
+            sourceCountMethod: 'unavailable',
+            primaryKey: 'unknown',
+            note: String(err.message ?? err),
+          });
         }
       }
 
@@ -2077,6 +2441,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         await this.applyDeferredSchema(pool, deferredSchema, progress);
         if (onProgress) await onProgress('Preparing the database for writes...', 49);
         await this.finalizeSchema(pool, progress);
+      } else {
+        // Tables rebuilt here carry the sequences their serial columns name;
+        // those have to be advanced past the imported rows, and fresh
+        // statistics cost nothing.
+        if (onProgress) await onProgress('Preparing the database for writes...', 49);
+        try {
+          await this.finalizeSchema(pool, progress);
+        } catch (err: any) {
+          this.logger.warn(`Could not finalise the rebuilt schema: ${err.message}`);
+        }
       }
     } finally {
       await pool.end();
@@ -2392,20 +2766,37 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return rows;
   }
 
+  /**
+   * Build a table from the API's description of it.
+   *
+   * The description knows more than column types: it marks the key columns and
+   * names the sequence behind a serial default. Both go into the table — the
+   * key so a later sync can match rows, the sequence so the first insert after
+   * the import does not collide with an imported row. A key the database
+   * refuses is dropped rather than losing the table over it, and reported so
+   * the repair path can add it later.
+   */
   private async createLocalTable(
     pool: Pool,
     tableName: string,
     columns: SupabaseColumn[],
-  ) {
+  ): Promise<{ withPrimaryKey: boolean; primaryKeyColumns: string[]; error?: string }> {
     const sanitized = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+    const primaryKeyColumns: string[] = [];
+    const sequences: Array<{ name: string; column: string }> = [];
 
     const colDefs = columns.map((col) => {
       const colName = col.column_name.replace(/[^a-zA-Z0-9_]/g, '');
+      if (col.is_primary_key) primaryKeyColumns.push(colName);
       let def = `"${colName}" ${col.data_type}`;
       if (col.column_default !== null && col.column_default !== undefined) {
         const safe = String(col.column_default);
-        if (
-          /^(gen_random_uuid\(\)|uuid_generate_v4\(\)|now\(\)|true|false|CURRENT_TIMESTAMP|nextval\(|'[^']*'::|-?\d+(\.\d+)?$)/.test(
+        const sequence = safe.match(SEQUENCE_DEFAULT_RE);
+        if (sequence) {
+          sequences.push({ name: sequence[1], column: colName });
+          def += ` DEFAULT nextval('"public"."${sequence[1]}"'::regclass)`;
+        } else if (
+          /^(gen_random_uuid\(\)|uuid_generate_v4\(\)|now\(\)|true|false|CURRENT_TIMESTAMP|'[^']*'::|-?\d+(\.\d+)?$)/.test(
             safe,
           )
         ) {
@@ -2415,15 +2806,126 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       return def;
     });
 
+    const body = colDefs.join(',\n  ');
+    const keyClause = primaryKeyColumns.length
+      ? `,\n  PRIMARY KEY (${primaryKeyColumns.map((c) => `"${c}"`).join(', ')})`
+      : '';
+
     const client = await pool.connect();
     try {
       await client.query(`DROP TABLE IF EXISTS "${sanitized}" CASCADE`);
-      const sql = `CREATE TABLE "${sanitized}" (\n  ${colDefs.join(',\n  ')}\n)`;
-      await client.query(sql);
-      this.logger.log(`Created table "${sanitized}" (${columns.length} columns)`);
+      for (const sequence of sequences) {
+        await client
+          .query(`CREATE SEQUENCE IF NOT EXISTS "public"."${sequence.name}"`)
+          .catch((err: any) =>
+            this.logger.warn(`Could not create sequence "${sequence.name}": ${err.message}`),
+          );
+      }
+
+      let withPrimaryKey = primaryKeyColumns.length > 0;
+      let error: string | undefined;
+      try {
+        await client.query(`CREATE TABLE "${sanitized}" (\n  ${body}${keyClause}\n)`);
+      } catch (err: any) {
+        if (!keyClause) throw err;
+        this.logger.warn(
+          `Could not create "${sanitized}" with its primary key (${err.message}); creating it without`,
+        );
+        error = String(err.message ?? err);
+        withPrimaryKey = false;
+        await client.query(`CREATE TABLE "${sanitized}" (\n  ${body}\n)`);
+      }
+
+      for (const sequence of sequences) {
+        await client
+          .query(
+            `ALTER SEQUENCE "public"."${sequence.name}" OWNED BY "${sanitized}"."${sequence.column}"`,
+          )
+          .catch(() => undefined);
+      }
+
+      this.logger.log(
+        `Created table "${sanitized}" (${columns.length} columns` +
+          `${withPrimaryKey ? `, primary key ${primaryKeyColumns.join(', ')}` : ''})`,
+      );
+      return { withPrimaryKey, primaryKeyColumns, error };
     } finally {
       client.release();
     }
+  }
+
+  /** A PostgREST client for the source, built from the headers the import uses. */
+  private restClient(baseUrl: string, headers: Record<string, string>): SupabaseClient {
+    const serviceKey =
+      headers['Authorization']?.replace(/^Bearer\s+/i, '').trim() ||
+      headers['apikey']?.trim() ||
+      '';
+    return createClient(baseUrl.replace(/\/+$/, ''), serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      db: { schema: 'public' },
+    });
+  }
+
+  /**
+   * How many rows the source holds for one table.
+   *
+   * Over a direct connection this is a plain count. Over the API it is a HEAD
+   * request asking for the exact count; when that times out on a very large
+   * table, the planner's estimate is taken and labelled as such. Never throws
+   * and never waits longer than the ceiling — a count is a report, not a step
+   * the import may stall on.
+   */
+  private async countSourceRows(
+    sourcePool: Pool | null,
+    rest: SupabaseClient | null,
+    tableName: string,
+  ): Promise<{ rows: number | null; method: SourceCountMethod }> {
+    const sanitized = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+
+    const withinCeiling = <T>(work: PromiseLike<T>): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const limit = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('count timed out')), SOURCE_COUNT_CEILING_MS);
+      });
+      return Promise.race([work, limit]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+    };
+
+    if (sourcePool) {
+      try {
+        const { rows } = await withinCeiling(
+          sourcePool.query<{ n: string }>(`select count(*) as n from "public"."${sanitized}"`),
+        );
+        return { rows: Number(rows[0]?.n ?? 0), method: 'direct' };
+      } catch (err: any) {
+        this.logger.warn(`Could not count "${sanitized}" at the source: ${err.message}`);
+      }
+    }
+
+    if (rest) {
+      try {
+        const { count, error } = await withinCeiling(
+          rest.from(sanitized).select('*', { count: 'exact', head: true }),
+        );
+        if (error) throw new Error(error.message);
+        if (typeof count === 'number') return { rows: count, method: 'rest' };
+      } catch (err: any) {
+        this.logger.warn(
+          `Exact count of "${sanitized}" over the API failed (${err.message}); trying the planner's estimate`,
+        );
+        try {
+          const { count, error } = await withinCeiling(
+            rest.from(sanitized).select('*', { count: 'planned', head: true }),
+          );
+          if (!error && typeof count === 'number') return { rows: count, method: 'rest-planned' };
+        } catch {
+          // Reported below as unavailable.
+        }
+      }
+    }
+
+    return { rows: null, method: 'unavailable' };
   }
 
   // ── Multi-strategy paginated row fetch ──────────────────────────

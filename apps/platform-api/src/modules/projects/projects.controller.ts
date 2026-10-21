@@ -20,6 +20,7 @@ import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ImportSupabaseDto } from './dto/import-supabase.dto';
+import { RepairImportKeysDto } from './dto/repair-import-keys.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -62,7 +63,22 @@ export class ProjectsController {
       body.databasePassword,
       body.existingProjectId,
       body.mode ?? 'full',
+      body.repairKeys ?? false,
     );
+  }
+
+  /**
+   * Add the source's primary keys to tables that were imported without one.
+   * Dry run by request; otherwise DDL runs on the project database as its own
+   * user, one table per transaction, only where the rows are unique on the key.
+   */
+  @Post(':id/import-supabase/repair-keys')
+  async repairSupabaseImportKeys(
+    @Param('id') id: string,
+    @Body() body: RepairImportKeysDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.supabaseImport.repairImportedPrimaryKeys(id, user.sub, body);
   }
 
   @Post('import-export-zip')
@@ -302,6 +318,40 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.rotateDatabasePassword(id, user.sub, body.password);
+  }
+
+  /**
+   * Read-only companion role (<dbUser>_readonly): SELECT on everything, no
+   * writes. Create (or repair) it, rotate its password, or remove it. Same
+   * permission as rotating the owner password.
+   */
+  @Post(':id/db-readonly-role')
+  async createReadonlyRole(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.createReadonlyRole(id, user.sub);
+  }
+
+  @Patch(':id/db-readonly-password')
+  async rotateReadonlyPassword(
+    @Param('id') id: string,
+    @Body() body: { password?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.rotateReadonlyPassword(id, user.sub, body?.password);
+  }
+
+  @Delete(':id/db-readonly-role')
+  async dropReadonlyRole(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.projectsService.dropReadonlyRole(id, user.sub);
+  }
+
+  /** Pooler connection cap for this database; null = back to the plan default. */
+  @Patch(':id/db-connection-limit')
+  async setDbConnectionLimit(
+    @Param('id') id: string,
+    @Body() body: { maxDbConnections: number | null },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.setMaxDbConnections(id, user.sub, body?.maxDbConnections ?? null);
   }
 
   /**

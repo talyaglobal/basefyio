@@ -86,11 +86,19 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('/rest/v1/rpc never checks prosecdef — a definer function runs as owner');
       }),
       check('the realtime stream goes through the key guard', 1, () => {
-        const ok = fileHas(
-          'apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts',
-          /ApiKeyGuard/,
-        );
-        return ok ? yes('stream uses ApiKeyGuard') : no('own key lookup; accepts the service key from the query string');
+        // The file also holds a bindings controller that always used the
+        // guard, so a whole-file match passed on the wrong class. Look inside
+        // the stream controller only.
+        const src = join(ROOT, 'apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts');
+        const text = readFileSync(src, 'utf8');
+        const start = text.indexOf('export class RealtimeDataStreamController');
+        const rest = start >= 0 ? text.slice(start) : '';
+        const next = rest.indexOf('export class', 'export class'.length);
+        const cls = next > 0 ? rest.slice(0, next) : rest;
+        const ok = start >= 0 && /@UseGuards\([^)]*ApiKeyGuard/.test(cls);
+        return ok
+          ? yes('RealtimeDataStreamController.stream is behind ApiKeyGuard')
+          : no('own key lookup; accepts the service key from the query string');
       }),
       check('DDL and policy verbs are denied to non-owner callers', 1, () => {
         const f = marker(/ALTER\s+POLICY|CREATE\s+POLICY|DROP\s+POLICY/i, ['apps/platform-api/src/modules/sql']);
@@ -101,6 +109,12 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('audit stays in the platform database only');
       }),
       check('the panel can require a second factor', 1, () => {
+        // Panel sign-in: a team-level policy (teams.service.ts) and a sign-in
+        // that asks for and verifies a code (auth.service.ts).
+        const panel =
+          fileHas('apps/platform-api/src/modules/teams/teams.service.ts', /requireMfa/) &&
+          fileHas('apps/platform-api/src/modules/auth/auth.service.ts', /mfaRequired|mfaCode/);
+        if (panel) return yes('team policy in teams.service.ts; dashboard sign-in verifies an authenticator code in auth.service.ts');
         const f = marker(/requireMfa|require-mfa/, API);
         return f.n ? part(0.5, `${f.where} — per project user, not for panel sign-in`) : no('no MFA requirement');
       }),
@@ -122,9 +136,17 @@ export const CATEGORIES = [
       check('PostGIS available', 1, () =>
         fileHas('docker/postgres/Dockerfile', /postgis/i) ? yes('docker/postgres/Dockerfile') : no('no geospatial types')),
       check('extensions created on provisioning', 1, () => {
+        const want = ['pg_trgm', 'vector', 'pgcrypto', 'unaccent', 'btree_gist', 'pg_stat_statements'];
+        // The provisioning set lives in one SQL file that ProjectsService.create()
+        // runs through installDefaultExtensions; count what that file creates.
+        const sql = 'apps/platform-api/src/modules/projects/sql/default-extensions.sql';
+        if (exists(sql) && fileHas('apps/platform-api/src/modules/projects/projects.service.ts', /installDefaultExtensions/)) {
+          const text = readFileSync(join(ROOT, sql), 'utf8');
+          const have = want.filter((w) => new RegExp(`CREATE EXTENSION IF NOT EXISTS "?${w}"?`).test(text));
+          return part(have.length / want.length, `created at provisioning: ${have.join(', ') || 'none'} — ${sql}`);
+        }
         const f = marker(/CREATE EXTENSION/, API);
         const text = f.h.map((x) => x.text).join(' ');
-        const want = ['pg_trgm', 'vector', 'pgcrypto', 'unaccent', 'btree_gist', 'pg_stat_statements'];
         const have = want.filter((w) => new RegExp(w).test(text));
         return part(have.length / want.length, `created: ${have.join(', ') || 'none'} — ${f.where}`);
       }),
@@ -141,6 +163,10 @@ export const CATEGORIES = [
           : part(0.3, `roles are created (${f.where}) but only anon/authenticated/service, no least-privilege owner split`);
       }),
       check('per-project connection limits', 1, () => {
+        const perDb = marker(/max_db_connections|max_db_client_connections/, ['apps/platform-api/src/modules/pgbouncer']);
+        if (perDb.n && fileHas('apps/platform-api/prisma/schema.prisma', /maxDbConnections/)) {
+          return yes(`${perDb.where} — per database, from Project/Plan.maxDbConnections`);
+        }
         const f = marker(/connection_limit|max_client_conn/, API.concat(COMPOSE));
         return f.n ? part(0.5, `${f.where} — a global cap, not per project`) : no('one shared pooler for every project');
       }),
@@ -324,6 +350,13 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('not supported');
       }),
       check('broadcast between clients without a database round trip', 1, () => {
+        // Client-to-client is a route a client can post to; the word alone
+        // described server-to-client delivery and scored 40%.
+        const route = fileHas(
+          'apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts',
+          /@Post\(['"]broadcast['"]\)/,
+        );
+        if (route) return yes('POST /realtime/v1/broadcast — apps/platform-api/src/modules/realtime-data/realtime-data.controller.ts');
         const f = marker(/broadcast/, ['apps/platform-api/src/modules/realtime-data']);
         return f.n ? part(0.4, `${f.where} — server-to-client only, not client-to-client`) : no('not supported');
       }),
@@ -381,10 +414,22 @@ export const CATEGORIES = [
         return cmds >= 10 ? yes(`${cmds} commands`) : part(cmds / 10, `${cmds} commands`);
       }),
       check('the CLI can take a backup and restore one', 1.5, () => {
-        const f = marker(/\bbackup\b|\brestore\b/i, CLI);
-        return f.n ? yes(f.where) : no('no backup or restore command');
+        // Registered commands, not a word in a comment: both must be wired into the program.
+        const registered =
+          fileHas('packages/cli/src/index.ts', /\.command\('backup'\)/) &&
+          fileHas('packages/cli/src/index.ts', /\.command\('restore/);
+        if (!registered) return no('no backup or restore command');
+        const f = marker(/\.command\('(backup|restore)/, ['packages/cli/src/index.ts']);
+        return yes(f.where);
       }),
-      check('a Python client', 1, () => (exists('packages/sdk-python') ? yes('present') : no('missing'))),
+      check('a Python client', 1, () => {
+        // A directory is not a client: it needs packaging, a data-API client and tests.
+        const packaged = exists('packages/sdk-python/pyproject.toml');
+        const client = fileHas('packages/sdk-python/src/basefyio/query.py', /rest\/v1/);
+        const tests = sources(['packages/sdk-python/tests'], ['.py']).length;
+        if (packaged && client && tests >= 3) return yes(`packages/sdk-python (${tests} test files)`);
+        return no(exists('packages/sdk-python') ? 'directory present but not a packaged, tested client' : 'missing');
+      }),
       check('a Dart or Flutter client', 1, () => (exists('packages/sdk-dart') ? yes('present') : no('missing'))),
       check('a Swift or Kotlin client', 1, () =>
         exists('packages/sdk-swift') || exists('packages/sdk-kotlin') ? yes('present') : no('missing')),
@@ -418,8 +463,12 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('missing');
       }),
       check('a policy editor for row-level security', 1.5, () => {
-        const f = marker(/rls|RowLevelSecurity|policies/, ['apps/admin-ui/app/dashboard', 'apps/admin-ui/components']);
-        return f.n ? part(0.5, `${f.where} — listed, not edited`) : no('policies must be written as SQL by hand');
+        const editor = marker(/RlsPolicyEditor|rls-policy-editor/, ['apps/admin-ui/app/dashboard', 'apps/admin-ui/components']);
+        const lists = fileHas('apps/platform-api/src/modules/projects/project-policies.service.ts', /pg_policies/);
+        const writes = fileHas('apps/platform-api/src/modules/projects/project-policies.sql.ts', /CREATE POLICY/);
+        if (editor.n && lists && writes) return yes(`${editor.where}; project-policies.service.ts reads pg_policies and project-policies.sql.ts writes CREATE POLICY`);
+        const listing = marker(/pg_policies/, ['apps/admin-ui/app/dashboard', 'apps/admin-ui/components', 'apps/platform-api/src/modules/projects']);
+        return listing.n ? part(0.5, `${listing.where} — listed, not edited`) : no('policies must be written as SQL by hand');
       }),
     ],
   },
@@ -442,14 +491,26 @@ export const CATEGORIES = [
       }),
       check('every image is pinned to a version', 1.5, () => {
         const text = readFileSync(join(ROOT, 'docker-compose.prod.yml'), 'utf8');
+        const workflow = exists('.github/workflows/build-and-push.yml')
+          ? readFileSync(join(ROOT, '.github/workflows/build-and-push.yml'), 'utf8')
+          : '';
         const images = [...text.matchAll(/^\s*image:\s*(\S+)/gm)].map((m) => m[1]);
-        const latest = images.filter((i) => /:latest$/.test(i) || !/:/.test(i));
+        // `${IMAGE_TAG:-latest}` is a pin only if the deploy exports IMAGE_TAG=<value>;
+        // left unset it is :latest wearing a variable.
+        const resolvesToLatest = (i) => {
+          const variable = i.match(/\$\{(\w+):-latest\}$/);
+          if (variable) return !new RegExp(`\\b${variable[1]}=\\S`).test(workflow);
+          return /:latest$/.test(i) || !/:/.test(i);
+        };
+        const latest = images.filter(resolvesToLatest);
         return latest.length === 0
           ? yes(`${images.length} images, all pinned`)
           : part(1 - latest.length / images.length, `${latest.length} of ${images.length} on :latest — ${latest.join(', ')}`);
       }),
       check('an air-gapped install is possible', 1.5, () => {
-        const f = marker(/docker save|air.?gap/i, ['docs', 'scripts', '.github']);
+        // A bundle script is .sh and its guide is .md — neither is in the default
+        // source extensions, so name them or this never sees scripts/ or docs/.
+        const f = marker(/docker save|air.?gap/i, ['docs', 'scripts', '.github'], ['.md', '.sh', '.yml', '.yaml']);
         return f.n ? yes(f.where) : no('no offline image bundle');
       }),
       check('images are signed and ship an SBOM', 1, () => {
@@ -457,6 +518,12 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('neither');
       }),
       check('the customer can bring their own TLS certificate', 1, () => {
+        // A usable path needs both halves: the compose file taking the files
+        // (TLS_CERT_FILE/TLS_KEY_FILE) and a proxy configuration under docker/
+        // that serves them (certFile:). Either half alone is a sketch.
+        const env = marker(/TLS_CERT_FILE|TLS_KEY_FILE/, COMPOSE);
+        const served = marker(/certFile:/, ['docker']);
+        if (env.n && served.n) return yes(`${env.where}; ${served.where}`);
         const f = marker(/TLS_CERT|certFile|customCertificates/, COMPOSE.concat(['docker']));
         return f.n ? part(0.4, f.where) : no("Traefik with Let's Encrypt is the only path");
       }),
@@ -507,16 +574,36 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('logical dumps only, which cannot anchor a replay');
       }),
       check('backups are automated on a schedule', 1.5, () => {
-        const f = marker(/backup/i, ['scripts', '.github/workflows']);
-        const scheduled = marker(/cron|schedule:/i, ['.github/workflows', 'scripts']);
-        if (!f.n) return no('no backup script at all');
+        // The nightly job is a @Cron inside the API; it never lived in scripts/
+        // or a workflow. (The old search over .github/workflows matched the
+        // comment "Push to GHCR (backup)" — a coincidence, not a backup.)
+        const apiCron = fileHas(
+          'apps/platform-api/src/modules/projects/project-export.service.ts',
+          /@Cron\([^)]*\)\s*\r?\n\s*async runDailyAutoBackups/,
+        );
+        if (apiCron) return yes('project-export.service.ts: runDailyAutoBackups runs nightly under @Cron');
+        const f = marker(/backup/i, ['scripts']);
+        const scheduled = marker(/cron/i, ['scripts']);
+        if (!f.n) return no('no backup job at all');
         return scheduled.n ? yes(`${f.where}, scheduled`) : part(0.5, `${f.where} — present but not scheduled`);
       }),
       check('backups are encrypted and kept off the server', 1.5, () => {
-        const f = marker(/gpg --encrypt|age -r|BACKUP_S3|offsite/i, ['scripts']);
-        return f.n ? yes(f.where) : no('local, unencrypted');
+        // Both halves are needed: an encrypted copy that stays on the host is
+        // still lost with the host, and a plain copy elsewhere is a leak.
+        const roots = ['scripts'].concat(API);
+        const enc = marker(/age -r|BACKUP_ENC_KEY|BFENC1/, roots);
+        const off = marker(/BACKUP_S3_ENDPOINT|offsite/i, roots);
+        if (enc.n && off.n) return yes(`encrypted: ${enc.where}; off-site: ${off.where}`);
+        if (enc.n) return part(0.5, `${enc.where} — encrypted, but no off-site copy`);
+        if (off.n) return part(0.5, `${off.where} — off-site, but unencrypted`);
+        return no('local, unencrypted');
       }),
       check('the platform schema moves by versioned migration', 1.5, () => {
+        // Dockerfiles have no extension, so the directory walk never read the
+        // one that runs `prisma db push` in its CMD — look at it by name.
+        if (fileHas('apps/platform-api/Dockerfile', /prisma db push/)) {
+          return no('schema is applied with db push at container start — apps/platform-api/Dockerfile');
+        }
         const pushOnly = marker(/prisma db push/, ['.github', 'docker', 'apps/platform-api/package.json', 'scripts']);
         return pushOnly.n
           ? no(`schema is applied with db push at container start — ${pushOnly.where}`)
@@ -527,6 +614,10 @@ export const CATEGORIES = [
         return f.n ? yes(f.where) : no('not supported');
       }),
       check('a restore has been exercised end to end', 1, () => {
+        const auto = marker(/BackupVerification|verifyLatestBackup/, API);
+        if (auto.n) {
+          return yes(`${auto.where} — restores run automatically into a throwaway database and record the verdict`);
+        }
         const f = marker(/restore/i, ['scripts']);
         return f.n ? part(0.6, `${f.where} — script exists; no automated verification`) : no('untested');
       }),
@@ -546,7 +637,10 @@ export const CATEGORIES = [
       check('retrieval over the project\'s own documents', 1.5, () =>
         exists('apps/platform-api/src/modules/rag') ? yes('rag module') : no('missing')),
       check('more than one embedding provider', 1, () => {
-        const f = marker(/EMBEDDING_PROVIDER|cohere|voyage|OLLAMA/i, [
+        // The provider layer is shared by RAG and the per-project store, so it
+        // lives in modules/embedding; match the adapter classes, not the words.
+        const f = marker(/EMBEDDING_PROVIDER|OllamaEmbeddingProvider|CohereEmbeddingProvider|VoyageEmbeddingProvider/, [
+          'apps/platform-api/src/modules/embedding',
           'apps/platform-api/src/modules/rag',
           'apps/platform-api/src/modules/tenant-embedding',
         ]);
@@ -616,9 +710,14 @@ export const CATEGORIES = [
           ? yes('api-key-scope.contract.spec.ts')
           : no('a deleted decorator would pass unnoticed')),
       check('storage, realtime and auth admin are covered', 1.5, () => {
-        const specs = ['modules/storage', 'modules/realtime-data', 'modules/projects/project-auth']
-          .map((d) => sources([`apps/platform-api/src/${d}`], ['.spec.ts'], { includeTests: true }).length)
-          .filter((n) => n > 0).length;
+        const areas = [
+          ['modules/storage', /\.spec\.ts$/],
+          ['modules/realtime-data', /\.spec\.ts$/],
+          ['modules/projects', /[\\/]project-(sdk-)?auth[\w.-]*\.spec\.ts$/],
+        ];
+        const specs = areas.filter(([d, re]) =>
+          sources([`apps/platform-api/src/${d}`], ['.spec.ts'], { includeTests: true }).some((f) => re.test(f)),
+        ).length;
         return part(specs / 3, `${specs} of 3 areas have a spec`);
       }),
       check('an end-to-end suite exercises the real stack', 1.5, () => {
@@ -647,7 +746,9 @@ export const CATEGORIES = [
         return n >= 20 ? yes(`${n} documents`) : part(Math.min(n / 20, 0.8), `${n} documents`);
       }),
       check('installation documented in the customer\'s language', 1, () => {
-        const f = marker(/kurulum/i, ['docs']);
+        // Credit the Turkish guide itself, never an index page that links to it.
+        if (!exists('docs/KURULUM.md')) return no('English only');
+        const f = marker(/kurulum/i, ['docs/KURULUM.md'], ['.md']);
         return f.n ? yes(f.where) : no('English only');
       }),
       check('component licences published per release', 1, () => {

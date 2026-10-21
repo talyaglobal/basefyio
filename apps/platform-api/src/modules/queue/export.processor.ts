@@ -3,7 +3,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
-import { createWriteStream } from 'fs';
+import { createReadStream, createWriteStream } from 'fs';
+import { Client } from 'pg';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
@@ -18,6 +19,10 @@ import {
   ProjectActivityService,
 } from '../projects/project-activity.service';
 import { EXPORT_QUEUE } from './queue.module';
+import { BackupOffsiteService } from '../projects/backups/backup-offsite.service';
+import { TABLE_COUNTS_ENTRY, collectTableCounts } from '../projects/backups/table-counts';
+import { ENCRYPTED_SUFFIX, createEncryptStream, getBackupKey } from '../projects/backups/backup-crypto';
+import { envFlag, envInt } from '../projects/backups/backup-env';
 
 const execFileAsync = promisify(execFile);
 
@@ -73,6 +78,7 @@ export class ExportProcessor extends WorkerHost {
     private readonly keycloak: KeycloakAdminService,
     private readonly activity: ProjectActivityService,
     @InjectQueue(EXPORT_QUEUE) private readonly exportQueue: Queue,
+    private readonly offsite: BackupOffsiteService,
   ) {
     super();
   }
@@ -138,7 +144,7 @@ export class ExportProcessor extends WorkerHost {
           detail: 'Exporting PostgreSQL database',
           percent: 10,
         } satisfies ExportJobProgress);
-        await this.exportDatabase(project, join(dbDir, 'dump.sql'));
+        await this.exportDatabase(project, join(dbDir, 'dump.sql'), join(dbDir, 'tables.json'));
       }
 
       if (job.data.includeAuth) {
@@ -219,12 +225,49 @@ export class ExportProcessor extends WorkerHost {
 
       await this.createZipArchive(tempRoot, zipPath);
       await this.storage.ensurePlatformBucket(targetBucket);
+
+      // Optional encryption at rest for the nightly archive (BACKUP_ENCRYPT_LOCAL=true
+      // together with BACKUP_ENC_KEY). Manual exports are downloaded by people
+      // and stay plain zips.
+      const localKey = isAuto && envFlag('BACKUP_ENCRYPT_LOCAL', false) ? getBackupKey() : null;
+      let uploadPath = zipPath;
+      let storedKey = objectKey;
+      let storedName = filename;
+      if (localKey) {
+        uploadPath = `${zipPath}${ENCRYPTED_SUFFIX}`;
+        await pipeline(createReadStream(zipPath), createEncryptStream(localKey), createWriteStream(uploadPath));
+        storedKey = `${objectKey}${ENCRYPTED_SUFFIX}`;
+        storedName = `${filename}${ENCRYPTED_SUFFIX}`;
+      }
+
       const uploaded = await this.storage.uploadPlatformFileFromPath(
         targetBucket,
-        objectKey,
-        zipPath,
-        'application/zip',
+        storedKey,
+        uploadPath,
+        localKey ? 'application/octet-stream' : 'application/zip',
       );
+
+      if (isAuto) {
+        // Off-site copy while the file is still on disk. Best-effort: a slow or
+        // missing remote never fails the backup, and the nightly reconcile
+        // copies whatever this misses.
+        const copy = await this.offsite.copyFile({
+          kind: 'AUTO_BACKUP',
+          projectId: project.id,
+          localBucket: targetBucket,
+          localKey: storedKey,
+          localPath: uploadPath,
+          size: uploaded.size,
+        });
+        if (copy === 'uploaded') {
+          await this.activity.append(project.id, {
+            userId: job.data.userId,
+            kind: ProjectActivityKind.PROJECT_BACKUP_OFFSITE_COPIED,
+            title: 'Daily auto-backup copied off-site',
+            detail: storedName,
+          });
+        }
+      }
 
       await job.updateProgress({
         step: 'completed',
@@ -236,13 +279,13 @@ export class ExportProcessor extends WorkerHost {
         userId: job.data.userId,
         kind: ProjectActivityKind.PROJECT_UPDATED,
         title: isAuto ? 'Daily auto-backup completed' : 'Project export completed',
-        detail: filename,
+        detail: storedName,
       });
 
       return {
         bucket: targetBucket,
-        objectKey,
-        filename,
+        objectKey: storedKey,
+        filename: storedName,
         size: uploaded.size,
       };
     } catch (err: any) {
@@ -258,6 +301,13 @@ export class ExportProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * pg_dump to `outputPath`. When a count session can be opened, the dump runs
+   * under a snapshot exported by that session and every table is counted inside
+   * the same snapshot into `countsPath` — exactly the rows the archive holds,
+   * which is what a restore drill later checks against. Any trouble with the
+   * count session falls back to the plain dump; counting never fails a backup.
+   */
   private async exportDatabase(
     project: {
       dbHost: string;
@@ -267,6 +317,7 @@ export class ExportProcessor extends WorkerHost {
       dbName: string;
     },
     outputPath: string,
+    countsPath: string | null = null,
   ) {
     const args = [
       '--host',
@@ -285,14 +336,72 @@ export class ExportProcessor extends WorkerHost {
       '-f',
       outputPath,
     ];
+    const env = {
+      ...process.env,
+      PGPASSWORD: project.dbPassword,
+      PGCONNECT_TIMEOUT: '10',
+    };
 
-    await execFileAsync('pg_dump', args, {
-      env: {
-        ...process.env,
-        PGPASSWORD: project.dbPassword,
-        PGCONNECT_TIMEOUT: '10',
-      },
-    });
+    if (!countsPath || !envFlag('BACKUP_TABLE_COUNTS', true)) {
+      await execFileAsync('pg_dump', args, { env });
+      return;
+    }
+
+    let client: Client | null = null;
+    let snapshot: string | null = null;
+    try {
+      client = new Client({
+        host: project.dbHost,
+        port: project.dbPort,
+        user: project.dbUser,
+        password: project.dbPassword,
+        database: project.dbName,
+        connectionTimeoutMillis: 10_000,
+      });
+      await client.connect();
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const res = await client.query<{ snap: string }>('SELECT pg_export_snapshot() AS snap');
+      snapshot = res.rows[0]?.snap ?? null;
+    } catch (err: any) {
+      this.logger.warn(`Table counts skipped for ${project.dbName} (no snapshot session): ${err?.message}`);
+      if (client) await client.end().catch(() => undefined);
+      client = null;
+    }
+
+    if (!client || !snapshot) {
+      await execFileAsync('pg_dump', args, { env });
+      return;
+    }
+
+    try {
+      try {
+        await execFileAsync('pg_dump', [...args, `--snapshot=${snapshot}`], { env });
+      } catch (err: any) {
+        // The dump is what matters. Give up the snapshot and take a plain one.
+        this.logger.warn(`pg_dump under snapshot failed for ${project.dbName} (${err?.message}); retrying without`);
+        await client.query('COMMIT').catch(() => undefined);
+        await client.end().catch(() => undefined);
+        client = null;
+        await execFileAsync('pg_dump', args, { env });
+        return;
+      }
+
+      try {
+        const counts = await collectTableCounts(client, {
+          maxTables: envInt('BACKUP_COUNT_MAX_TABLES', 300),
+          perTableTimeoutMs: envInt('BACKUP_COUNT_TIMEOUT_MS', 20_000),
+          snapshot,
+        });
+        await writeFile(countsPath, JSON.stringify(counts, null, 2), 'utf8');
+      } catch (err: any) {
+        this.logger.warn(`Table counts not written for ${project.dbName}: ${err?.message}`);
+      }
+    } finally {
+      if (client) {
+        await client.query('COMMIT').catch(() => undefined);
+        await client.end().catch(() => undefined);
+      }
+    }
   }
 
   private async exportAuth(
@@ -424,6 +533,12 @@ export class ExportProcessor extends WorkerHost {
     try {
       const dumpContents = await readFile(databasePath);
       archive.append(dumpContents, { name: 'database/dump.sql' });
+    } catch {}
+
+    // Row counts taken under the dump's snapshot; the restore drill compares against them.
+    try {
+      const countsContents = await readFile(join(rootDir, 'database', 'tables.json'));
+      archive.append(countsContents, { name: TABLE_COUNTS_ENTRY });
     } catch {}
 
     archive.directory(authPath, 'auth');

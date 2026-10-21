@@ -36,7 +36,8 @@ export class ProjectDatabaseService {
     return `"${name}"`;
   }
 
-  private async withProjectDb<T>(
+  /** Shared with ProjectPoliciesService, which manages RLS policies the same way. */
+  async withProjectDb<T>(
     projectId: string,
     userId: string | undefined,
     fn: (client: import('pg').PoolClient) => Promise<T>,

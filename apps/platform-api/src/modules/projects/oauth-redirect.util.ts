@@ -75,5 +75,5 @@ export function describeAllowedRedirects(allowed: string[] = []): string {
   const list = allowed.map((entry) => (entry ?? '').trim()).filter(Boolean);
   return list.length > 0
     ? list.join(', ')
-    : 'none yet — add one under Authentication → URL configuration';
+    : 'none yet — add one under Authentication → Providers → Redirect URLs';
 }

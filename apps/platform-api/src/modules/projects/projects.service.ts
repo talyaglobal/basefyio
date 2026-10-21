@@ -25,6 +25,9 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
+import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
+import { previewBranchOf } from './branches/preview-branch';
 
 
 export interface RlsBootstrapResult {
@@ -64,6 +67,8 @@ export class ProjectsService {
     private readonly infra: InfrastructureService,
     private readonly realtime: RealtimeEventsService,
     private readonly dataEngine: DataEngineService,
+    private readonly provisioning: ProjectProvisioningService,
+    private readonly readonlyRole: ProjectReadonlyRoleService,
   ) {}
 
   /**
@@ -97,8 +102,17 @@ export class ProjectsService {
   async create(
     dto: CreateProjectDto & { teamId: string },
     userId: string,
-    importSource: 'MANUAL' | 'SUPABASE' | 'ZIP' = 'MANUAL',
+    importSource: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH' = 'MANUAL',
+    opts?: {
+      /**
+       * Set when the new project is a preview branch of another. Branches are
+       * free (capped per parent instead of counted against the plan) and always
+       * live on the shared cluster next to their parent.
+       */
+      branch?: { parentProjectId: string; branchName: string; dataMode: 'schema' | 'full' };
+    },
   ) {
+    const branch = opts?.branch;
     const normalizedName = dto.name.trim();
     if (!normalizedName) {
       throw new BadRequestException('Project name is required');
@@ -119,7 +133,7 @@ export class ProjectsService {
     }
 
     await this.assertTeamMember(dto.teamId, userId);
-    await this.quota.assertCanCreateProject(dto.teamId);
+    if (!branch) await this.quota.assertCanCreateProject(dto.teamId);
 
     const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
 
@@ -132,6 +146,7 @@ export class ProjectsService {
     // Projects keep whatever placement they were created with; a plan change
     // does not move data between the shared cluster and a dedicated container.
     const needsDedicatedDb =
+      !branch &&
       this.infra.isDedicatedDbEnabled() &&
       (await this.quota.shouldUseDedicatedDb(dto.teamId));
 
@@ -207,6 +222,19 @@ export class ProjectsService {
       await this.applyRlsBootstrap(dbName, dbUser);
     }
 
+    const adminTarget: AdminTarget =
+      actualAdminUser && actualAdminPassword
+        ? { host: actualDbHost, port: actualDbPort, user: actualAdminUser, password: actualAdminPassword }
+        : this.sharedAdminTarget();
+    if (importSource === 'MANUAL') {
+      // Imports bring their own extension layout (the importer installs into an
+      // `extensions` schema); pre-installing here would turn its CREATE EXTENSION
+      // statements into no-ops and leave the copied schema pointing at nothing.
+      // Never throws: a missing extension is reported, not fatal.
+      await this.provisioning.installDefaultExtensions({ ...adminTarget, dbName });
+    }
+    const companion = await this.provisionReadonlyRole(adminTarget, dbName, dbUser);
+
     let anonKey: string;
     let serviceKey: string;
 
@@ -232,6 +260,11 @@ export class ProjectsService {
       } else {
         await this.dropDatabaseUser(dbUser);
         await this.dropDatabase(dbName);
+        if (companion) {
+          await this.readonlyRole
+            .drop({ ...adminTarget, readonlyRole: companion.user })
+            .catch(() => undefined);
+        }
       }
       const reason = err?.message || 'unknown error';
       this.logger.error(`Keycloak realm creation failed (${reason}), rolling back`, err);
@@ -251,6 +284,8 @@ export class ProjectsService {
         dbPort: actualDbPort,
         dbUser,
         dbPassword,
+        dbReadonlyUser: companion?.user ?? null,
+        dbReadonlyPassword: companion?.password ?? null,
         keycloakRealm: realmName,
         anonKey,
         serviceKey,
@@ -260,6 +295,14 @@ export class ProjectsService {
         databaseType,
         // Requires `prisma generate` after pulling this change.
         ...({ rlsBootstrappedAt: new Date() } as any),
+        ...(branch
+          ? {
+              parentProjectId: branch.parentProjectId,
+              branchName: branch.branchName,
+              branchDataMode: branch.dataMode,
+              branchSyncStatus: 'pending',
+            }
+          : {}),
       },
     });
 
@@ -313,7 +356,7 @@ export class ProjectsService {
       },
     });
 
-    this.usageService.incrementProjectCount(dto.teamId).catch(() => {});
+    if (!branch) this.usageService.incrementProjectCount(dto.teamId).catch(() => {});
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
@@ -388,6 +431,9 @@ export class ProjectsService {
         dbName: true,
         createdAt: true,
         updatedAt: true,
+        parentProjectId: true,
+        branchName: true,
+        branchSyncStatus: true,
       },
     });
 
@@ -622,6 +668,175 @@ export class ProjectsService {
     return { password };
   }
 
+  /* ───────────── Read-only companion role & pooler limit ───────────── */
+
+  /**
+   * Load a project for a database-credential operation: it must exist and the
+   * caller needs the team's "reset database password" permission (owners always
+   * have it) — the same gate as rotating the owner password.
+   */
+  private async loadProjectForDbCredentials(projectId: string, userId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      include: { infrastructure: { select: { pgAdminUser: true, pgAdminPassword: true } } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.assertTeamPermission(project.teamId, userId, 'canResetDbPassword');
+    return project;
+  }
+
+  /**
+   * Create the read-only companion role for an existing project, or repair it
+   * (new password, grants refreshed) when it already exists.
+   */
+  async createReadonlyRole(projectId: string, userId: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const target = this.provisioning.resolveAdminTarget(project);
+    const readonlyRole = project.dbReadonlyUser || readonlyRoleNameFor(project.dbUser);
+    // A repair keeps the credential clients already hold; only a first creation
+    // (or a role whose password was lost) mints a new one. Rotation is explicit.
+    const password =
+      (project.dbReadonlyUser && project.dbReadonlyPassword) ||
+      randomBytes(24).toString('base64url');
+
+    let warnings: string[];
+    try {
+      ({ warnings } = await this.readonlyRole.provision({
+        ...target,
+        dbName: project.dbName,
+        ownerUser: project.dbUser,
+        readonlyRole,
+        password,
+      }));
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new InternalServerErrorException(`Failed to create read-only role: ${err.message}`);
+    }
+
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { dbReadonlyUser: readonlyRole, dbReadonlyPassword: password },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: project.dbReadonlyUser
+        ? 'Read-only database role repaired'
+        : 'Read-only database role created',
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { user: readonlyRole, password, warnings };
+  }
+
+  async rotateReadonlyPassword(projectId: string, userId: string, nextPassword?: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    if (!project.dbReadonlyUser) {
+      throw new BadRequestException('This project has no read-only role yet');
+    }
+    const password = nextPassword?.trim() || randomBytes(24).toString('base64url');
+    this.assertStrongDbPassword(password);
+    const target = this.provisioning.resolveAdminTarget(project);
+    try {
+      await this.readonlyRole.setPassword({
+        ...target,
+        readonlyRole: project.dbReadonlyUser,
+        password,
+      });
+    } catch (err: any) {
+      throw new InternalServerErrorException(
+        `Failed to rotate read-only password: ${err.message}`,
+      );
+    }
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { dbReadonlyPassword: password },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: 'Read-only database password rotated',
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { password };
+  }
+
+  async dropReadonlyRole(projectId: string, userId: string) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    if (!project.dbReadonlyUser) {
+      throw new BadRequestException('This project has no read-only role');
+    }
+    const target = this.provisioning.resolveAdminTarget(project);
+    const { warnings } = await this.readonlyRole.drop({
+      ...target,
+      readonlyRole: project.dbReadonlyUser,
+      dbName: project.dbName,
+    });
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { dbReadonlyUser: null, dbReadonlyPassword: null },
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: 'Read-only database role removed',
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { message: 'Read-only role removed', warnings };
+  }
+
+  /**
+   * Per-database pooler cap. Null returns the project to its plan's value (or
+   * the platform default); a number may not exceed what the plan allows.
+   */
+  async setMaxDbConnections(projectId: string, userId: string, value: number | null) {
+    const project = await this.loadProjectForDbCredentials(projectId, userId);
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId: project.teamId },
+      select: { plan: { select: { maxDbConnections: true } } },
+    });
+    const planMax = sub?.plan?.maxDbConnections ?? null;
+    const planCeiling = this.pgbouncer.planCeiling(planMax);
+    if (value !== null) {
+      if (!Number.isInteger(value) || value < 1) {
+        throw new BadRequestException(
+          'Connection limit must be a whole number of at least 1, or null for the plan default',
+        );
+      }
+      if (value > planCeiling) {
+        throw new ForbiddenException(
+          `Your current plan allows up to ${planCeiling} pooled connections per database. ` +
+            'Upgrade your plan to raise this limit.',
+        );
+      }
+    }
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { maxDbConnections: value },
+    });
+    const { effective, source } = this.pgbouncer.describeDbConnectionLimit({
+      maxDbConnections: value,
+      planMaxDbConnections: planMax,
+    });
+    await this.activity.append(project.id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title:
+        value === null
+          ? 'Pooler connection limit reset to plan default'
+          : `Pooler connection limit set to ${value}`,
+    });
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+    return { maxDbConnections: value, planCeiling, effective, source };
+  }
+
   /**
    * Raw DB + Keycloak fields for the import worker (internal host/port as stored — not PgBouncer external).
    */
@@ -659,6 +874,7 @@ export class ProjectsService {
       include: {
         folder: { select: { id: true, name: true, color: true } },
         tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+        parent: { select: { id: true, name: true, slug: true } },
       },
     });
 
@@ -668,7 +884,7 @@ export class ProjectsService {
       await this.assertTeamMember(project.teamId, userId);
     }
 
-    const { githubToken, vercelToken, embeddingApiKey, folder, tags, ...safe } = project;
+    const { githubToken, vercelToken, embeddingApiKey, folder, tags, parent, ...safe } = project;
 
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
@@ -677,6 +893,7 @@ export class ProjectsService {
       ...safe,
       folder,
       tags,
+      previewBranch: previewBranchOf({ ...safe, parent }),
       dbHost: externalHost,
       dbPort: externalPort,
       github: project.githubOwner && project.githubRepo
@@ -837,7 +1054,32 @@ export class ProjectsService {
       },
     });
 
-    this.usageService.decrementProjectCount(project.teamId).catch(() => {});
+    // A parent's preview branches go to the trash with it. Restoring the
+    // parent does not bring them back; they are restored one by one if needed.
+    if (!project.parentProjectId) {
+      const liveBranches = await this.prisma.project.findMany({
+        where: { parentProjectId: id, status: { not: 'DELETED' } },
+        select: { id: true, name: true },
+      });
+      for (const child of liveBranches) {
+        try {
+          await this.remove(child.id, userId, {
+            reasonCode: reason?.reasonCode || 'parent_deleted',
+            reasonLabel: reason?.reasonLabel || 'Parent project deleted',
+            details: reason?.details,
+          });
+        } catch (err: any) {
+          this.logger.warn(
+            `Preview branch "${child.name}" could not follow its parent to the trash: ${err?.message}`,
+          );
+        }
+      }
+    }
+
+    // Branches are not counted, so there is nothing to give back for one.
+    if (!project.parentProjectId) {
+      this.usageService.decrementProjectCount(project.teamId).catch(() => {});
+    }
 
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
@@ -1411,12 +1653,20 @@ export class ProjectsService {
 
   /** Heavy teardown for a permanently-deleted project: realm, database, row. */
   private async performPermanentTeardown(
-    project: { id: string; name: string; keycloakRealm: string; dbName: string; dbUser: string },
+    project: {
+      id: string;
+      name: string;
+      keycloakRealm: string;
+      dbName: string;
+      dbUser: string;
+      dbReadonlyUser?: string | null;
+    },
     userId?: string,
   ): Promise<void> {
     await this.deleteProjectRealm(project.keycloakRealm);
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
+    await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
     await this.prisma.project.delete({ where: { id: project.id } });
 
@@ -1468,6 +1718,7 @@ export class ProjectsService {
 
     await this.dropDatabase(project.dbName).catch(() => {});
     await this.dropDatabaseUser(project.dbUser).catch(() => {});
+    await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
     await this.prisma.project.delete({ where: { id } });
 
@@ -1506,6 +1757,7 @@ export class ProjectsService {
 
         await this.dropDatabase(project.dbName).catch(() => {});
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
+        await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
 
         await this.prisma.project.delete({ where: { id: project.id } });
 
@@ -1549,6 +1801,7 @@ export class ProjectsService {
         await this.deleteProjectRealm(project.keycloakRealm);
         await this.dropDatabase(project.dbName).catch(() => {});
         await this.dropDatabaseUser(project.dbUser).catch(() => {});
+        await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
         await this.prisma.project.delete({ where: { id: project.id } });
         this.logger.log(`Cleanup: permanently deleted deactivated "${project.name}"`);
       } catch (err: any) {
@@ -1869,6 +2122,50 @@ export class ProjectsService {
       password: this.config.get('database.password'),
       database: 'postgres',
     });
+  }
+
+  /** The platform's own admin credentials for the shared cluster. */
+  private sharedAdminTarget(): AdminTarget {
+    return {
+      host: this.config.get<string>('database.host')!,
+      port: Number(this.config.get<number>('database.port')),
+      user: this.config.get<string>('database.user')!,
+      password: this.config.get<string>('database.password')!,
+    };
+  }
+
+  /**
+   * Read-only companion role for a freshly created database. Never fatal: a
+   * project is worth more than its reporting credential, and the Connection
+   * page can create the role later.
+   */
+  private async provisionReadonlyRole(
+    target: AdminTarget,
+    dbName: string,
+    ownerUser: string,
+  ): Promise<{ user: string; password: string } | null> {
+    if (this.config.get<boolean>('provisioning.readonlyRole') === false) return null;
+    const readonlyRole = readonlyRoleNameFor(ownerUser);
+    const password = randomBytes(24).toString('base64url');
+    try {
+      await this.readonlyRole.provision({ ...target, dbName, ownerUser, readonlyRole, password });
+      return { user: readonlyRole, password };
+    } catch (err: any) {
+      this.logger.error(
+        `Read-only role for "${dbName}" could not be created: ${err?.message || err}`,
+      );
+      return null;
+    }
+  }
+
+  /** Teardown helper: the companion role is cluster-level, so it outlives DROP DATABASE. */
+  private async dropReadonlyRoleQuietly(readonlyRole: string | null | undefined): Promise<void> {
+    if (!readonlyRole) return;
+    await this.readonlyRole
+      .drop({ ...this.sharedAdminTarget(), readonlyRole })
+      .catch((err) =>
+        this.logger.warn(`Read-only role "${readonlyRole}" cleanup failed: ${err?.message || err}`),
+      );
   }
 
   /* ─────────────────────────── RLS bootstrap ─────────────────────────── */

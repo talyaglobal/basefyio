@@ -4,7 +4,9 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
+  Post,
   Put,
   Query,
   Req,
@@ -14,7 +16,6 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
 import { ScopesGuard } from '../api-tokens/scopes.guard';
 import { Scopes } from '../api-tokens/scopes.decorator';
@@ -24,68 +25,131 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RealtimeDataService, RealtimeKind } from './realtime-data.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import { QueryAccessTokenGuard } from './query-access-token.guard';
+import {
+  BROADCAST_CHANNEL_RE,
+  BroadcastInput,
+  RealtimeBroadcastService,
+} from './realtime-broadcast.service';
 
 const ENTITY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const PRESENCE_KEY_RE = /^[A-Za-z0-9_.:@-]{1,128}$/;
+const PRESENCE_META_MAX_BYTES = 1024;
 
-/** Public app-facing realtime stream (Supabase-style data change events). */
+/**
+ * `channels` is a comma list of `table:<name>`, `collection:<name>` or
+ * `broadcast:<name>`. Anything else is dropped silently, as it always was.
+ */
+export function parseChannels(raw: string | undefined): string[] {
+  return (raw || '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => {
+      const i = c.indexOf(':');
+      if (i <= 0) return false;
+      const kind = c.slice(0, i);
+      const entity = c.slice(i + 1);
+      if (kind === 'table' || kind === 'collection') return ENTITY_RE.test(entity);
+      if (kind === 'broadcast') return BROADCAST_CHANNEL_RE.test(entity);
+      return false;
+    });
+}
+
+/**
+ * `presence=<key>` makes the subscriber a member of each channel it subscribes
+ * to; `presence=auto` uses the signed-in user's id. `presence_meta` is a small
+ * JSON object shown to the other members.
+ */
+export function parsePresence(
+  presenceRaw: string | undefined,
+  metaRaw: string | undefined,
+  payload: ApiKeyPayload,
+  channels: string[],
+): { key: string; meta?: Record<string, unknown> } | undefined {
+  const raw = presenceRaw?.trim();
+  if (!raw) return undefined;
+
+  let key = raw;
+  if (raw === 'auto') {
+    const sub = payload.jwtClaims?.sub;
+    if (typeof sub !== 'string' || !sub) {
+      throw new BadRequestException('presence=auto requires a signed-in user (send the access token)');
+    }
+    key = sub;
+  }
+  if (!PRESENCE_KEY_RE.test(key)) {
+    throw new BadRequestException('presence key must match ^[A-Za-z0-9_.:@-]{1,128}$');
+  }
+  if (channels.length === 0) {
+    throw new BadRequestException('presence requires explicit channels');
+  }
+
+  let meta: Record<string, unknown> | undefined;
+  if (metaRaw !== undefined && metaRaw !== '') {
+    if (Buffer.byteLength(metaRaw, 'utf8') > PRESENCE_META_MAX_BYTES) {
+      throw new BadRequestException(`presence_meta must be at most ${PRESENCE_META_MAX_BYTES} bytes`);
+    }
+    try {
+      const parsed = JSON.parse(metaRaw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      meta = parsed as Record<string, unknown>;
+    } catch {
+      throw new BadRequestException('presence_meta must be a JSON object');
+    }
+  }
+  return { key, meta };
+}
+
+function clientIpOf(req: Request): string {
+  const xff = req.headers['x-forwarded-for'];
+  const first = Array.isArray(xff) ? xff[0] : xff;
+  if (typeof first === 'string' && first.trim()) return first.split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+/** Public app-facing realtime stream: data changes, presence and broadcasts. */
 @Controller('realtime/v1')
 export class RealtimeDataStreamController {
   constructor(
     private readonly realtime: RealtimeDataService,
-    private readonly prisma: PrismaService,
+    private readonly broadcastService: RealtimeBroadcastService,
   ) {}
 
   /**
-   * SSE stream of data change events for one project.
+   * SSE stream for one project.
    *
-   * EventSource cannot set headers, so the key has to arrive as `?apikey=`.
-   * That is why this route resolves the key itself instead of going through
-   * ApiKeyGuard — and it has to keep the guard's rule about which key may
-   * travel in a URL. A URL ends up in access logs, browser history and
-   * Referer headers, so the secret service key is refused here: it was
-   * accepted, which handed the one key that bypasses every policy to anything
-   * that reads a log line.
+   * The route sits behind ApiKeyGuard, the same guard as `rest/v1`. It accepts
+   * the anon key from the `apikey` header or, because EventSource cannot set
+   * headers, from `?apikey=`. A URL ends up in access logs, browser history and
+   * Referer headers, so the secret service key is refused from the query string
+   * (the guard's rule) — a server may still subscribe with it in the header.
    *
-   * The anon key stays accepted, since a browser has no other way to open the
-   * stream. What it can see is bounded by the project's realtime bindings —
-   * only entities the owner has enabled broadcast at all. It is not yet
-   * bounded per subscriber: every subscriber on an enabled entity sees every
-   * change to it, because no row-level policy is evaluated per event. An
-   * entity whose rows are not all public should be left unbound until that
-   * exists.
+   * A signed-in user's access token may come as `Authorization: Bearer` or, for
+   * EventSource, as `?access_token=` (QueryAccessTokenGuard copies it into the
+   * header before ApiKeyGuard verifies it). The role and claims the guard
+   * resolves are recorded on the subscriber: on a table with row-level
+   * security, each subscriber receives only the rows its role may select; a
+   * table without RLS is delivered to everyone, as before.
    *
-   * channels: comma list of `table:<name>` / `collection:<name>`, or omit for all.
+   * channels: comma list of `table:<name>` / `collection:<name>` /
+   * `broadcast:<name>`, or omit for every enabled entity.
+   * presence: a member key (or `auto` for the user's id) to join each channel.
    */
   @Get('stream')
+  @UseGuards(QueryAccessTokenGuard, ApiKeyGuard)
   async stream(
-    @Query('apikey') apikey: string | undefined,
     @Query('channels') channelsRaw: string | undefined,
+    @Query('presence') presenceRaw: string | undefined,
+    @Query('presence_meta') presenceMetaRaw: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const key = apikey?.trim();
-    if (!key) throw new UnauthorizedException('Missing apikey query parameter');
+    const payload = (req as any).apiKeyPayload as ApiKeyPayload | undefined;
+    if (!payload) throw new UnauthorizedException('Invalid API key');
 
-    const project = await this.prisma.project.findFirst({
-      where: { OR: [{ anonKey: key }, { serviceKey: key }], status: 'ACTIVE' },
-      select: { id: true, anonKey: true, serviceKey: true },
-    });
-    if (!project) throw new UnauthorizedException('Invalid API key');
-
-    if (project.serviceKey === key) {
-      throw new UnauthorizedException(
-        'The service key must never be sent in a URL, where it would reach access logs, browser history and Referer headers. Subscribe with the anon key.',
-      );
-    }
-
-    const channels = (channelsRaw || '')
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean)
-      .filter((c) => {
-        const [kind, entity] = c.split(':');
-        return (kind === 'table' || kind === 'collection') && !!entity && ENTITY_RE.test(entity);
-      });
+    const channels = parseChannels(channelsRaw);
+    const presence = parsePresence(presenceRaw, presenceMetaRaw, payload, channels);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -93,7 +157,12 @@ export class RealtimeDataStreamController {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    const clientId = this.realtime.subscribe(project.id, channels, res);
+    const clientId = this.realtime.subscribe(payload.projectId, channels, res, {
+      role: payload.dbRole,
+      jwtClaims: payload.jwtClaims,
+      presenceKey: presence?.key,
+      presenceMeta: presence?.meta,
+    });
     const ping = setInterval(() => this.realtime.heartbeat(clientId), 25_000);
 
     req.on('close', () => {
@@ -101,6 +170,20 @@ export class RealtimeDataStreamController {
       this.realtime.unsubscribe(clientId);
       res.end();
     });
+  }
+
+  /**
+   * Send a message to every subscriber of `broadcast:<channel>` without
+   * touching the project database. Anon key (optionally with a signed-in
+   * user's token) or service key; rate-limited and size-capped.
+   */
+  @Post('broadcast')
+  @HttpCode(202)
+  @UseGuards(ApiKeyGuard)
+  async broadcast(@Body() body: BroadcastInput, @Req() req: Request) {
+    const payload = (req as any).apiKeyPayload as ApiKeyPayload | undefined;
+    if (!payload) throw new UnauthorizedException('Invalid API key');
+    return this.broadcastService.broadcastFromClient(payload, body ?? {}, clientIpOf(req));
   }
 }
 

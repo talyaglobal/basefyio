@@ -1,10 +1,12 @@
 import {
   Controller,
   Post,
+  Put,
   Delete,
   Get,
   Param,
   Body,
+  HttpCode,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -14,6 +16,8 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantEmbeddingService } from './tenant-embedding.service';
+import { SetEmbeddingProviderDto } from './dto/set-embedding-provider.dto';
+import { assertProjectTeamMember } from './tenant-embedding.access';
 
 @Controller('projects/:projectId/embeddings')
 @UseGuards(JwtAuthGuard)
@@ -55,7 +59,7 @@ export class TenantEmbeddingController {
     return { message: 'pgvector disabled', projectId };
   }
 
-  /** Set or clear a per-project OpenAI API key. */
+  /** Set or clear the per-project API key for the selected embedding provider. */
   @Post('api-key')
   async setApiKey(
     @Param('projectId') projectId: string,
@@ -67,19 +71,44 @@ export class TenantEmbeddingController {
     return { message: body.apiKey ? 'API key set' : 'API key cleared' };
   }
 
-  private async assertTeamMember(
-    projectId: string,
-    userId: string,
-  ): Promise<void> {
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: { not: 'DELETED' } },
-      select: { teamId: true },
-    });
-    if (!project) throw new Error('Project not found');
+  /** Providers the project may choose from, and which platform keys exist. */
+  @Get('providers')
+  async providers(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertTeamMember(projectId, user.sub);
+    return this.tenantEmbedding.getProviderCatalogue();
+  }
 
-    const member = await this.prisma.teamMember.findFirst({
-      where: { teamId: project.teamId, userId },
-    });
-    if (!member) throw new Error('Not a team member');
+  /**
+   * Switch the project's embedding provider / model / endpoint.
+   * 409 with code EMBEDDING_MODEL_CHANGE_REQUIRES_REEMBED when vectors exist and
+   * `reembed` was not confirmed; EMBEDDING_DIMENSION_TOO_LARGE when the model is
+   * wider than the store.
+   */
+  @Put('provider')
+  async setProvider(
+    @Param('projectId') projectId: string,
+    @Body() body: SetEmbeddingProviderDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertTeamMember(projectId, user.sub);
+    return this.tenantEmbedding.setProvider(projectId, body);
+  }
+
+  /** Re-embed every stored vector with the project's current provider. */
+  @Post('reembed')
+  @HttpCode(202)
+  async reembed(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertTeamMember(projectId, user.sub);
+    return this.tenantEmbedding.startReembed(projectId);
+  }
+
+  private assertTeamMember(projectId: string, userId: string): Promise<void> {
+    return assertProjectTeamMember(this.prisma, projectId, userId);
   }
 }

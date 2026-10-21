@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
@@ -303,6 +304,16 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
             {project.status}
           </Badge>
+          {project.previewBranch && (
+            <Link
+              href={`/dashboard/projects/${project.previewBranch.parentProjectId}`}
+              title={`Preview branch "${project.previewBranch.branchName}" — open the parent project`}
+              className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/30 dark:text-violet-300"
+            >
+              <GitBranch className="h-3 w-3" />
+              Preview branch of {project.previewBranch.parentName ?? 'another project'}
+            </Link>
+          )}
           {otherTeams.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setMoveTeamOpen(true)}>
               <ArrowRightLeft className="mr-2 h-4 w-4" />

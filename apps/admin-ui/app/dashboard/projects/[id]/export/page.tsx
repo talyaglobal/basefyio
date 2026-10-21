@@ -6,11 +6,12 @@ import { toast } from 'sonner';
 import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
-import type { CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
+import type { BackupHealth, CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useExportProgress } from '@/lib/export-progress-context';
 import { ProjectPitrPanel } from '@/components/project-pitr-panel';
+import { ProjectBackupHealthPanel } from '@/components/project-backup-health-panel';
 
 /** Human-readable byte size (small backups would round to "0.00 MB" otherwise). */
 function fmtBytes(bytes: number): string {
@@ -38,6 +39,8 @@ export default function ProjectExportPage() {
   const [downloading, setDownloading] = useState(false);
   const [cloudBackups, setCloudBackups] = useState<CloudBackupItem[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
+  const [health, setHealth] = useState<BackupHealth | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<CloudBackupItem | null>(null);
@@ -163,10 +166,27 @@ export default function ProjectExportPage() {
     }
   }
 
-  useLiveProjectRefresh(id, ['project_export.', 'project.'], loadCloudBackups);
+  async function loadHealth() {
+    setLoadingHealth(true);
+    try {
+      setHealth(await api.projects.backupHealth(id));
+    } catch {
+      // The health card renders its own "unknown" state; the archive list is unaffected.
+      setHealth(null);
+    } finally {
+      setLoadingHealth(false);
+    }
+  }
+
+  function refreshBackups() {
+    void loadCloudBackups();
+    void loadHealth();
+  }
+
+  useLiveProjectRefresh(id, ['project_export.', 'project.', 'project_backup.'], refreshBackups);
 
   useEffect(() => {
-    loadCloudBackups();
+    refreshBackups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -237,6 +257,8 @@ export default function ProjectExportPage() {
       </div>
 
       <ProjectPitrPanel projectId={id} />
+
+      <ProjectBackupHealthPanel projectId={id} health={health} loading={loadingHealth} onRefresh={loadHealth} />
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
         <h2 className="text-base font-semibold">Export options</h2>
@@ -326,7 +348,12 @@ export default function ProjectExportPage() {
           {cloudBackups.length === 0 && (
             <p className="text-sm text-muted-foreground">No cloud backups found for this project.</p>
           )}
-          {cloudBackups.map((b) => (
+          {cloudBackups.map((b) => {
+            const copy = health?.offsite.copies[b.objectKey];
+            const verdict = health?.verifications.find(
+              (v) => v.backupObjectKey === b.objectKey && v.status !== 'RUNNING',
+            );
+            return (
             <div key={b.objectKey} className="flex items-center justify-between rounded-lg border p-3">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 truncate text-sm font-medium">
@@ -334,6 +361,38 @@ export default function ProjectExportPage() {
                   {b.kind === 'auto' && (
                     <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
                       Auto
+                    </span>
+                  )}
+                  {b.encrypted && (
+                    <span
+                      className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      title="Stored encrypted at rest; restore decrypts it"
+                    >
+                      Encrypted
+                    </span>
+                  )}
+                  {copy?.status === 'UPLOADED' && (
+                    <span
+                      className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                      title={`Copied off-site ${new Date(copy.createdAt).toLocaleString()}${copy.encrypted ? ' (encrypted)' : ''}`}
+                    >
+                      Off-site
+                    </span>
+                  )}
+                  {verdict?.status === 'PASSED' && (
+                    <span
+                      className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                      title={`Restored cleanly in a throwaway database ${new Date(verdict.finishedAt ?? verdict.startedAt).toLocaleString()}`}
+                    >
+                      Verified
+                    </span>
+                  )}
+                  {verdict?.status === 'FAILED' && (
+                    <span
+                      className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                      title={verdict.error ?? 'Restore verification failed'}
+                    >
+                      Verification failed
                     </span>
                   )}
                 </p>
@@ -357,7 +416,8 @@ export default function ProjectExportPage() {
                 )}
               </Button>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

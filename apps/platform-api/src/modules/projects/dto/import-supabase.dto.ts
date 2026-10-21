@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsString,
   IsNotEmpty,
   IsUrl,
@@ -42,4 +43,13 @@ export class ImportSupabaseDto {
   @IsOptional()
   @IsUUID('4')
   existingProjectId?: string;
+
+  /**
+   * Sync only: before comparing, add the source's primary key to tables that
+   * were imported without one (where the rows here are unique on it). Off by
+   * default — building the index locks each repaired table for a moment.
+   */
+  @IsOptional()
+  @IsBoolean()
+  repairKeys?: boolean;
 }

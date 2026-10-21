@@ -1937,6 +1937,7 @@ export class BillingService implements OnModuleInit {
       maxApiRequests?: number | null;
       maxBandwidthBytes?: bigint | null;
       maxMau?: number | null;
+      maxDbConnections?: number | null;
       isPublic?: boolean;
     },
   ) {

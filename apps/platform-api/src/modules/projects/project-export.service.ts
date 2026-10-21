@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Readable } from 'stream';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -20,6 +22,12 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import {
+  BackupDecryptError,
+  ENCRYPTED_SUFFIX,
+  createDecryptStream,
+  getBackupKey,
+} from './backups/backup-crypto';
 
 const EXPORT_BUCKET = 'bf-platform-exports';
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -186,6 +194,8 @@ export class ProjectExportService {
       size: o.size,
       lastModified: o.lastModified.toISOString(),
       kind,
+      /** Stored encrypted at rest (BACKUP_ENCRYPT_LOCAL); restore decrypts transparently. */
+      encrypted: o.name.endsWith(ENCRYPTED_SUFFIX),
     });
 
     return [
@@ -214,9 +224,29 @@ export class ProjectExportService {
     }
     const bucket = body.kind === 'auto' ? AUTO_BACKUP_BUCKET : EXPORT_BUCKET;
     const { stream } = await this.storage.getPlatformObject(bucket, objectKey);
+    // Archives stored with BACKUP_ENCRYPT_LOCAL carry the .enc suffix; decrypt on the way in.
+    let source: Readable = stream;
+    if (objectKey.endsWith(ENCRYPTED_SUFFIX)) {
+      const key = getBackupKey();
+      if (!key) {
+        throw new BadRequestException(
+          'This backup is encrypted; BACKUP_ENC_KEY is missing or does not match',
+        );
+      }
+      const decrypt = createDecryptStream(key);
+      stream.on('error', (err) => decrypt.destroy(err));
+      source = stream.pipe(decrypt);
+    }
     const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    try {
+      for await (const chunk of source) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+    } catch (err) {
+      if (err instanceof BackupDecryptError) {
+        throw new BadRequestException(`This backup could not be decrypted: ${err.message}`);
+      }
+      throw err;
     }
     const zipBuffer = Buffer.concat(chunks);
     return this.projectArchiveImport.importArchiveBuffer(zipBuffer, userId, {

@@ -22,6 +22,7 @@ import {
   ProjectActivityKind,
   ProjectActivityService,
 } from './project-activity.service';
+import { BackupOffsiteService } from './backups/backup-offsite.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -106,11 +107,14 @@ export interface RecoveryWindow {
 @Injectable()
 export class ProjectPitrService {
   private readonly logger = new Logger(ProjectPitrService.name);
+  /** Off-site uploads can make one WAL run outlast its interval; two must never overlap. */
+  private shippingWal = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly activity: ProjectActivityService,
+    private readonly offsite: BackupOffsiteService,
   ) {}
 
   // ── Access control ─────────────────────────────────────────────────────────
@@ -228,11 +232,16 @@ export class ProjectPitrService {
       );
 
       for (const file of await readdir(workDir)) {
-        await this.storage.uploadPlatformFileFromPath(
-          PITR_BUCKET,
-          `${CLUSTER_BASE_PREFIX}${stamp}/${file}`,
-          join(workDir, file),
-        );
+        const key = `${CLUSTER_BASE_PREFIX}${stamp}/${file}`;
+        await this.storage.uploadPlatformFileFromPath(PITR_BUCKET, key, join(workDir, file));
+        // Best-effort off-site copy while the file is still on disk; the
+        // nightly reconcile picks up anything this misses.
+        await this.offsite.copyFile({
+          kind: 'PITR_CLUSTER_BASE',
+          localBucket: PITR_BUCKET,
+          localKey: key,
+          localPath: join(workDir, file),
+        });
       }
       this.logger.log(`PITR cluster base backup stored (${stamp})`);
     } finally {
@@ -365,11 +374,15 @@ export class ProjectPitrService {
         },
       );
 
-      await this.storage.uploadPlatformFileFromPath(
-        PITR_BUCKET,
-        `${project.id}/base/${stamp}.dump`,
-        dumpPath,
-      );
+      const key = `${project.id}/base/${stamp}.dump`;
+      await this.storage.uploadPlatformFileFromPath(PITR_BUCKET, key, dumpPath);
+      await this.offsite.copyFile({
+        kind: 'PITR_PROJECT_BASE',
+        projectId: project.id,
+        localBucket: PITR_BUCKET,
+        localKey: key,
+        localPath: dumpPath,
+      });
       this.logger.log(`PITR base backup stored for project ${project.id}`);
     } finally {
       await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
@@ -385,6 +398,19 @@ export class ProjectPitrService {
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async shipWalSegments() {
+    if (this.shippingWal) {
+      this.logger.warn('WAL shipping from the previous interval is still running; skipping this one');
+      return;
+    }
+    this.shippingWal = true;
+    try {
+      await this.shipWalSegmentsOnce();
+    } finally {
+      this.shippingWal = false;
+    }
+  }
+
+  private async shipWalSegmentsOnce() {
     let entries: string[];
     try {
       entries = await readdir(WAL_SPOOL_DIR);
@@ -419,11 +445,15 @@ export class ProjectPitrService {
           await pipeline(createReadStream(path), createGzip(), createWriteStream(staged));
         }
 
-        await this.storage.uploadPlatformFileFromPath(
-          PITR_BUCKET,
-          `${CLUSTER_WAL_PREFIX}${preCompressed ? name : `${name}.gz`}`,
-          staged ?? path,
-        );
+        const key = `${CLUSTER_WAL_PREFIX}${preCompressed ? name : `${name}.gz`}`;
+        await this.storage.uploadPlatformFileFromPath(PITR_BUCKET, key, staged ?? path);
+        // Off-site copy before the local file goes; a failure is recorded, not fatal.
+        await this.offsite.copyFile({
+          kind: 'PITR_WAL',
+          localBucket: PITR_BUCKET,
+          localKey: key,
+          localPath: staged ?? path,
+        });
         // Only drop the local copy once object storage has the segment.
         await unlink(path).catch(() => undefined);
       } catch (err: any) {

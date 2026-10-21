@@ -16,6 +16,7 @@ import type { Request } from 'express';
 import { ProjectDataService } from './project-data.service';
 import { ProjectsService } from './projects.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import {
@@ -52,6 +53,7 @@ export class ProjectDataController {
     private readonly projectsService: ProjectsService,
     private readonly activity: ProjectActivityService,
     private readonly prisma: PrismaService,
+    private readonly pgbouncer: PgBouncerService,
   ) {}
 
   @Get('tables')
@@ -346,6 +348,21 @@ export class ProjectDataController {
       }
     }
 
-    return { ...connStrings, canResetDbPassword };
+    // Pooler cap for this database and where it comes from (project, plan,
+    // platform default or none), so the Connection page can show and set it.
+    const sub = await this.prisma.subscription.findUnique({
+      where: { teamId: project.teamId },
+      select: { plan: { select: { maxDbConnections: true } } },
+    });
+    const planMax = sub?.plan?.maxDbConnections ?? null;
+    const pooler = {
+      ...this.pgbouncer.describeDbConnectionLimit({
+        maxDbConnections: project.maxDbConnections ?? null,
+        planMaxDbConnections: planMax,
+      }),
+      planCeiling: this.pgbouncer.planCeiling(planMax),
+    };
+
+    return { ...connStrings, canResetDbPassword, pooler };
   }
 }

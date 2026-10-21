@@ -1,8 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import type { ProjectSupabaseImportLog } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
+import { RepairPrimaryKeysDialog } from '@/components/repair-primary-keys-dialog';
 import {
   buildSupabaseImportIssuePrompt,
   dispatchbasefyioAiMessage,
@@ -33,6 +36,8 @@ export interface ProjectImportLogCardProps {
    */
   fillParentHeight?: boolean;
   className?: string;
+  /** Called after primary keys were added, so the parent can refetch the log. */
+  onRepaired?: () => void;
 }
 
 function AiFixButton({
@@ -73,11 +78,21 @@ export function ProjectImportLogCard({
   expandedLayout = false,
   fillParentHeight = false,
   className,
+  onRepaired,
 }: ProjectImportLogCardProps) {
   const hasIssues =
     importLog.warnings.length > 0 ||
     importLog.database.failedTables.length > 0 ||
     importLog.auth.skipped > 0;
+
+  // The newest per-table report wins: a sync after the import knows more about
+  // today's state than the import did. ISO timestamps compare as strings.
+  const sync = importLog.lastSync;
+  const showSync =
+    !!sync?.tables?.length &&
+    (!importLog.tables?.length || (sync.completedAt ?? '') > (importLog.completedAt ?? ''));
+  const reconciliation = showSync ? sync!.tables! : importLog.tables ?? [];
+  const [repairOpen, setRepairOpen] = useState(false);
 
   /** Dedicated logs page: cap height to viewport; embedded overview: compact scroll. */
   const listScroll = expandedLayout
@@ -153,6 +168,29 @@ export function ProjectImportLogCard({
           </>
         )}
       </p>
+
+      {reconciliation.length > 0 && (
+        <div className="shrink-0 space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            Row counts against the source
+            {showSync && sync?.completedAt
+              ? ` — last sync, ${new Date(sync.completedAt).toLocaleString()}`
+              : ''}
+          </p>
+          <ImportReconciliationTable
+            tables={reconciliation}
+            compact={!expandedLayout}
+            onRepairKeys={() => setRepairOpen(true)}
+          />
+          <RepairPrimaryKeysDialog
+            open={repairOpen}
+            onOpenChange={setRepairOpen}
+            projectId={projectId}
+            projectName={projectName}
+            onRepaired={onRepaired}
+          />
+        </div>
+      )}
 
       {hasIssues && (
         <div

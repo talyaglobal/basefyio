@@ -73,6 +73,9 @@ model User {
   notifyBrowserPush     Boolean   @default(false) @map("notify_browser_push")
   lastLoginFingerprint  String?   @map("last_login_fingerprint")
   lastLoginAt           DateTime? @map("last_login_at")
+  // Mirror of "has an authenticator enrolled in Keycloak"; Keycloak stays the
+  // source of truth and the mirror is healed at every sign-in.
+  mfaEnrolledAt         DateTime? @map("mfa_enrolled_at")
   createdAt             DateTime  @default(now()) @map("created_at")
 
   activeTeam       Team?             @relation("ActiveTeam", fields: [activeTeamId], references: [id])
@@ -111,6 +114,11 @@ model Team {
   personalForUserId String?       @unique @map("personal_for_user_id")
   accountStatus     AccountStatus @default(ACTIVE) @map("account_status")
   createdAt         DateTime      @default(now()) @map("created_at")
+
+  // Two-factor policy: members must sign in with an authenticator; enforced at
+  // each member's next sign-in, never against a live session.
+  requireMfa          Boolean   @default(false) @map("require_mfa")
+  requireMfaUpdatedAt DateTime? @map("require_mfa_updated_at")
 
   // GitHub OAuth (team-level)
   githubOAuthToken  String? @map("github_oauth_token")
@@ -259,6 +267,14 @@ model Project {
   pgvectorEnabledAt DateTime? @map("pgvector_enabled_at")
   /// Per-project OpenAI API key for embeddings. Falls back to platform-level key if null.
   embeddingApiKey   String?   @map("embedding_api_key")
+  /// Embedding provider override for this project (openai | ollama | cohere). Null = platform EMBEDDING_PROVIDER.
+  embeddingProvider     String? @map("embedding_provider") @db.VarChar(32)
+  /// Model id at the provider. Null = the provider's default model.
+  embeddingModel        String? @map("embedding_model") @db.VarChar(120)
+  /// Custom endpoint (OpenAI-compatible gateway or a project-owned Ollama). Null = provider default.
+  embeddingBaseUrl      String? @map("embedding_base_url")
+  /// Last in-place re-embed job: { status, done, total, model, startedAt, updatedAt, finishedAt, error }.
+  embeddingReembedState Json?   @map("embedding_reembed_state")
 
   /// Optional module feature flags. Key = module name (e.g. "provisioning"), value = boolean.
   /// Absent key or empty object defaults to enabled. Set key to false to disable the module.
@@ -283,10 +299,37 @@ model Project {
   /// Max rows the Data grid loads per table. Default 1000; higher tiers (pro 10k,
   /// business 100k) can raise it. Plan-gated when changed.
   maxRowsPerTable     Int                     @default(1000) @map("max_rows_per_table")
+  /// SELECT-only companion login role (<dbUser>_readonly) for reporting and BI
+  /// tools. Null = not provisioned (existing projects until the team creates it).
+  dbReadonlyUser      String?                 @map("db_readonly_user")
+  /// Encrypted at rest through the same Prisma middleware as dbPassword.
+  dbReadonlyPassword  String?                 @map("db_readonly_password")
+  /// Pooler cap (pool_size / max_db_connections) for this database. Null =
+  /// inherit the plan's value, then the platform default.
+  maxDbConnections    Int?                    @map("max_db_connections")
 
   realtimeBindings RealtimeBinding[]
   usage            ProjectUsage?
+  userMfa          ProjectUserMfa[]
 
+  // Preview branches
+  /// The project this one was branched from. Null = ordinary project.
+  parentProjectId  String?   @map("parent_project_id")
+  /// Short branch label, unique per parent (e.g. "pr-42").
+  branchName       String?   @map("branch_name")
+  /// 'schema' | 'full' — what was copied from the parent.
+  branchDataMode   String?   @map("branch_data_mode")
+  /// 'pending' | 'ready' | 'failed' while the parent's dump is being restored.
+  branchSyncStatus String?   @map("branch_sync_status")
+  branchSyncError  String?   @map("branch_sync_error")
+
+  parent   Project?  @relation("ProjectBranches", fields: [parentProjectId], references: [id], onDelete: SetNull)
+  branches Project[] @relation("ProjectBranches")
+
+  backupVerifications BackupVerification[]
+
+  @@unique([parentProjectId, branchName])
+  @@index([parentProjectId])
   @@map("projects")
 }
 
@@ -422,10 +465,47 @@ model ProjectAuthConfig {
   twitterEnabled        Boolean @default(false) @map("twitter_enabled")
   twitterClientId       String? @map("twitter_client_id")
   twitterClientSecret   String? @map("twitter_client_secret")
+  /// Lets POST /rest/v1/auth/signin/anonymous create throw-away users that can
+  /// later be upgraded to a real account. Off by default.
+  allowAnonymous        Boolean @default(false) @map("allow_anonymous")
+  /// When an administrator required MFA for a user who has not enrolled yet,
+  /// withhold tokens at sign-in until they do (an enrollment challenge is
+  /// returned instead). Off by default: the user signs in and the response
+  /// carries mfaEnrollmentRequired for the app to prompt.
+  mfaEnforceEnrollment  Boolean @default(false) @map("mfa_enforce_enrollment")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("project_auth_configs")
+}
+
+/// One enrolled (or pending) authenticator app per project end user. The TOTP
+/// secret never leaves this row unencrypted: field-crypto (DB_CRED_ENC_KEY)
+/// wraps it, the same way project database passwords are protected.
+model ProjectUserMfa {
+  id                   String    @id @default(uuid())
+  projectId            String    @map("project_id")
+  keycloakUserId       String    @map("keycloak_user_id")
+  /// Encrypted base32 secret of the confirmed factor.
+  totpSecretEnc        String?   @map("totp_secret_enc")
+  /// Encrypted secret handed out by /mfa/enroll but not yet confirmed by a code.
+  pendingSecretEnc     String?   @map("pending_secret_enc")
+  pendingCreatedAt     DateTime? @map("pending_created_at")
+  verifiedAt           DateTime? @map("verified_at")
+  /// Last accepted 30-second step; codes for that step or earlier are refused (replay guard).
+  lastUsedStep         Int?      @map("last_used_step")
+  lastUsedAt           DateTime? @map("last_used_at")
+  /// sha256 of each unused one-time recovery code.
+  recoveryCodeHashes   String[]  @default([]) @map("recovery_code_hashes")
+  /// Set when an administrator asked this user to enroll; cleared on enrollment.
+  enrollmentRequiredAt DateTime? @map("enrollment_required_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, keycloakUserId])
+  @@map("project_user_mfa")
 }
 
 model SqlAuditLog {
@@ -560,6 +640,8 @@ model Plan {
   maxApiRequests    Int?     @map("max_api_requests")
   maxBandwidthBytes BigInt?  @map("max_bandwidth_bytes")
   maxMau            Int?     @map("max_mau")
+  /// Default pooler connection cap per project database on this plan. Null = platform default.
+  maxDbConnections  Int?     @map("max_db_connections")
   dedicatedDb       Boolean  @default(false) @map("dedicated_db")
   dedicatedStorage  Boolean  @default(false) @map("dedicated_storage")
   dbMemoryMb        Int      @default(0) @map("db_memory_mb")
@@ -1836,4 +1918,133 @@ model AiChatMessage {
 
   @@index([sessionId, createdAt])
   @@map("ai_chat_messages")
+}
+
+// ── Backups: restore verification + off-site copies ──────────────────────────
+
+enum BackupVerificationStatus {
+  RUNNING
+  PASSED
+  FAILED
+  SKIPPED
+}
+
+/// One restore drill: the newest auto-backup of a project rebuilt into a
+/// throwaway database, compared against the counts recorded at dump time.
+model BackupVerification {
+  id              String                   @id @default(uuid())
+  projectId       String                   @map("project_id")
+  /// 'scheduled' | 'manual'
+  trigger         String
+  status          BackupVerificationStatus @default(RUNNING)
+  backupBucket    String?                  @map("backup_bucket")
+  backupObjectKey String?                  @map("backup_object_key")
+  backupTakenAt   DateTime?                @map("backup_taken_at")
+  archiveBytes    BigInt?                  @map("archive_bytes")
+  verifyDbName    String?                  @map("verify_db_name")
+  tablesExpected  Int?                     @map("tables_expected")
+  tablesRestored  Int?                     @map("tables_restored")
+  rowsMismatched  Int?                     @map("rows_mismatched")
+  psqlErrorCount  Int?                     @map("psql_error_count")
+  /// False when the archive predates database/tables.json, so only table presence was checked.
+  countsCompared  Boolean                  @default(false) @map("counts_compared")
+  details         Json?
+  error           String?
+  requestedBy     String?                  @map("requested_by")
+  startedAt       DateTime                 @default(now()) @map("started_at")
+  finishedAt      DateTime?                @map("finished_at")
+  durationMs      Int?                     @map("duration_ms")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, startedAt(sort: Desc)])
+  @@map("backup_verifications")
+}
+
+enum BackupArtifactKind {
+  AUTO_BACKUP
+  PITR_CLUSTER_BASE
+  PITR_PROJECT_BASE
+  PITR_WAL
+}
+
+enum BackupCopyStatus {
+  UPLOADED
+  FAILED
+}
+
+/// One attempt to copy a local backup artifact to the off-site bucket.
+model BackupOffsiteCopy {
+  id           String             @id @default(uuid())
+  kind         BackupArtifactKind
+  /// Null for cluster-wide artifacts (bases, WAL). No relation on purpose:
+  /// the record must survive the project's deletion.
+  projectId    String?            @map("project_id")
+  localBucket  String             @map("local_bucket")
+  localKey     String             @map("local_key")
+  remoteBucket String             @map("remote_bucket")
+  remoteKey    String             @map("remote_key")
+  plainBytes   BigInt             @map("plain_bytes")
+  encrypted    Boolean
+  status       BackupCopyStatus
+  error        String?
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  @@unique([localBucket, localKey])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
+  @@map("backup_offsite_copies")
+}
+
+/// One in-flight resumable upload. Mirrors an S3 multipart upload: `uploadId`
+/// is the store's id and `parts` is what the store has acknowledged. Rows are
+/// expired by the hourly sweep in UploadSessionService, which also aborts the
+/// multipart upload behind them.
+model StorageUploadSession {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  /// Logical bucket name as the project sees it (not the physical bucket).
+  bucket       String
+  objectKey    String   @map("object_key")
+  contentType  String   @default("application/octet-stream") @map("content_type")
+  totalSize    BigInt   @map("total_size")
+  uploadedSize BigInt   @default(0) @map("uploaded_size")
+  chunkSize    Int      @map("chunk_size")
+  uploadId     String   @map("upload_id")
+  /// [{ part: number, etag: string, size: number }]
+  parts        Json     @default("[]")
+  /// End-user JWT sub or dashboard user id of the creator; null for the service key.
+  ownerSub     String?  @map("owner_sub")
+  /// 'service' | 'authenticated' | 'dashboard'
+  callerKind   String   @db.VarChar(16) @map("caller_kind")
+  /// active | completed | aborted | expired
+  status       String   @default("active") @db.VarChar(16)
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@index([expiresAt])
+  @@map("storage_upload_sessions")
+}
+
+/// Access rule for a bucket, or a key prefix inside it, evaluated for API-key
+/// callers only. No row = the bucket behaves as it always has. The service key
+/// and dashboard team members are never restricted by these rules.
+model StoragePolicy {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  /// Logical bucket name as the project sees it.
+  bucket     String
+  /// '' = the whole bucket; the longest matching prefix wins.
+  pathPrefix String   @default("") @map("path_prefix")
+  /// 'public-read' | 'authenticated-read' | 'owner-only'
+  mode       String   @db.VarChar(24)
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, bucket, pathPrefix])
+  @@index([projectId])
+  @@map("storage_policies")
 }

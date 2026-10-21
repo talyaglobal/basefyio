@@ -3,23 +3,36 @@ import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
-import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { VectorStoreService } from './vector-store.service';
 import { EMBEDDING_QUEUE } from '../queue/queue.module';
+import {
+  EmbeddingProviderService,
+  type EmbedOutcome,
+  type ResolvedProvider,
+} from './providers/embedding-provider.service';
+import { PROVIDER_CATALOGUE } from './providers/provider-registry';
+import { EmbeddingProviderError, type EmbedIntent } from './providers/embedding-provider';
 import type { EmbedJob, EmbeddingJobPayload, EntityType } from './types';
 
 const CACHE_TTL_SECONDS = 86_400; // 24 hours
-const CACHE_KEY_PREFIX = 'emb:v1:';
+/**
+ * v2 keys carry provider/model and intent, so changing the model can never
+ * serve a vector from another model's space out of the cache.
+ */
+const CACHE_KEY_PREFIX = 'emb:v2:';
+/** Width of `embeddings_store.embedding` as the migration created it; re-read from the catalog on first use. */
+const DEFAULT_STORE_DIMENSIONS = 1536;
 
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
-  private openai: OpenAI | null = null;
-  private readonly model: string;
+  private readonly resolved: ResolvedProvider | null;
   private readonly enabled: boolean;
   private readonly maxDailyTokens: number;
+  private storeDimensionsCache: number | null = null;
+  private misconfigurationLogged = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -27,23 +40,31 @@ export class EmbeddingService {
     private readonly redis: RedisService,
     private readonly vectorStore: VectorStoreService,
     @InjectQueue(EMBEDDING_QUEUE) private readonly queue: Queue,
+    private readonly providers: EmbeddingProviderService,
   ) {
-    const apiKey = config.get<string>('openai.apiKey');
     this.enabled = config.get<boolean>('embedding.enabled') ?? true;
-    this.model = config.get<string>('embedding.model') ?? 'text-embedding-3-small';
     this.maxDailyTokens = config.get<number>('embedding.maxDailyTokens') ?? 1_000_000;
 
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-    } else {
-      this.logger.warn('OPENAI_API_KEY not set — embedding features disabled');
+    this.resolved = this.enabled ? providers.platform() : null;
+    if (this.enabled && !this.resolved) {
+      const desc = providers.describePlatform();
+      const entry = PROVIDER_CATALOGUE[desc.config.provider];
+      this.logger.warn(
+        `${entry.keyEnvVar ?? entry.name} not set — embedding features disabled`,
+      );
     }
+  }
+
+  /** `embedding_records.embedding_model` value for the configured provider. */
+  private get tag(): string {
+    return this.resolved?.tag ?? this.providers.describePlatform().tag;
   }
 
   /**
    * Embed a single piece of content. Returns the embedding_records.id.
-   * Uses SHA-256 dedup: if the same content was embedded before, returns the
-   * cached record id without calling OpenAI.
+   * Uses SHA-256 dedup: if the same content was embedded before *with the
+   * current model*, returns the cached record id without calling the provider.
+   * A record left by another model is re-embedded and overwritten in place.
    */
   async embedContent(
     content: string,
@@ -56,24 +77,25 @@ export class EmbeddingService {
       force?: boolean;
     },
   ): Promise<string | null> {
-    if (!this.enabled || !this.openai) return null;
+    if (!this.enabled || !this.resolved) return null;
 
     const hash = this.sha256(content);
 
     if (!opts?.force) {
       const existing = await this.prisma.embeddingRecord.findUnique({
         where: { contentHash: hash },
-        select: { id: true },
+        select: { id: true, embeddingModel: true },
       });
-      if (existing) return existing.id;
+      if (existing && existing.embeddingModel === this.tag) return existing.id;
     }
 
-    const embedding = await this.generateEmbedding(content);
-    if (!embedding) return null;
+    const embedded = await this.embedOne(content, 'document');
+    if (!embedded) return null;
 
     return this.persistEmbedding(
       hash,
-      embedding,
+      embedded.vector,
+      embedded.tag,
       content,
       entityType,
       entityId,
@@ -83,22 +105,25 @@ export class EmbeddingService {
 
   /**
    * Embed a batch of jobs. Returns a map of entityId → embeddingRecordId.
-   * Deduplication happens per-item before calling OpenAI.
+   * Deduplication happens per-item before calling the provider; only records
+   * made with the current model count as hits.
    */
   async embedBatch(
     jobs: EmbedJob[],
     batchSize = 20,
   ): Promise<Map<string, string>> {
     const results = new Map<string, string>();
-    if (!this.enabled || !this.openai || jobs.length === 0) return results;
+    if (!this.enabled || !this.resolved || jobs.length === 0) return results;
 
     // Check dedup for all items first
     const hashes = jobs.map((j) => this.sha256(j.content));
     const existing = await this.prisma.embeddingRecord.findMany({
       where: { contentHash: { in: hashes } },
-      select: { id: true, contentHash: true, entityId: true },
+      select: { id: true, contentHash: true, entityId: true, embeddingModel: true },
     });
-    const existingByHash = new Map(existing.map((r) => [r.contentHash, r]));
+    const existingByHash = new Map(
+      existing.filter((r) => r.embeddingModel === this.tag).map((r) => [r.contentHash, r]),
+    );
 
     const toEmbed: Array<{ job: EmbedJob; hash: string; idx: number }> = [];
     jobs.forEach((job, idx) => {
@@ -116,14 +141,15 @@ export class EmbeddingService {
       const chunk = toEmbed.slice(i, i + batchSize);
       const texts = chunk.map((c) => c.job.content);
 
-      const embeddings = await this.generateEmbeddingBatch(texts);
-      if (!embeddings) continue;
+      const embedded = await this.generateEmbeddingBatch(texts);
+      if (!embedded) continue;
 
       for (let j = 0; j < chunk.length; j++) {
         const { job, hash } = chunk[j];
         const id = await this.persistEmbedding(
           hash,
-          embeddings[j],
+          embedded.vectors[j],
+          embedded.tag,
           job.content,
           job.entityType,
           job.entityId,
@@ -151,19 +177,29 @@ export class EmbeddingService {
 
   /**
    * Generate a single embedding vector. Returns null on failure.
-   * Checks Redis cache first (key: emb:v1:{sha256}).
+   * Checks Redis cache first (key: emb:v2:{provider/model}/{intent}:{sha256}).
+   * Callers embedding a search query keep the default intent; stored content
+   * passes 'document' (some providers embed the two differently).
    */
-  async generateEmbedding(text: string): Promise<number[] | null> {
-    if (!this.openai) return null;
+  async generateEmbedding(text: string, intent: EmbedIntent = 'query'): Promise<number[] | null> {
+    const out = await this.embedOne(text, intent);
+    return out?.vector ?? null;
+  }
+
+  private async embedOne(
+    text: string,
+    intent: EmbedIntent,
+  ): Promise<{ vector: number[]; tag: string } | null> {
+    if (!this.resolved) return null;
 
     const hash = this.sha256(text);
-    const cacheKey = `${CACHE_KEY_PREFIX}${hash}`;
+    const cacheKey = this.cacheKey(hash, intent);
 
     try {
       const cached = await this.redis.get(cacheKey);
-      if (cached) return JSON.parse(cached) as number[];
+      if (cached) return { vector: JSON.parse(cached) as number[], tag: this.tag };
     } catch {
-      // Redis miss or error — proceed to OpenAI
+      // Redis miss or error — proceed to the provider
     }
 
     if (!(await this.checkTokenBudget())) {
@@ -171,65 +207,113 @@ export class EmbeddingService {
       return null;
     }
 
-    try {
-      const response = await this.openai.embeddings.create({
-        model: this.model,
-        input: text,
-      });
-      const embedding = response.data[0].embedding;
-      const tokens = response.usage?.total_tokens ?? 0;
-      await this.trackTokenUsage(tokens);
+    const out = await this.embedTexts([text], intent);
+    if (!out) return null;
+    const vector = out.vectors[0];
 
+    // A fallback's vectors live in another space; never let them answer for the primary.
+    if (!out.usedFallback) {
       try {
-        await this.redis.set(cacheKey, JSON.stringify(embedding), CACHE_TTL_SECONDS);
+        await this.redis.set(cacheKey, JSON.stringify(vector), CACHE_TTL_SECONDS);
       } catch {
         // Cache write failure is non-fatal
       }
-
-      return embedding;
-    } catch (err: any) {
-      this.logger.error('OpenAI embedding error', err?.message);
-      return null;
     }
+
+    return { vector, tag: out.tag };
   }
 
-  private async generateEmbeddingBatch(texts: string[]): Promise<number[][] | null> {
-    if (!this.openai || texts.length === 0) return null;
+  private async generateEmbeddingBatch(
+    texts: string[],
+  ): Promise<{ vectors: number[][]; tag: string } | null> {
+    if (!this.resolved || texts.length === 0) return null;
 
     if (!(await this.checkTokenBudget())) {
       this.logger.warn('Daily token budget exceeded — skipping batch embedding');
       return null;
     }
 
-    try {
-      const response = await this.openai.embeddings.create({
-        model: this.model,
-        input: texts,
-      });
-      const tokens = response.usage?.total_tokens ?? 0;
-      await this.trackTokenUsage(tokens);
+    const out = await this.embedTexts(texts, 'document');
+    if (!out) return null;
 
+    if (!out.usedFallback) {
       // Cache each embedding individually
-      const embeddings = response.data.map((d) => d.embedding);
       await Promise.allSettled(
-        texts.map((text, i) => {
-          const hash = this.sha256(text);
-          return this.redis
-            .set(`${CACHE_KEY_PREFIX}${hash}`, JSON.stringify(embeddings[i]), CACHE_TTL_SECONDS)
-            .catch(() => {});
-        }),
+        texts.map((text, i) =>
+          this.redis
+            .set(
+              this.cacheKey(this.sha256(text), 'document'),
+              JSON.stringify(out.vectors[i]),
+              CACHE_TTL_SECONDS,
+            )
+            .catch(() => {}),
+        ),
       );
+    }
 
-      return embeddings;
+    return { vectors: out.vectors, tag: out.tag };
+  }
+
+  /**
+   * One provider round-trip with failover and width fitting. Returns null on
+   * any failure — every caller treats a missing vector as "degrade quietly".
+   */
+  private async embedTexts(texts: string[], intent: EmbedIntent): Promise<EmbedOutcome | null> {
+    if (!this.resolved) return null;
+    try {
+      const out = await this.providers.embed(this.resolved, texts, {
+        intent,
+        targetDimensions: await this.storeDimensions(),
+      });
+      const tokens =
+        out.tokenCount ?? Math.ceil(texts.reduce((n, t) => n + t.length, 0) / 4);
+      await this.trackTokenUsage(tokens);
+      return out;
     } catch (err: any) {
-      this.logger.error('OpenAI batch embedding error', err?.message);
+      const misconfigured =
+        err instanceof EmbeddingProviderError &&
+        err.kind === 'input' &&
+        /vector store holds/.test(err.message);
+      if (misconfigured) {
+        if (!this.misconfigurationLogged) {
+          this.misconfigurationLogged = true;
+          this.logger.error(`Embedding provider misconfigured: ${err.message} Embeddings are disabled until this is fixed.`);
+        }
+      } else {
+        this.logger.error(`Embedding error (${this.tag})`, err?.message);
+      }
       return null;
     }
+  }
+
+  /** Width of the platform vector column, read once from the catalog. */
+  private async storeDimensions(): Promise<number> {
+    if (this.storeDimensionsCache) return this.storeDimensionsCache;
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ type: string }>>(
+        `SELECT format_type(atttypid, atttypmod) AS type
+           FROM pg_attribute
+          WHERE attrelid = 'embeddings_store'::regclass AND attname = 'embedding'`,
+      );
+      const match = /vector\((\d+)\)/.exec(rows[0]?.type ?? '');
+      this.storeDimensionsCache = match ? Number(match[1]) : DEFAULT_STORE_DIMENSIONS;
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not read embeddings_store dimensions (${err?.message ?? err}); assuming ${DEFAULT_STORE_DIMENSIONS}`,
+      );
+      this.storeDimensionsCache = DEFAULT_STORE_DIMENSIONS;
+    }
+    return this.storeDimensionsCache;
+  }
+
+  private cacheKey(hash: string, intent: EmbedIntent): string {
+    return `${CACHE_KEY_PREFIX}${this.tag}/${intent}:${hash}`;
   }
 
   private async persistEmbedding(
     hash: string,
     embedding: number[],
+    tag: string,
     content: string,
     entityType: EntityType,
     entityId: string,
@@ -249,7 +333,7 @@ export class EmbeddingService {
           entityId,
           projectId: opts?.projectId ?? null,
           teamId: opts?.teamId ?? null,
-          embeddingModel: this.model,
+          embeddingModel: tag,
           tokenCount: Math.ceil(content.length / 4), // rough estimate
           metadata: {
             text: content.slice(0, 2000),
@@ -261,6 +345,7 @@ export class EmbeddingService {
           entityId,
           projectId: opts?.projectId ?? null,
           teamId: opts?.teamId ?? null,
+          embeddingModel: tag,
           metadata: {
             text: content.slice(0, 2000),
             ...(opts?.extraMeta ?? {}),

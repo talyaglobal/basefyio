@@ -70,34 +70,59 @@ jobs:
             fi
             docker tag "$PG_REF:$PG_HASH" "$PG_REF:latest"
 
+            # Every application image gets two tags: the git sha it was built
+            # from and :latest. The sha is what gets deployed (IMAGE_TAG below),
+            # so the running version is always a known, re-deployable artefact
+            # and a rollback is `IMAGE_TAG=<previous sha> … up -d`. :latest is
+            # kept so the documented emergency command without IMAGE_TAG still
+            # resolves to the newest build.
+            SHA=$(git rev-parse --short=12 HEAD)
+            OWNER=${{ secrets.GHCR_USER }}
+            echo "=== Image tag: $SHA ==="
+
             echo "=== Building Platform API ==="
             docker build \
-              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest \
+              -t ghcr.io/$OWNER/basefyio-api:$SHA \
               -f apps/platform-api/Dockerfile .
+            docker tag ghcr.io/$OWNER/basefyio-api:$SHA ghcr.io/$OWNER/basefyio-api:latest
 
             echo "=== Building Admin UI ==="
             docker build \
-              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-ui:latest \
+              -t ghcr.io/$OWNER/basefyio-ui:$SHA \
               --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }} \
               apps/admin-ui
+            docker tag ghcr.io/$OWNER/basefyio-ui:$SHA ghcr.io/$OWNER/basefyio-ui:latest
 
             echo "=== Building Website ==="
             docker build \
-              -t ghcr.io/${{ secrets.GHCR_USER }}/basefyio-website:latest \
+              -t ghcr.io/$OWNER/basefyio-website:$SHA \
               --build-arg NEXT_PUBLIC_SITE_URL=https://basefyio.com \
               -f apps/website/Dockerfile .
+            docker tag ghcr.io/$OWNER/basefyio-website:$SHA ghcr.io/$OWNER/basefyio-website:latest
 
             # ── Push to GHCR (backup) ──
             echo "=== Pushing images ==="
-            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-postgres:latest &
-            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-api:latest &
-            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-ui:latest &
-            docker push ghcr.io/${{ secrets.GHCR_USER }}/basefyio-website:latest &
+            docker push ghcr.io/$OWNER/basefyio-postgres:latest &
+            for svc in api ui website; do
+              docker push ghcr.io/$OWNER/basefyio-$svc:$SHA &
+              docker push ghcr.io/$OWNER/basefyio-$svc:latest &
+            done
             wait
 
+            # ── Record the deployed tag ──
+            # The compose file reads ${IMAGE_TAG:-latest}. Writing the sha into
+            # .env.production means the manual emergency command runs the same
+            # build this deploy did, not whatever :latest points at by then. A
+            # hex sha is safe to `source`: no < > & | or spaces.
+            if grep -q '^IMAGE_TAG=' .env.production; then
+              sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$SHA/" .env.production
+            else
+              printf '\nIMAGE_TAG=%s\n' "$SHA" >> .env.production
+            fi
+
             # ── Deploy ──
-            echo "=== Deploying ==="
-            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
+            echo "=== Deploying $SHA ==="
+            IMAGE_TAG=$SHA docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
 
             # ── Cleanup ──
             # Three images are built on the host every deploy and BuildKit keeps
@@ -105,5 +130,15 @@ jobs:
             # behind — a handful of deploys was enough to take the disk past 90%.
             docker image prune -f
             docker builder prune -af
+            # Sha-tagged images are not dangling, so the prune above never frees
+            # them. Keep the three newest per image (the running one included);
+            # GHCR holds every older build for a rollback.
+            for svc in api ui website; do
+              docker image ls "ghcr.io/$OWNER/basefyio-$svc" --format '{{.CreatedAt}}\t{{.Tag}}' \
+                | grep -v -e $'\tlatest$' -e $'\t<none>$' \
+                | sort -r \
+                | awk -F'\t' 'NR>3 {print $2}' \
+                | xargs -r -I{} docker rmi "ghcr.io/$OWNER/basefyio-$svc:{}" || true
+            done
             df -h / | tail -1
-            echo "=== Deploy complete ==="
+            echo "=== Deploy complete ($SHA) ==="

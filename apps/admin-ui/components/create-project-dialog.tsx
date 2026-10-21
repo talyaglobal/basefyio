@@ -41,6 +41,7 @@ import {
 } from '@/lib/types';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
+import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
 
 export interface ReimportTarget {
   projectId: string;
@@ -171,6 +172,8 @@ export function CreateProjectDialog({
   const [supabaseUrl, setSupabaseUrl] = useState('');
   const [serviceRoleKey, setServiceRoleKey] = useState('');
   const [databasePassword, setDatabasePassword] = useState('');
+  /** Sync only: key tables that arrived without a primary key before comparing them. */
+  const [repairKeys, setRepairKeys] = useState(false);
   const [importName, setImportName] = useState('');
   const [importNameManual, setImportNameManual] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -622,7 +625,9 @@ export function CreateProjectDialog({
         ...(reimportTarget
           ? { existingProjectId: reimportTarget.projectId }
           : {}),
-        ...(reimportMode === 'sync' ? { mode: 'sync' as const } : {}),
+        ...(reimportMode === 'sync'
+          ? { mode: 'sync' as const, ...(repairKeys ? { repairKeys: true } : {}) }
+          : {}),
       });
 
       setImportProjectName(result.project.name);
@@ -1152,8 +1157,9 @@ export function CreateProjectDialog({
                       </li>
                       <li>
                         Rows are matched by <strong>primary key</strong>. A table without
-                        one is reported rather than guessed at — a project imported before
-                        keys were copied across needs one full re-import first.
+                        one is reported rather than guessed at; tick{' '}
+                        <strong>Add missing primary keys</strong> below to key it from the
+                        source first.
                       </li>
                       <li>
                         Safe to run as often as you like: an insert that would duplicate an
@@ -1287,6 +1293,27 @@ export function CreateProjectDialog({
                   connection.
                 </p>
               </div>
+
+              {reimportMode === 'sync' && (
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+                    checked={repairKeys}
+                    onChange={(e) => setRepairKeys(e.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium text-foreground">
+                      Add missing primary keys before comparing
+                    </span>
+                    <span className="mt-0.5 block text-muted-foreground">
+                      Tables imported without a key get the source&apos;s key first, where the
+                      rows here are unique on it. Each repaired table is locked briefly while its
+                      index builds.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               {validated && (
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 dark:bg-emerald-950/30 dark:border-emerald-800">
@@ -1698,6 +1725,15 @@ export function CreateProjectDialog({
                 </div>
               );
             })()}
+
+            {importResult.tables && importResult.tables.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Row counts against the source
+                </p>
+                <ImportReconciliationTable tables={importResult.tables} compact />
+              </div>
+            )}
 
             <div className="flex items-center justify-center gap-2 flex-wrap">
               <Badge variant="secondary">

@@ -20,7 +20,84 @@ import type {
   InviteUserResult,
   OAuthRedirectResult,
   OAuthProvider,
+  BasefyioError,
 } from '../lib/types.js';
+
+// ── Multi-factor authentication (TOTP) ─────────────────────
+
+/**
+ * Returned by signIn instead of tokens when the account has an enrolled
+ * authenticator app, or when the project requires one to be enrolled first.
+ */
+export interface MfaChallenge {
+  challengeId: string;
+  /** 'totp' — a code from the authenticator app; 'recovery' — a one-time recovery code. */
+  methods: Array<'totp' | 'recovery'>;
+  /** Seconds until the challenge expires and the person must sign in again. */
+  expiresIn: number;
+  /** No factor yet but the project requires one: call enrollMfa({ challengeId }) next. */
+  enrollmentRequired: boolean;
+}
+
+/**
+ * The signIn result. `data`/`error` behave exactly as before; `mfa` is set
+ * (and `data` is null) when a second step is needed.
+ */
+export type SignInResponse = BasefyioResponse<AuthTokens> & { mfa: MfaChallenge | null };
+
+/** Password sign-in; `totp` is for accounts whose authenticator lives in the hosted login. */
+export type SignInWithTotp = SignInCredentials & { totp?: string };
+
+export interface MfaEnrollment {
+  /** Base32 secret, in case the app wants to show it for manual entry. */
+  secret: string;
+  /** Render this as a QR code for the authenticator app. */
+  otpauthUrl: string;
+  issuer: string;
+  account: string;
+  algorithm: string;
+  digits: number;
+  period: number;
+}
+
+export interface MfaEnrollmentResult {
+  enabled: true;
+  /** Shown once. Each works a single time in place of an authenticator code. */
+  recoveryCodes: string[];
+  // Present when enrollment completed a sign-in challenge: a session was started.
+  accessToken?: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  tokenType?: string;
+  userId?: string;
+  emailVerified?: boolean;
+}
+
+export interface MfaStatus {
+  enrolled: boolean;
+  /** An administrator asked this user to enroll. */
+  enrollmentRequired: boolean;
+  recoveryCodesLeft: number;
+  verifiedAt: string | null;
+}
+
+export interface AnonymousUpgradeCredentials {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+type MfaChallengeBody = { mfaRequired: true } & MfaChallenge;
+
+function isMfaChallengeBody(data: unknown): data is MfaChallengeBody {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { mfaRequired?: unknown }).mfaRequired === true &&
+    typeof (data as { challengeId?: unknown }).challengeId === 'string'
+  );
+}
 
 export class AuthClient {
   private http: BasefyioFetchClient;
@@ -47,17 +124,178 @@ export class AuthClient {
     }
   }
 
-  async signIn(credentials: SignInCredentials): Promise<BasefyioResponse<AuthTokens>> {
+  /**
+   * Sign in with email and password.
+   *
+   * When the account has an enrolled authenticator app the response carries
+   * `mfa` instead of `data`: keep the `challengeId`, ask for the code and call
+   * `verifyMfa(challengeId, code)` to finish. Code that only reads `data` and
+   * `error` keeps working: it sees a sign-in that did not produce a session.
+   */
+  async signIn(credentials: SignInWithTotp): Promise<SignInResponse> {
     try {
-      const data = await this.http.json<AuthTokens>('/rest/v1/auth/signin', {
+      const data = await this.http.json<AuthTokens | MfaChallengeBody>('/rest/v1/auth/signin', {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+      });
+      if (isMfaChallengeBody(data)) {
+        const { mfaRequired: _required, ...mfa } = data;
+        return {
+          data: null,
+          error: { message: 'Multi-factor authentication required', code: 'mfa_required' },
+          mfa,
+        };
+      }
+      this.setSession(data);
+      return { data, error: null, mfa: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err), mfa: null };
+    }
+  }
+
+  /**
+   * Second step of sign-in: trade the challenge from signIn and the
+   * authenticator code — or, with `{ recovery: true }`, a recovery code — for
+   * a session.
+   */
+  async verifyMfa(
+    challengeId: string,
+    code: string,
+    options?: { recovery?: boolean },
+  ): Promise<BasefyioResponse<AuthTokens>> {
+    try {
+      const body = options?.recovery ? { challengeId, recoveryCode: code } : { challengeId, code };
+      const data = await this.http.json<AuthTokens>('/rest/v1/auth/mfa/challenge', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      this.setSession(data);
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /** Whether the signed-in user has an authenticator app enrolled, and whether one is required. */
+  async getMfaStatus(): Promise<BasefyioResponse<MfaStatus>> {
+    try {
+      const data = await this.http.json<MfaStatus>('/rest/v1/auth/mfa');
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /**
+   * Start enrolling an authenticator app (TOTP) for the signed-in user. Show
+   * `otpauthUrl` as a QR code, then pass the first code the app displays to
+   * `verifyMfaEnrollment`. With `{ challengeId }` from a signIn whose
+   * `mfa.enrollmentRequired` was true, no session is needed.
+   */
+  async enrollMfa(options?: { challengeId?: string }): Promise<BasefyioResponse<MfaEnrollment>> {
+    try {
+      const data = await this.http.json<MfaEnrollment>('/rest/v1/auth/mfa/enroll', {
+        method: 'POST',
+        body: JSON.stringify(options?.challengeId ? { challengeId: options.challengeId } : {}),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /** Confirm the new authenticator with its first code. Returns the recovery codes — shown once. */
+  async verifyMfaEnrollment(
+    code: string,
+    options?: { challengeId?: string },
+  ): Promise<BasefyioResponse<MfaEnrollmentResult>> {
+    try {
+      const data = await this.http.json<MfaEnrollmentResult>('/rest/v1/auth/mfa/verify-enrollment', {
+        method: 'POST',
+        body: JSON.stringify(options?.challengeId ? { code, challengeId: options.challengeId } : { code }),
+      });
+      if (data.accessToken && data.refreshToken) {
+        this.setSession({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          expiresIn: data.expiresIn ?? 300,
+          tokenType: data.tokenType ?? 'Bearer',
+          userId: data.userId,
+          emailVerified: data.emailVerified,
+        });
+      }
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /** Turn the authenticator off. Needs a current code, or a recovery code with `{ recovery: true }`. */
+  async disableMfa(code: string, options?: { recovery?: boolean }): Promise<BasefyioResponse<{ enabled: false }>> {
+    try {
+      const body = options?.recovery ? { recoveryCode: code } : { code };
+      const data = await this.http.json<{ enabled: false }>('/rest/v1/auth/mfa/disable', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /** Replace the recovery codes; the old ones stop working. Needs a current authenticator code. */
+  async regenerateRecoveryCodes(code: string): Promise<BasefyioResponse<{ recoveryCodes: string[] }>> {
+    try {
+      const data = await this.http.json<{ recoveryCodes: string[] }>('/rest/v1/auth/mfa/recovery-codes', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  // ── Anonymous users ─────────────────────────────────────
+
+  /**
+   * Start a session without an account. The project must allow anonymous
+   * sign-in. The access token carries `is_anonymous: true`, which row-level
+   * policies can read; `upgradeAnonymous` later turns it into a real account
+   * with the same user id.
+   */
+  async signInAnonymously(): Promise<BasefyioResponse<AuthTokens & { isAnonymous: true }>> {
+    try {
+      const data = await this.http.json<AuthTokens & { isAnonymous: true }>('/rest/v1/auth/signin/anonymous', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      this.setSession(data);
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: this.toError(err) };
+    }
+  }
+
+  /** Give the current anonymous session an email and password. The session is replaced with a normal one. */
+  async upgradeAnonymous(credentials: AnonymousUpgradeCredentials): Promise<BasefyioResponse<AuthTokens>> {
+    try {
+      const data = await this.http.json<AuthTokens>('/rest/v1/auth/anonymous/upgrade', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
       this.setSession(data);
       return { data, error: null };
     } catch (err: any) {
-      return { data: null, error: { message: err.message, status: err.status } };
+      return { data: null, error: this.toError(err) };
     }
+  }
+
+  /** Whether the current session belongs to an anonymous user (read from the token; the server verifies). */
+  isAnonymous(): boolean {
+    const value = this.accessTokenClaims()?.is_anonymous;
+    return value === true || value === 'true';
   }
 
   async signOut(): Promise<void> {
@@ -186,7 +424,7 @@ export class AuthClient {
   }
 
   async signInWithProvider(
-    provider: OAuthProvider,
+    provider: OAuthProvider | string,
     options?: { redirectTo?: string },
   ): Promise<BasefyioResponse<OAuthRedirectResult>> {
     try {
@@ -289,6 +527,28 @@ export class AuthClient {
   }
 
   // ── Internal ───────────────────────────────────────────
+
+  private toError(err: any): BasefyioError {
+    return {
+      message: err?.message ?? 'Request failed',
+      status: err?.status,
+      code: typeof err?.code === 'string' ? err.code : undefined,
+    };
+  }
+
+  /** The access token's claims, read without verification — for display decisions only. */
+  private accessTokenClaims(): Record<string, unknown> | null {
+    const part = this.session?.accessToken?.split('.')[1];
+    if (!part) return null;
+    try {
+      const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+      const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      return null;
+    }
+  }
 
   private setSession(tokens: AuthTokens): void {
     const expiresAt = Date.now() + tokens.expiresIn * 1000;

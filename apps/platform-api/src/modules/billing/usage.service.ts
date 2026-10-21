@@ -214,8 +214,9 @@ export class UsageService {
       include: {
         projects: {
           // Deactivated projects are frozen and must not consume the plan quota,
-          // so only ACTIVE/PAUSED projects count toward projectCount.
-          where: { status: { notIn: ['DELETED', 'DEACTIVATED'] } },
+          // so only ACTIVE/PAUSED projects count toward projectCount. Preview
+          // branches are free and capped per parent, so they do not count either.
+          where: { status: { notIn: ['DELETED', 'DEACTIVATED'] }, parentProjectId: null },
           select: { id: true, slug: true },
         },
         members: { select: { id: true } },

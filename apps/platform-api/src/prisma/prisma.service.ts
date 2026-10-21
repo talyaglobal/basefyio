@@ -81,9 +81,15 @@ export class PrismaService
   }
 }
 
+/** Project columns that hold a Postgres password; every one is encrypted the same way. */
+const CREDENTIAL_FIELDS = ['dbPassword', 'dbReadonlyPassword'] as const;
+
 function encryptDbPassword(obj: any) {
-  if (obj && typeof obj.dbPassword === 'string' && !isEncrypted(obj.dbPassword)) {
-    obj.dbPassword = encryptField(obj.dbPassword);
+  if (!obj) return;
+  for (const field of CREDENTIAL_FIELDS) {
+    if (typeof obj[field] === 'string' && !isEncrypted(obj[field])) {
+      obj[field] = encryptField(obj[field]);
+    }
   }
 }
 
@@ -97,7 +103,10 @@ function decryptResult(result: any) {
 }
 
 function decryptOne(r: any) {
-  if (r && typeof r.dbPassword === 'string' && isEncrypted(r.dbPassword)) {
-    r.dbPassword = decryptField(r.dbPassword);
+  if (!r) return;
+  for (const field of CREDENTIAL_FIELDS) {
+    if (typeof r[field] === 'string' && isEncrypted(r[field])) {
+      r[field] = decryptField(r[field]);
+    }
   }
 }

@@ -154,6 +154,19 @@ export class TenantEmbeddingPublicController {
     return this.tenantEmbedding.getStatus(payload.projectId);
   }
 
+  /**
+   * Which provider, model and country the project's text goes to, so an app
+   * can show its own users where their data is processed.
+   *
+   * GET /rest/v1/embeddings/disclosure
+   */
+  @Get('disclosure')
+  @AnonKeyAllowed()
+  async disclosure(@Req() req: Request) {
+    const payload = this.getPayload(req);
+    return this.tenantEmbedding.getDisclosure(payload.projectId);
+  }
+
   private getPayload(req: Request): ApiKeyPayload {
     const payload = (req as any).apiKeyPayload as ApiKeyPayload | undefined;
     if (!payload) throw new ForbiddenException('API key required');

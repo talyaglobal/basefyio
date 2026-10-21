@@ -1,6 +1,17 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import chalk from 'chalk';
+import fs from 'fs';
+import { basename } from 'path';
+import type { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { getApiUrl, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken, clearAuthTokens } from './config.js';
+import {
+  buildImportForm,
+  type ArchiveImportResult,
+  type CloudBackupEntry,
+  type ExportJobStatus,
+  type RestoreFields,
+} from './backups.js';
 
 /**
  * Proactively refresh the access token if it expires within the next 60 seconds.
@@ -59,6 +70,14 @@ export class AuthError extends Error {
 
 export class ApiClient {
   private client: AxiosInstance;
+  /**
+   * For multipart uploads. Kept apart from `client` because that instance
+   * defaults `Content-Type` to JSON, and axios serialises a FormData body as
+   * JSON when it sees that header. This one lets axios set the multipart
+   * boundary itself and has no timeout: an archive upload runs for as long as
+   * it takes. The token is fresh because every command refreshes it first.
+   */
+  private multipart: AxiosInstance;
 
   constructor() {
     this.client = axios.create({
@@ -71,6 +90,20 @@ export class ApiClient {
 
     // Add auth token to requests
     this.client.interceptors.request.use((config) => {
+      const token = getAccessToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
+    this.multipart = axios.create({
+      baseURL: getApiUrl(),
+      timeout: 0,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    this.multipart.interceptors.request.use((config) => {
       const token = getAccessToken();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -297,6 +330,114 @@ export class ApiClient {
     });
     return data;
   }
+
+  // Backups: export jobs, cloud backups, archive import
+
+  /** Queue an export job; the archive is built in the background. */
+  async startExport(
+    projectId: string,
+    body: {
+      includeDatabase?: boolean;
+      includeAuth?: boolean;
+      includeStorage?: boolean;
+      includeConfig?: boolean;
+    },
+  ) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/export`, body);
+    return data as { jobId: string };
+  }
+
+  async getExportJobStatus(projectId: string, jobId: string) {
+    const { data } = await this.client.get(
+      `/api/projects/${projectId}/export/jobs/${encodeURIComponent(jobId)}/status`,
+    );
+    return data as ExportJobStatus;
+  }
+
+  /**
+   * Stream a finished export to disk.
+   *
+   * The bytes go to `<dest>.part` and the file is renamed only once the stream
+   * has ended, so an interrupted download never leaves a plausible-looking zip
+   * behind. No timeout: the archive can be large.
+   */
+  async downloadExportToFile(
+    projectId: string,
+    jobId: string,
+    destPath: string,
+    onProgress?: (received: number, total?: number) => void,
+  ): Promise<{ bytes: number; contentLength?: number }> {
+    const response = await this.client.get(
+      `/api/projects/${projectId}/export/jobs/${encodeURIComponent(jobId)}/download`,
+      { responseType: 'stream', timeout: 0 },
+    );
+    const total = Number(response.headers['content-length']) || undefined;
+    const source = response.data as Readable;
+    const partPath = `${destPath}.part`;
+    let received = 0;
+    source.on('data', (chunk: Buffer) => {
+      received += chunk.length;
+      onProgress?.(received, total);
+    });
+    try {
+      await pipeline(source, fs.createWriteStream(partPath));
+      await fs.promises.rename(partPath, destPath);
+    } catch (err) {
+      await fs.promises.rm(partPath, { force: true }).catch(() => {});
+      throw err;
+    }
+    return { bytes: received, contentLength: total };
+  }
+
+  /** Manual exports (kept 24 h) and daily automatic backups (kept 7 days), newest first. */
+  async listBackups(projectId: string) {
+    const { data } = await this.client.get(`/api/projects/${projectId}/backups`);
+    return data as CloudBackupEntry[];
+  }
+
+  /** Restore a cloud backup server-side: nothing is downloaded to this machine. */
+  async restoreCloudBackup(projectId: string, body: RestoreFields) {
+    const { data } = await this.client.post(`/api/projects/${projectId}/backups/restore`, body, {
+      timeout: 0,
+    });
+    return data as ArchiveImportResult;
+  }
+
+  /** Upload a local archive to the import route and restore it. */
+  async importArchive(
+    filePath: string,
+    fields: RestoreFields,
+    onProgress?: (sent: number, total?: number) => void,
+  ) {
+    const archive = await openArchive(filePath);
+    const form = buildImportForm(
+      {
+        teamId: fields.teamId,
+        nameMode: fields.nameMode,
+        existingProjectId: fields.existingProjectId,
+        newProjectName: fields.newProjectName,
+      },
+      archive,
+      basename(filePath),
+    );
+    const { data } = await this.multipart.post('/api/projects/import-export-zip', form, {
+      onUploadProgress: (event) => onProgress?.(event.loaded, event.total ?? undefined),
+    });
+    return data as ArchiveImportResult;
+  }
+}
+
+/**
+ * The archive as a Blob. `fs.openAsBlob` (Node 19.8+) reads the file lazily
+ * while it is sent; older runtimes fall back to loading it into memory.
+ */
+async function openArchive(filePath: string): Promise<Blob> {
+  const open = (fs as { openAsBlob?: (path: string, options?: { type?: string }) => Promise<Blob> }).openAsBlob;
+  if (typeof open === 'function') {
+    return open(filePath, { type: 'application/zip' });
+  }
+  const buffer = await fs.promises.readFile(filePath);
+  return new Blob([buffer], { type: 'application/zip' });
 }
 
 export const apiClient = new ApiClient();

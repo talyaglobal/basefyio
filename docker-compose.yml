@@ -159,6 +159,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4000
+      DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-kolaybase}:${POSTGRES_PASSWORD:-kolaybase_secret}@postgres:5432/kolaybase
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -169,6 +170,14 @@ services:
       KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
+      # Audit forwarding (off until set). Webhook: HTTPS endpoint receiving
+      # NDJSON batches with a bearer token. Syslog: RFC 5424 over udp or tcp.
+      AUDIT_FORWARD_URL: ${AUDIT_FORWARD_URL:-}
+      AUDIT_FORWARD_TOKEN: ${AUDIT_FORWARD_TOKEN:-}
+      AUDIT_FORWARD_FORMAT: ${AUDIT_FORWARD_FORMAT:-}
+      AUDIT_SYSLOG_HOST: ${AUDIT_SYSLOG_HOST:-}
+      AUDIT_SYSLOG_PORT: ${AUDIT_SYSLOG_PORT:-}
+      AUDIT_SYSLOG_PROTOCOL: ${AUDIT_SYSLOG_PROTOCOL:-}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -200,6 +209,21 @@ services:
       VERCEL_CLIENT_ID: ${VERCEL_CLIENT_ID:-}
       VERCEL_CLIENT_SECRET: ${VERCEL_CLIENT_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Embeddings: provider selection, failover and the data disclosure (all unset = OpenAI, as before)
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      EMBEDDING_FALLBACK_PROVIDER: ${EMBEDDING_FALLBACK_PROVIDER:-}
+      EMBEDDING_FALLBACK_MODEL: ${EMBEDDING_FALLBACK_MODEL:-}
+      EMBEDDING_FALLBACK_BASE_URL: ${EMBEDDING_FALLBACK_BASE_URL:-}
+      EMBEDDING_FAILOVER_COOLDOWN_SEC: ${EMBEDDING_FAILOVER_COOLDOWN_SEC:-}
+      EMBEDDING_ALLOW_PRIVATE_BASE_URL: ${EMBEDDING_ALLOW_PRIVATE_BASE_URL:-}
+      EMBEDDING_REEMBED_MAX_ROWS: ${EMBEDDING_REEMBED_MAX_ROWS:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      PLATFORM_REGION: ${PLATFORM_REGION:-}
       # Marketing agency (Claude copy, fal.ai visuals, ElevenLabs voice, Pubbler)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
@@ -279,6 +303,46 @@ services:
       NEXT_PUBLIC_BILLING_API_URL: http://platform-api:4000
       # Canonical URL for sitemap, OG, robots (override in production)
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
+
+  # ── Reverse proxy with your own TLS certificate (opt-in) ──────────────────
+  #
+  #   docker compose --profile tls up -d
+  #
+  # Terminates HTTPS with a certificate you supply instead of a public CA, which
+  # is what an internal domain or an offline network needs. Set DOMAIN,
+  # TLS_CERT_FILE (PEM, full chain) and TLS_KEY_FILE in .env; the routes for
+  # app./api./auth./storage.${DOMAIN} live in docker/traefik/dynamic/, so no
+  # other service here changes. Inactive unless the profile is named.
+  #
+  # Behind this proxy Keycloak needs KC_PROXY_HEADERS=xforwarded and
+  # KC_HOSTNAME=auth.<domain>; add them through a compose override rather than
+  # here, so a proxy-less dev stack does not start trusting forwarded headers.
+  # See docs/SELF_HOSTING_OFFLINE.md.
+  traefik:
+    image: traefik:v3.1
+    profiles: ["tls"]
+    restart: unless-stopped
+    command:
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/traefik/dynamic:/etc/traefik/dynamic:ro
+      # Interpolation happens before profiles are applied, so both paths need a
+      # default or a stack that never uses this profile would fail to start.
+      - ${TLS_CERT_FILE:-./docker/traefik/certs/tls.crt}:/certs/tls.crt:ro
+      - ${TLS_KEY_FILE:-./docker/traefik/certs/tls.key}:/certs/tls.key:ro
+    depends_on:
+      - platform-api
+      - admin-ui
 
 volumes:
   postgres_data:

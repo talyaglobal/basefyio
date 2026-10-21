@@ -15,6 +15,7 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { ProjectDatabaseService } from './project-database.service';
+import { ProjectProvisioningService } from './project-provisioning.service';
 import {
   ProjectActivityKind,
   ProjectActivityService,
@@ -26,6 +27,7 @@ export class ProjectDatabaseController {
   constructor(
     private readonly db: ProjectDatabaseService,
     private readonly activity: ProjectActivityService,
+    private readonly provisioning: ProjectProvisioningService,
   ) {}
 
   private log(projectId: string, userId: string, title: string, detail?: string) {
@@ -150,6 +152,18 @@ export class ProjectDatabaseController {
   ) {
     const r = await this.db.setExtension(id, u.sub, body);
     this.log(id, u.sub, `Extension ${body.enabled ? 'enabled' : 'disabled'}`, body.name);
+    return r;
+  }
+
+  /**
+   * Install the default extension set (the one new projects get) into this
+   * database. Idempotent; extensions already present are left alone and any
+   * the cluster lacks are reported, not fatal.
+   */
+  @Post('extensions/defaults')
+  async installDefaultExtensions(@Param('projectId') id: string, @CurrentUser() u: JwtPayload) {
+    const r = await this.provisioning.installDefaultExtensionsForProject(id, u.sub);
+    this.log(id, u.sub, 'Default extensions installed', r.installed.join(', ') || 'none');
     return r;
   }
 }

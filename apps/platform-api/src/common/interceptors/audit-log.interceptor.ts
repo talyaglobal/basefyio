@@ -4,15 +4,25 @@ import {
   ExecutionContext,
   CallHandler,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 import { Observable, tap, catchError, throwError } from 'rxjs';
+import { AuditSinkService } from '../audit/audit-sink.service';
+import { toAuditEvent } from '../audit/audit-event';
 
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
   private readonly logger = new Logger('AuditLog');
   private static readonly prisma = new PrismaClient();
+
+  /**
+   * The forwarder is optional so the interceptor still constructs on its own
+   * (tests, and the integration spec that overrides it). With no forwarder
+   * configured, `enqueue` is a no-op.
+   */
+  constructor(@Optional() private readonly auditSink?: AuditSinkService) {}
 
   private getActorRole(user: any): string {
     const roles = Array.isArray(user?.roles) ? user.roles : [];
@@ -97,8 +107,9 @@ export class AuditLogInterceptor implements NestInterceptor {
       success: input.success,
     };
 
+    let row: { id: string; createdAt: Date } | null = null;
     try {
-      await AuditLogInterceptor.prisma.auditLog.create({
+      row = await AuditLogInterceptor.prisma.auditLog.create({
         data: {
           traceId: input.traceId,
           actorUserId: input.actorUserId,
@@ -120,6 +131,32 @@ export class AuditLogInterceptor implements NestInterceptor {
       });
     } catch (err: any) {
       this.logger.warn(`Failed to persist audit log: ${err?.message || err}`);
+    }
+
+    // Forwarded whether or not the row was written: when the database is the
+    // thing that failed, the external copy is the only record left.
+    try {
+      this.auditSink?.enqueue(
+        toAuditEvent({
+          id: row?.id,
+          createdAt: row?.createdAt,
+          source: 'http',
+          traceId: input.traceId,
+          actorUserId: input.actorUserId,
+          actorRole: input.actorRole,
+          action: input.action,
+          resourceType: input.resourceType,
+          resourceId: null,
+          severity: input.success ? 'LOW' : 'HIGH',
+          success: input.success,
+          latencyMs: input.latencyMs,
+          method,
+          path,
+          statusCode: statusCode ?? null,
+        }),
+      );
+    } catch (err: any) {
+      this.logger.warn(`Failed to forward audit event: ${err?.message || err}`);
     }
   }
 

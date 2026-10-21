@@ -6,7 +6,7 @@ import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import { getAccessToken } from '@/lib/auth';
-import type { StorageBucket, StorageObject } from '@/lib/types';
+import type { StorageBucket, StorageObject, StoragePolicyMode, UploadProgress } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,26 @@ import {
 } from 'lucide-react';
 
 // ── helpers ──────────────────────────────────────────────
+
+/** Files at or above this size go up in chunks through a resumable session. */
+const RESUMABLE_THRESHOLD = 64 * 1024 * 1024;
+
+type PolicyChoice = 'default' | StoragePolicyMode;
+
+const POLICY_LABEL: Record<PolicyChoice, string> = {
+  default: 'Default — any key can read',
+  'public-read': 'Any key can read (explicit)',
+  'authenticated-read': 'Signed-in users only',
+  'owner-only': 'Owner only',
+};
+
+const POLICY_HELP: Record<PolicyChoice, string> = {
+  default:
+    'Any valid project key can read files; writes need a signed-in user or the service key. This is how a bucket behaves with no rule.',
+  'public-read': 'Same as the default, stated explicitly.',
+  'authenticated-read': 'Reads need a signed-in user of your app. The public key on its own is refused.',
+  'owner-only': 'Files are readable and deletable only by the signed-in user who uploaded them.',
+};
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -380,6 +400,26 @@ function BucketSettings({
   onUpdate: () => void;
 }) {
   const [toggling, setToggling] = useState(false);
+  const [policyMode, setPolicyMode] = useState<PolicyChoice>('default');
+  const [policySaving, setPolicySaving] = useState(false);
+
+  // The bucket-wide rule (prefix ''). Prefix rules are set through the API.
+  useEffect(() => {
+    let cancelled = false;
+    api.storage
+      .getPolicies(projectId)
+      .then((rows) => {
+        if (cancelled) return;
+        const row = rows.find((r) => r.bucket === bucketName && r.pathPrefix === '');
+        setPolicyMode(row ? row.mode : 'default');
+      })
+      .catch(() => {
+        /* rules are optional; keep showing the default */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, bucketName]);
 
   async function handleTogglePublic() {
     if (!bucketInfo) return;
@@ -392,6 +432,20 @@ function BucketSettings({
       toast.error(err.message);
     } finally {
       setToggling(false);
+    }
+  }
+
+  async function handlePolicyChange(next: PolicyChoice) {
+    setPolicySaving(true);
+    try {
+      if (next === 'default') await api.storage.removePolicy(projectId, bucketName);
+      else await api.storage.setPolicy(projectId, bucketName, next);
+      setPolicyMode(next);
+      toast.success(next === 'default' ? 'Access rule removed' : `Access rule set: ${POLICY_LABEL[next]}`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setPolicySaving(false);
     }
   }
 
@@ -472,6 +526,39 @@ function BucketSettings({
               </p>
             </div>
           )}
+
+          {/* Access rule for API-key callers */}
+          <div className="border-t pt-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">Access rule for API keys</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{POLICY_HELP[policyMode]}</p>
+              </div>
+              <select
+                value={policyMode}
+                disabled={policySaving || bucketInfo.public}
+                onChange={(e) => handlePolicyChange(e.target.value as PolicyChoice)}
+                className="h-8 shrink-0 rounded-md border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="default">{POLICY_LABEL.default}</option>
+                <option value="authenticated-read">{POLICY_LABEL['authenticated-read']}</option>
+                <option value="owner-only">{POLICY_LABEL['owner-only']}</option>
+              </select>
+            </div>
+            {bucketInfo.public && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Access rules apply to private buckets. A public bucket is readable at its direct storage URL regardless.
+              </p>
+            )}
+            {policyMode === 'owner-only' && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs dark:border-amber-800 dark:bg-amber-950">
+                <p className="text-amber-700 dark:text-amber-300">
+                  Files uploaded before this rule was set carry no owner and stay unreachable for API-key callers
+                  until they are uploaded again. The service key and team members keep full access.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -526,6 +613,7 @@ function ObjectBrowser({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [urlLoading, setUrlLoading] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -608,6 +696,19 @@ function ObjectBrowser({
     }
   }
 
+  // Big files go through a resumable session in chunks; small ones in one request.
+  async function uploadOne(path: string, file: File) {
+    if (file.size >= RESUMABLE_THRESHOLD) {
+      try {
+        await api.storage.uploadResumable(projectId, bucketName, path, file, setUploadProgress);
+      } finally {
+        setUploadProgress(null);
+      }
+    } else {
+      await api.storage.upload(projectId, bucketName, path, file);
+    }
+  }
+
   async function handleUpload(fileList: FileList | null) {
     const all = Array.from(fileList ?? []);
     if (!all.length) {
@@ -648,7 +749,7 @@ function ObjectBrowser({
     setUploading(true);
     try {
       for (const { file, name } of plan) {
-        await api.storage.upload(projectId, bucketName, prefix + name, file);
+        await uploadOne(prefix + name, file);
       }
       toast.success(`Uploaded ${plan.length} file(s)`);
       await load();
@@ -704,7 +805,7 @@ function ObjectBrowser({
 
       let done = 0;
       for (const { file, path } of toUpload) {
-        await api.storage.upload(projectId, bucketName, path, file);
+        await uploadOne(path, file);
         done++;
       }
       toast.success(`Uploaded ${done} file(s) from the folder`);
@@ -888,7 +989,7 @@ function ObjectBrowser({
         </Button>
         <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           <Upload className="mr-1.5 h-3.5 w-3.5" />
-          {uploading ? 'Uploading…' : 'Upload'}
+          {uploading ? (uploadProgress ? `Uploading… ${uploadProgress.percent}%` : 'Uploading…') : 'Upload'}
         </Button>
         <input
           ref={fileInputRef}

@@ -292,6 +292,8 @@ export class BillingController {
       maxApiRequests?: number | null;
       maxBandwidthBytes?: string | null;
       maxMau?: number | null;
+      /** Default pooler connection cap per project database; null = platform default. */
+      maxDbConnections?: number | null;
       isPublic?: boolean;
     },
   ) {
@@ -322,6 +324,7 @@ export class BillingController {
               ? null
               : BigInt(body.maxBandwidthBytes),
         maxMau: body.maxMau,
+        maxDbConnections: body.maxDbConnections,
         isPublic: body.isPublic,
       });
       await this.observability.captureRootAction({

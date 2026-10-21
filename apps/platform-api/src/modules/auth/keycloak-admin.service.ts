@@ -630,6 +630,7 @@ export class KeycloakAdminService implements OnModuleInit {
       emailVerified: u.emailVerified,
       phoneNumber: (u.attributes as any)?.phoneNumber?.[0] ?? null,
       phoneVerified: (u.attributes as any)?.phoneVerified?.[0] === 'true',
+      isAnonymous: this.isAnonymousUser(u),
       createdTimestamp: u.createdTimestamp,
     }));
   }
@@ -1217,6 +1218,188 @@ export class KeycloakAdminService implements OnModuleInit {
     this.logger.log(`Email changed for user ${userId} in realm "${realmName}" to "${newEmail}"`);
   }
 
+  // ── Anonymous end users ──
+
+  /** Marks a throw-away identity created by anonymous sign-in. */
+  private static readonly ANONYMOUS_ATTRIBUTE = 'is_anonymous';
+
+  /**
+   * Copies the attribute into the tokens of the realm's anon client as the
+   * boolean claim `is_anonymous`, so row-level policies can read it through
+   * `auth.jwt()`. Omitted when the attribute is absent, so other users' tokens
+   * do not change.
+   */
+  private static readonly ANONYMOUS_CLAIM_MAPPER = {
+    name: 'is_anonymous',
+    protocol: 'openid-connect',
+    protocolMapper: 'oidc-usermodel-attribute-mapper',
+    config: {
+      'user.attribute': 'is_anonymous',
+      'claim.name': 'is_anonymous',
+      'jsonType.label': 'boolean',
+      'id.token.claim': 'true',
+      'access.token.claim': 'true',
+      'userinfo.token.claim': 'true',
+      multivalued: 'false',
+      'aggregate.attrs': 'false',
+    },
+  };
+
+  /** Realms whose anon client is known to carry the is_anonymous mapper in this process. */
+  private readonly anonymousClaimMapped = new Set<string>();
+
+  isAnonymousUser(user: { attributes?: Record<string, unknown> } | null | undefined): boolean {
+    const value = (user?.attributes as any)?.[KeycloakAdminService.ANONYMOUS_ATTRIBUTE];
+    return Array.isArray(value) ? value[0] === 'true' : value === 'true' || value === true;
+  }
+
+  /** Idempotent and cached per process, like the auth_time mapper. */
+  async ensureRealmClientAnonymousClaimMapper(realmName: string, clientId: string): Promise<void> {
+    const key = `${realmName}/${clientId}`;
+    if (this.anonymousClaimMapped.has(key)) return;
+    await this.ensureAuth();
+    const clients = await this.client.clients.find({ realm: realmName, clientId });
+    const c = clients[0];
+    if (!c?.id) {
+      throw new BadRequestException(`Client "${clientId}" does not exist in realm "${realmName}"`);
+    }
+    const mappers = await this.client.clients.listProtocolMappers({ realm: realmName, id: c.id });
+    const mapper = KeycloakAdminService.ANONYMOUS_CLAIM_MAPPER;
+    if (!mappers.some((m) => m.name === mapper.name)) {
+      await this.client.clients.addProtocolMapper({ realm: realmName, id: c.id }, mapper);
+      this.logger.log(`Added is_anonymous mapper to "${clientId}" in realm "${realmName}"`);
+    }
+    this.anonymousClaimMapped.add(key);
+  }
+
+  /**
+   * A user that exists only to hold a session. Keycloak 24's User Profile
+   * requires a name and an email even here (a missing one re-triggers profile
+   * verification on every grant, which fails the password grant), so the user
+   * gets placeholders: a name that says what it is and an address under the
+   * reserved `.invalid` domain that can never receive mail.
+   */
+  async createAnonymousUser(realmName: string, username: string, password: string): Promise<string> {
+    await this.ensureAuth();
+    await this.ensureUnmanagedAttributes(realmName);
+    const { id } = await this.client.users.create({
+      realm: realmName,
+      username,
+      email: `${username}@anonymous.invalid`,
+      firstName: 'Anonymous',
+      lastName: 'User',
+      enabled: true,
+      emailVerified: false,
+      requiredActions: [],
+      attributes: {
+        [KeycloakAdminService.ANONYMOUS_ATTRIBUTE]: ['true'],
+        anon_created_at: [new Date().toISOString()],
+      },
+      credentials: [{ type: 'password', value: password, temporary: false }],
+    });
+    this.logger.log(`Anonymous user "${username}" created in realm "${realmName}" (${id})`);
+    return id;
+  }
+
+  /**
+   * Turn an anonymous user into an ordinary account in place: same Keycloak id,
+   * so everything keyed on `auth.uid()` follows the person. Username tracks the
+   * email as elsewhere (the password grant resolves the literal username).
+   */
+  async convertAnonymousUser(
+    realmName: string,
+    userId: string,
+    data: {
+      email: string;
+      password: string;
+      firstName?: string;
+      lastName?: string;
+      emailVerified: boolean;
+    },
+  ): Promise<void> {
+    await this.ensureAuth();
+    await this.ensureEditUsername(realmName);
+    const current = await this.client.users.findOne({ realm: realmName, id: userId });
+    if (!current?.id) throw new BadRequestException('Anonymous user not found');
+    if (!this.isAnonymousUser(current)) {
+      throw new BadRequestException('This user is not anonymous');
+    }
+
+    const attributes: Record<string, unknown> = { ...(current.attributes || {}) };
+    delete attributes[KeycloakAdminService.ANONYMOUS_ATTRIBUTE];
+    delete attributes.anon_created_at;
+    const local = data.email.split('@')[0] || 'user';
+
+    try {
+      await this.client.users.update(
+        { realm: realmName, id: userId },
+        {
+          username: data.email,
+          email: data.email,
+          emailVerified: data.emailVerified,
+          firstName: data.firstName?.trim() || local,
+          lastName: data.lastName?.trim() || local,
+          attributes,
+          requiredActions: [],
+        },
+      );
+    } catch (err: any) {
+      const status = err?.response?.status ?? err?.responseData?.status ?? err?.status;
+      if (status === 409) throw new ConflictException('That email is already in use');
+      throw err;
+    }
+    await this.client.users.resetPassword({
+      realm: realmName,
+      id: userId,
+      credential: { type: 'password', value: data.password, temporary: false },
+    });
+    this.logger.log(`Anonymous user ${userId} in realm "${realmName}" converted to "${data.email}"`);
+  }
+
+  /**
+   * Delete anonymous users older than the cutoff. A session that old has outlived
+   * its refresh token (the realm's SSO idle timeout is 30 days), so nothing can
+   * reach the account any more. One page per call; run again for more.
+   */
+  async purgeAnonymousUsers(
+    realmName: string,
+    olderThanDays = 30,
+    max = 500,
+    dryRun = false,
+  ): Promise<{ matched: number; deleted: number }> {
+    await this.ensureAuth();
+    const cutoff = Date.now() - olderThanDays * 86_400_000;
+    const users = await this.client.users.find({
+      realm: realmName,
+      q: `${KeycloakAdminService.ANONYMOUS_ATTRIBUTE}:true`,
+      max,
+      briefRepresentation: false,
+    } as any);
+    const stale = users.filter(
+      (u) => u.id && this.isAnonymousUser(u) && (u.createdTimestamp ?? 0) < cutoff,
+    );
+    let deleted = 0;
+    if (!dryRun) {
+      for (const u of stale) {
+        try {
+          await this.client.users.del({ realm: realmName, id: u.id! });
+          deleted++;
+        } catch (err: any) {
+          this.logger.warn(`Could not delete anonymous user ${u.id}: ${err?.message ?? err}`);
+        }
+      }
+      this.logger.log(`Purged ${deleted}/${stale.length} anonymous users from realm "${realmName}"`);
+    }
+    return { matched: stale.length, deleted };
+  }
+
+  /** Whether the user owns an authenticator enrolled through Keycloak itself (hosted login). */
+  async userHasOtpCredential(realmName: string, userId: string): Promise<boolean> {
+    await this.ensureAuth();
+    const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
+    return (creds || []).some((c: any) => c.type === 'otp');
+  }
+
   // ── Platform user operations ──
 
   async createPlatformUser(data: {
@@ -1329,8 +1512,10 @@ export class KeycloakAdminService implements OnModuleInit {
       ...(existing?.attributes || {}),
       kb_force_password_change: [forceChangeOnFirstLogin ? 'true' : 'false'],
     };
-    // If forceChangeOnFirstLogin is true, add UPDATE_PASSWORD to requiredActions
-    const requiredActions = forceChangeOnFirstLogin ? ['UPDATE_PASSWORD'] : [];
+    // Add or remove UPDATE_PASSWORD only; another pending action (a required
+    // authenticator setup, for instance) must survive a password reset.
+    const others = ((existing?.requiredActions as string[]) || []).filter((a) => a !== 'UPDATE_PASSWORD');
+    const requiredActions = forceChangeOnFirstLogin ? [...others, 'UPDATE_PASSWORD'] : others;
     await this.client.users.update(
       { realm: 'master', id: keycloakUserId },
       { attributes, requiredActions },
@@ -1388,10 +1573,14 @@ export class KeycloakAdminService implements OnModuleInit {
       ...(existing?.attributes || {}),
       kb_force_password_change: ['false'],
     };
-    // Clear both the custom attribute and Keycloak's requiredActions
+    // Clear the custom attribute and the UPDATE_PASSWORD action only; other
+    // pending actions (a required authenticator setup) are left in place.
+    const requiredActions = ((existing?.requiredActions as string[]) || []).filter(
+      (a) => a !== 'UPDATE_PASSWORD',
+    );
     await this.client.users.update(
       { realm: 'master', id: resolvedId },
-      { attributes, requiredActions: [] },
+      { attributes, requiredActions },
     );
   }
 
@@ -1638,5 +1827,109 @@ export class KeycloakAdminService implements OnModuleInit {
       providerId: p.providerId,
       enabled: p.enabled,
     }));
+  }
+
+  // ── Platform-realm two-factor helpers (dashboard sign-in) ──
+
+  /** Removes one required action and leaves every other pending action alone. */
+  async removeUserRequiredAction(realmName: string, userId: string, action: string): Promise<void> {
+    await this.setUserRequiredAction(realmName, userId, action, false);
+  }
+
+  /** Whether `action` is pending on the user. */
+  async userHasRequiredAction(realmName: string, userId: string, action: string): Promise<boolean> {
+    await this.ensureAuth();
+    const u = await this.client.users.findOne({ realm: realmName, id: userId });
+    return ((u?.requiredActions as string[]) || []).includes(action);
+  }
+
+  /** The user's authenticator credentials (type `otp`) with their labels. */
+  async getUserOtpCredentials(realmName: string, userId: string) {
+    const creds = await this.getUserCredentials(realmName, userId);
+    return creds.filter((c) => c.type === 'otp');
+  }
+
+  /** Keycloak username of a master-realm user, or null when the user is gone. */
+  async getPlatformUsername(userId: string): Promise<string | null> {
+    const u = await this.getPlatformUserById(userId);
+    return (u?.username as string | undefined) ?? null;
+  }
+
+  private directGrantOtpCache: { until: number; value: boolean } | null = null;
+
+  /**
+   * Whether the master realm's direct-grant flow asks for a one-time code when
+   * the user has an authenticator. Keycloak's default flow does (the
+   * "Direct Grant - Conditional OTP" sub-flow); an installation that replaced
+   * it with a password-only flow would let a password grant through unchecked,
+   * so enrolment and the team policy are refused until the flow validates OTP.
+   *
+   * The flow checked is the one the dashboard's sign-in client actually runs:
+   * its own direct-grant override when it has one, otherwise the realm's
+   * binding. Read-only: the realm is never modified here. Cached for ten
+   * minutes; a failed inspection is cached for thirty seconds and reads as
+   * "no", so nothing is promised that cannot be checked.
+   */
+  async directGrantValidatesOtp(): Promise<boolean> {
+    const now = Date.now();
+    if (this.directGrantOtpCache && now < this.directGrantOtpCache.until) {
+      return this.directGrantOtpCache.value;
+    }
+    let value = false;
+    let ttl = 10 * 60 * 1000;
+    try {
+      await this.ensureAuth();
+      const realm = await this.client.realms.findOne({ realm: 'master' });
+      const flows = (await this.client.authenticationManagement.getFlows({ realm: 'master' })) || [];
+      const signInClientId = this.config.get<string>('keycloak.adminClientId') || 'admin-cli';
+      const [signInClient] = await this.client.clients.find({ realm: 'master', clientId: signInClientId });
+      const overrideId = (signInClient?.authenticationFlowBindingOverrides as Record<string, string> | undefined)
+        ?.direct_grant;
+      const flow = overrideId
+        ? flows.find((f: any) => f.id === overrideId)
+        : flows.find((f: any) => f.alias === ((realm?.directGrantFlow as string | undefined) || 'direct grant'));
+      if (flow?.alias) {
+        const executions = await this.client.authenticationManagement.getExecutions({
+          realm: 'master',
+          flow: flow.alias,
+        });
+        value = KeycloakAdminService.executionsValidateOtp((executions || []) as any[]);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not inspect the direct-grant flow: ${err?.message ?? err}`);
+      value = false;
+      ttl = 30 * 1000;
+    }
+    this.directGrantOtpCache = { until: now + ttl, value };
+    return value;
+  }
+
+  /**
+   * Reads Keycloak's flattened, depth-first execution list: true when the
+   * direct-grant OTP authenticator is REQUIRED and every sub-flow above it is
+   * REQUIRED or CONDITIONAL (the default "Direct Grant - Conditional OTP"
+   * shape). An OTP step that is disabled, alternative, or under a disabled or
+   * alternative sub-flow can be skipped, so it does not count.
+   */
+  static executionsValidateOtp(
+    executions: Array<{ providerId?: string; requirement?: string; level?: number; authenticationFlow?: boolean }>,
+  ): boolean {
+    const parents: Array<{ level: number; requirement: string }> = [];
+    for (const e of executions) {
+      const level = e.level ?? 0;
+      while (parents.length && parents[parents.length - 1].level >= level) parents.pop();
+      if (e.authenticationFlow) {
+        parents.push({ level, requirement: String(e.requirement || '') });
+        continue;
+      }
+      if (
+        e.providerId === 'direct-grant-validate-otp' &&
+        e.requirement === 'REQUIRED' &&
+        parents.every((p) => p.requirement === 'REQUIRED' || p.requirement === 'CONDITIONAL')
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 }

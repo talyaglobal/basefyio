@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import {
   ChevronDown,
@@ -285,6 +286,8 @@ export function ConnectionStringsView({
   const [rotatingPassword, setRotatingPassword] = useState(false);
   const [showKeycloakDetails, setShowKeycloakDetails] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [readonlyBusy, setReadonlyBusy] = useState(false);
+  const [limitBusy, setLimitBusy] = useState(false);
 
   useEffect(() => {
     api.projects
@@ -427,6 +430,53 @@ datasource db {
       toast.error(err.message || 'Password reset failed');
     } finally {
       setRotatingPassword(false);
+    }
+  }
+
+  async function refreshConnection() {
+    const fresh = await api.projects.connect(projectId);
+    setConn(fresh);
+  }
+
+  async function handleReadonlyRole(action: 'create' | 'rotate' | 'remove') {
+    if (action === 'remove') {
+      const ok = await confirmDialog({
+        title: 'Remove read-only role',
+        description: 'Clients using the read-only credentials lose access immediately.',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setReadonlyBusy(true);
+    try {
+      if (action === 'create') await api.projects.createReadonlyRole(projectId);
+      else if (action === 'rotate') await api.projects.rotateReadonlyPassword(projectId);
+      else await api.projects.dropReadonlyRole(projectId);
+      await refreshConnection();
+      toast.success(
+        action === 'create'
+          ? 'Read-only role ready'
+          : action === 'rotate'
+            ? 'Read-only password rotated'
+            : 'Read-only role removed',
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Read-only role update failed');
+    } finally {
+      setReadonlyBusy(false);
+    }
+  }
+
+  async function handleConnectionLimit(value: string) {
+    setLimitBusy(true);
+    try {
+      await api.projects.setDbConnectionLimit(projectId, value === 'default' ? null : Number(value));
+      await refreshConnection();
+      toast.success(value === 'default' ? 'Pooler limit reset to the plan default' : `Pooler limit set to ${value}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not update the pooler limit');
+    } finally {
+      setLimitBusy(false);
     }
   }
 
@@ -729,6 +779,97 @@ datasource db {
         </Dialog>
         <CodeExample label="Prisma" language="prisma" code={prismaExample} />
       </section>
+
+      {/* Read-only access */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Shield className="h-5 w-5" />
+          Read-only access
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          A second login role, <code className="rounded bg-muted px-1">{conn.readonly?.user ?? `${conn.user}_readonly`}</code>,
+          for reporting and BI tools. It can SELECT from every table — including rows protected by row-level
+          security, exactly like the owner — and cannot write data, change the schema or manage roles.
+        </p>
+        {conn.readonly ? (
+          <>
+            <CopyBlock label="Read-only Pooler URI" value={conn.readonly.poolerUri} icon={Link2} />
+            <div className="basefyio-grid-row-hover grid gap-3 sm:grid-cols-2">
+              <CopyBlock label="Read-only User" value={conn.readonly.user} icon={Database} />
+              <CopyBlock label="Read-only Password" value={conn.readonly.password} icon={Key} />
+            </div>
+            {conn.canResetDbPassword && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="gap-2" disabled={readonlyBusy} onClick={() => handleReadonlyRole('rotate')}>
+                  <RefreshCw className="h-4 w-4" />
+                  Rotate read-only password
+                </Button>
+                <Button variant="outline" disabled={readonlyBusy} onClick={() => handleReadonlyRole('create')}>
+                  Repair grants
+                </Button>
+                <Button variant="ghost" className="text-destructive" disabled={readonlyBusy} onClick={() => handleReadonlyRole('remove')}>
+                  Remove read-only role
+                </Button>
+              </div>
+            )}
+          </>
+        ) : conn.canResetDbPassword ? (
+          <Button variant="outline" className="gap-2" disabled={readonlyBusy} onClick={() => handleReadonlyRole('create')}>
+            <Shield className="h-4 w-4" />
+            {readonlyBusy ? 'Creating…' : 'Create read-only role'}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Not set up yet. A team owner, or a member with the database password permission, can create it.
+          </p>
+        )}
+      </section>
+
+      {/* Pooler connection limit */}
+      {conn.pooler && (
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <Layers className="h-5 w-5" />
+            Pooler connection limit
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            How many server connections this database may hold through the pooler
+            {conn.pooler.effective === null
+              ? ' — currently only the pooler defaults apply'
+              : ` — currently ${conn.pooler.effective} (${
+                  conn.pooler.source === 'project'
+                    ? 'set for this project'
+                    : conn.pooler.source === 'plan'
+                      ? 'from your plan'
+                      : 'platform default'
+                })`}
+            . Your plan allows up to {conn.pooler.planCeiling}.
+          </p>
+          {conn.canResetDbPassword && (
+            <Select
+              value={
+                conn.pooler.source === 'project' && conn.pooler.effective !== null
+                  ? String(conn.pooler.effective)
+                  : 'default'
+              }
+              onValueChange={(v) => void handleConnectionLimit(v)}
+              disabled={limitBusy}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Plan default</SelectItem>
+                {[5, 10, 20, 50, 100].map((n) => (
+                  <SelectItem key={n} value={String(n)} disabled={n > conn.pooler!.planCeiling}>
+                    {n} connections{n > conn.pooler!.planCeiling ? ' (upgrade plan)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </section>
+      )}
 
       {/* REST API */}
       <section className="space-y-3">
