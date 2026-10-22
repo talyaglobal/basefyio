@@ -25,6 +25,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOrPlatformTokenGuard } from '../api-tokens/jwt-or-platform-token.guard';
+import { ScopesGuard } from '../api-tokens/scopes.guard';
+import { Scopes } from '../api-tokens/scopes.decorator';
 import {
   CurrentUser,
   JwtPayload,
@@ -100,6 +103,14 @@ class AddCommentDto {
   parentCommentId?: string;
 }
 
+/**
+ * Most routes are for the signed-in dashboard user only. The five a triage
+ * tool needs (list, read comments and history, comment, change status) also
+ * accept a personal API token carrying feedback:read / feedback:write. Such a
+ * token acts as its owner, so the service's own rules still decide what it
+ * sees: a root administrator's token reaches every report, anyone else's only
+ * their own.
+ */
 @Controller('feedback')
 export class FeedbackController {
   constructor(private readonly feedbackService: FeedbackService) {}
@@ -141,13 +152,15 @@ export class FeedbackController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('feedback:read')
   @Get()
   async findAll(@CurrentUser() user: JwtPayload) {
     return this.feedbackService.findAllForUser(user.sub);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('feedback:write')
   @Patch(':id')
   async updateStatus(
     @CurrentUser() user: JwtPayload,
@@ -176,7 +189,8 @@ export class FeedbackController {
     return this.feedbackService.removeFeedback(user.sub, id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('feedback:read')
   @Get(':id/comments')
   async listComments(
     @CurrentUser() user: JwtPayload,
@@ -185,7 +199,8 @@ export class FeedbackController {
     return this.feedbackService.listComments(user.sub, id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('feedback:write')
   @Post(':id/comments')
   async addComment(
     @CurrentUser() user: JwtPayload,
@@ -216,7 +231,8 @@ export class FeedbackController {
     return this.feedbackService.removeComment(user.sub, id, commentId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtOrPlatformTokenGuard, ScopesGuard)
+  @Scopes('feedback:read')
   @Get(':id/history')
   async listHistory(
     @CurrentUser() user: JwtPayload,

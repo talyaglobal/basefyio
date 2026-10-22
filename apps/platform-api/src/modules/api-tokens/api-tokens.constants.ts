@@ -217,6 +217,16 @@ export const SCOPE_GROUPS: ScopeGroup[] = [
     description: 'Activity history and request logs',
     scopes: [{ scope: 'logs:read', description: 'Read activity history and logs' }],
   },
+  {
+    resource: 'feedback',
+    label: 'Feedback',
+    category: 'Platform',
+    description: 'Product feedback: your own reports, or every report for a root administrator',
+    scopes: [
+      { scope: 'feedback:read', description: 'List feedback with its comments and history' },
+      { scope: 'feedback:write', description: 'Comment on feedback and change its status' },
+    ],
+  },
 ];
 
 export const ALL_SCOPES: Set<string> = new Set(
