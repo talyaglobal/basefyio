@@ -106,9 +106,27 @@ jobs:
             docker tag ghcr.io/$OWNER/basefyio-api:$SHA ghcr.io/$OWNER/basefyio-api:latest
 
             echo "=== Building Admin UI ==="
+            # The publishable key is inlined into the browser bundle at build
+            # time, so it has to come from the same file as the secret key the
+            # API charges with. It used to come from a CI secret, which still
+            # held a test key after the server moved to live Stripe: the card
+            # form then failed for every customer while the API looked healthy.
+            # Refuse to build a pair that cannot work together.
+            env_value() { grep -E "^$1=" .env.production | tail -1 | cut -d= -f2- | tr -d "\"'"; }
+            STRIPE_PK=$(env_value NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+            STRIPE_SK=$(env_value STRIPE_SECRET_KEY)
+            if [ -n "$STRIPE_SK" ]; then
+              sk_mode=$(echo "$STRIPE_SK" | cut -d_ -f2); pk_mode=$(echo "$STRIPE_PK" | cut -d_ -f2)
+              sk_acct=$(echo "$STRIPE_SK" | cut -d_ -f3 | cut -c1-16); pk_acct=$(echo "$STRIPE_PK" | cut -d_ -f3 | cut -c1-16)
+              if [ "$sk_mode" != "$pk_mode" ] || [ "$sk_acct" != "$pk_acct" ]; then
+                echo "::error::NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY (${pk_mode:-unset}) is not from the Stripe account of STRIPE_SECRET_KEY (${sk_mode}); refusing to ship a billing page that cannot take a card"
+                exit 1
+              fi
+              echo "Stripe keys: both ${sk_mode}, same account"
+            fi
             docker build \
               -t ghcr.io/$OWNER/basefyio-ui:$SHA \
-              --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }} \
+              --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="$STRIPE_PK" \
               apps/admin-ui
             docker tag ghcr.io/$OWNER/basefyio-ui:$SHA ghcr.io/$OWNER/basefyio-ui:latest
 
