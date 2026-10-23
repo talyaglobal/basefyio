@@ -2,6 +2,7 @@ import { Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { RootConsoleService } from './root-console.service';
+import { ProjectsService } from '../projects/projects.service';
 import { DiskUsageService } from './disk-usage.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
@@ -14,6 +15,7 @@ export class RootConsoleController {
     private readonly console: RootConsoleService,
     private readonly diskUsage: DiskUsageService,
     private readonly alerts: PlatformAlertsService,
+    private readonly projectRepair: ProjectsService,
   ) {}
 
   @Get('overview')
@@ -51,6 +53,16 @@ export class RootConsoleController {
   @Post('alerts/:id/acknowledge')
   acknowledgeAlert(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {
     return this.alerts.acknowledge(id, user.sub);
+  }
+
+  /**
+   * Put back a live project's database or authentication realm when it is
+   * missing. Additive and safe to repeat; the result says what it created and
+   * whether the project's API keys had to be reissued.
+   */
+  @Post('projects/:id/repair-provisioning')
+  repairProvisioning(@Param('id', ParseUUIDPipe) id: string) {
+    return this.projectRepair.repairProvisioning(id);
   }
 
   @Get('storage')

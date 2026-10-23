@@ -2251,6 +2251,104 @@ export class ProjectsService {
   }
 
   /**
+   * Put back whatever a live project is missing underneath it.
+   *
+   * Two projects were found ACTIVE in the dashboard with no database at all:
+   * every request against them failed and their nightly backup had been
+   * failing for months. Creation is transactional today — the row is written
+   * only once the database and the realm both exist — so nothing creates that
+   * state any more, but the projects left in it had no way back short of
+   * hand-written SQL on the server.
+   *
+   * Only ever additive: each step first asks whether the thing is already
+   * there. A project with everything in place comes back with an empty
+   * `created` list, so this is safe to run twice.
+   *
+   * Recreating the realm issues new clients, so the project's anon and service
+   * keys change and anything holding the old ones must be updated. That is
+   * reported in the result rather than hidden.
+   */
+  async repairProvisioning(projectId: string): Promise<{
+    projectId: string;
+    created: string[];
+    alreadyPresent: string[];
+    keysRotated: boolean;
+  }> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: { not: 'DELETED' } },
+      select: {
+        id: true,
+        slug: true,
+        dbName: true,
+        dbHost: true,
+        dbPort: true,
+        dbUser: true,
+        dbPassword: true,
+        keycloakRealm: true,
+      },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const cfgHost = this.config.get<string>('database.host');
+    const cfgPort = Number(this.config.get<number>('database.port'));
+    if (project.dbHost !== cfgHost || Number(project.dbPort) !== cfgPort) {
+      // A dedicated project's database lives inside its own container, whose
+      // admin credentials this service does not hold.
+      throw new BadRequestException(
+        'This project runs on a dedicated database host; repair it through the provisioning flow',
+      );
+    }
+
+    const created: string[] = [];
+    const alreadyPresent: string[] = [];
+
+    const pool = this.getAdminPool();
+    const existing = await pool.query<{ datname: string }>(
+      'SELECT datname FROM pg_database WHERE datname = $1',
+      [project.dbName],
+    );
+    if (existing.rowCount === 0) {
+      await this.createDatabase(project.dbName);
+      await this.createDatabaseUser(project.dbUser, project.dbPassword, project.dbName);
+      await this.applyRlsBootstrap(project.dbName, project.dbUser);
+      created.push('database', 'database user', 'row-level security bootstrap');
+      this.logger.warn(`Repaired missing database "${project.dbName}" for project ${project.slug}`);
+    } else {
+      alreadyPresent.push('database');
+    }
+
+    let keysRotated = false;
+    if (project.keycloakRealm) {
+      const realmThere = await this.keycloak.realmExists(project.keycloakRealm).catch(() => true);
+      if (!realmThere) {
+        await this.keycloak.createRealm(project.keycloakRealm);
+        const clients = await this.keycloak.createClients(project.keycloakRealm);
+        await this.prisma.project.update({
+          where: { id: project.id },
+          data: { anonKey: clients.anonKey, serviceKey: clients.serviceKey },
+        });
+        created.push('authentication realm', 'anon and service clients');
+        keysRotated = true;
+        this.logger.warn(
+          `Repaired missing realm "${project.keycloakRealm}" for project ${project.slug}; API keys were reissued`,
+        );
+      } else {
+        alreadyPresent.push('authentication realm');
+      }
+    }
+
+    if (created.length > 0) {
+      await this.activity.append(project.id, {
+        kind: ProjectActivityKind.PROJECT_UPDATED,
+        title: 'Missing infrastructure restored',
+        detail: created.join(', ') + (keysRotated ? '; the project API keys were reissued' : ''),
+      });
+    }
+
+    return { projectId: project.id, created, alreadyPresent, keysRotated };
+  }
+
+  /**
    * Idempotent re-application triggered by the admin UI / backfill script.
    * Looks up the project, runs the bootstrap (whose SQL ends in a sentinel
    * SET ROLE round-trip — so silent failure is impossible), stamps
