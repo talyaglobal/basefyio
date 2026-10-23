@@ -30,6 +30,7 @@ import {
 } from '@/lib/auth';
 import type { UserProfile } from '@/lib/types';
 import { DashboardContext } from '@/app/dashboard/layout';
+import { ConsoleAlertBar } from '@/components/console/alert-bar';
 import { cn } from '@/lib/utils';
 
 type NavItem = { href: string; label: string; icon: ElementType; exact?: boolean };
@@ -198,6 +199,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="min-w-0 pl-60">
+          <ConsoleAlertBar />
           <div className="mx-auto max-w-[1600px] px-6 py-8">{children}</div>
         </main>
       </div>

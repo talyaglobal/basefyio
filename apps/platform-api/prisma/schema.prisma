@@ -2048,3 +2048,27 @@ model StoragePolicy {
   @@index([projectId])
   @@map("storage_policies")
 }
+
+/// Something the platform operator has to see: an automatic volume growth, a
+/// restore refused for lack of disk, a self-healing action. Shown in the root
+/// console as a red badge until a root user acknowledges it.
+model PlatformAlert {
+  /// The source's own event id, so importing the host autopilot's event log
+  /// twice can never duplicate an alert.
+  id             String    @id
+  /// 'storage-autopilot' (host) | 'platform-api'
+  source         String    @db.VarChar(40)
+  kind           String    @db.VarChar(60)
+  /// 'critical' | 'warning'
+  severity       String    @db.VarChar(16)
+  title          String    @db.VarChar(300)
+  detail         String?   @db.Text
+  metadata       Json?
+  occurredAt     DateTime  @map("occurred_at")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  acknowledgedBy String?   @map("acknowledged_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([acknowledgedAt, occurredAt(sort: Desc)])
+  @@map("platform_alerts")
+}

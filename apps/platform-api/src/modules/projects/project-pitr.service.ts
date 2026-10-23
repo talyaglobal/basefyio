@@ -4,11 +4,12 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { mkdir, mkdtemp, readdir, rm, stat, unlink, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, statfs, unlink, utimes, writeFile } from 'fs/promises';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { createGzip } from 'zlib';
@@ -23,6 +24,7 @@ import {
   ProjectActivityService,
 } from './project-activity.service';
 import { BackupOffsiteService } from './backups/backup-offsite.service';
+import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +61,22 @@ const CLUSTER_BASE_RETAIN = 3;
  * both sides — hence a fixed mount point rather than a temp dir.
  */
 const SCRATCH_ROOT = '/pitr-scratch';
+
+/**
+ * Every restore holds a lease file in its working directory and refreshes it
+ * while it runs. A restore that dies with its process never reaches its own
+ * cleanup, so the sweep (and the host storage autopilot) treat a directory
+ * whose lease has gone quiet as dead. A full cluster copy left behind that way
+ * is tens of GB, enough on its own to fill the data volume.
+ */
+const SCRATCH_LEASE_REFRESH_MS = 60_000;
+const SCRATCH_LEASE_STALE_MS = 30 * 60_000;
+/** Directories from before leases existed: idle this long and they are dead. */
+const SCRATCH_UNLEASED_STALE_MS = 2 * 60 * 60_000;
+
+/** Free space a restore must leave behind, as a share of the volume, and at least {@link SCRATCH_RESERVE_MIN_BYTES}. */
+const SCRATCH_RESERVE_SHARE = 0.1;
+const SCRATCH_RESERVE_MIN_BYTES = 20 * 1024 ** 3;
 
 /** Volume backing {@link SCRATCH_ROOT}, handed to the throwaway container. */
 const SCRATCH_VOLUME = process.env.PITR_SCRATCH_VOLUME || 'kolaybase_pitr_scratch';
@@ -107,6 +125,8 @@ export interface RecoveryWindow {
 @Injectable()
 export class ProjectPitrService {
   private readonly logger = new Logger(ProjectPitrService.name);
+  /** Restore working directories this process owns, each with the timer that keeps its lease fresh. */
+  private readonly scratchLeases = new Map<string, NodeJS.Timeout>();
   /** Off-site uploads can make one WAL run outlast its interval; two must never overlap. */
   private shippingWal = false;
 
@@ -115,6 +135,7 @@ export class ProjectPitrService {
     private readonly storage: StorageService,
     private readonly activity: ProjectActivityService,
     private readonly offsite: BackupOffsiteService,
+    private readonly alerts: PlatformAlertsService,
   ) {}
 
   // ── Access control ─────────────────────────────────────────────────────────
@@ -498,6 +519,114 @@ export class ProjectPitrService {
 
   // ── Replay ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Refuse a restore the scratch volume cannot hold. A replay unpacks a full
+   * physical copy of the cluster, so it needs about as much room as the live
+   * cluster, plus the largest compressed archive while it is extracted, plus
+   * the WAL it replays. Filling the volume takes every project down with it,
+   * so whatever is left afterwards must still cover the reserve.
+   */
+  private async assertScratchSpace(base: { takenAt: Date; files: object[] }, target: Date) {
+    const sizeOf = (o: object) => Number((o as { size?: number }).size) || 0;
+    let fsStats: { availableBytes: number; totalBytes: number };
+    try {
+      const st = await statfs(SCRATCH_ROOT);
+      fsStats = {
+        availableBytes: Number(st.bavail) * Number(st.bsize),
+        totalBytes: Number(st.blocks) * Number(st.bsize),
+      };
+    } catch {
+      // No scratch volume mounted (a local run): nothing to measure against.
+      return;
+    }
+
+    const [cluster] = await this.prisma.$queryRaw<{ bytes: bigint }[]>`
+      select coalesce(sum(pg_database_size(datname)), 0)::bigint as bytes from pg_database
+    `;
+    const from = base.takenAt.getTime() - 60 * 60 * 1000;
+    const to = target.getTime() + 60 * 60 * 1000;
+    const walObjects: { size: number; lastModified: Date }[] = await this.storage
+      .listPlatformObjects(PITR_BUCKET, CLUSTER_WAL_PREFIX)
+      .catch(() => []);
+    const walBytes = walObjects
+      .filter((o) => o.lastModified.getTime() >= from && o.lastModified.getTime() <= to)
+      .reduce((sum, o) => sum + o.size, 0);
+    const largestArchive = Math.max(0, ...base.files.map(sizeOf));
+
+    const neededBytes = Math.ceil(Number(cluster?.bytes ?? 0) * 1.1) + largestArchive + walBytes;
+    const reserveBytes = Math.max(fsStats.totalBytes * SCRATCH_RESERVE_SHARE, SCRATCH_RESERVE_MIN_BYTES);
+    if (fsStats.availableBytes - neededBytes >= reserveBytes) return;
+
+    const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+    const detail =
+      `A point-in-time restore needs about ${gb(neededBytes)} of scratch space and must leave ${gb(reserveBytes)} ` +
+      `free, but only ${gb(fsStats.availableBytes)} is available on the data volume. The restore was refused ` +
+      'before writing anything. The storage autopilot grows the volume when it runs low; check that it has.';
+    this.logger.error(`Restore refused for lack of scratch space: ${detail}`);
+    await this.alerts.raise({
+      kind: 'restore_refused_space',
+      severity: 'critical',
+      title: 'A point-in-time restore was refused: not enough free disk',
+      detail,
+      metadata: { neededBytes, reserveBytes, availableBytes: fsStats.availableBytes },
+    });
+    throw new ServiceUnavailableException(
+      'Point-in-time recovery is temporarily unavailable. Our team has been notified; please try again in a few minutes.',
+    );
+  }
+
+  private async leaseScratch(runDir: string) {
+    const leasePath = join(runDir, '.lease');
+    await writeFile(leasePath, `${process.pid}\n`);
+    const timer = setInterval(() => {
+      const now = new Date();
+      void utimes(leasePath, now, now).catch(() => undefined);
+    }, SCRATCH_LEASE_REFRESH_MS);
+    timer.unref();
+    this.scratchLeases.set(runDir, timer);
+  }
+
+  private async releaseScratch(runDir: string) {
+    const timer = this.scratchLeases.get(runDir);
+    if (timer) clearInterval(timer);
+    this.scratchLeases.delete(runDir);
+    await rm(runDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  /**
+   * Delete restore working directories nobody owns any more, and the throwaway
+   * postgres an orphaned run left behind. Live runs refresh their lease every
+   * minute, so a quiet lease means the run is dead, whichever replica started it.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async sweepDeadScratch() {
+    let entries: string[];
+    try {
+      entries = await readdir(SCRATCH_ROOT);
+    } catch {
+      return;
+    }
+    const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    for (const entry of entries) {
+      if (!entry.startsWith('restore-')) continue;
+      const runDir = join(SCRATCH_ROOT, entry);
+      if (this.scratchLeases.has(runDir)) continue;
+      const leaseAt = await stat(join(runDir, '.lease'))
+        .then((s) => s.mtimeMs)
+        .catch(() => null);
+      const seenAt = leaseAt ?? (await stat(runDir).then((s) => s.mtimeMs).catch(() => Date.now()));
+      const idle = Date.now() - seenAt;
+      if (idle < (leaseAt === null ? SCRATCH_UNLEASED_STALE_MS : SCRATCH_LEASE_STALE_MS)) continue;
+
+      await docker
+        .getContainer(`bf-pitr-${entry.slice('restore-'.length)}`)
+        .remove({ force: true })
+        .catch(() => undefined);
+      await rm(runDir, { recursive: true, force: true }).catch(() => undefined);
+      this.logger.warn(`Removed dead restore scratch ${entry} (idle ${Math.round(idle / 60_000)} min)`);
+    }
+  }
+
   /** Newest physical base taken at or before `target`, or null if none exists. */
   private async findClusterBaseBefore(target: Date) {
     const objects: { name: string; lastModified: Date }[] = await this.storage
@@ -553,6 +682,7 @@ export class ProjectPitrService {
   private async replayIntoDump(dbName: string, target: Date): Promise<string | null> {
     const base = await this.findClusterBaseBefore(target);
     if (!base) return null;
+    await this.assertScratchSpace(base, target);
 
     const runId = randomUUID().slice(0, 8);
     const runDir = join(SCRATCH_ROOT, `restore-${runId}`);
@@ -567,6 +697,7 @@ export class ProjectPitrService {
     try {
       await mkdir(dataDir, { recursive: true });
       await mkdir(walDir, { recursive: true });
+      await this.leaseScratch(runDir);
 
       // 1. Unpack the base. pg_basebackup -Ft writes one tar per tablespace,
       //    plus pg_wal.tar.gz for the segments the base itself needs.
@@ -701,7 +832,7 @@ export class ProjectPitrService {
 
       return dumpPath;
     } catch (err) {
-      await rm(runDir, { recursive: true, force: true }).catch(() => undefined);
+      await this.releaseScratch(runDir);
       throw err;
     } finally {
       if (container) {
@@ -761,9 +892,7 @@ export class ProjectPitrService {
           },
         );
       } finally {
-        await rm(join(recoveredDump, '..'), { recursive: true, force: true }).catch(
-          () => undefined,
-        );
+        await this.releaseScratch(join(recoveredDump, '..'));
       }
 
       await this.activity.append(projectId, {

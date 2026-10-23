@@ -277,6 +277,13 @@ export default () => ({
     pitrScratchPath: '/pitr-scratch',
     warnPercent: parseInt(process.env.DISK_WARN_PERCENT || '80', 10),
     criticalPercent: parseInt(process.env.DISK_CRITICAL_PERCENT || '90', 10),
+    /**
+     * The host storage autopilot (scripts/storage-autopilot.py) writes its
+     * status and event log here; mounted read-only. When `autopilotRequired`
+     * is set, a missing or silent autopilot is itself a console alert.
+     */
+    autopilotDir: process.env.STORAGE_AUTOPILOT_DIR || '/host/storage-autopilot',
+    autopilotRequired: process.env.STORAGE_AUTOPILOT_REQUIRED === 'true',
   },
 
   docker: {

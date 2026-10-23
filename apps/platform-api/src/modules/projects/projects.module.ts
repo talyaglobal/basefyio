@@ -34,6 +34,7 @@ import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
+import { PlatformAlertsModule } from '../platform-alerts/platform-alerts.module';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 import { CollectionController } from './collection.controller';
 import { CollectionService } from './collection.service';
@@ -53,6 +54,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     HttpModule.register({ timeout: 60000 }),
     StorageModule,
     ProjectActivityModule,
+    PlatformAlertsModule,
   ],
   controllers: [
     ProjectsController,

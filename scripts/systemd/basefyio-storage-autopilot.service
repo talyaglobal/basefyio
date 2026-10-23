@@ -1,0 +1,13 @@
+[Unit]
+Description=basefyio storage autopilot: grow the data volume before it fills
+Documentation=file:///usr/local/bin/basefyio-storage-autopilot
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/basefyio-storage-autopilot
+# A Hetzner resize plus the filesystem extend can take a few minutes.
+TimeoutStartSec=15min
+# Keeps working under memory pressure, which is when it matters most.
+OOMScoreAdjust=-500

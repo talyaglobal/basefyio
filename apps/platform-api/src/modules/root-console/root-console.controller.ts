@@ -3,6 +3,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { RootConsoleService } from './root-console.service';
 import { DiskUsageService } from './disk-usage.service';
+import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
 
 /** The root console on admin.<domain>: platform-wide figures, root only. */
 @Controller('admin/console')
@@ -11,6 +13,7 @@ export class RootConsoleController {
   constructor(
     private readonly console: RootConsoleService,
     private readonly diskUsage: DiskUsageService,
+    private readonly alerts: PlatformAlertsService,
   ) {}
 
   @Get('overview')
@@ -32,6 +35,22 @@ export class RootConsoleController {
   @Get('disk')
   disk() {
     return this.diskUsage.getDisk();
+  }
+
+  /** The red badge across the top of the console: unacknowledged events and live conditions. */
+  @Get('alerts')
+  async alertFeed() {
+    return this.alerts.getFeed(await this.diskUsage.getFilesystems());
+  }
+
+  @Post('alerts/acknowledge-all')
+  acknowledgeAllAlerts(@CurrentUser() user: JwtPayload) {
+    return this.alerts.acknowledgeAll(user.sub);
+  }
+
+  @Post('alerts/:id/acknowledge')
+  acknowledgeAlert(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {
+    return this.alerts.acknowledge(id, user.sub);
   }
 
   @Get('storage')

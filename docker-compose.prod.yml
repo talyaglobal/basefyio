@@ -416,6 +416,9 @@ services:
       GOOGLE_ANALYTICS_PROPERTY_ID: ${GOOGLE_ANALYTICS_PROPERTY_ID:-}
       GOOGLE_MARKETING_IMPERSONATE_EMAIL: ${GOOGLE_MARKETING_IMPERSONATE_EMAIL:-}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
+      # Root console alerts: when true, a missing or silent host storage
+      # autopilot is itself an alert. Installs without the autopilot leave it off.
+      STORAGE_AUTOPILOT_REQUIRED: ${STORAGE_AUTOPILOT_REQUIRED:-false}
       # A restore replays WAL in a throwaway postgres, which must be able to
       # open every relation the cluster holds. Once the cluster gained PostGIS,
       # a plain pgvector image could no longer read it back.
@@ -439,6 +442,9 @@ services:
       # API can statfs() the system disk without seeing anything else on it. The
       # container's own root already sits on the Docker data volume.
       - /srv/basefyio-diskprobe:/host/system:ro
+      # Host storage autopilot (scripts/storage-autopilot.py): its status and
+      # event log, read-only. The console shows the events as a red badge.
+      - /var/lib/basefyio-autopilot:/host/storage-autopilot:ro
       # PITR: postgres archives finished WAL here; the API ships each segment to
       # object storage and deletes the local copy. Without this mount the spool
       # is invisible to the API and grows without bound.

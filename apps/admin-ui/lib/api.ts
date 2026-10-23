@@ -1,5 +1,6 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
+import type { ConsoleAlertFeed } from './console-alert-types';
 import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
 import type {
   EmbeddingDisclosure,
@@ -2783,6 +2784,17 @@ export const api = {
     },
     disk() {
       return request<ConsoleDisk>('/admin/console/disk');
+    },
+    alerts() {
+      return request<ConsoleAlertFeed>('/admin/console/alerts');
+    },
+    acknowledgeAlert(id: string) {
+      return request<{ acknowledged: number }>(`/admin/console/alerts/${encodeURIComponent(id)}/acknowledge`, {
+        method: 'POST',
+      });
+    },
+    acknowledgeAllAlerts() {
+      return request<{ acknowledged: number }>('/admin/console/alerts/acknowledge-all', { method: 'POST' });
     },
     refreshStorage() {
       return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });
