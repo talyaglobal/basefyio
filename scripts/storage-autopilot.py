@@ -72,6 +72,9 @@ GIB = 1024 ** 3
 HCLOUD_API = "https://api.hetzner.cloud/v1"
 TSMART_SEND_BASE_URL = "https://send.tsmart.ai"
 RESEND_BASE_URL = "https://api.resend.com"
+# Sent on every request: Cloudflare-fronted APIs refuse urllib's default agent
+# (error 1010), which would silence the very mail this script exists to send.
+USER_AGENT = "basefyio-storage-autopilot/1"
 
 # Samples older than this are dropped; the longest rate window must fit inside.
 SAMPLE_KEEP_SECONDS = 3600
@@ -215,7 +218,11 @@ def hcloud(token, method, path, body=None, timeout=30):
         HCLOUD_API + path,
         data=data,
         method=method,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
@@ -332,7 +339,11 @@ class Autopilot:
             base.rstrip("/") + "/emails",
             data=body,
             method="POST",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
         )
         try:
             with urllib.request.urlopen(req, timeout=20) as res:
