@@ -1201,7 +1201,7 @@ export class ProjectsService {
   async reactivate(id: string, userId: string) {
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('Project not found');
-    if (project.status !== 'DEACTIVATED') {
+    if (project.status !== 'DEACTIVATED' && project.status !== 'PAUSED') {
       throw new ForbiddenException('Project is not deactivated');
     }
 
@@ -1217,9 +1217,12 @@ export class ProjectsService {
     }
 
     // Reactivating consumes a project slot again — enforce the plan quota with a
-    // message that spells out the user's options.
+    // message that spells out the user's options. A sleeping project never
+    // gave its slot up (PAUSED still counts against the plan), so waking one
+    // can never be refused: a customer must always be able to reach data they
+    // are already being billed for.
     try {
-      await this.quota.assertCanCreateProject(project.teamId);
+      if (project.status === 'DEACTIVATED') await this.quota.assertCanCreateProject(project.teamId);
     } catch (err) {
       if (err instanceof QuotaExceededException) {
         throw new QuotaExceededException(
@@ -1241,10 +1244,13 @@ export class ProjectsService {
 
     await this.prisma.project.update({
       where: { id },
-      data: { status: 'ACTIVE', deactivatedAt: null },
+      data: { status: 'ACTIVE', deactivatedAt: null, pausedAt: null, idleWarningSentAt: null },
     });
 
-    this.usageService.incrementProjectCount(project.teamId).catch(() => {});
+    // Only a deactivated project had released its slot.
+    if (project.status === 'DEACTIVATED') {
+      this.usageService.incrementProjectCount(project.teamId).catch(() => {});
+    }
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );

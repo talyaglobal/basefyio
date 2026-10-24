@@ -34,6 +34,7 @@ import { FoldersTagsService } from './folders-tags.service';
 import { ProjectActivityModule } from './project-activity.module';
 import { ProjectExportService } from './project-export.service';
 import { ProjectPitrService } from './project-pitr.service';
+import { ProjectSleepService } from './project-sleep.service';
 import { PlatformAlertsModule } from '../platform-alerts/platform-alerts.module';
 import { ProjectArchiveImportService } from './project-archive-import.service';
 import { CollectionController } from './collection.controller';
@@ -90,6 +91,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     SupabaseImportKeysService,
     ProjectExportService,
     ProjectPitrService,
+    ProjectSleepService,
     ProjectArchiveImportService,
     ImportProcessor,
     ExportProcessor,
@@ -100,6 +102,6 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     BackupVerificationService,
     ProjectBranchService,
   ],
-  exports: [ProjectsService, CollectionService],
+  exports: [ProjectsService, CollectionService, ProjectDatabaseService, ProjectSleepService],
 })
 export class ProjectsModule {}

@@ -170,12 +170,16 @@ export class UsageService {
           apiRequestsMonth: { increment: apiCount },
           bandwidthMonth: { increment: bwBytes },
           lastCalculatedAt: new Date(),
+          // Only set where a request was actually counted — this is what the
+          // idle sweep reads to decide a project is no longer in use.
+          ...(apiCount > 0 ? { lastRequestAt: new Date() } : {}),
         },
         create: {
           projectId: p.id,
           teamId: p.teamId,
           apiRequestsMonth: apiCount,
           bandwidthMonth: bwBytes,
+          ...(apiCount > 0 ? { lastRequestAt: new Date() } : {}),
         },
       });
     }

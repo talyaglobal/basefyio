@@ -419,6 +419,16 @@ services:
       # Root console alerts: when true, a missing or silent host storage
       # autopilot is itself an alert. Installs without the autopilot leave it off.
       STORAGE_AUTOPILOT_REQUIRED: ${STORAGE_AUTOPILOT_REQUIRED:-false}
+      # Idle projects. Off until switched on, and the sweep refuses to run
+      # without PROJECT_SLEEP_SIGNAL_SINCE: request counting starts empty, so
+      # without a start date every project would look as if it had never been
+      # called and every customer would be mailed at once. Set that date to
+      # the moment this image first ran.
+      PROJECT_SLEEP_ENABLED: ${PROJECT_SLEEP_ENABLED:-false}
+      PROJECT_SLEEP_SIGNAL_SINCE: ${PROJECT_SLEEP_SIGNAL_SINCE:-}
+      PROJECT_SLEEP_IDLE_DAYS: ${PROJECT_SLEEP_IDLE_DAYS:-14}
+      PROJECT_SLEEP_WARN_DAYS: ${PROJECT_SLEEP_WARN_DAYS:-3}
+      PROJECT_SLEEP_MAX_PER_RUN: ${PROJECT_SLEEP_MAX_PER_RUN:-25}
       # A restore replays WAL in a throwaway postgres, which must be able to
       # open every relation the cluster holds. Once the cluster gained PostGIS,
       # a plain pgvector image could no longer read it back.

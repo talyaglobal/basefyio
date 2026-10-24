@@ -11,6 +11,10 @@ import { forgotPasswordTemplate } from './templates/forgot-password.template';
 import { projectVerifyEmailTemplate } from './templates/project-verify-email.template';
 import { projectResetPasswordTemplate } from './templates/project-reset-password.template';
 import { projectWelcomeTemplate } from './templates/project-welcome.template';
+import {
+  projectAsleepTemplate,
+  projectSleepWarningTemplate,
+} from './templates/project-sleep.template';
 import { projectInviteUserTemplate } from './templates/project-invite-user.template';
 import { projectMagicLinkTemplate } from './templates/project-magic-link.template';
 import { projectChangeEmailTemplate } from './templates/project-change-email.template';
@@ -298,6 +302,30 @@ export class EmailService implements OnModuleInit {
       subject: `[${projectName}] Reset your password`,
       html,
     });
+  }
+
+  /** Warns the owner that a quiet project is about to be put to sleep. */
+  async sendProjectSleepWarning(
+    to: string,
+    projectName: string,
+    projectId: string,
+    idleDays: number,
+    daysLeft: number,
+  ) {
+    const dashboardUrl = `${this.appUrl}/dashboard/projects/${projectId}`;
+    const html = projectSleepWarningTemplate({ projectName, idleDays, daysLeft, dashboardUrl });
+    return this.send({
+      to,
+      subject: `${projectName} goes to sleep in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+      html,
+    });
+  }
+
+  /** Tells the owner a quiet project has been put to sleep, and how to wake it. */
+  async sendProjectAsleep(to: string, projectName: string, projectId: string, idleDays: number) {
+    const dashboardUrl = `${this.appUrl}/dashboard/projects/${projectId}`;
+    const html = projectAsleepTemplate({ projectName, idleDays, dashboardUrl });
+    return this.send({ to, subject: `${projectName} is asleep — wake it any time`, html });
   }
 
   async sendProjectWelcome(to: string, projectName: string) {

@@ -242,6 +242,14 @@ model Project {
   /// When the project was deactivated; used for 14-day auto-purge. A deactivated
   /// project is closed to use and does NOT count against the plan's project quota.
   deactivatedAt     DateTime?           @map("deactivated_at")
+  /// When the idle sweep put this project to sleep. A sleeping project keeps
+  /// its database, its storage and its plan slot; it simply stops answering
+  /// until someone wakes it from the dashboard. Null = never slept, or awake.
+  pausedAt          DateTime?           @map("paused_at")
+  /// When the owner was last told the project was about to sleep. Cleared the
+  /// moment the project is used again, so a project that goes quiet a second
+  /// time is warned a second time.
+  idleWarningSentAt DateTime?           @map("idle_warning_sent_at")
   /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
   /// were installed into the project DB. Null = not yet bootstrapped.
   rlsBootstrappedAt DateTime?           @map("rls_bootstrapped_at")
@@ -788,6 +796,11 @@ model ProjectUsage {
   /// lastCalculatedAt, which the storage pass and counter flushes also bump.
   dbSizeCalculatedAt  DateTime? @map("db_size_calculated_at")
   lastCalculatedAt    DateTime  @default(now()) @map("last_calculated_at")
+  /// The newest API request counted for this project. lastCalculatedAt is no
+  /// substitute: the storage and database-size passes bump it for every
+  /// project, busy or not, so it never falls behind and cannot say whether
+  /// anyone is still calling. This only moves when a request arrives.
+  lastRequestAt       DateTime? @map("last_request_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

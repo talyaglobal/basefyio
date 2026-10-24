@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { RootConsoleService } from './root-console.service';
 import { ProjectsService } from '../projects/projects.service';
+import { ProjectSleepService } from '../projects/project-sleep.service';
 import { DiskUsageService } from './disk-usage.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
@@ -16,6 +17,7 @@ export class RootConsoleController {
     private readonly diskUsage: DiskUsageService,
     private readonly alerts: PlatformAlertsService,
     private readonly projectRepair: ProjectsService,
+    private readonly sleep: ProjectSleepService,
   ) {}
 
   @Get('overview')
@@ -63,6 +65,16 @@ export class RootConsoleController {
   @Post('projects/:id/repair-provisioning')
   repairProvisioning(@Param('id', ParseUUIDPipe) id: string) {
     return this.projectRepair.repairProvisioning(id);
+  }
+
+  /**
+   * What the idle sweep would do if it ran now, without doing any of it.
+   * Worth reading before switching the sweep on: on a platform where most
+   * projects are abandoned experiments, the first run reaches a lot of people.
+   */
+  @Get('idle-projects')
+  idleProjects() {
+    return this.sleep.preview();
   }
 
   @Get('storage')
