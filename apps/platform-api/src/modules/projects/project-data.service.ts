@@ -102,16 +102,64 @@ export class ProjectDataService {
    * quietly showing rows a policy would have hidden. Projects whose database
    * predates service_role simply keep the old behaviour.
    */
-  private async elevateForRead(client: PoolClient): Promise<boolean> {
+  /**
+   * Borrow service_role for the length of a read, so row-level security does
+   * not hide rows from the dashboard.
+   *
+   * When `target` is given, the elevation is only kept if the borrowed role
+   * can actually read that relation. An imported database may hold tables
+   * service_role was never granted — Supabase keeps its own `auth` schema for
+   * its internal admin role, and the project owner owns those tables while
+   * service_role has nothing on them. Elevating regardless turned opening one
+   * into "permission denied", which reached the dashboard as an internal
+   * server error; and in the table list the refused COUNT aborted the
+   * transaction, so every table after it silently fell back to an estimate.
+   *
+   * Dropping back to the session user is safe: it is the project's own owner,
+   * which owns the imported tables and so is not bound by their policies
+   * either, unless a table forces them.
+   */
+  private async elevateForRead(client: PoolClient, target?: string): Promise<boolean> {
+    // Every step runs inside a savepoint. A statement that fails aborts the
+    // whole transaction, and both of these can fail on an imported database:
+    // the role may not exist, and resolving a table name needs USAGE on its
+    // schema — asking about `supabase_migrations.schema_migrations` raises
+    // "permission denied for schema" before the privilege is even considered.
+    // Without the savepoint the enquiry would poison the read it was meant to
+    // protect.
+    await client.query('SAVEPOINT elevate_for_read');
     try {
       await client.query('SET LOCAL ROLE service_role');
-      return true;
     } catch (err: any) {
+      await client.query('ROLLBACK TO SAVEPOINT elevate_for_read');
       this.logger.debug(
         `Reading as the project owner without elevation: ${err?.message ?? err}`,
       );
       return false;
     }
+
+    if (!target) {
+      await client.query('RELEASE SAVEPOINT elevate_for_read');
+      return true;
+    }
+
+    let allowed = false;
+    try {
+      const { rows } = await client.query<{ allowed: boolean }>(
+        `SELECT has_table_privilege(current_user, $1::regclass, 'SELECT') AS allowed`,
+        [target],
+      );
+      allowed = rows[0]?.allowed === true;
+      await client.query('RELEASE SAVEPOINT elevate_for_read');
+    } catch {
+      // Could not even resolve it as the borrowed role, which answers the
+      // question: it cannot read it.
+      await client.query('ROLLBACK TO SAVEPOINT elevate_for_read');
+    }
+    if (allowed) return true;
+
+    await client.query('SET LOCAL ROLE NONE');
+    return false;
   }
 
   async listTables(projectId: string, ownerId?: string): Promise<TableInfo[]> {
@@ -140,6 +188,25 @@ export class ProjectDataService {
       `);
       const rows = result.rows as TableInfo[];
 
+      // Which of them the role doing the reading may actually count. One
+      // query, and one that cannot fail: it passes each relation's oid rather
+      // than a name, so nothing has to be resolved, and it asks about schema
+      // USAGE first. Asking per table instead — with a name — raises
+      // "permission denied for schema" on an imported database, and a failed
+      // statement aborts the transaction, which cost every table after the
+      // first unreadable one its real count.
+      const readable = new Set<string>();
+      const readableRows = await client.query<{ schema: string; name: string }>(`
+        SELECT n.nspname AS schema, c.relname AS name
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relkind IN ('r', 'p')
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+           AND has_schema_privilege(current_user, n.nspname, 'USAGE')
+           AND has_table_privilege(current_user, c.oid, 'SELECT')
+      `);
+      for (const r of readableRows.rows) readable.add(`${r.schema}.${r.name}`);
+
       // Second pass: refine with an exact COUNT(*) for small-to-medium
       // tables (<200k rows). n_live_tup is an autovacuum-maintained estimate
       // that lags real inserts, which made the sidebar disagree with the
@@ -157,13 +224,15 @@ export class ProjectDataService {
           if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.schema) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.name)) {
             return r;
           }
+          if (!readable.has(`${r.schema}.${r.name}`)) return r;
           try {
             const c = await client.query(
               `SELECT COUNT(*)::int AS total FROM "${r.schema}"."${r.name}"`,
             );
             return { ...r, rowCount: c.rows[0].total as number };
           } catch {
-            // Permission errors or other quirks — fall back to the estimate.
+            // Anything else about this one table — keep the estimate rather
+            // than losing the whole listing.
             return r;
           }
         }),
@@ -245,10 +314,12 @@ export class ProjectDataService {
     try {
       // Wrap in explicit transaction so SET LOCAL takes effect
       await client.query('BEGIN');
-      const rlsBypassed = await this.elevateForRead(client);
-
+      // Resolved before elevating: information_schema only shows a role the
+      // relations it has privileges on, so a borrowed role can fail to find a
+      // table the project owner can see perfectly well.
       const schema = await this.resolveSchema(client, tableName, schemaName);
       const qualified = `"${schema}"."${tableName}"`;
+      const rlsBypassed = await this.elevateForRead(client, qualified);
 
       const trimmedSearch = (search ?? '').trim();
       // The filter input in the Table Editor used to slice the already-loaded
