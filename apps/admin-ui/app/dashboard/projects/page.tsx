@@ -748,12 +748,14 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleReactivate(id: string) {
+  // Shared by the deactivated list and by waking a sleeping project: the API
+  // accepts both, and only the wording differs.
+  async function handleReactivate(id: string, asleep = false) {
     setReactivatingId(id);
     try {
       await api.projects.reactivate(id);
       setDeactivatedProjects((prev) => prev.filter((p) => p.id !== id));
-      toast.success('Project reactivated');
+      toast.success(asleep ? 'Project woken' : 'Project reactivated');
       loadAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to reactivate project');
@@ -1701,6 +1703,7 @@ export default function ProjectsPage() {
           onMoveTeam={(team) => { setMoveTeamModal({ project: ctxMenu.project, targetTeam: team }); setCtxMenu(null); }}
           onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
           onDeactivate={() => { setDeactivateConfirm(ctxMenu.project); setCtxMenu(null); }}
+          onWake={() => { handleReactivate(ctxMenu.project.id, true); setCtxMenu(null); }}
           onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
       )}
@@ -2730,8 +2733,9 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
   onMoveTeam: (team: Team) => void;
   onEdit: () => void;
   onDeactivate: () => void;
+  onWake: () => void;
   onDelete: () => void;
-}>(function ContextMenu({ x, y, project, folders, tags, teams, currentTeamId, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onMoveTeam, onEdit, onDeactivate, onDelete }, ref) {
+}>(function ContextMenu({ x, y, project, folders, tags, teams, currentTeamId, sub, onSetSub, onClose, onGoDetails, onMoveFolder, onToggleTag, onMoveTeam, onEdit, onDeactivate, onWake, onDelete }, ref) {
   const projectTagIds = (project.tags ?? []).map((t) => t.tag.id);
   const otherTeams = teams.filter((t) => t.id !== currentTeamId);
   const left = Math.min(x, window.innerWidth - 232);
@@ -2835,6 +2839,11 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
         )}
 
         <div className="my-1 h-px bg-border" />
+        {project.status === 'PAUSED' && (
+          <button onClick={onWake} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
+            <Power className="h-3.5 w-3.5 text-teal-500" /> Wake project
+          </button>
+        )}
         <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
           <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
         </button>

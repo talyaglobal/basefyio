@@ -15,7 +15,15 @@ function makeCtx(headers: Record<string, unknown>) {
 const reflectorFor = (scope?: string) =>
   ({ getAllAndOverride: jest.fn().mockReturnValue(scope) }) as any;
 
-const PROJECT = { id: 'p1', anonKey: 'anon-key', serviceKey: 'svc-key', keycloakRealm: 'realm1' };
+// status is part of the row the guard reads: it wakes a sleeping project
+// rather than refusing it, so a fixture without one is not a real project.
+const PROJECT = {
+  id: 'p1',
+  anonKey: 'anon-key',
+  serviceKey: 'svc-key',
+  keycloakRealm: 'realm1',
+  status: 'ACTIVE',
+};
 const prismaWith = (project: any) =>
   ({ project: { findFirst: jest.fn().mockResolvedValue(project) } }) as any;
 const config = { get: jest.fn().mockReturnValue(undefined) } as any;
@@ -92,6 +100,7 @@ describe('ApiKeyGuard — project binding', () => {
     anonKey: ANON,
     serviceKey: SERVICE,
     keycloakRealm: 'bf-own',
+    status: 'ACTIVE',
   };
 
   function guardWith(binding?: string) {
@@ -224,7 +233,7 @@ describe('ApiKeyGuard — project binding', () => {
  */
 describe('ApiKeyGuard — route scopes', () => {
   const PID = 'proj-1';
-  const project = { id: PID, anonKey: 'anon', serviceKey: 'svc', keycloakRealm: 'r1' };
+  const project = { id: PID, anonKey: 'anon', serviceKey: 'svc', keycloakRealm: 'r1', status: 'ACTIVE' };
 
   function guard(scope?: string, env: Record<string, string> = {}) {
     return new ApiKeyGuard(
@@ -342,5 +351,89 @@ describe('ApiKeyGuard — route scopes', () => {
     const { context, req } = ctx({ apikey: 'anon' });
     await expect(g.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
     expect(req.apiKeyPayload).toMatchObject({ projectId: PID, role: 'anon' });
+  });
+});
+
+describe('ApiKeyGuard — a sleeping project wakes on the first request', () => {
+  const SLEEPING = {
+    id: 'p1',
+    anonKey: 'anon-key',
+    serviceKey: 'service-key',
+    keycloakRealm: 'kb-p1',
+    status: 'PAUSED',
+  };
+
+  function guardFor(project: any) {
+    const updates: any[] = [];
+    const activity: any[] = [];
+    const stamps: any[] = [];
+    const prisma: any = {
+      project: {
+        findFirst: async () => project,
+        updateMany: async (args: any) => {
+          updates.push(args);
+          // Only the first caller finds it still sleeping.
+          const hit = project.status === 'PAUSED';
+          if (hit) project.status = 'ACTIVE';
+          return { count: hit ? 1 : 0 };
+        },
+      },
+      projectUsage: {
+        updateMany: async (args: any) => {
+          stamps.push(args);
+          return { count: 1 };
+        },
+      },
+      projectActivityLog: {
+        create: async (args: any) => {
+          activity.push(args);
+          return args;
+        },
+      },
+    };
+    const pooler = { calls: 0, regenerateConfig: async () => void pooler.calls++ };
+    const g = new ApiKeyGuard(prisma, config, reflectorFor(), pooler as any);
+    return { g, updates, activity, stamps, pooler };
+  }
+
+  const ctx = () =>
+    ({
+      switchToHttp: () => ({
+        getRequest: () => ({ headers: { apikey: 'anon-key' }, query: {}, params: {}, body: {} }),
+      }),
+      getHandler: () => undefined,
+      getClass: () => undefined,
+    }) as any;
+
+  it('wakes it, admits the request, and refreshes the pooler', async () => {
+    const h = guardFor({ ...SLEEPING });
+    await expect(h.g.canActivate(ctx())).resolves.toBe(true);
+    expect(h.updates[0].data).toMatchObject({ status: 'ACTIVE', pausedAt: null });
+    expect(h.stamps).toHaveLength(1);
+    expect(h.activity[0].data.title).toBe('Project woken by a request');
+    // Fire and forget, so give the microtask queue a turn.
+    await new Promise((r) => setImmediate(r));
+    expect(h.pooler.calls).toBe(1);
+  });
+
+  it('only one of a burst does the waking', async () => {
+    const project = { ...SLEEPING };
+    const h = guardFor(project);
+    await Promise.all([h.g.canActivate(ctx()), h.g.canActivate(ctx()), h.g.canActivate(ctx())]);
+    // Every request is admitted, but the activity line is written once.
+    expect(h.activity).toHaveLength(1);
+  });
+
+  it('still refuses a deactivated project rather than waking it', async () => {
+    const h = guardFor({ ...SLEEPING, status: 'DEACTIVATED' });
+    await expect(h.g.canActivate(ctx())).rejects.toThrow(/Invalid API key/);
+    expect(h.updates).toEqual([]);
+  });
+
+  it('leaves an awake project alone', async () => {
+    const h = guardFor({ ...SLEEPING, status: 'ACTIVE' });
+    await expect(h.g.canActivate(ctx())).resolves.toBe(true);
+    expect(h.updates).toEqual([]);
+    expect(h.activity).toEqual([]);
   });
 });

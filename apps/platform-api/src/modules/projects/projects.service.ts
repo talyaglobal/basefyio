@@ -1247,6 +1247,12 @@ export class ProjectsService {
       data: { status: 'ACTIVE', deactivatedAt: null, pausedAt: null, idleWarningSentAt: null },
     });
 
+    // Count waking as use. Without it the idle sweep would still read the old
+    // stamp and could put a just-woken project straight back to sleep.
+    await this.prisma.projectUsage
+      .updateMany({ where: { projectId: id }, data: { lastRequestAt: new Date() } })
+      .catch(() => undefined);
+
     // Only a deactivated project had released its slot.
     if (project.status === 'DEACTIVATED') {
       this.usageService.incrementProjectCount(project.teamId).catch(() => {});

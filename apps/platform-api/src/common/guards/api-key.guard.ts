@@ -5,11 +5,13 @@ import {
   ForbiddenException,
   Logger,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import jwksClient, { JwksClient } from 'jwks-rsa';
+import { PgBouncerService } from '../../modules/pgbouncer/pgbouncer.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   API_KEY_SCOPE_KEY,
@@ -37,6 +39,9 @@ export class ApiKeyGuard implements CanActivate {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly reflector: Reflector,
+    // Optional so the guard can still be built by hand in a test that has no
+    // interest in the pooler.
+    @Optional() private readonly pgbouncer?: PgBouncerService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -54,16 +59,20 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Missing apikey');
     }
 
+    // Status is read rather than filtered on, so a sleeping project can be
+    // woken instead of refused. Anything else — deactivated, deleted — is
+    // still "invalid key", which is all a caller needs to know.
     const project = await this.prisma.project.findFirst({
-      where: {
-        OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
-        status: 'ACTIVE',
-      },
-      select: { id: true, anonKey: true, serviceKey: true, keycloakRealm: true },
+      where: { OR: [{ anonKey: apiKey }, { serviceKey: apiKey }] },
+      select: { id: true, anonKey: true, serviceKey: true, keycloakRealm: true, status: true },
     });
 
-    if (!project) {
+    if (!project || (project.status !== 'ACTIVE' && project.status !== 'PAUSED')) {
       throw new UnauthorizedException('Invalid API key');
+    }
+
+    if (project.status === 'PAUSED') {
+      await this.wake(project.id);
     }
 
     const isService = project.serviceKey === apiKey;
@@ -129,6 +138,57 @@ export class ApiKeyGuard implements CanActivate {
    * logic above — the mirrored-key shortcut and the normal path — and a scope
    * check written at only one of them is a hole that reads as covered.
    */
+  /**
+   * A sleeping project answers its first request by waking up.
+   *
+   * Sleeping exists to stop spending disk, memory and CPU on a project nobody
+   * calls — not to lock anyone out. So the moment somebody does call, the
+   * project comes back: a request carrying a valid project key is the best
+   * evidence there is that it is wanted again, and the caller gets their
+   * answer rather than an error they have to go and understand.
+   *
+   * `updateMany` scoped to the sleeping state makes this safe under a burst:
+   * of all the requests that arrive together, exactly one wakes it and the
+   * rest simply carry on.
+   */
+  private async wake(projectId: string): Promise<void> {
+    const { count } = await this.prisma.project.updateMany({
+      where: { id: projectId, status: 'PAUSED' },
+      data: { status: 'ACTIVE', pausedAt: null, idleWarningSentAt: null },
+    });
+    if (count === 0) return; // another request got there first
+
+    // Stamp the request now rather than waiting for the usage counters to be
+    // flushed: until that happens the idle sweep would still read the old
+    // stamp and could put the project straight back to sleep.
+    await this.prisma.projectUsage
+      .updateMany({ where: { projectId }, data: { lastRequestAt: new Date() } })
+      .catch(() => undefined);
+
+    await this.prisma.projectActivityLog
+      .create({
+        data: {
+          projectId,
+          kind: 'project.updated',
+          title: 'Project woken by a request',
+          detail:
+            'It was asleep after a long quiet spell and a request arrived, so it was brought back. ' +
+            'Nothing was lost while it slept.',
+        },
+      })
+      .catch(() => undefined);
+
+    this.logger.log(`Project ${projectId} woken by an incoming request`);
+
+    // The pooler's configuration is built from the projects that are awake, so
+    // it has to be rewritten for direct database connections to work again.
+    // Not awaited: this request does not go through the pooler, and making the
+    // caller wait for a config reload would be the slowest part of their call.
+    void this.pgbouncer?.regenerateConfig().catch((err) =>
+      this.logger.warn(`Pooler configuration not rewritten after waking ${projectId}: ${err.message}`),
+    );
+  }
+
   private admit(context: ExecutionContext, request: any, payload: ApiKeyPayload): boolean {
     request.apiKeyPayload = payload;
     this.assertScope(context, request, payload);
