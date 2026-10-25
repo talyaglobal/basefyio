@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { PgBouncerService } from '../pgbouncer/pgbouncer.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { ProjectActivityKind, ProjectActivityService } from './project-activity.service';
@@ -43,6 +44,14 @@ export interface SleepSettings {
   warnDays: number;
   /** Most projects slept in one pass; the rest wait for the next day. */
   maxPerRun: number;
+  /**
+   * Past this many quiet days a project is put to sleep without the three-day
+   * warning. A warning exists to give someone time to keep a project they
+   * still want; one sent to a project nobody has touched in three months only
+   * delays the saving, and the single "it is asleep" notice says the same
+   * things anyway. Set it to a very large number to always warn first.
+   */
+  straightToSleepDays: number;
   /**
    * When request counting began. Every project's "last seen" is floored at
    * this moment, so none can look quiet until a full idle window has passed
@@ -90,6 +99,7 @@ export class ProjectSleepService {
     private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly activity: ProjectActivityService,
+    private readonly pgbouncer: PgBouncerService,
   ) {}
 
   settings(): SleepSettings {
@@ -102,6 +112,7 @@ export class ProjectSleepService {
       // actually been quiet for a while.
       warnDays: warnDays > 0 && warnDays < idleDays ? warnDays : 3,
       maxPerRun: parseInt(process.env.PROJECT_SLEEP_MAX_PER_RUN || '25', 10),
+      straightToSleepDays: parseInt(process.env.PROJECT_SLEEP_STRAIGHT_TO_SLEEP_DAYS || '30', 10),
       signalSince: parseSignalSince(process.env.PROJECT_SLEEP_SIGNAL_SINCE),
     };
   }
@@ -134,9 +145,10 @@ export class ProjectSleepService {
       try {
         if (project.idleDays >= settings.idleDays) {
           if (slept >= settings.maxPerRun) continue;
-          // Never sleep a project whose owner was not told first. Without a
-          // warning the first a customer hears of it is their site erroring.
-          if (!project.idleWarningSentAt) {
+          // Never sleep a project whose owner was not told first, unless it
+          // has been quiet so long that a warning would only postpone the
+          // saving — the notice it gets instead says the same things.
+          if (!project.idleWarningSentAt && project.idleDays < settings.straightToSleepDays) {
             if (await this.warn(project, settings)) warned++;
             continue;
           }
@@ -150,6 +162,15 @@ export class ProjectSleepService {
       }
     }
 
+    if (slept > 0) {
+      // Where the saving actually lands. The pooler's configuration is built
+      // from the ACTIVE projects, so until it is rewritten a sleeping project
+      // keeps its pool — and with min_pool_size that is real connections and
+      // real memory held open for a project nobody is calling.
+      await this.pgbouncer.regenerateConfig().catch((err) =>
+        this.logger.warn(`Could not rewrite the pooler configuration after sleeping projects: ${err.message}`),
+      );
+    }
     if (warned || slept) {
       this.logger.log(`Idle sweep: ${warned} warned, ${slept} put to sleep (${candidates.length} quiet)`);
     }
@@ -263,26 +284,37 @@ export class ProjectSleepService {
   }
 
   private async sleep(project: Candidate): Promise<void> {
+    const to = await this.recipients(project);
+    let delivered = 0;
+    for (const address of to) {
+      try {
+        await this.email.sendProjectAsleep(address, project.name, project.id, project.idleDays);
+        delivered++;
+      } catch (err: any) {
+        this.logger.warn(`Sleep notice to ${address} failed: ${err.message}`);
+      }
+    }
+
     await this.prisma.project.update({
       where: { id: project.id },
       data: { status: 'PAUSED', pausedAt: new Date() },
     });
+    // An owner we cannot reach does not oblige the platform to keep running a
+    // database nobody calls, but it has to be on the record rather than
+    // implied by a missing e-mail.
+    const unreachable = delivered === 0;
     await this.activity.append(project.id, {
       kind: ProjectActivityKind.PROJECT_UPDATED,
       title: 'Project put to sleep',
       detail:
         `No requests for ${project.idleDays} days. The database, files and users are untouched; ` +
-        'reactivating the project from the dashboard brings it back as it was.',
+        'reactivating the project from the dashboard brings it back as it was.' +
+        (unreachable ? ' No notice could be delivered: no reachable owner address.' : ''),
     });
-    this.logger.log(`Project ${project.slug} put to sleep after ${project.idleDays} quiet days`);
-
-    for (const address of await this.recipients(project)) {
-      try {
-        await this.email.sendProjectAsleep(address, project.name, project.id, project.idleDays);
-      } catch (err: any) {
-        this.logger.warn(`Sleep notice to ${address} failed: ${err.message}`);
-      }
-    }
+    this.logger.log(
+      `Project ${project.slug} put to sleep after ${project.idleDays} quiet days` +
+        (unreachable ? ' (nobody could be notified)' : `, ${delivered} notice(s) sent`),
+    );
   }
 
   /**

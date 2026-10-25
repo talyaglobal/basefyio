@@ -61,7 +61,14 @@ function setup(opts: { env?: Record<string, string>; candidates?: any[]; mailThr
   delete process.env.PROJECT_SLEEP_MAX_PER_RUN;
   Object.assign(process.env, opts.env ?? {});
 
-  const svc = new ProjectSleepService(prisma as any, { get: () => undefined } as any, email as any, activitySvc as any);
+  const pgbouncer = { calls: 0, regenerateConfig: async () => void pgbouncer.calls++ };
+  const svc = new ProjectSleepService(
+    prisma as any,
+    { get: () => undefined } as any,
+    email as any,
+    activitySvc as any,
+    pgbouncer as any,
+  );
   if (opts.candidates) {
     (svc as any).findQuietProjects = async () => opts.candidates;
   }
@@ -69,7 +76,7 @@ function setup(opts: { env?: Record<string, string>; candidates?: any[]; mailThr
     for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
     Object.assign(process.env, previous);
   };
-  return { svc, updates, activity, warnings, notices, queries, restore };
+  return { svc, updates, activity, warnings, notices, queries, pgbouncer, restore };
 }
 
 describe('ProjectSleepService', () => {
@@ -82,6 +89,42 @@ describe('ProjectSleepService', () => {
     expect(h.updates).toEqual([]);
     expect(h.warnings).toEqual([]);
     h.restore();
+  });
+
+  it('rewrites the pooler configuration once, only when something was slept', async () => {
+    // Until it is rewritten a sleeping project keeps its pool, so the memory
+    // and connections the sleep was meant to free stay held open.
+    const slept = setup({ candidates: [quiet({ lastSeenAt: ago(200) })] });
+    await slept.svc.sweep();
+    expect(slept.pgbouncer.calls).toBe(1);
+    slept.restore();
+
+    const onlyWarned = setup({ candidates: [quiet({ lastSeenAt: ago(20) })] });
+    await onlyWarned.svc.sweep();
+    expect(onlyWarned.pgbouncer.calls).toBe(0);
+    onlyWarned.restore();
+  });
+
+  it('sleeps a project quiet far past the threshold without a warning first', async () => {
+    const h = setup({ candidates: [quiet({ slug: 'abandoned', lastSeenAt: ago(200) })] });
+    const result = await h.svc.sweep();
+    expect(result).toMatchObject({ warned: 0, slept: 1 });
+    expect(h.updates[0].data).toMatchObject({ status: 'PAUSED' });
+    expect(h.notices).toHaveLength(1);
+    h.restore();
+  });
+
+  it('still warns first inside the window, and can be made to always warn', async () => {
+    const h = setup({ candidates: [quiet({ lastSeenAt: ago(20) })] });
+    expect(await h.svc.sweep()).toMatchObject({ warned: 1, slept: 0 });
+    h.restore();
+
+    const always = setup({
+      candidates: [quiet({ lastSeenAt: ago(400) })],
+      env: { PROJECT_SLEEP_STRAIGHT_TO_SLEEP_DAYS: '99999' },
+    });
+    expect(await always.svc.sweep()).toMatchObject({ warned: 1, slept: 0 });
+    always.restore();
   });
 
   it('refuses to run when it has no idea when request counting started', async () => {
@@ -114,8 +157,10 @@ describe('ProjectSleepService', () => {
     h.restore();
   });
 
-  it('never sleeps a project whose owner was not warned, however quiet it is', async () => {
-    const h = setup({ candidates: [quiet({ slug: 'ancient', lastSeenAt: ago(300) })] });
+  it('never sleeps an unwarned project that is only just over the threshold', async () => {
+    // Inside the straight-to-sleep window the warning is still mandatory: the
+    // first a customer hears of it must not be their site erroring.
+    const h = setup({ candidates: [quiet({ slug: 'recent', lastSeenAt: ago(16) })] });
     const result = await h.svc.sweep();
     expect(result).toMatchObject({ warned: 1, slept: 0 });
     expect(h.updates[0].data.status).toBeUndefined();
@@ -132,11 +177,20 @@ describe('ProjectSleepService', () => {
     h.restore();
   });
 
-  it('leaves a project awake when there is nobody to tell', async () => {
-    const h = setup({ candidates: [quiet({ lastSeenAt: ago(300) })], noRecipients: true });
+  it('leaves a project awake when a warning is due and there is nobody to tell', async () => {
+    const h = setup({ candidates: [quiet({ lastSeenAt: ago(20) })], noRecipients: true });
     const result = await h.svc.sweep();
     expect(result).toMatchObject({ warned: 0, slept: 0 });
     expect(h.updates).toEqual([]);
+    h.restore();
+  });
+
+  it('still sleeps a long-abandoned project with no reachable owner, and says so', async () => {
+    const h = setup({ candidates: [quiet({ lastSeenAt: ago(300) })], noRecipients: true });
+    const result = await h.svc.sweep();
+    expect(result).toMatchObject({ warned: 0, slept: 1 });
+    expect(h.updates[0].data).toMatchObject({ status: 'PAUSED' });
+    expect(String(h.activity[0].detail)).toContain('No notice could be delivered');
     h.restore();
   });
 
