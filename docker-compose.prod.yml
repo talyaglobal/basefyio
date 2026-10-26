@@ -387,6 +387,8 @@ services:
       SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
       # Which stage the product is in: "beta" puts the badge on e-mails and invoices and in /api/health.
       RELEASE_STAGE: ${RELEASE_STAGE:-beta}
+      # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       APP_URL: https://app.${DOMAIN}
       ADMIN_URL: https://admin.${DOMAIN}
       CORS_ORIGIN: "*"
