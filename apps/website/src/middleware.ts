@@ -15,7 +15,7 @@ import { apexOf, isLocalHostname } from "@/lib/public-hosts";
  * reference page on the docs host.
  */
 export const config = {
-  matcher: ["/((?!_next/|api/|.*\..*).*)"],
+  matcher: ["/((?!_next/|api/|.*\\..*).*)"],
 };
 
 /** Sections the docs host knows: "/data-engine", "/api", …; anything else forwards to the apex. */
