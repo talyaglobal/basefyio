@@ -1,0 +1,12 @@
+[Unit]
+Description=basefyio planned Postgres image maintenance (rebuild from the pinned base, verify, or roll back)
+After=docker.service
+
+[Service]
+Type=oneshot
+# The operator who will read the outcome, and the ref whose Dockerfile is built.
+Environment=BASEFYIO_DEPLOY_DIR=/root/kolaybase
+Environment=OPS_ALERT_TO=ops@example.com
+Environment=PIN_BRANCH=main
+ExecStart=/usr/local/sbin/basefyio-postgres-pin
+# Runs once: the script disables its own timer when it is done.

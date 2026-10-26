@@ -1,0 +1,8 @@
+[Unit]
+Description=basefyio disk guard — prune reproducible Docker data, never volumes
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=BASEFYIO_DEPLOY_DIR=/root/kolaybase
+ExecStart=/usr/local/bin/basefyio-disk-guard.sh

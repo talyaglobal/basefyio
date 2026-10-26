@@ -1,0 +1,11 @@
+[Unit]
+Description=One planned Postgres maintenance window (set the date before enabling)
+
+[Timer]
+# A single moment, in UTC, agreed with the owner. Not persistent: a window
+# that was missed is re-planned, never run late by surprise.
+OnCalendar=2026-01-01 08:00:00 UTC
+Persistent=false
+
+[Install]
+WantedBy=timers.target
