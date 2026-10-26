@@ -122,6 +122,10 @@ function fakes(opts: { zip?: { path: string; size: number } | null; restoredCoun
   });
 
   const svc = new BackupVerificationService(prisma as any, config as any, storage as any, activity as any);
+  // The drill refuses to run on a nearly full disk, and it reads the real
+  // one: on a developer machine past the limit every happy-path case became
+  // a skip. A roomy volume by default; the disk cases override it.
+  (svc as any).diskUsage = async () => ({ totalBytes: 100 * 1024 ** 3, freeBytes: 60 * 1024 ** 3 });
   return { svc, prisma, storage, activity, getRow: () => row };
 }
 

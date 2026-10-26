@@ -96,7 +96,7 @@ describe('StorageController — declared key scope', () => {
 
 describe('StorageController — the real ApiKeyGuard against the real handlers', () => {
   // The guard reads `status`: an active project is admitted, a deactivated one
-  // deactivated one is activated, anything else is refused.
+  // is activated, anything else is refused.
   const PROJECT = { id: 'p1', anonKey: 'anon-key', serviceKey: 'svc-key', keycloakRealm: 'realm-p1', status: 'ACTIVE' };
 
   let warn: jest.SpyInstance;
