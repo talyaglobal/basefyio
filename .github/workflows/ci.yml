@@ -112,3 +112,28 @@ jobs:
         run: pip install -e ".[test]"
       - name: Tests
         run: pytest -q
+
+  e2e-critical:
+    name: Dashboard — critical flows (Playwright, against E2E_BASE_URL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Route inventory is current
+        run: node e2e/scripts/generate-routes.mjs --check
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      # Without the secrets (a fork, a PR from outside) the suite still runs its public part.
+      - name: Critical flows and the route inventory
+        working-directory: e2e
+        run: |
+          if [ -z "$E2E_EMAIL" ]; then echo "::notice::E2E_* secrets not set; running the public smoke tests only"; fi
+          npx playwright test --grep-invert @gated --reporter=github,list

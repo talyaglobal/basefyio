@@ -8,7 +8,11 @@
     "test:ungated": "playwright test --grep-invert @gated",
     "test:ci": "playwright test --grep-invert @gated --reporter=github,list",
     "test:headed": "playwright test --headed",
-    "install:browsers": "playwright install --with-deps chromium"
+    "install:browsers": "playwright install --with-deps chromium",
+    "test:critical": "playwright test --grep @critical",
+    "routes:generate": "node scripts/generate-routes.mjs",
+    "routes:check": "node scripts/generate-routes.mjs --check",
+    "screenshots": "playwright test --grep @screenshots"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1"
