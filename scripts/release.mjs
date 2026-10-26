@@ -2,7 +2,7 @@
 /**
  * Bump the platform version and scaffold its changelog entry.
  *
- *   node scripts/release.mjs <patch|minor|major|X.Y.Z> [--title "…"] [--summary "…"] [--kind feature|improvement|bugfix|breaking] [--dry]
+ *   node scripts/release.mjs [--set X.Y.Z] [--title "…"] [--summary "…"] [--kind feature|improvement|bugfix|breaking] [--dry]
  *
  * One version covers the three deployable apps (apps/admin-ui, apps/platform-api,
  * apps/website): their package.json and package-lock.json roots move together.
@@ -10,8 +10,11 @@
  * reports it on /api/health, so a release is a bump plus an entry under
  * apps/admin-ui/content/changelog/. The deploy workflow refuses a push whose
  * version already has a tag on another commit and tags + releases the version
- * after a successful deploy — bump before every push to production:
- * feature → minor, fix or chore → patch, breaking → major.
+ * after a successful deploy — bump before every push to production.
+ *
+ * The version is a three-digit counter, each digit 0–9: 2.9.0 → 2.9.1 … 2.9.9
+ * → 3.0.0 (the owner's rule; 2.10.x is not a version). Every release adds one;
+ * --set names a version outright for a deliberate jump.
  *
  * The published packages (packages/sdk, cli, geo, sdk-python) keep their own
  * versions; bump them when their code changes.
@@ -24,28 +27,32 @@ const APPS = ['apps/admin-ui', 'apps/platform-api', 'apps/website'];
 const CHANGELOG_DIR = 'apps/admin-ui/content/changelog';
 
 const args = process.argv.slice(2);
-const level = args.find((a) => !a.startsWith('--'));
+const explicit = (() => {
+  const i = args.indexOf('--set');
+  return i >= 0 ? args[i + 1] : undefined;
+})();
 const opt = (n) => {
   const i = args.indexOf(n);
   return i >= 0 && args[i + 1] ? args[i + 1] : undefined;
 };
 const dry = args.includes('--dry');
-if (!level) {
-  console.error('usage: node scripts/release.mjs <patch|minor|major|X.Y.Z> [--title …] [--summary …] [--kind …] [--dry]');
+const SINGLE_DIGITS = /^[0-9]+\.[0-9]\.[0-9]$/; // the major may grow past 9; minor and patch carry at 9
+if (explicit && !SINGLE_DIGITS.test(explicit)) {
+  console.error(`--set ${explicit}: each component is one digit (2.9.9 → 3.0.0)`);
   process.exit(2);
 }
 
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const current = readJson(join(APPS[0], 'package.json')).version;
-function bump(v, how) {
-  if (/^\d+\.\d+\.\d+$/.test(how)) return how;
-  const [a, b, c] = v.split('.').map(Number);
-  if (how === 'major') return `${a + 1}.0.0`;
-  if (how === 'minor') return `${a}.${b + 1}.0`;
-  if (how === 'patch') return `${a}.${b}.${c + 1}`;
-  throw new Error(`unknown level ${how}`);
+function bump(v) {
+  if (!SINGLE_DIGITS.test(v)) throw new Error(`current version ${v} is not three single digits; use --set`);
+  let [a, b, c] = v.split('.').map(Number);
+  c += 1;
+  if (c > 9) { c = 0; b += 1; }
+  if (b > 9) { b = 0; a += 1; }
+  return `${a}.${b}.${c}`;
 }
-const next = bump(current, level);
+const next = explicit ?? bump(current);
 const tag = `v${next}`;
 console.log(`${current} → ${next}`);
 
@@ -84,7 +91,7 @@ if (existing) {
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1));
   const title = opt('--title') || `Release ${tag}`;
   const summary = opt('--summary') || subjects[0] || `Release ${tag}.`;
-  const kind = opt('--kind') || (level === 'patch' ? 'bugfix' : 'feature');
+  const kind = opt('--kind') || 'improvement';
   const slug = `release-${next.replace(/\./g, '-')}`;
   const file = join(CHANGELOG_DIR, `${today}-${slug}.md`);
   const body =

@@ -3,7 +3,7 @@ date: 2026-10-26
 slug: organizations-docs-status
 title: Organizations, a documentation site of its own, and a status page with monthly history
 kind: feature
-version: v2.10.0
+version: v2.9.1
 summary: Teams become organizations with their own pages and per-role permissions, the documentation moves to docs.basefyio.com, and status.basefyio.com shows every component with its checks, a month-by-month record and incident mail you can subscribe to.
 ---
 

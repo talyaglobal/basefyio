@@ -23,6 +23,10 @@ jobs:
         id: version
         run: |
           VER=$(node -p "require('./apps/admin-ui/package.json').version")
+          case "$VER" in
+            [0-9].[0-9].[0-9]|[0-9][0-9].[0-9].[0-9]) ;;
+            *) echo "::error::version $VER: each component is one digit (2.9.9 → 3.0.0); run node scripts/release.mjs"; exit 1 ;;
+          esac
           for app in platform-api website; do
             V=$(node -p "require('./apps/$app/package.json').version")
             if [ "$V" != "$VER" ]; then echo "::error::apps/$app is $V but apps/admin-ui is $VER; run node scripts/release.mjs"; exit 1; fi
