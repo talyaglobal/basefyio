@@ -1481,10 +1481,15 @@ export default function ProjectsPage() {
                   <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deactivatedProjects.map((project) => {
                       const canManage = project.canManage !== false;
+                      const openProject = () => router.push(`/dashboard/projects/${project.id}`);
                       return (
                       <div
                         key={project.id}
-                        className="group relative rounded-xl border border-slate-300/40 bg-card p-4 hover:border-slate-400/60 transition-colors dark:border-slate-600/40"
+                        role="link"
+                        tabIndex={0}
+                        onClick={openProject}
+                        onKeyDown={(e) => { if (e.key === 'Enter') openProject(); }}
+                        className="group relative cursor-pointer rounded-xl border border-slate-300/40 bg-card p-4 hover:border-slate-400/60 transition-colors dark:border-slate-600/40"
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div className="min-w-0 flex-1">
@@ -1509,31 +1514,23 @@ export default function ProjectsPage() {
                         <p className="text-[10px] text-muted-foreground/50 mb-3">
                           {(() => {
                             const raw = project.deactivatedAt ?? project.updatedAt;
-                            if (!raw) return 'Deactivated';
+                            if (!raw) return 'Deactivated · data kept, activate any time';
                             const d = new Date(raw);
-                            const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-                            const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const expiresAt = d.getTime() + 14 * 24 * 60 * 60 * 1000;
-                            const remaining = expiresAt - Date.now();
-                            if (remaining <= 0) {
-                              return `Deactivated ${dateStr} ${timeStr} · Retention ended — auto-removal within 1 hour`;
-                            }
-                            const days = Math.floor(remaining / 86400000);
-                            const hours = Math.floor((remaining % 86400000) / 3600000);
-                            const rem = days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
-                            return `Deactivated ${dateStr} ${timeStr} · ${rem} until permanent deletion`;
+                            const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                            return `Deactivated ${dateStr} ${timeStr} · data kept, activate any time`;
                           })()}
                         </p>
-                        {canManage ? (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleReactivate(project.id)}
-                              disabled={reactivatingId === project.id}
-                              className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-                            >
-                              <Power className={`h-3 w-3 ${reactivatingId === project.id ? 'animate-pulse' : ''}`} />
-                              {reactivatingId === project.id ? 'Reactivating…' : 'Reactivate'}
-                            </button>
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleReactivate(project.id)}
+                            disabled={reactivatingId === project.id}
+                            className="flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                          >
+                            <Power className={`h-3 w-3 ${reactivatingId === project.id ? 'animate-pulse' : ''}`} />
+                            {reactivatingId === project.id ? 'Activating…' : 'Activate'}
+                          </button>
+                          {canManage && (
                             <button
                               onClick={() => setDeleteConfirm(project)}
                               className="flex items-center gap-1.5 rounded-lg bg-destructive/10 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/20 transition-colors"
@@ -1541,12 +1538,9 @@ export default function ProjectsPage() {
                               <Trash2 className="h-3 w-3" />
                               Delete
                             </button>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-muted-foreground/60">
-                            Only the team owner, an admin, or the project creator can reactivate this.
-                          </p>
-                        )}
+                          )}
+                          <span className="ml-auto text-[10px] text-muted-foreground/60">Open for details</span>
+                        </div>
                       </div>
                       );
                     })}
