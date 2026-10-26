@@ -244,6 +244,14 @@ export interface OrganizationProject {
 /** Runtime switches the operator flips in the root console; `GET /api/features`. */
 export interface FeatureFlags {
   organizations_ui: boolean;
+  /** Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. */
+  nav_v2: boolean;
+}
+
+/** Root console view of the flags: what is on for everyone and who has it ahead of everyone. */
+export interface FeatureFlagManagement {
+  flags: FeatureFlags;
+  users: Record<keyof FeatureFlags, string[]>;
 }
 
 export interface TeamMember {

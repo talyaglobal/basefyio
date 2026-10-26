@@ -33,7 +33,7 @@ import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import { OrganizationKindBadge, SELECTABLE_ORGANIZATION_KINDS } from '@/components/organization-kind';
 import { Switch } from '@/components/ui/switch';
-import type { FeatureFlags } from '@/lib/types';
+import type { FeatureFlags, FeatureFlagManagement } from '@/lib/types';
 import type {
   AuditLogEntry,
   GscSearchPerformance,
@@ -137,6 +137,7 @@ export default function ManagementPage() {
   const [teamKindFilter, setTeamKindFilter] = useState<string>('all');
   const [featureFlags, setFeatureFlags] = useState<FeatureFlags | null>(null);
   const [savingFlag, setSavingFlag] = useState(false);
+  const [flagUsers, setFlagUsers] = useState<FeatureFlagManagement['users'] | null>(null);
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -316,6 +317,7 @@ export default function ManagementPage() {
         const teamsData = await api.auth.managementTeams();
         setTeams(teamsData);
         api.features.all().then(setFeatureFlags).catch(() => setFeatureFlags(null));
+        api.features.management().then((m) => setFlagUsers(m.users)).catch(() => setFlagUsers(null));
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
         // Initial load handled by the fetchAuditLogs effect
       } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
@@ -2415,6 +2417,56 @@ export default function ManagementPage() {
                 />
                 Organization pages in the dashboard
               </label>
+            )}
+            {isRoot && (
+              <label
+                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+                title="Phase 1 of the simplification: one sidebar, grouped project menu, Connect button, ⌘K. On for everyone within 30 seconds; off brings the current navigation back."
+              >
+                <Switch
+                  checked={!!featureFlags?.nav_v2}
+                  disabled={featureFlags === null || savingFlag}
+                  onCheckedChange={async (next) => {
+                    setSavingFlag(true);
+                    try {
+                      const flags = await api.features.set('nav_v2', next);
+                      setFeatureFlags(flags);
+                      toast.success(next ? 'New navigation switched on for everyone' : 'New navigation switched off');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Could not change the flag');
+                    } finally {
+                      setSavingFlag(false);
+                    }
+                  }}
+                />
+                New navigation (nav_v2) for everyone
+              </label>
+            )}
+            {isRoot && profile?.id && (
+              <button
+                type="button"
+                className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                disabled={flagUsers === null || savingFlag}
+                title="Try the new navigation on this account only, ahead of everyone. Reload the dashboard afterwards."
+                onClick={async () => {
+                  if (!flagUsers) return;
+                  const mine = flagUsers.nav_v2.includes(profile.id);
+                  const next = mine ? flagUsers.nav_v2.filter((id) => id !== profile.id) : [...flagUsers.nav_v2, profile.id];
+                  setSavingFlag(true);
+                  try {
+                    const users = await api.features.setUsers('nav_v2', next);
+                    setFlagUsers(users);
+                    toast.success(mine ? 'New navigation off for your account' : 'New navigation on for your account (reload the dashboard)');
+                  } catch (err: any) {
+                    toast.error(err?.message || 'Could not change the flag');
+                  } finally {
+                    setSavingFlag(false);
+                  }
+                }}
+              >
+                {flagUsers?.nav_v2.includes(profile.id) ? 'New navigation: on for me' : 'New navigation: try it on my account'}
+                {flagUsers && flagUsers.nav_v2.length > 0 && <> ({flagUsers.nav_v2.length} enrolled)</>}
+              </button>
             )}
           </div>
         </div>

@@ -36,7 +36,12 @@ interface DashboardContextValue {
   featuresLoaded: boolean;
 }
 
-export const DEFAULT_FEATURES: FeatureFlags = { organizations_ui: false };
+export const DEFAULT_FEATURES: FeatureFlags = { organizations_ui: false, nav_v2: false };
+
+/** Whether the simplified navigation (Phase 1) is on for this user. */
+export function useNavV2() {
+  return useContext(DashboardContext).features.nav_v2;
+}
 
 export const DashboardContext = createContext<DashboardContextValue>({
   activeTeamId: '',
@@ -375,8 +380,12 @@ export default function DashboardLayout({
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
     // Flags are public and cached 30 s on the API; a failed read keeps everything off.
     api.features
-      .all()
-      .then((f) => setFeatures((prev) => (prev.organizations_ui === !!f?.organizations_ui ? prev : { organizations_ui: !!f?.organizations_ui })))
+      .me()
+      .catch(() => api.features.all())
+      .then((f) => {
+        const next: FeatureFlags = { organizations_ui: !!f?.organizations_ui, nav_v2: !!f?.nav_v2 };
+        setFeatures((prev) => (prev.organizations_ui === next.organizations_ui && prev.nav_v2 === next.nav_v2 ? prev : next));
+      })
       .catch(() => {})
       .finally(() => setFeaturesLoaded(true));
   }, [activeTeamId, refreshKey]);

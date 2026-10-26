@@ -30,6 +30,7 @@ import type {
   ImportJobProgressEvent,
   PendingInvite,
   FeatureFlags,
+  FeatureFlagManagement,
   Organization,
   OrganizationKind,
   OrganizationOverview,
@@ -618,10 +619,23 @@ export const api = {
     all() {
       return request<FeatureFlags>('/features');
     },
+    /** The flags as the signed-in user sees them (a flag can be on for a few people before everyone). */
+    me() {
+      return request<FeatureFlags>('/features/me');
+    },
+    management() {
+      return request<FeatureFlagManagement>('/features/management');
+    },
     set(name: keyof FeatureFlags, enabled: boolean) {
       return request<FeatureFlags>('/features/management', {
         method: 'PATCH',
         body: JSON.stringify({ name, enabled }),
+      });
+    },
+    setUsers(name: keyof FeatureFlags, userIds: string[]) {
+      return request<FeatureFlagManagement['users']>('/features/management/users', {
+        method: 'PATCH',
+        body: JSON.stringify({ name, userIds }),
       });
     },
   },
