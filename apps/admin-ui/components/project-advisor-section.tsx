@@ -20,7 +20,7 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, projectStatusLabel } from '@/lib/utils';
 
 type AdvisorCategory = 'SECURITY' | 'PERFORMANCE' | 'DATABASE' | 'AUTH' | 'INTEGRATIONS';
 
@@ -235,7 +235,7 @@ export function ProjectAdvisorSection({
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Status
           </p>
-          <p className="mt-1.5 text-sm font-medium">{project.status}</p>
+          <p className="mt-1.5 text-sm font-medium">{projectStatusLabel(project.status)}</p>
         </div>
         <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

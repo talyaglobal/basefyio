@@ -12,7 +12,7 @@ import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn, projectStatusBadgeClass } from '@/lib/utils';
+import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -1087,7 +1087,7 @@ export default function TeamSettingsPage() {
                     </p>
                   </div>
                   <Badge variant="secondary" className={cn('shrink-0 text-[10px]', projectStatusBadgeClass(p.status))}>
-                    {p.status}
+                    {projectStatusLabel(p.status).toUpperCase()}
                   </Badge>
                 </button>
               ))}

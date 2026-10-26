@@ -34,3 +34,23 @@ export function projectStatusBadgeClass(status: string | null | undefined): stri
       return '';
   }
 }
+
+/**
+ * The one word the product uses for each project status, everywhere a status
+ * is shown. The enum value `PAUSED` is an internal identifier; customers
+ * only ever read "Asleep".
+ */
+export function projectStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'ACTIVE':
+      return 'Active';
+    case 'PAUSED':
+      return 'Asleep';
+    case 'DEACTIVATED':
+      return 'Deactivated';
+    case 'DELETED':
+      return 'Deleted';
+    default:
+      return status ? status.charAt(0) + status.slice(1).toLowerCase() : '';
+  }
+}

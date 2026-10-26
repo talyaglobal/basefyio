@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { projectStatusLabel } from '@/lib/utils';
 import { toast } from 'sonner';
 import { promptDialog } from '@/components/ui/confirm-dialog';
 import {
@@ -2147,7 +2148,7 @@ function ProjectListRow({
         </span>
       )}
       <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
-        {project.status}
+        {projectStatusLabel(project.status).toUpperCase()}
       </span>
     </div>
   );

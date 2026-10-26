@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { projectStatusLabel } from '@/lib/utils';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Info } from 'lucide-react';
 import type { CustomerProjectCost, TeamCostReport } from '@/lib/types';
@@ -25,7 +26,7 @@ function StatusPill({ status }: { status: string }) {
   if (status === 'ACTIVE') return null;
   return (
     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-      {status === 'PAUSED' ? 'Paused' : status.toLowerCase()}
+      {projectStatusLabel(status).toLowerCase()}
     </span>
   );
 }

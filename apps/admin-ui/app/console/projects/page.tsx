@@ -168,7 +168,7 @@ export default function ConsoleProjectsPage() {
                 status === s ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
+              {s === 'ALL' ? 'All' : s === 'PAUSED' ? 'Asleep' : s.charAt(0) + s.slice(1).toLowerCase()}
             </button>
           ))}
         </div>

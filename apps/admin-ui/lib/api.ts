@@ -790,6 +790,11 @@ export const api = {
         method: 'POST',
       });
     },
+    sleep(id: string) {
+      return request<{ message: string }>(`/projects/${id}/sleep`, {
+        method: 'POST',
+      });
+    },
     permanentDelete(id: string) {
       return request<{ message: string }>(`/projects/${id}/permanent`, {
         method: 'DELETE',

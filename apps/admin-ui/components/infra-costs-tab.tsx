@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { projectStatusLabel } from '@/lib/utils';
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Server } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -55,7 +56,7 @@ function ProjectRows({ projects }: { projects: ProjectCostReport[] }) {
           <td className="py-1.5 pl-9 pr-3">
             <span className="text-foreground/90">{p.name}</span>
             <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.computeTier}</span>
-            {p.status !== 'ACTIVE' && <span className="ml-1 text-[10px] uppercase">{p.status}</span>}
+            {p.status !== 'ACTIVE' && <span className="ml-1 text-[10px] uppercase">{projectStatusLabel(p.status)}</span>}
           </td>
           <td className="py-1.5 pr-3 text-right tabular-nums">{Math.round(p.activeHours)} h</td>
           <td className="py-1.5 pr-3 text-right tabular-nums">{fmtBytes(p.dbSizeBytes)}</td>

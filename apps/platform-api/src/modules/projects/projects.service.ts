@@ -1194,6 +1194,76 @@ export class ProjectsService {
   }
 
   /**
+   * Put a project to sleep on request: the same state the idle sweep
+   * produces, chosen deliberately. Its API answers nothing until it is woken,
+   * nothing is deleted, the plan slot stays taken, and a request carrying its
+   * key wakes it again — a pause, not a lock. No notice is sent: the person
+   * asking is the one who would receive it.
+   */
+  async sleep(id: string, userId: string) {
+    const project = await this.findOne(id, userId);
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: project.teamId, userId } },
+    });
+    if (!membership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+    const isCreator = project.createdBy === userId;
+    if (membership.role !== 'OWNER' && !isCreator) {
+      throw new ForbiddenException('You can only put projects you created to sleep');
+    }
+
+    if (project.status === 'PAUSED') {
+      return { message: 'Project is already asleep' };
+    }
+    if (project.status !== 'ACTIVE') {
+      throw new ForbiddenException('Only an active project can be put to sleep');
+    }
+
+    // Flip only if it is still awake, so two tabs racing put it to sleep once.
+    const { count } = await this.prisma.project.updateMany({
+      where: { id, status: 'ACTIVE' },
+      data: { status: 'PAUSED', pausedAt: new Date(), idleWarningSentAt: null },
+    });
+    if (count === 0) {
+      return { message: 'Project is already asleep' };
+    }
+
+    // The pooler routes awake projects only; drop this one from its config.
+    this.pgbouncer.regenerateConfig().catch((err) =>
+      this.logger.warn(`PgBouncer config update failed: ${err}`),
+    );
+
+    this.logger.log(`Project "${project.name}" put to sleep by user ${userId}`);
+
+    await this.activity.append(id, {
+      userId,
+      kind: ProjectActivityKind.PROJECT_UPDATED,
+      title: 'Project put to sleep',
+      detail:
+        'A team member put it to sleep from the dashboard. Its API stops answering until it is woken; ' +
+        'nothing is deleted, and a request carrying its key wakes it again.',
+    });
+
+    {
+      const memberIds = await this.teamMemberUserIds(project.teamId);
+      const actorName = await this.resolveActorName(userId);
+      await this.realtime.publish({
+        entityType: 'project',
+        action: 'updated',
+        entityId: id,
+        actorUserId: userId,
+        teamId: project.teamId,
+        userIds: memberIds,
+        payload: { name: project.name, status: 'PAUSED', actorName },
+      });
+    }
+
+    return { message: 'Project is asleep' };
+  }
+
+  /**
    * Reactivate a deactivated project. This re-consumes a project slot, so the
    * plan quota is enforced — if the team is already at its limit the caller must
    * upgrade, or delete/deactivate another project first.

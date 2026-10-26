@@ -411,6 +411,14 @@ export class ProjectsController {
     return this.projectsService.reactivate(id, user.sub);
   }
 
+  @Post(':id/sleep')
+  async sleep(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.sleep(id, user.sub);
+  }
+
   @Delete(':id/permanent')
   async permanentDelete(
     @Param('id') id: string,

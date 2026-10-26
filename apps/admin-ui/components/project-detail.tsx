@@ -31,13 +31,15 @@ import {
   RotateCcw,
   GitCompareArrows,
   Power,
+  Moon,
+  ChevronDown,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
-import { cn, projectStatusBadgeClass } from '@/lib/utils';
+import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -59,6 +61,43 @@ function deployStateColor(state: string) {
     default: return 'text-muted-foreground';
   }
 }
+
+// Three words for a project's life, the same ones everywhere: active, asleep,
+// deleted. "Deactivated" is an older state the list still shows for projects
+// that are in it; the dialog does not offer it.
+type StatusChoice = 'ACTIVE' | 'PAUSED' | 'DELETE';
+
+// What the badge offers when clicked. Every option maps to an action the
+// projects list already had; the dialog only puts them where the status is.
+const STATUS_OPTIONS: Array<{
+  value: StatusChoice;
+  label: string;
+  hint: string;
+  icon: typeof Power;
+  tone: string;
+}> = [
+  {
+    value: 'ACTIVE',
+    label: 'Active',
+    hint: 'Serving requests. Waking an asleep project restores it exactly as it was.',
+    icon: Power,
+    tone: 'text-teal-500',
+  },
+  {
+    value: 'PAUSED',
+    label: 'Asleep',
+    hint: 'Its API stops answering until it is woken. Nothing is deleted; a request carrying its key wakes it again.',
+    icon: Moon,
+    tone: 'text-amber-500',
+  },
+  {
+    value: 'DELETE',
+    label: 'Delete',
+    hint: 'Move the project to the trash. You will be asked to type its name first.',
+    icon: Trash2,
+    tone: 'text-red-500',
+  },
+];
 
 interface ProjectDetailProps {
   project: Project;
@@ -82,28 +121,6 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
   const { refreshProject } = useProject();
 
-  // Waking is the customer's explicit choice; the badge is where they make it
-  // when they said "not now" to the prompt that greeted them on opening.
-  const [waking, setWaking] = useState(false);
-  const wakeProject = async () => {
-    const yes = await confirmDialog({
-      title: 'Activate this project?',
-      description: `"${project.name}" is asleep. Nothing was deleted; activating it brings its API back exactly as it was.`,
-      confirmText: 'Yes, activate it',
-      cancelText: 'No',
-    });
-    if (!yes) return;
-    setWaking(true);
-    try {
-      await api.projects.reactivate(project.id);
-      await refreshProject?.();
-      toast.success('Project is active again');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to activate the project');
-    } finally {
-      setWaking(false);
-    }
-  };
   const [deleting, setDeleting] = useState(false);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
@@ -116,6 +133,40 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [reimportOpen, setReimportOpen] = useState(false);
   const [reimportMode, setReimportMode] = useState<'full' | 'sync'>('full');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // The status badge is a control: clicking it opens this dialog, and the
+  // choice — wake, sleep, switch off or delete — is always the customer's.
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [statusChoice, setStatusChoice] = useState<StatusChoice>('ACTIVE');
+  const [statusSaving, setStatusSaving] = useState(false);
+  const openStatusDialog = () => {
+    setStatusChoice(project.status === 'PAUSED' ? 'PAUSED' : 'ACTIVE');
+    setStatusDialogOpen(true);
+  };
+  const applyStatus = async () => {
+    if (statusChoice === 'DELETE') {
+      // The existing deletion flow, with its reason and typed-name guard.
+      setStatusDialogOpen(false);
+      setDeleteDialogOpen(true);
+      return;
+    }
+    setStatusSaving(true);
+    try {
+      if (statusChoice === 'ACTIVE') {
+        await api.projects.reactivate(project.id);
+        toast.success('Project is active again');
+      } else {
+        await api.projects.sleep(project.id);
+        toast.success('Project is asleep. A request with its API key wakes it again.');
+      }
+      setStatusDialogOpen(false);
+      await refreshProject?.();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to change the project status');
+    } finally {
+      setStatusSaving(false);
+    }
+  };
   const [deleteReasonCode, setDeleteReasonCode] = useState<string>('none');
   const [deleteDetails, setDeleteDetails] = useState('');
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -326,22 +377,20 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
-            {project.status === 'PAUSED' ? 'ASLEEP' : project.status}
-          </Badge>
-          {project.status === 'PAUSED' && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={wakeProject}
-              disabled={waking}
-              title="Activate this project"
-              className="h-6 gap-1 px-2 text-xs"
+          <button
+            type="button"
+            onClick={openStatusDialog}
+            title="Change project status"
+            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Badge
+              variant="secondary"
+              className={cn(projectStatusBadgeClass(project.status), 'cursor-pointer gap-1 pr-1.5')}
             >
-              <Power className="h-3 w-3" />
-              {waking ? 'Activating…' : 'Activate'}
-            </Button>
-          )}
+              {projectStatusLabel(project.status).toUpperCase()}
+              <ChevronDown className="h-3 w-3" />
+            </Badge>
+          </button>
           {project.previewBranch && (
             <Link
               href={`/dashboard/projects/${project.previewBranch.parentProjectId}`}
@@ -626,6 +675,66 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             >
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               {movingTeam ? 'Moving…' : 'Move Project'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={statusDialogOpen}
+        onOpenChange={(open) => {
+          if (!statusSaving) setStatusDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change project status</DialogTitle>
+            <DialogDescription>
+              &ldquo;{project.name}&rdquo; is {projectStatusLabel(project.status).toLowerCase()}. Choose what it
+              should be.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {STATUS_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const current = opt.value === project.status;
+              const selected = statusChoice === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStatusChoice(opt.value)}
+                  disabled={current || statusSaving}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                    selected ? 'border-primary bg-primary/5' : 'hover:bg-accent',
+                    current && 'cursor-default opacity-60',
+                  )}
+                >
+                  <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', opt.tone)} />
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {opt.label}
+                      {current && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">current</span>
+                      )}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusDialogOpen(false)} disabled={statusSaving}>
+              Cancel
+            </Button>
+            <Button
+              variant={statusChoice === 'DELETE' ? 'destructive' : 'default'}
+              onClick={applyStatus}
+              disabled={statusSaving || statusChoice === project.status}
+            >
+              {statusSaving ? 'Applying…' : statusChoice === 'DELETE' ? 'Continue to delete' : 'Apply'}
             </Button>
           </DialogFooter>
         </DialogContent>

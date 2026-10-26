@@ -106,7 +106,8 @@ export function StatusBadge({ status }: { status: string }) {
         STATUS_STYLES[status] ?? 'bg-muted text-muted-foreground',
       )}
     >
-      {status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, ' ')}
+      {/* PAUSED is the internal name of a project's asleep state. */}
+      {status === 'PAUSED' ? 'Asleep' : status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, ' ')}
     </span>
   );
 }

@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
-import { cn, projectStatusBadgeClass } from '@/lib/utils';
+import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
 
 // ── Helpers ──────────────────────────────────────────────────
 function buildMonthlyData(projects: ProjectListItem[], months = 6) {
@@ -66,7 +66,7 @@ function buildStatusData(
   // counts are fetched separately and passed in.
   return [
     { name: 'Active', value: active, color: '#14b8a6', query: 'status=ACTIVE' },
-    { name: 'Paused', value: paused, color: '#f59e0b', query: 'status=PAUSED' },
+    { name: 'Asleep', value: paused, color: '#f59e0b', query: 'status=PAUSED' },
     { name: 'Deactivated', value: deactivatedCount, color: '#94a3b8', query: 'view=deactivated' },
     { name: 'Deleted', value: deletedCount, color: '#ef4444', query: 'view=trash' },
   ].filter((d) => d.value > 0);
@@ -645,7 +645,7 @@ export default function DashboardPage() {
                     variant="secondary"
                     className={cn('shrink-0 text-[10px] h-5', projectStatusBadgeClass(p.status))}
                   >
-                    {p.status}
+                    {projectStatusLabel(p.status).toUpperCase()}
                   </Badge>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
