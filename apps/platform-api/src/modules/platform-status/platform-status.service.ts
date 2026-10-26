@@ -10,15 +10,32 @@ import {
   PROBES,
   ProbeName,
   SLO_TARGET_PCT,
+  aggregateWindows,
   availabilityPct,
   burnRate,
   errorBudgetMinutes,
   errorRatePct,
   minuteVerdicts,
   minutesInMonth,
+  monthKey,
+  monthStartUtc,
+  nextMonthStartUtc,
+  parseMonthKey,
   summarise,
+  targetMet,
 } from './slo';
-import type { ComponentState, ComponentStatus, ConsoleStatus, DayFigure, IncidentView, PublicStatus } from './platform-status.types';
+import type {
+  ComponentState,
+  ComponentStatus,
+  ConsoleStatus,
+  DayFigure,
+  IncidentView,
+  MonthComponent,
+  PublicStatus,
+  StatusHistory,
+  TrackedComponent,
+} from './platform-status.types';
+import { StatusSubscriptionsService } from './status-subscriptions.service';
 
 export const CANARY_SETTING_KEY = 'platform_status.canary';
 const PUBLIC_CACHE_KEY = 'pstatus:public';
@@ -33,6 +50,39 @@ export const PROBE_LABELS: Record<ProbeName, string> = {
   storage: 'Storage',
   realtime: 'Realtime',
 };
+
+/** What each probe exercises, as the status page lists it under the component ("<domain>" is filled in). */
+export const PROBE_COVERS: Record<ProbeName, string[]> = {
+  api: [
+    'api.<domain> readiness (/api/health/ready)',
+    'REST data API (/api/rest/v1) with a project key, through admission control',
+    'Management API behind the dashboard (/api/projects, /api/organizations, …)',
+  ],
+  dashboard: ['app.<domain> sign-in page', 'The dashboard\'s proxy to the API (/api/proxy)', 'admin.<domain> root console'],
+  auth: ['auth.<domain> OpenID discovery (Keycloak)', 'Sign-in, tokens and sessions for every project realm', 'Password reset and verification mail'],
+  database: ['db.<domain>:6432 connection pooler over TLS', 'SELECT 1 on a project database through the pooler', 'Read-only roles and direct connections'],
+  storage: ['storage.<domain> public object download', 'Buckets, uploads and signed URLs (S3-compatible)'],
+  realtime: ['Server-sent event stream (/api/realtime/v1/stream)', 'Change feeds and channel bindings'],
+};
+
+/** Parts of the service without a probe; an open incident that lists one sets its state. */
+export const TRACKED_COMPONENTS: Array<{ id: string; label: string; covers: string[] }> = [
+  { id: 'provisioning', label: 'Project provisioning', covers: ['New project databases and realms', 'Branches, restores and project activation'] },
+  { id: 'backups', label: 'Backups & point-in-time recovery', covers: ['Nightly base backups', 'WAL archiving and restores'] },
+  { id: 'billing', label: 'Billing & payments', covers: ['Checkout, invoices and plan changes (Stripe)'] },
+  { id: 'website', label: 'Website & docs', covers: ['<domain>', 'docs.<domain>', 'status.<domain>'] },
+  { id: 'email', label: 'E-mail delivery', covers: ['Sign-up, reset, invite and project mail'] },
+];
+
+export const COMPONENT_IDS: readonly string[] = [...PROBES, ...TRACKED_COMPONENTS.map((t) => t.id)];
+
+export const COMPONENT_LABELS: Record<string, string> = {
+  ...PROBE_LABELS,
+  ...Object.fromEntries(TRACKED_COMPONENTS.map((t) => [t.id, t.label])),
+};
+
+const HISTORY_CACHE_PREFIX = 'pstatus:history:';
+const withDomain = (lines: string[]) => lines.map((l) => l.split('<domain>').join(platformDomain()));
 
 export interface CanaryConfig {
   projectId: string;
@@ -89,7 +139,16 @@ export class PlatformStatusService {
     private readonly redis: RedisService,
     private readonly projects: ProjectsService,
     private readonly storage: StorageService,
+    private readonly subscriptions: StatusSubscriptionsService,
   ) {}
+
+  /** The public payload and the current month's history are cached; both go when anything they show changes. */
+  private async invalidatePublic(): Promise<void> {
+    await Promise.all([
+      this.redis.del(PUBLIC_CACHE_KEY).catch(() => {}),
+      this.redis.del(`${HISTORY_CACHE_PREFIX}${monthKey(new Date())}`).catch(() => {}),
+    ]);
+  }
 
   // ── Samples ──────────────────────────────────────────────────────────────
 
@@ -173,7 +232,52 @@ export class PlatformStatusService {
         });
       }
     }
-    await this.redis.del(PUBLIC_CACHE_KEY).catch(() => {});
+    await this.rollUpMonths(now);
+    await this.invalidatePublic();
+  }
+
+  /**
+   * The month's figure per probe, recomputed as the month runs and kept as
+   * the status page's history. The previous month is recomputed too, so the
+   * day that straddles midnight on the first is settled; once a month has
+   * ended its closed_at is set and never moved.
+   */
+  async rollUpMonths(now: Date): Promise<void> {
+    const thisMonth = monthStartUtc(now);
+    const prevMonth = new Date(Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() - 1, 1));
+    for (const month of [prevMonth, thisMonth]) {
+      const end = nextMonthStartUtc(month);
+      const [windows, incidents] = await Promise.all([
+        this.prisma.platformSloWindow.findMany({ where: { day: { gte: month, lt: end } } }),
+        this.prisma.platformIncident.findMany({
+          where: { startedAt: { gte: month, lt: end }, excludedFromSlo: false },
+          select: { components: true },
+        }),
+      ]);
+      if (windows.length === 0) continue;
+      const ended = end.getTime() <= now.getTime();
+      for (const probe of PROBES) {
+        const own = windows.filter((w) => w.probe === probe);
+        if (own.length === 0) continue;
+        const sum = aggregateWindows(own);
+        const data = {
+          totalMinutes: sum.totalMinutes,
+          downMinutes: sum.downMinutes,
+          availabilityPct: availabilityPct(sum.totalMinutes, sum.downMinutes),
+          targetPct: SLO_TARGET_PCT[probe],
+          p95LatencyMs: sum.p95LatencyMs,
+          incidentCount: incidents.filter((i) => i.components.includes(probe)).length,
+        };
+        await this.prisma.platformSloMonth.upsert({
+          where: { month_probe: { month, probe } },
+          create: { month, probe, ...data, closedAt: ended ? now : null },
+          update: data,
+        });
+      }
+      if (ended) {
+        await this.prisma.platformSloMonth.updateMany({ where: { month, closedAt: null }, data: { closedAt: now } });
+      }
+    }
   }
 
   async pruneSamples(now = new Date()): Promise<number> {
@@ -226,7 +330,7 @@ export class PlatformStatusService {
 
   async buildPublic(now: Date): Promise<PublicStatus> {
     const since90 = new Date(dayStart(now).getTime() - 89 * 86_400_000);
-    const [windows, recentSamples, incidents] = await Promise.all([
+    const [windows, recentSamples, incidents, monthRows] = await Promise.all([
       this.prisma.platformSloWindow.findMany({ where: { day: { gte: since90 } } }),
       this.prisma.platformProbeSample.findMany({
         where: { ts: { gte: new Date(now.getTime() - 15 * 60_000) } },
@@ -238,6 +342,7 @@ export class PlatformStatusService {
         orderBy: { startedAt: 'desc' },
         take: 50,
       }),
+      this.prisma.platformSloMonth.findMany({ select: { month: true }, distinct: ['month'], orderBy: { month: 'asc' } }),
     ]);
 
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -288,6 +393,7 @@ export class PlatformStatusService {
       return {
         probe,
         label: PROBE_LABELS[probe],
+        covers: withDomain(PROBE_COVERS[probe]),
         state,
         lastCheckedAt: last ? last.ts.toISOString() : null,
         latencyMs,
@@ -309,14 +415,29 @@ export class PlatformStatusService {
     const open = views.filter((i) => i.status !== 'RESOLVED' && !i.excludedFromSlo);
     const maintenance = views.filter((i) => i.excludedFromSlo && i.status !== 'RESOLVED');
     const recent = views.filter((i) => i.status === 'RESOLVED');
-    const states = components.map((c) => c.state);
+
+    // Components without a probe: an open incident naming them is the only signal.
+    const openAny = views.filter((i) => i.status !== 'RESOLVED');
+    const tracked: TrackedComponent[] = TRACKED_COMPONENTS.map((t) => {
+      const hits = openAny.filter((i) => i.components.includes(t.id));
+      const severe = hits.some((i) => !i.excludedFromSlo && (i.impact === 'CRITICAL' || i.impact === 'MAJOR'));
+      const state: ComponentState = severe ? 'down' : hits.length > 0 ? 'degraded' : 'operational';
+      return { id: t.id, label: t.label, covers: withDomain(t.covers), state };
+    });
+
+    const probeStates = components.map((c) => c.state);
+    const states = [...probeStates, ...tracked.map((t) => t.state)];
     const overall: ComponentState = states.includes('down')
       ? 'down'
       : states.includes('degraded')
         ? 'degraded'
-        : states.every((s) => s === 'unknown')
+        : probeStates.every((s) => s === 'unknown')
           ? 'unknown'
           : 'operational';
+
+    const months = monthRows.map((m) => monthKey(m.month));
+    const currentMonth = monthKey(now);
+    if (!months.includes(currentMonth)) months.push(currentMonth);
 
     return {
       generatedAt: now.toISOString(),
@@ -325,8 +446,87 @@ export class PlatformStatusService {
       components,
       incidents: { open, recent },
       maintenance,
+      tracked,
+      months,
       live: anyLive,
       vantages: Array.from(vantages).sort(),
+    };
+  }
+
+  /** One calendar month of history; the current month by default. Cached a minute while it runs, an hour once closed. */
+  async history(monthParam?: string): Promise<StatusHistory> {
+    const now = new Date();
+    const month = parseMonthKey(monthParam) ?? monthStartUtc(now);
+    if (month.getTime() > monthStartUtc(now).getTime()) throw new BadRequestException('That month has not started');
+    const cacheKey = `${HISTORY_CACHE_PREFIX}${monthKey(month)}`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) return JSON.parse(cached) as StatusHistory;
+    } catch {
+      /* compute */
+    }
+    const built = await this.buildHistory(month, now);
+    await this.redis.set(cacheKey, JSON.stringify(built), built.closed ? 3600 : 60).catch(() => {});
+    return built;
+  }
+
+  async buildHistory(month: Date, now: Date): Promise<StatusHistory> {
+    const end = nextMonthStartUtc(month);
+    const [windows, monthRows, incidents, monthsWithData] = await Promise.all([
+      this.prisma.platformSloWindow.findMany({ where: { day: { gte: month, lt: end } } }),
+      this.prisma.platformSloMonth.findMany({ where: { month } }),
+      this.prisma.platformIncident.findMany({ where: { startedAt: { gte: month, lt: end } }, orderBy: { startedAt: 'desc' } }),
+      this.prisma.platformSloMonth.findMany({ select: { month: true }, distinct: ['month'], orderBy: { month: 'asc' } }),
+    ]);
+    const daysInMonth = Math.round((end.getTime() - month.getTime()) / 86_400_000);
+    const today = dayStart(now);
+
+    const components: MonthComponent[] = PROBES.map((probe) => {
+      const own = windows.filter((w) => w.probe === probe);
+      const row = monthRows.find((r) => r.probe === probe);
+      const sum = row ? { totalMinutes: row.totalMinutes, downMinutes: row.downMinutes, p95LatencyMs: row.p95LatencyMs } : aggregateWindows(own);
+      const avail = availabilityPct(sum.totalMinutes, sum.downMinutes);
+      const days: DayFigure[] = [];
+      for (let i = 0; i < daysInMonth; i++) {
+        const day = new Date(month.getTime() + i * 86_400_000);
+        const w = own.find((x) => x.day.getTime() === day.getTime());
+        days.push({
+          day: dayKey(day),
+          availabilityPct: w ? availabilityPct(w.totalMinutes, w.downMinutes) : null,
+          downMinutes: w?.downMinutes ?? 0,
+          totalMinutes: w?.totalMinutes ?? 0,
+          ...(day.getTime() > today.getTime() ? { future: true } : {}),
+        });
+      }
+      return {
+        probe,
+        label: PROBE_LABELS[probe],
+        targetPct: SLO_TARGET_PCT[probe],
+        availabilityPct: avail,
+        downMinutes: sum.downMinutes,
+        observedMinutes: sum.totalMinutes,
+        p95LatencyMs: sum.p95LatencyMs,
+        met: targetMet(avail, SLO_TARGET_PCT[probe]),
+        incidentCount: row?.incidentCount ?? incidents.filter((i) => !i.excludedFromSlo && i.components.includes(probe)).length,
+        days,
+      };
+    });
+
+    const keys = monthsWithData.map((m) => monthKey(m.month));
+    const current = monthKey(now);
+    if (!keys.includes(current)) keys.push(current);
+    const key = monthKey(month);
+    const earlier = keys.filter((k) => k < key);
+    return {
+      month: key,
+      from: month.toISOString(),
+      to: end.toISOString(),
+      closed: end.getTime() <= now.getTime(),
+      components,
+      incidents: incidents.map((i) => this.toIncidentView(i)),
+      months: keys,
+      prevMonth: earlier.length ? earlier[earlier.length - 1] : null,
+      nextMonth: keys.find((k) => k > key) ?? null,
     };
   }
 
@@ -334,7 +534,7 @@ export class PlatformStatusService {
     const now = new Date();
     const pub = await this.buildPublic(now);
     const since24h = new Date(now.getTime() - 24 * 60 * 60_000);
-    const [samples24h, todayApi, deploys, latest, events, canary] = await Promise.all([
+    const [samples24h, todayApi, deploys, latest, events, canary, subscribers] = await Promise.all([
       this.prisma.platformProbeSample.findMany({
         where: { ts: { gte: since24h } },
         select: { ts: true, probe: true, vantage: true, ok: true, latencyMs: true },
@@ -349,6 +549,7 @@ export class PlatformStatusService {
         select: { id: true, source: true, kind: true, severity: true, title: true, occurredAt: true },
       }),
       this.canaryConfig(),
+      this.subscriptions.counts(),
     ]);
 
     const burn = {} as ConsoleStatus['burn'];
@@ -382,6 +583,8 @@ export class PlatformStatusService {
       enabled: isPlatformStatusEnabled(),
       tokenConfigured: !!(process.env.PLATFORM_STATUS_PROBE_TOKEN || '').trim(),
       canary: { projectId: canary?.projectId ?? null, configured: !!canary },
+      subscribers,
+      componentOptions: COMPONENT_IDS.map((id) => ({ id, label: COMPONENT_LABELS[id] ?? id })),
     };
   }
 
@@ -410,7 +613,7 @@ export class PlatformStatusService {
         title,
         status,
         impact: input.impact ?? (input.excludedFromSlo ? 'NONE' : 'MINOR'),
-        components: (input.components ?? []).filter((c) => (PROBES as readonly string[]).includes(c)),
+        components: (input.components ?? []).filter((c) => COMPONENT_IDS.includes(c)),
         startedAt: input.startedAt ? new Date(input.startedAt) : now,
         excludedFromSlo: !!input.excludedFromSlo,
         updates,
@@ -418,8 +621,10 @@ export class PlatformStatusService {
         ...(status === 'RESOLVED' ? { resolvedAt: now } : {}),
       },
     });
-    await this.redis.del(PUBLIC_CACHE_KEY).catch(() => {});
-    return this.toIncidentView(row);
+    await this.invalidatePublic();
+    const view = this.toIncidentView(row);
+    void this.subscriptions.notifyIncident(view, status === 'RESOLVED' ? 'resolved' : 'opened', COMPONENT_LABELS);
+    return view;
   }
 
   async updateIncident(id: string, input: IncidentInput, by: string): Promise<IncidentView> {
@@ -438,7 +643,7 @@ export class PlatformStatusService {
         ...(input.title !== undefined ? { title: input.title.trim().slice(0, 300) } : {}),
         status: nextStatus,
         ...(input.impact !== undefined ? { impact: input.impact } : {}),
-        ...(input.components !== undefined ? { components: input.components } : {}),
+        ...(input.components !== undefined ? { components: input.components.filter((c) => COMPONENT_IDS.includes(c)) } : {}),
         ...(input.startedAt !== undefined ? { startedAt: new Date(input.startedAt) } : {}),
         ...(input.excludedFromSlo !== undefined ? { excludedFromSlo: input.excludedFromSlo } : {}),
         ...(input.postmortem !== undefined ? { postmortem: input.postmortem } : {}),
@@ -447,9 +652,13 @@ export class PlatformStatusService {
       },
     });
     this.logger.log(`Incident ${id} updated by ${by}: ${nextStatus}`);
-    await this.redis.del(PUBLIC_CACHE_KEY).catch(() => {});
+    await this.invalidatePublic();
     if (input.excludedFromSlo !== undefined || resolving) await this.rollUp(now).catch(() => {});
-    return this.toIncidentView(row);
+    const view = this.toIncidentView(row);
+    const announced = updates.length > (Array.isArray(current.updates) ? (current.updates as unknown[]).length : 0);
+    if (resolving) void this.subscriptions.notifyIncident(view, 'resolved', COMPONENT_LABELS);
+    else if (announced) void this.subscriptions.notifyIncident(view, 'updated', COMPONENT_LABELS);
+    return view;
   }
 
   async openAutoIncident(probe: ProbeName, now: Date): Promise<IncidentView | null> {
@@ -469,8 +678,10 @@ export class PlatformStatusService {
         autoKey,
       },
     });
-    await this.redis.del(PUBLIC_CACHE_KEY).catch(() => {});
-    return this.toIncidentView(row);
+    await this.invalidatePublic();
+    const view = this.toIncidentView(row);
+    void this.subscriptions.notifyIncident(view, 'opened', COMPONENT_LABELS);
+    return view;
   }
 
   async resolveAutoIncident(probe: ProbeName, now: Date): Promise<IncidentView | null> {
@@ -483,8 +694,10 @@ export class PlatformStatusService {
       where: { id: existing.id },
       data: { status: 'RESOLVED', resolvedAt: now, autoKey: null, updates: updates as Prisma.InputJsonValue },
     });
-    await this.redis.del(PUBLIC_CACHE_KEY).catch(() => {});
-    return this.toIncidentView(row);
+    await this.invalidatePublic();
+    const view = this.toIncidentView(row);
+    void this.subscriptions.notifyIncident(view, 'resolved', COMPONENT_LABELS);
+    return view;
   }
 
   // ── Deploy markers ───────────────────────────────────────────────────────

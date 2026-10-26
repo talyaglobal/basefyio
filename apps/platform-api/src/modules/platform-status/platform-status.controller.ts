@@ -6,6 +6,8 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Redirect,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +16,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PlatformStatusService, IncidentInput, SampleInput } from './platform-status.service';
+import { StatusSubscriptionsService } from './status-subscriptions.service';
 
 /** An external monitor's batch, or Uptime Kuma's webhook body (mapped by monitor name). */
 interface SamplesBody {
@@ -32,12 +35,43 @@ function bearerMatches(header: string | undefined, expected: string): boolean {
 
 @Controller('platform-status')
 export class PlatformStatusController {
-  constructor(private readonly status: PlatformStatusService) {}
+  constructor(
+    private readonly status: PlatformStatusService,
+    private readonly subscriptions: StatusSubscriptionsService,
+  ) {}
 
   /** Public: what the status page shows. Cached 30 s. */
   @Get('public')
   publicStatus() {
     return this.status.publicStatus();
+  }
+
+  /** Public: one calendar month of history (days, monthly figures, incidents). Defaults to the current month. */
+  @Get('history')
+  history(@Query('month') month?: string) {
+    return this.status.history(month);
+  }
+
+  /** Public: ask for incident mail. The address gets a confirmation link first. */
+  @Post('subscriptions')
+  subscribe(@Body() body: { email?: string }) {
+    return this.subscriptions.subscribe(body?.email);
+  }
+
+  /** The link in the confirmation mail; lands on the status page. */
+  @Get('subscriptions/confirm')
+  @Redirect()
+  async confirmSubscription(@Query('token') token?: string) {
+    const ok = await this.subscriptions.confirm(token);
+    return { url: `${this.subscriptions.statusPageUrl()}?subscribed=${ok ? '1' : '0'}`, statusCode: 302 };
+  }
+
+  /** The link at the foot of every incident mail. */
+  @Get('subscriptions/unsubscribe')
+  @Redirect()
+  async unsubscribe(@Query('token') token?: string) {
+    const ok = await this.subscriptions.unsubscribe(token);
+    return { url: `${this.subscriptions.statusPageUrl()}?unsubscribed=${ok ? '1' : '0'}`, statusCode: 302 };
   }
 
   /** Any signed-in user: the month's availability line for the billing page. */

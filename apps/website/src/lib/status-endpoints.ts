@@ -6,7 +6,7 @@ import { PRODUCTION_APP_URL, getAppPortalUrl } from "@/lib/site-url";
  * (the website and the API share a network), a local API, and finally the
  * dashboard's proxy. The first answer wins.
  */
-export function getStatusFetchEndpoints(): string[] {
+export function getStatusFetchEndpoints(path = "public"): string[] {
   const bases = new Set<string>();
   const add = (u?: string | null) => {
     const t = u?.trim();
@@ -18,8 +18,8 @@ export function getStatusFetchEndpoints(): string[] {
   add("http://localhost:4000");
 
   const urls = new Set<string>();
-  for (const b of Array.from(bases)) urls.add(`${b}/api/platform-status/public`);
-  urls.add(`${getAppPortalUrl()}/api/proxy/platform-status/public`);
-  urls.add(`${PRODUCTION_APP_URL}/api/proxy/platform-status/public`);
+  for (const b of Array.from(bases)) urls.add(`${b}/api/platform-status/${path}`);
+  urls.add(`${getAppPortalUrl()}/api/proxy/platform-status/${path}`);
+  urls.add(`${PRODUCTION_APP_URL}/api/proxy/platform-status/${path}`);
   return Array.from(urls);
 }

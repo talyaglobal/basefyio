@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PlatformStatusController } from './platform-status.controller';
 import { PlatformStatusService } from './platform-status.service';
 import { PlatformProberService } from './platform-prober.service';
+import { StatusSubscriptionsService } from './status-subscriptions.service';
 
 /**
  * Availability measurement: the internal prober, the samples endpoint for
@@ -15,7 +16,7 @@ import { PlatformProberService } from './platform-prober.service';
 @Module({
   imports: [ProjectsModule, StorageModule, PlatformAlertsModule, AuthModule],
   controllers: [PlatformStatusController],
-  providers: [PlatformStatusService, PlatformProberService],
-  exports: [PlatformStatusService],
+  providers: [PlatformStatusService, PlatformProberService, StatusSubscriptionsService],
+  exports: [PlatformStatusService, StatusSubscriptionsService],
 })
 export class PlatformStatusModule {}

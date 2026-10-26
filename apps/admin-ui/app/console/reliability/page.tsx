@@ -230,6 +230,11 @@ export default function ReliabilityPage() {
           tone={data.errorRatePct !== null && data.errorRatePct > 0.1 ? 'bad' : 'default'}
         />
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Status page subscribers: <strong className="text-foreground">{data.subscribers?.confirmed ?? 0}</strong> confirmed
+        {data.subscribers?.pending ? <> · {data.subscribers.pending} awaiting confirmation</> : null}. Every incident you open,
+        update or resolve here is mailed to them.
+      </p>
 
       <Panel className="mt-4" title="Indicators" description="Calendar month against the target; budget in minutes; burn rate 1 = spending the month's budget evenly." flush>
         <table className="w-full whitespace-nowrap text-sm">

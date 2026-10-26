@@ -2164,6 +2164,44 @@ model PlatformSloWindow {
   @@map("platform_slo_windows")
 }
 
+/// One row per calendar month and probe: the month's availability as the
+/// status page's history shows it. Recomputed every five minutes while the
+/// month runs; closed_at is set once the month has ended and the figure is final.
+model PlatformSloMonth {
+  id              String    @id @default(uuid())
+  /// First day of the month, UTC.
+  month           DateTime  @db.Date
+  probe           String    @db.VarChar(40)
+  totalMinutes    Int       @map("total_minutes")
+  downMinutes     Int       @map("down_minutes")
+  availabilityPct Float?    @map("availability_pct")
+  targetPct       Float     @map("target_pct")
+  /// The worst daily p95 of the month.
+  p95LatencyMs    Int?      @map("p95_latency_ms")
+  /// Incidents that started in the month, maintenance excluded.
+  incidentCount   Int       @default(0) @map("incident_count")
+  closedAt        DateTime? @map("closed_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([month, probe])
+  @@map("platform_slo_months")
+}
+
+/// Someone who asked for incident mail on the status page. Confirmed through
+/// the link in the first mail; every mail carries an unsubscribe link.
+model PlatformStatusSubscriber {
+  id             String    @id @default(uuid())
+  email          String    @unique @db.VarChar(320)
+  token          String    @unique @db.VarChar(64)
+  confirmedAt    DateTime? @map("confirmed_at")
+  unsubscribedAt DateTime? @map("unsubscribed_at")
+  lastNotifiedAt DateTime? @map("last_notified_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("platform_status_subscribers")
+}
+
 model PlatformIncident {
   id              String                 @id @default(uuid())
   title           String                 @db.VarChar(300)

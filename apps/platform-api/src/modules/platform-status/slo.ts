@@ -121,3 +121,54 @@ export function errorRatePct(total: number, errors: number): number | null {
 export function minutesInMonth(year: number, monthIndex0: number): number {
   return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate() * 24 * 60;
 }
+
+// ── Months ───────────────────────────────────────────────────────────────
+
+/** First day of the month that holds `d`, UTC midnight. */
+export function monthStartUtc(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+/** The month after the one that holds `d`, as its first day. */
+export function nextMonthStartUtc(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+}
+
+/** "2026-10" for any instant in October 2026 (UTC). */
+export function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** "2026-10" → 2026-10-01T00:00Z; anything else → null. */
+export function parseMonthKey(key: string | undefined | null): Date | null {
+  const m = /^(\d{4})-(\d{2})$/.exec((key ?? '').trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (year < 2020 || year > 2100 || month < 1 || month > 12) return null;
+  return new Date(Date.UTC(year, month - 1, 1));
+}
+
+export interface WindowRow {
+  totalMinutes: number;
+  downMinutes: number;
+  p95LatencyMs?: number | null;
+}
+
+/** Add up daily windows into one figure; the month's p95 is the worst day's. */
+export function aggregateWindows(rows: WindowRow[]): { totalMinutes: number; downMinutes: number; p95LatencyMs: number | null } {
+  let totalMinutes = 0;
+  let downMinutes = 0;
+  let p95: number | null = null;
+  for (const r of rows) {
+    totalMinutes += r.totalMinutes;
+    downMinutes += r.downMinutes;
+    if (typeof r.p95LatencyMs === 'number') p95 = p95 === null ? r.p95LatencyMs : Math.max(p95, r.p95LatencyMs);
+  }
+  return { totalMinutes, downMinutes, p95LatencyMs: p95 };
+}
+
+/** Whether a month met its target; null while nothing was observed. */
+export function targetMet(availability: number | null, targetPct: number): boolean | null {
+  return availability === null ? null : availability >= targetPct;
+}

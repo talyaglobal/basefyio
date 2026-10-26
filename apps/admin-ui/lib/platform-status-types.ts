@@ -13,6 +13,8 @@ export interface DayFigure {
 export interface ComponentStatus {
   probe: ProbeName;
   label: string;
+  /** What the probe exercises, one line each. */
+  covers: string[];
   state: ComponentState;
   lastCheckedAt: string | null;
   latencyMs: number | null;
@@ -59,6 +61,10 @@ export interface PublicStatus {
   components: ComponentStatus[];
   incidents: { open: IncidentView[]; recent: IncidentView[] };
   maintenance: IncidentView[];
+  /** Parts of the service without a probe; their state comes from open incidents. */
+  tracked: Array<{ id: string; label: string; covers: string[]; state: ComponentState }>;
+  /** Months with recorded history ("2026-10"), oldest first. */
+  months: string[];
   live: boolean;
   vantages: string[];
 }
@@ -83,6 +89,9 @@ export interface ConsoleStatus extends PublicStatus {
   enabled: boolean;
   tokenConfigured: boolean;
   canary: { projectId: string | null; configured: boolean };
+  subscribers: { confirmed: number; pending: number };
+  /** Everything an incident may list as affected: the probes and the tracked components. */
+  componentOptions: Array<{ id: string; label: string }>;
 }
 
 export interface IncidentInput {

@@ -81,3 +81,39 @@ describe('summarise and the figures', () => {
     expect(errorRatePct(2000, 3)).toBe(0.15);
   });
 });
+
+describe('months', () => {
+  const { monthStartUtc, nextMonthStartUtc, monthKey, parseMonthKey, aggregateWindows, targetMet } = require('./slo');
+
+  it('keys and bounds a month in UTC', () => {
+    const d = new Date('2026-10-26T23:59:59Z');
+    expect(monthKey(d)).toBe('2026-10');
+    expect(monthStartUtc(d).toISOString()).toBe('2026-10-01T00:00:00.000Z');
+    expect(nextMonthStartUtc(d).toISOString()).toBe('2026-11-01T00:00:00.000Z');
+    expect(nextMonthStartUtc(new Date('2026-12-05T00:00:00Z')).toISOString()).toBe('2027-01-01T00:00:00.000Z');
+  });
+
+  it('parses a month key and rejects the rest', () => {
+    expect(parseMonthKey('2026-09')?.toISOString()).toBe('2026-09-01T00:00:00.000Z');
+    expect(parseMonthKey('2026-13')).toBeNull();
+    expect(parseMonthKey('26-09')).toBeNull();
+    expect(parseMonthKey(undefined)).toBeNull();
+    expect(parseMonthKey('2026-09-01')).toBeNull();
+  });
+
+  it('adds daily windows up and keeps the worst p95', () => {
+    const sum = aggregateWindows([
+      { totalMinutes: 1440, downMinutes: 3, p95LatencyMs: 120 },
+      { totalMinutes: 1440, downMinutes: 0, p95LatencyMs: 410 },
+      { totalMinutes: 600, downMinutes: 1, p95LatencyMs: null },
+    ]);
+    expect(sum).toEqual({ totalMinutes: 3480, downMinutes: 4, p95LatencyMs: 410 });
+    expect(aggregateWindows([])).toEqual({ totalMinutes: 0, downMinutes: 0, p95LatencyMs: null });
+  });
+
+  it('judges a month against its target', () => {
+    expect(targetMet(99.98, 99.97)).toBe(true);
+    expect(targetMet(99.9, 99.97)).toBe(false);
+    expect(targetMet(null, 99.97)).toBeNull();
+  });
+});

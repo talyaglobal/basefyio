@@ -462,6 +462,7 @@ the dashboard's server routes.
 | `NEXT_PUBLIC_SITE_URL` | build arg default `https://basefyio.com`; outside a production build `http://localhost:3002` | build arg + yes (`http://localhost:3002`) / no | Canonical URL for metadata, sitemap and Open Graph. |
 | `NEXT_PUBLIC_DOCS_URL` | `https://docs.<site host>` in a production build; unset on localhost (the docs stay under `/docs`) | no / no | Origin the docs are served from. The website's middleware maps `docs.<apex>` to the `/docs` pages and forwards `<apex>/docs/*` there permanently. |
 | `NEXT_PUBLIC_STATUS_URL` | `https://status.<site host>` in a production build; unset on localhost | no / no | Origin of the status page, mapped to `/status` the same way. |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | `support@talyasmart.com` | no / no | Address behind "Report a problem" on the status page. |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | `G-99MKTVXWZV` (basefyio's own property) | build arg / no | Google Analytics tag. Set it to an empty value at build time to leave the tag out of your build. |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | unset | no / no | Search Console verification meta tag. |
 | `NEXT_PUBLIC_APP_URL` | `https://app.basefyio.com` | no / no | Dashboard link target (sign-up, sign-in). |

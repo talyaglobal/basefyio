@@ -58,3 +58,10 @@ failed, not that the canary was idle.
 
 The policy is offered to customers once the platform runs on redundant nodes; until then this page
 reports the truth without promising it.
+
+## Where the figures live
+
+- **Live and last 90 days:** `GET /api/platform-status/public`, cached 30 s.
+- **Per calendar month:** `GET /api/platform-status/history?month=YYYY-MM`. Each month is recorded as it runs and closed when it ends (`platform_slo_months`), so the status page keeps a month-by-month history: availability against the target, down minutes, incidents, worst daily p95, and a square per day.
+- **Status page:** `https://status.<domain>/` — the public hostname is the page itself. Visitors can subscribe to incident mail (double opt-in, unsubscribe link in every mail) and report a problem to the support address.
+- **Components without a probe** (project provisioning, backups, billing, website and docs, e-mail delivery) appear on the page too; their state comes from open incidents that name them.
