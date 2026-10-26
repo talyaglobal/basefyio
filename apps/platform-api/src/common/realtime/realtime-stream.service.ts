@@ -10,9 +10,21 @@ type StreamClient = {
   res: Response;
 };
 
+/** The one thing the stream service asks of the cross-replica bridge. */
+export interface DashboardFanout {
+  publishRemote(event: RealtimeEventEnvelope): void;
+}
+
 @Injectable()
 export class RealtimeStreamService {
   private static clients = new Map<string, StreamClient>();
+  // Registered by DashboardFanoutService (one per process). Several modules
+  // instantiate this service, so injection would mean several bridges.
+  private static fanout: DashboardFanout | null = null;
+
+  static setFanout(fanout: DashboardFanout | null): void {
+    RealtimeStreamService.fanout = fanout;
+  }
 
   subscribe(userId: string, channels: string[], res: Response) {
     const id = randomUUID();
@@ -47,7 +59,14 @@ export class RealtimeStreamService {
     client.res.write(`data: {"ok":true}\n\n`);
   }
 
+  /** Deliver here, then to every other replica through the bridge. */
   publish(event: RealtimeEventEnvelope) {
+    RealtimeStreamService.deliverLocal(event);
+    RealtimeStreamService.fanout?.publishRemote(event);
+  }
+
+  /** Deliver to the connections this process holds. */
+  static deliverLocal(event: RealtimeEventEnvelope): void {
     const targets = new Set<string>();
     if (event.teamId) targets.add(`team:${event.teamId}`);
     if (event.projectId) targets.add(`project:${event.projectId}`);
@@ -63,5 +82,9 @@ export class RealtimeStreamService {
       client.res.write(`data: ${payload}\n\n`);
     }
   }
-}
 
+  /** How many connections this process holds; the capacity sampler reads it. */
+  static localConnectionCount(): number {
+    return RealtimeStreamService.clients.size;
+  }
+}

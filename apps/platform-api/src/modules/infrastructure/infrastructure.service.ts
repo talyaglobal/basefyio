@@ -4,8 +4,10 @@ import {
   OnModuleInit,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BootTaskService } from '../cluster/boot-task.service';
 import * as Docker from 'dockerode';
 import { randomBytes } from 'crypto';
 
@@ -34,6 +36,8 @@ export class InfrastructureService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    // Optional so a hand-built instance in a test needs no cluster module.
+    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
   /** Metadata labels attached to managed Docker resources (prefix is configurable). */
@@ -62,7 +66,11 @@ export class InfrastructureService implements OnModuleInit {
       this.enabled = true;
       this.logger.log('Docker client connected');
 
-      await this.reconcile();
+      // Reconciling managed containers is a platform task, not a per-replica
+      // one: the first process to boot does it, its siblings skip it.
+      if ((await this.bootTasks?.claim('infra-reconcile')) ?? true) {
+        await this.reconcile();
+      }
     } catch (err: any) {
       this.logger.warn(
         `Docker not available: ${err.message}. Dedicated infrastructure disabled.`,

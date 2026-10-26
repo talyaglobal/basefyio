@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import { BootTaskService } from '../cluster/boot-task.service';
 
 /**
  * One-time self-heal for projects whose keycloak_realm column carries a
@@ -20,11 +21,18 @@ export class RealmReferenceRepairService implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keycloak: KeycloakAdminService,
+    // Optional so a hand-built instance in a test needs no cluster module.
+    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
   onApplicationBootstrap() {
-    // Fire-and-forget so a slow/unready Keycloak never delays API boot.
-    void this.runWithRetry();
+    // Fire-and-forget so a slow/unready Keycloak never delays API boot; one
+    // replica does the repair, its siblings skip it.
+    void (async () => {
+      if ((await this.bootTasks?.claim('realm-reference-repair')) ?? true) {
+        await this.runWithRetry();
+      }
+    })();
   }
 
   private async runWithRetry(): Promise<void> {

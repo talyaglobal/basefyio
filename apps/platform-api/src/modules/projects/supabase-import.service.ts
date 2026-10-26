@@ -5,7 +5,9 @@ import {
   ForbiddenException,
   OnModuleInit,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
+import { BootTaskService } from '../cluster/boot-task.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -213,6 +215,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     private readonly activity: ProjectActivityService,
     private readonly keys: SupabaseImportKeysService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
+    // Optional so a hand-built instance in a test needs no cluster module.
+    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
   private async notifyAutoCancelledJob(
@@ -248,7 +252,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Jobs a dead process left "active" are failed and their owners told —
+   * but only jobs active long enough to be orphans. A job a sibling replica
+   * started a minute ago is not stale, and failing every active job on boot
+   * would cancel a running import on every deploy once there is more than
+   * one process. The first replica to boot does the sweep; the others skip.
+   */
   private async cleanStaleActiveJobs() {
+    if (!((await this.bootTasks?.claim('import-stale-jobs')) ?? true)) return;
+    const staleAfterMs = Number.parseInt(process.env.IMPORT_STALE_AFTER_MS ?? '', 10) || 30 * 60_000;
     try {
       const active = await this.importQueue.getActive();
       if (active.length === 0) {
@@ -257,6 +270,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
       let cleaned = 0;
       for (const job of active) {
+        const startedAt = job.processedOn ?? job.timestamp ?? 0;
+        if (Date.now() - startedAt < staleAfterMs) continue; // a sibling is probably still on it
         try {
           await job.moveToFailed(
             new Error('Stale import job recovered after server restart'),

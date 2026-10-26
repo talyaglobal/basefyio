@@ -161,6 +161,8 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `REDIS_QUEUE_URL` | = `REDIS_URL` | `redis://redis-queue:6379` / same | Durable state: BullMQ job queues, the scheduled-job lease, usage counters. The compose files run it as a second instance with `maxmemory-policy noeviction` and an append-only log, because the cache instance's `allkeys-lru` may evict exactly these keys under memory pressure. Unset = everything on `REDIS_URL`, as before. |
 | `TRUSTED_PROXY_HOPS` | `1` | `1` / `1` | Proxies between the client and the API (Traefik = 1; a load balancer in front of it = 2). Sets Express's `trust proxy`, which decides what `req.ip` means for rate limits, the sign-in audit and realtime connection keys. |
 | `SQL_QUERY_EMBEDDING` | `on` | `on` / `on` | `off` stops queueing an embedding job for every executed SQL statement (semantic search over past queries keeps what it already indexed). |
+| `IMPORT_STALE_AFTER_MS` | `1800000` | no / no | On boot, an import or export job still marked active after this long with no progress is failed as an orphan of a dead process; younger ones are left alone, since another replica may be running them. |
+| `REALTIME_FANOUT` | `redis` | no / no | `off` keeps realtime events (the customer data stream and the dashboard's own stream) inside each API process; with Redis they reach the connections every replica holds. |
 
 ## PgBouncer and per-project pooling
 
