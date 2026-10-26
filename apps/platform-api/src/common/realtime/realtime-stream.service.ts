@@ -87,4 +87,25 @@ export class RealtimeStreamService {
   static localConnectionCount(): number {
     return RealtimeStreamService.clients.size;
   }
+
+  /**
+   * On shutdown: tell every dashboard stream to reconnect and end it, so the
+   * browser comes back to a replica that is staying instead of waiting on a
+   * socket this process is about to close.
+   */
+  static closeAllForDrain(): number {
+    let n = 0;
+    for (const [id, client] of [...RealtimeStreamService.clients]) {
+      try {
+        client.res.write(`event: reconnect\n`);
+        client.res.write(`data: {"reason":"draining"}\n\n`);
+        client.res.end();
+      } catch {
+        /* the socket may already be gone */
+      }
+      RealtimeStreamService.clients.delete(id);
+      n++;
+    }
+    return n;
+  }
 }

@@ -11,6 +11,8 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { BigIntSerializationInterceptor } from './common/interceptors/bigint-serialization.interceptor';
 import { drainState } from './common/utils/drain-state';
+import { RealtimeStreamService } from './common/realtime/realtime-stream.service';
+import { RealtimeDataService } from './modules/realtime-data/realtime-data.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
@@ -101,6 +103,18 @@ async function bootstrap() {
       drainState.start();
       const server = app.getHttpServer();
       server.closeIdleConnections?.();
+      // Streams are never idle, so they would hold the server open until the
+      // deadline; tell their clients to reconnect elsewhere and end them now.
+      const dashboardStreams = RealtimeStreamService.closeAllForDrain();
+      let customerStreams = 0;
+      try {
+        customerStreams = app.get(RealtimeDataService, { strict: false }).closeAllForDrain();
+      } catch {
+        /* module not loaded in this build */
+      }
+      if (dashboardStreams + customerStreams > 0) {
+        console.log(`Draining: asked ${dashboardStreams + customerStreams} realtime stream(s) to reconnect`);
+      }
       setTimeout(() => process.exit(0), DRAIN_DEADLINE_MS).unref();
     });
   }

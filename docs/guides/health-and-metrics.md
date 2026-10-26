@@ -58,9 +58,11 @@ the API (visible on `/api/health`), but pulling every replica out of rotation fo
 a partial outage into a total one.
 
 On `SIGTERM` the API marks itself draining first, so this route turns 503 before the listener
-closes; requests already in flight then finish, and the process exits by itself within 25 s —
-inside the 30 s `stop_grace_period` both compose files give the `platform-api` service. A
-rolling restart behind a balancer that polls this route therefore loses no request.
+closes; requests already in flight then finish, every open realtime stream (dashboard and
+customer) receives a final `event: reconnect` frame and is ended so the client comes back to
+a replica that is staying, and the process exits by itself within 25 s — inside the 30 s
+`stop_grace_period` both compose files give the `platform-api` service. A rolling restart
+behind a balancer that polls this route therefore loses no request.
 
 ## `GET /api/metrics` — Prometheus text format
 

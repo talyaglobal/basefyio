@@ -122,6 +122,26 @@ export class RealtimeDataService {
     this.dropSubscriber(clientId);
   }
 
+  /**
+   * On shutdown: tell every subscriber to reconnect and end its stream, so
+   * the browser's EventSource comes back to a replica that is staying,
+   * instead of hanging on a socket this process is about to close.
+   */
+  closeAllForDrain(): number {
+    let n = 0;
+    for (const [id, sub] of [...this.subscribers]) {
+      try {
+        this.write(sub.res, 'reconnect', { reason: 'draining' });
+        sub.res.end();
+      } catch {
+        /* the socket may already be gone */
+      }
+      this.dropSubscriber(id);
+      n++;
+    }
+    return n;
+  }
+
   heartbeat(clientId: string): void {
     const sub = this.subscribers.get(clientId);
     if (!sub) return;
