@@ -1,3 +1,4 @@
+import type { TechDocPage, TechDocSummary } from '@/lib/techdocs-types';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
@@ -2867,6 +2868,13 @@ export const api = {
     },
     refreshStorage() {
       return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });
+    },
+    /** The technical documentation pages (titles, sections, ages); bodies on request. */
+    techDocs() {
+      return request<TechDocSummary[]>('/admin/console/techdocs');
+    },
+    techDoc(slug: string) {
+      return request<TechDocPage>(`/admin/console/techdocs/${encodeURIComponent(slug)}`);
     },
   },
 

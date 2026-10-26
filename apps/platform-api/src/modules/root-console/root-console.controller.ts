@@ -7,6 +7,7 @@ import { ProjectSleepService } from '../projects/project-sleep.service';
 import { DiskUsageService } from './disk-usage.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PlatformAlertsService } from '../platform-alerts/platform-alerts.service';
+import { TechDocsService } from './tech-docs.service';
 
 /** The root console on admin.<domain>: platform-wide figures, root only. */
 @Controller('admin/console')
@@ -18,6 +19,7 @@ export class RootConsoleController {
     private readonly alerts: PlatformAlertsService,
     private readonly projectRepair: ProjectsService,
     private readonly sleep: ProjectSleepService,
+    private readonly techDocs: TechDocsService,
   ) {}
 
   @Get('overview')
@@ -85,5 +87,16 @@ export class RootConsoleController {
   @Post('storage/refresh')
   refreshStorage() {
     return this.console.refreshStorage();
+  }
+
+  /** The technical documentation: every page's title, section and age; bodies on request. */
+  @Get('techdocs')
+  listTechDocs() {
+    return this.techDocs.list();
+  }
+
+  @Get('techdocs/:slug')
+  getTechDoc(@Param('slug') slug: string) {
+    return this.techDocs.get(slug);
   }
 }

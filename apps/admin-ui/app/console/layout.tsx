@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  BookOpen,
   Activity,
   Gauge,
   BarChart3,
@@ -54,6 +55,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
       { href: '/console/manage', label: 'Users & billing', icon: ShieldCheck },
       { href: '/console/reliability', label: 'Reliability', icon: Activity },
       { href: '/console/capacity', label: 'Capacity', icon: Gauge },
+      { href: '/console/techdocs', label: 'Technical docs', icon: BookOpen },
     ],
   },
   {

@@ -5,7 +5,6 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -23,8 +22,11 @@ async function bootstrap() {
   // add, which is what the rate limiters, sign-in audit and realtime keys use.
   app.set('trust proxy', trustedProxyHops());
 
-  app.use(json({ limit: '10mb' }));
-  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  // Nest's own parsers keep req.rawBody (the app was created with rawBody: true); registering
+  // express.json() here instead made Nest skip its parser, and the Stripe webhook, which verifies
+  // the signature over the raw bytes, could never see a body.
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
   app.use(
     helmet({

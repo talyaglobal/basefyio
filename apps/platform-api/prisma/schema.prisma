@@ -1690,6 +1690,23 @@ model ManagementDoc {
   @@map("management_doc")
 }
 
+/// A page of the root console's technical documentation (admin.<domain>/console/techdocs).
+/// Written by the techdocs sync script over SQL — the pages name hosts, volumes and
+/// container names, so they never pass through the public repository — and read-only
+/// for the console. updated_at is set by the writer, not by Prisma.
+model TechDoc {
+  slug         String   @id @db.VarChar(80)
+  title        String   @db.VarChar(200)
+  section      String   @db.VarChar(80)
+  sortOrder    Int      @default(999) @map("sort_order")
+  summary      String   @default("") @db.VarChar(500)
+  body         String
+  sourceCommit String?  @map("source_commit") @db.VarChar(40)
+  updatedAt    DateTime @default(now()) @map("updated_at")
+
+  @@map("tech_docs")
+}
+
 /// Project automation flow: a trigger + an ordered list of actions.
 model Flow {
   id        String   @id @default(uuid())
