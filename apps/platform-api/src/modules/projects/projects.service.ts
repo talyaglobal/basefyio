@@ -1303,10 +1303,10 @@ export class ProjectsService implements OnApplicationBootstrap {
     if (!membership) {
       throw new ForbiddenException('You are not a member of this team');
     }
-    const isCreator = project.createdBy === userId;
-    if (membership.role !== 'OWNER' && !isCreator) {
-      throw new ForbiddenException('You can only reactivate projects you created');
-    }
+    // Any member may activate: a deactivated project holds data the whole
+    // organization is billed for, so reaching it is never gated beyond
+    // membership (owner decision, 2026-10-26). Deactivating stays with the
+    // owner and the creator.
 
     // Reactivating consumes a project slot again — enforce the plan quota with a
     // message that spells out the user's options. A sleeping project never
