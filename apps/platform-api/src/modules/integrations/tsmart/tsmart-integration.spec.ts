@@ -22,7 +22,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { createHash, randomBytes } from 'crypto';
@@ -31,7 +31,7 @@ import request from 'supertest';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AllExceptionsFilter } from '../../../common/filters/all-exceptions.filter';
 import { ProxyThrottlerGuard } from '../../../common/guards/proxy-throttler.guard';
-import { FrozenAccountGuard } from '../../../common/guards/frozen-account.guard';
+import { FrozenAccountInterceptor } from '../../../common/interceptors/frozen-account.interceptor';
 import { UsageTrackingMiddleware } from '../../../common/middleware/usage-tracking.middleware';
 import {
   TSMART_MAX_TOKEN_LENGTH,
@@ -459,7 +459,7 @@ describe('GET /api/integrations/tsmart/projects (HTTP)', () => {
       // The two guards the real app registers globally.
       providers: [
         { provide: APP_GUARD, useClass: ProxyThrottlerGuard },
-        { provide: APP_GUARD, useClass: FrozenAccountGuard },
+        { provide: APP_INTERCEPTOR, useClass: FrozenAccountInterceptor },
       ],
     }).compile();
 

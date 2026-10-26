@@ -1,9 +1,9 @@
 import { Global, Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ApiKeyGuard } from './api-key.guard';
 import { JwtOrApiKeyGuard } from './jwt-or-apikey.guard';
-import { FrozenAccountGuard } from './frozen-account.guard';
+import { FrozenAccountInterceptor } from '../interceptors/frozen-account.interceptor';
 import { RateLimitGuard } from './rate-limit.guard';
 import { ModuleEnabledGuard } from './module-enabled.guard';
 import { AuthModule } from '../../modules/auth/auth.module';
@@ -18,10 +18,11 @@ import { AuthModule } from '../../modules/auth/auth.module';
     JwtAuthGuard,
     ApiKeyGuard,
     JwtOrApiKeyGuard,
-    FrozenAccountGuard,
     RateLimitGuard,
     ModuleEnabledGuard,
-    { provide: APP_GUARD, useClass: FrozenAccountGuard },
+    // The freeze check runs as an interceptor: global guards run before the
+    // route's own guards, so as a guard it never saw request.user.
+    { provide: APP_INTERCEPTOR, useClass: FrozenAccountInterceptor },
   ],
   exports: [JwtAuthGuard, ApiKeyGuard, JwtOrApiKeyGuard, RateLimitGuard, ModuleEnabledGuard],
 })

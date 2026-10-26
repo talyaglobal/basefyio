@@ -53,7 +53,7 @@ export function tsmartIntegrationState(): TsmartIntegrationState {
  *
  * No Keycloak JWT is involved: the app has no global JWT guard (JwtAuthGuard is
  * applied per controller), so this guard alone decides. The global guards still
- * run first — ProxyThrottlerGuard rate-limits by client IP, FrozenAccountGuard
+ * run first — ProxyThrottlerGuard rate-limits by client IP, the frozen-account interceptor
  * passes requests without a signed-in user.
  */
 @Injectable()

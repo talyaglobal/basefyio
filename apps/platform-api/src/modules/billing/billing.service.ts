@@ -21,6 +21,15 @@ import PDFDocument = require('pdfkit');
 /** Worldwide university/college domains, built once for O(1) lookup. */
 const ACADEMIC_DOMAIN_SET = new Set(ACADEMIC_DOMAINS);
 
+/** A subscription's current period: top-level on older API versions, on the first item since 2025-03-31. */
+function subscriptionPeriod(stripeSub: any): { start: number | null; end: number | null } {
+  const item = stripeSub?.items?.data?.[0];
+  const start = stripeSub?.current_period_start ?? item?.current_period_start ?? null;
+  const end = stripeSub?.current_period_end ?? item?.current_period_end ?? null;
+  return { start: typeof start === 'number' ? start : null, end: typeof end === 'number' ? end : null };
+}
+
+
 @Injectable()
 export class BillingService implements OnModuleInit {
   private readonly logger = new Logger(BillingService.name);
@@ -748,8 +757,8 @@ export class BillingService implements OnModuleInit {
         status: 'ACTIVE',
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: new Date((stripeSub as any).current_period_start * 1000),
-        currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000),
+        currentPeriodStart: new Date((subscriptionPeriod(stripeSub).start ?? 0) * 1000),
+        currentPeriodEnd: new Date((subscriptionPeriod(stripeSub).end ?? 0) * 1000),
         cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
       },
       create: {
@@ -758,8 +767,8 @@ export class BillingService implements OnModuleInit {
         status: 'ACTIVE',
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: new Date((stripeSub as any).current_period_start * 1000),
-        currentPeriodEnd: new Date((stripeSub as any).current_period_end * 1000),
+        currentPeriodStart: new Date((subscriptionPeriod(stripeSub).start ?? 0) * 1000),
+        currentPeriodEnd: new Date((subscriptionPeriod(stripeSub).end ?? 0) * 1000),
       },
     });
 
@@ -787,11 +796,11 @@ export class BillingService implements OnModuleInit {
     const data: any = {
       status: statusMap[stripeSub.status] || 'ACTIVE',
       cancelAtPeriodEnd: stripeSub.cancel_at_period_end ?? false,
-      currentPeriodStart: stripeSub.current_period_start
-        ? new Date(stripeSub.current_period_start * 1000)
+      currentPeriodStart: subscriptionPeriod(stripeSub).start
+        ? new Date((subscriptionPeriod(stripeSub).start as number) * 1000)
         : undefined,
-      currentPeriodEnd: stripeSub.current_period_end
-        ? new Date(stripeSub.current_period_end * 1000)
+      currentPeriodEnd: subscriptionPeriod(stripeSub).end
+        ? new Date((subscriptionPeriod(stripeSub).end as number) * 1000)
         : undefined,
     };
 
