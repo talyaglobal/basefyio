@@ -5,6 +5,8 @@ import {
   ForbiddenException,
   InternalServerErrorException,
   BadRequestException,
+  OnApplicationBootstrap,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -28,6 +30,7 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import { previewBranchOf } from './branches/preview-branch';
+import { BootTaskService } from '../cluster/boot-task.service';
 import {
   grantedByRole,
   requireRolePermission,
@@ -59,7 +62,7 @@ export interface RlsDiagnostic {
 }
 
 @Injectable()
-export class ProjectsService {
+export class ProjectsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ProjectsService.name);
 
   constructor(
@@ -75,7 +78,53 @@ export class ProjectsService {
     private readonly dataEngine: DataEngineService,
     private readonly provisioning: ProjectProvisioningService,
     private readonly readonlyRole: ProjectReadonlyRoleService,
+    @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
+
+  /** One replica, once per boot: give the projects that lost their read-only role one. */
+  onApplicationBootstrap(): void {
+    void this.repairMissingReadonlyRoles();
+  }
+
+  /**
+   * Between 2026-10-20 and 2026-10-26 every new project was created without its
+   * read-only companion role: the provisioning call spread the admin target and
+   * then set `password` for the role, so the admin connection used the role's
+   * secret and failed. The fix is in the service; this adds the role to the
+   * projects created while it was broken. Idempotent, a few at a time, logged.
+   */
+  async repairMissingReadonlyRoles(): Promise<number> {
+    if (this.config.get<boolean>('provisioning.readonlyRole') === false) return 0;
+    try {
+      if (!((await this.bootTasks?.claim('readonly-role-repair', 6 * 60 * 60_000)) ?? true)) return 0;
+      const projects = await this.prisma.project.findMany({
+        where: { status: 'ACTIVE', databaseType: 'RELATIONAL', dbReadonlyUser: null, createdAt: { gte: new Date('2026-10-19T00:00:00Z') } },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      });
+      let repaired = 0;
+      for (const project of projects) {
+        try {
+          const target = this.provisioning.resolveAdminTarget(project);
+          const readonlyRole = readonlyRoleNameFor(project.dbUser);
+          const rolePassword = randomBytes(24).toString('base64url');
+          await this.readonlyRole.provision({ ...target, dbName: project.dbName, ownerUser: project.dbUser, readonlyRole, rolePassword });
+          await this.prisma.project.update({ where: { id: project.id }, data: { dbReadonlyUser: readonlyRole, dbReadonlyPassword: rolePassword } });
+          repaired++;
+        } catch (err: any) {
+          this.logger.warn(`Read-only role repair skipped for ${project.slug}: ${err?.message ?? err}`);
+        }
+      }
+      if (repaired > 0) {
+        this.logger.log(`Read-only roles repaired for ${repaired} project(s)`);
+        this.pgbouncer.regenerateConfig().catch((err) => this.logger.warn(`PgBouncer config update failed: ${err}`));
+      }
+      return repaired;
+    } catch (err: any) {
+      this.logger.warn(`Read-only role repair failed: ${err?.message ?? err}`);
+      return 0;
+    }
+  }
 
   /**
    * Returns the ids of every TeamMember in a given team — used as the
@@ -720,7 +769,7 @@ export class ProjectsService {
         dbName: project.dbName,
         ownerUser: project.dbUser,
         readonlyRole,
-        password,
+        rolePassword: password,
       }));
     } catch (err: any) {
       if (err instanceof BadRequestException) throw err;
@@ -756,7 +805,7 @@ export class ProjectsService {
       await this.readonlyRole.setPassword({
         ...target,
         readonlyRole: project.dbReadonlyUser,
-        password,
+        rolePassword: password,
       });
     } catch (err: any) {
       throw new InternalServerErrorException(
@@ -2162,7 +2211,7 @@ export class ProjectsService {
     const readonlyRole = readonlyRoleNameFor(ownerUser);
     const password = randomBytes(24).toString('base64url');
     try {
-      await this.readonlyRole.provision({ ...target, dbName, ownerUser, readonlyRole, password });
+      await this.readonlyRole.provision({ ...target, dbName, ownerUser, readonlyRole, rolePassword: password });
       return { user: readonlyRole, password };
     } catch (err: any) {
       this.logger.error(

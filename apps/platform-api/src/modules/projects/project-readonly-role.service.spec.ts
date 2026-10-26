@@ -24,7 +24,7 @@ import {
   readonlyRoleNameFor,
 } from './project-readonly-role.service';
 
-const target = { host: 'postgres', port: 5432, user: 'admin', password: 'pw' };
+const target = { host: 'postgres', port: 5432, user: 'admin', password: 'pw-admin' };
 const svc = () => new ProjectReadonlyRoleService();
 const sqlOn = (database: string) => calls.filter((c) => c.database === database).map((c) => c.sql);
 
@@ -57,14 +57,14 @@ describe('readonlyRoleNameFor', () => {
 });
 
 describe('provision', () => {
-  const p = { ...target, dbName: 'kb_p1', ownerUser: 'kb_user_p1', readonlyRole: 'kb_user_p1_readonly', password: 'pw' };
+  const p = { ...target, dbName: 'kb_p1', ownerUser: 'kb_user_p1', readonlyRole: 'kb_user_p1_readonly', rolePassword: 'pw-role' };
 
   it('creates a login role with no write-capable attribute, read-only transactions and CONNECT', async () => {
     await svc().provision(p);
     const admin = sqlOn('postgres');
     expect(admin[0]).toMatch(/SELECT 1 FROM pg_roles/);
     expect(admin[1]).toBe(
-      `CREATE ROLE "kb_user_p1_readonly" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS PASSWORD 'pw'`,
+      `CREATE ROLE "kb_user_p1_readonly" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS PASSWORD 'pw-role'`,
     );
     expect(admin[2]).toBe('ALTER ROLE "kb_user_p1_readonly" SET default_transaction_read_only = on');
     expect(admin[3]).toBe('GRANT CONNECT ON DATABASE "kb_p1" TO "kb_user_p1_readonly"');
@@ -79,11 +79,11 @@ describe('provision', () => {
     await svc().provision(p);
     const admin = sqlOn('postgres');
     expect(admin.some((s) => s.startsWith('CREATE ROLE'))).toBe(false);
-    expect(admin[1]).toMatch(/^ALTER ROLE "kb_user_p1_readonly" WITH LOGIN NOSUPERUSER .* PASSWORD 'pw'$/);
+    expect(admin[1]).toMatch(/^ALTER ROLE "kb_user_p1_readonly" WITH LOGIN NOSUPERUSER .* PASSWORD 'pw-role'$/);
   });
 
   it('doubles single quotes in the password', async () => {
-    await svc().provision({ ...p, password: "it's" });
+    await svc().provision({ ...p, rolePassword: "it's" });
     expect(sqlOn('postgres')[1]).toContain(`PASSWORD 'it''s'`);
   });
 
@@ -137,7 +137,7 @@ describe('provision', () => {
 
 describe('setPassword', () => {
   it('alters only the password', async () => {
-    await svc().setPassword({ ...target, readonlyRole: 'kb_user_p1_readonly', password: 'n3w' });
+    await svc().setPassword({ ...target, readonlyRole: 'kb_user_p1_readonly', rolePassword: 'n3w' });
     expect(sqlOn('postgres')).toEqual([`ALTER ROLE "kb_user_p1_readonly" WITH PASSWORD 'n3w'`]);
   });
 });

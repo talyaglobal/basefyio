@@ -92,13 +92,14 @@ export interface PgProbeTarget {
 /** Connect through the customer-facing pooler with TLS (self-signed, as customers do) and run SELECT 1. */
 export async function pgProbe(target: PgProbeTarget, timeoutMs: number): Promise<ProbeResult> {
   const started = Date.now();
+  // No statement_timeout here: the pooler runs in transaction mode and
+  // rejects it as a startup parameter; query_timeout is enforced client-side.
   const pool = new Pool({
     ...target,
     ssl: { rejectUnauthorized: false },
     max: 1,
     connectionTimeoutMillis: timeoutMs,
     query_timeout: timeoutMs,
-    statement_timeout: timeoutMs,
   });
   try {
     await pool.query('select 1');

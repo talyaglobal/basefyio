@@ -86,22 +86,25 @@ export class ProjectReadonlyRoleService {
     dbName: string;
     ownerUser: string;
     readonlyRole: string;
-    password: string;
+    /** The companion role's own password. Kept apart from `password`, which is the admin's: a
+     *  caller that spread the admin target and then set `password` for the role connected as the
+     *  admin with the role's secret, and every creation since failed with "authentication failed". */
+    rolePassword: string;
   }): Promise<{ warnings: string[] }> {
     assertIdent(p.dbName, 'database');
     assertIdent(p.ownerUser, 'project owner');
     assertIdent(p.readonlyRole, 'read-only role');
-    if (!p.password) throw new BadRequestException('A password is required');
+    if (!p.rolePassword) throw new BadRequestException('A password is required');
 
     await this.withClient(p, 'postgres', async (c) => {
       const existing = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [p.readonlyRole]);
       if (existing.rowCount) {
         await c.query(
-          `ALTER ROLE "${p.readonlyRole}" WITH ${ROLE_ATTRIBUTES} PASSWORD ${sqlLiteral(p.password)}`,
+          `ALTER ROLE "${p.readonlyRole}" WITH ${ROLE_ATTRIBUTES} PASSWORD ${sqlLiteral(p.rolePassword)}`,
         );
       } else {
         await c.query(
-          `CREATE ROLE "${p.readonlyRole}" ${ROLE_ATTRIBUTES} PASSWORD ${sqlLiteral(p.password)}`,
+          `CREATE ROLE "${p.readonlyRole}" ${ROLE_ATTRIBUTES} PASSWORD ${sqlLiteral(p.rolePassword)}`,
         );
       }
       await c.query(`ALTER ROLE "${p.readonlyRole}" SET default_transaction_read_only = on`);
@@ -165,11 +168,11 @@ export class ProjectReadonlyRoleService {
     return warnings;
   }
 
-  async setPassword(p: AdminTarget & { readonlyRole: string; password: string }): Promise<void> {
+  async setPassword(p: AdminTarget & { readonlyRole: string; rolePassword: string }): Promise<void> {
     assertIdent(p.readonlyRole, 'read-only role');
-    if (!p.password) throw new BadRequestException('A password is required');
+    if (!p.rolePassword) throw new BadRequestException('A password is required');
     await this.withClient(p, 'postgres', (c) =>
-      c.query(`ALTER ROLE "${p.readonlyRole}" WITH PASSWORD ${sqlLiteral(p.password)}`),
+      c.query(`ALTER ROLE "${p.readonlyRole}" WITH PASSWORD ${sqlLiteral(p.rolePassword)}`),
     );
   }
 
