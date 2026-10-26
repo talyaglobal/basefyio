@@ -221,7 +221,18 @@ export class ProjectSleepService {
        order by last_seen asc
     `;
 
-    return rows.map((r) => ({
+    // The availability canary is probed, never used: a probe outage must not
+    // read as idleness and put it to sleep (which would then read as "down").
+    let canary: string | null = null;
+    try {
+      const row = await this.prisma.systemSetting.findUnique({ where: { key: 'platform_status.canary' } });
+      canary = (row?.value as { projectId?: string } | null)?.projectId ?? null;
+    } catch {
+      canary = null;
+    }
+    const candidates = canary ? rows.filter((r) => r.id !== canary) : rows;
+
+    return candidates.map((r) => ({
       id: r.id,
       name: r.name,
       slug: r.slug,

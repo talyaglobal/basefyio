@@ -386,6 +386,7 @@ export default async function Home() {
                 { href: "/use-cases", label: "Use cases" },
                 { href: "/integrations", label: "Integrations" },
                 { href: "/learn", label: "Learn" },
+                { href: "/status", label: "Status" },
                 { href: "#faq", label: "FAQ" },
               ].map((l) => (
                 <li key={l.label}>

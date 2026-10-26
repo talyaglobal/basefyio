@@ -41,6 +41,20 @@ export class MetricsService {
   static readonly LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
   /**
+   * Cumulative request counts per route class and status class, for a reader
+   * inside the process (the availability roll-up diffs them every 5 minutes).
+   * This replica only, reset on restart — the same facts `render()` exposes.
+   */
+  routeStatusCounts(): Array<{ routeClass: string; statusClass: string; count: number }> {
+    const out: Array<{ routeClass: string; statusClass: string; count: number }> = [];
+    for (const [key, h] of this.histograms) {
+      const [routeClass, statusClass] = key.split("|");
+      out.push({ routeClass, statusClass, count: h.count });
+    }
+    return out;
+  }
+
+  /**
    * Record one finished request.
    *
    * The route is not a label. A project's tables and buckets appear in its

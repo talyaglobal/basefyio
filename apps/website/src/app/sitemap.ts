@@ -27,6 +27,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/kvkk`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/status`, lastModified: now, changeFrequency: "hourly", priority: 0.5 },
   ];
 
   // Every docs page, straight from the nav registry the sidebar and docs

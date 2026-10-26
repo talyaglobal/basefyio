@@ -2114,3 +2114,88 @@ model PlatformAlert {
   @@index([acknowledgedAt, occurredAt(sort: Desc)])
   @@map("platform_alerts")
 }
+
+// ── Platform status (WP-1a): probes, roll-ups, incidents, deploy markers ──────
+
+enum PlatformIncidentStatus {
+  INVESTIGATING
+  IDENTIFIED
+  MONITORING
+  RESOLVED
+}
+
+enum PlatformIncidentImpact {
+  NONE
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+/// One probe result from one vantage point. Kept 90 days; the SLO windows keep the history.
+model PlatformProbeSample {
+  id         BigInt   @id @default(autoincrement())
+  ts         DateTime
+  /// api | dashboard | auth | database | storage | realtime
+  probe      String   @db.VarChar(40)
+  /// "internal" (the API itself) or the external monitor's name
+  vantage    String   @db.VarChar(40)
+  ok         Boolean
+  latencyMs  Int?     @map("latency_ms")
+  statusCode Int?     @map("status_code")
+  detail     String?  @db.VarChar(300)
+
+  @@index([probe, ts])
+  @@index([ts])
+  @@map("platform_probe_samples")
+}
+
+/// Per day and probe: minutes observed, minutes down (majority of vantage points failing), p95 latency, error rate.
+model PlatformSloWindow {
+  id           String   @id @default(uuid())
+  day          DateTime @db.Date
+  probe        String   @db.VarChar(40)
+  totalMinutes Int      @map("total_minutes")
+  downMinutes  Int      @map("down_minutes")
+  p95LatencyMs Int?     @map("p95_latency_ms")
+  errorRatePct Float?   @map("error_rate_pct")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([day, probe])
+  @@map("platform_slo_windows")
+}
+
+model PlatformIncident {
+  id              String                 @id @default(uuid())
+  title           String                 @db.VarChar(300)
+  status          PlatformIncidentStatus @default(INVESTIGATING)
+  impact          PlatformIncidentImpact @default(MINOR)
+  /// Probe names (api, auth, …) the incident affects.
+  components      String[]
+  startedAt       DateTime               @map("started_at")
+  resolvedAt      DateTime?              @map("resolved_at")
+  /// [{ ts, status, text }], oldest first.
+  updates         Json                   @default("[]")
+  postmortem      String?                @db.Text
+  /// Announced maintenance: its minutes do not count against the SLO.
+  excludedFromSlo Boolean                @default(false) @map("excluded_from_slo")
+  /// "sli-down:<probe>" while an auto-opened incident is open; cleared on resolve.
+  autoKey         String?                @unique @map("auto_key") @db.VarChar(80)
+  /// "system" for auto-opened incidents, else the ROOT user id.
+  createdBy       String?                @map("created_by")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  @@index([startedAt(sort: Desc)])
+  @@map("platform_incidents")
+}
+
+/// A deploy, as the workflow reports it: explains a probe blip without excusing it.
+model PlatformDeployMarker {
+  id        String   @id @default(uuid())
+  imageTag  String   @map("image_tag") @db.VarChar(80)
+  startedAt DateTime @default(now()) @map("started_at")
+  note      String?  @db.VarChar(300)
+
+  @@index([startedAt(sort: Desc)])
+  @@map("platform_deploy_markers")
+}

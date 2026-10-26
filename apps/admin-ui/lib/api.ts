@@ -1,6 +1,7 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
+import type { ConsoleStatus, PublicStatus, IncidentView, IncidentInput } from './platform-status-types';
 import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
 import type {
   EmbeddingDisclosure,
@@ -2865,6 +2866,33 @@ export const api = {
     },
     refreshStorage() {
       return request<{ started: boolean }>('/admin/console/storage/refresh', { method: 'POST' });
+    },
+  },
+
+  /** Availability measurement: the public status payload and the console's fuller view. */
+  platformStatus: {
+    public() {
+      return request<PublicStatus>('/platform-status/public');
+    },
+    console() {
+      return request<ConsoleStatus>('/platform-status/console');
+    },
+    createIncident(body: IncidentInput) {
+      return request<IncidentView>('/platform-status/incidents', { method: 'POST', body: JSON.stringify(body) });
+    },
+    updateIncident(id: string, body: Partial<IncidentInput> & { postmortem?: string | null }) {
+      return request<IncidentView>(`/platform-status/incidents/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    },
+    availability() {
+      return request<{ monthAvailabilityPct: number | null; statusUrl: string }>('/platform-status/availability');
+    },
+    createCanary() {
+      return request<{ projectId: string; anonKey: string; storageProbeUrl: string | null }>('/platform-status/canary', {
+        method: 'POST',
+      });
     },
   },
 };

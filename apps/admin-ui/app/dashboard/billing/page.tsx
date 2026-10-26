@@ -357,6 +357,14 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [projectCosts, setProjectCosts] = useState<TeamCostReport | null>(null);
   const [loading, setLoading] = useState(true);
+  // The platform's own availability this month, read-only; the status page has the detail.
+  const [availability, setAvailability] = useState<{ monthAvailabilityPct: number | null; statusUrl: string } | null>(null);
+  useEffect(() => {
+    api.platformStatus
+      .availability()
+      .then(setAvailability)
+      .catch(() => {});
+  }, []);
   const [changingPlan, setChangingPlan] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<{
     brand: string | null;
@@ -603,6 +611,16 @@ export default function BillingPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Billing</h1>
         <p className="text-muted-foreground mt-1">Manage your subscription, usage, and invoices</p>
+        {availability && availability.monthAvailabilityPct !== null && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Platform availability this month:{' '}
+            <span className="font-medium text-foreground">{availability.monthAvailabilityPct.toFixed(2)} %</span>
+            {' · '}
+            <a href={availability.statusUrl} target="_blank" rel="noreferrer noopener" className="underline underline-offset-2">
+              status page
+            </a>
+          </p>
+        )}
       </div>
 
       {/* Alerts */}

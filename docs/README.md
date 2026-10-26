@@ -17,6 +17,7 @@ documented route stops existing.
 | Install basefyio on your own server | the Quick Start in the [repository README](../README.md), then [reference/configuration.md](./reference/configuration.md); offline installs: [SELF_HOSTING_OFFLINE.md](./SELF_HOSTING_OFFLINE.md) |
 | Build an application against a project | [reference/js-sdk.md](./reference/js-sdk.md) |
 | Understand keys, roles and row-level security | [concepts/security-model.md](./concepts/security-model.md) |
+| [concepts/sla.md](./concepts/sla.md) | Availability: the indicators, how a minute counts as down, the targets, the draft compensation policy |
 | Configure the platform | [reference/configuration.md](./reference/configuration.md) |
 
 ## Data API — called by your application with a project key
@@ -42,6 +43,7 @@ documented route stops existing.
 | [reference/data-engine-api.md](./reference/data-engine-api.md) | `/api/v1/projects/:projectId/*` — schema-flexible entities, queries, structures |
 | [reference/billing-api.md](./reference/billing-api.md) | `/api/billing/*` — plans, subscription, usage, invoices |
 | [reference/organizations-api.md](./reference/organizations-api.md) | `/api/organizations/*` — organizations by public id: kinds, plan, members, projects, role permissions |
+| [reference/platform-status-api.md](./reference/platform-status-api.md) | `/api/platform-status/*` — the public status payload, external probe ingestion, incidents, the canary |
 | [API_TOKENS.md](./API_TOKENS.md) | account API tokens (`bf_pat_…`) and their scopes |
 | [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md) | the Codefyio IDE adapter at `/_codefyio/*` |
 | [integrations/tsmart.md](./integrations/tsmart.md) | platform-to-platform project feed |

@@ -216,6 +216,10 @@ services:
       RELEASE_STAGE: ${RELEASE_STAGE:-beta}
       # How far the per-role permission flags reach: off | log (default; denials only logged) | enforce.
       ORG_PERMISSIONS_ENFORCED: ${ORG_PERMISSIONS_ENFORCED:-log}
+      # Availability probes (leader only) and roll-ups; off = nothing runs, the status data stays empty.
+      PLATFORM_STATUS_ENABLED: ${PLATFORM_STATUS_ENABLED:-false}
+      PLATFORM_STATUS_PROBE_TOKEN: ${PLATFORM_STATUS_PROBE_TOKEN:-}
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-${DOMAIN:-}}
       # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       CORS_ORIGIN: "*"

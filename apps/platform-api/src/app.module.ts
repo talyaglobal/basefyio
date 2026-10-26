@@ -20,6 +20,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { FeaturesModule } from './modules/features/features.module';
+import { PlatformStatusModule } from './modules/platform-status/platform-status.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
@@ -108,6 +109,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     TeamsModule,
     OrganizationsModule,
     FeaturesModule,
+    PlatformStatusModule,
     ProjectsModule,
     SqlModule,
     StorageModule,
