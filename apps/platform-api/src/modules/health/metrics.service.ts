@@ -30,18 +30,52 @@ export class MetricsService {
   private readonly gauges = new Map<string, { help: string; samples: Map<string, number> }>();
 
   /**
+   * Latency distribution by route class and status class. A class, never a
+   * route: `rest`, `sql`, `auth`, `storage`, `realtime`, `dashboard`,
+   * `admin`, `other` — eight values, so the series count stays fixed however
+   * many tenants and tables exist. Buckets in seconds, as Prometheus expects.
+   */
+  private readonly histograms = new Map<string, { buckets: number[]; sum: number; count: number }>();
+  private inflightCount = 0;
+
+  static readonly LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+
+  /**
    * Record one finished request.
    *
    * The route is not a label. A project's tables and buckets appear in its
    * paths, so labelling by route would publish one series per customer table —
    * unbounded cardinality, and a map of every tenant's schema in the
    * monitoring system. Method and status answer the operational question
-   * without either.
+   * without either; the route class adds "which surface" without the path.
    */
-  observeRequest(method: string, statusCode: number, ms: number): void {
+  observeRequest(method: string, statusCode: number, ms: number, routeClass = 'other'): void {
     const key = `${method}|${statusCode}`;
     this.requests.set(key, (this.requests.get(key) ?? 0) + 1);
     this.durations.set(key, (this.durations.get(key) ?? 0) + ms);
+
+    const statusClass = `${Math.floor(statusCode / 100)}xx`;
+    const hkey = `${routeClass}|${statusClass}`;
+    let h = this.histograms.get(hkey);
+    if (!h) {
+      h = { buckets: new Array(MetricsService.LATENCY_BUCKETS.length).fill(0), sum: 0, count: 0 };
+      this.histograms.set(hkey, h);
+    }
+    const seconds = ms / 1000;
+    MetricsService.LATENCY_BUCKETS.forEach((le, i) => {
+      if (seconds <= le) h!.buckets[i] += 1;
+    });
+    h.sum += seconds;
+    h.count += 1;
+  }
+
+  /** Requests currently being handled by this process. */
+  inflight(delta: 1 | -1): void {
+    this.inflightCount = Math.max(0, this.inflightCount + delta);
+  }
+
+  currentInflight(): number {
+    return this.inflightCount;
   }
 
   /** Bump a named counter, for events worth alerting on. */
@@ -88,8 +122,28 @@ export class MetricsService {
       ['', (cpu.user + cpu.system) / 1e6],
     ]);
 
+    add('basefyio_inflight_requests', 'gauge', 'Requests being handled by this process right now.', [
+      ['', this.inflightCount],
+    ]);
+
     for (const [name, gauge] of this.gauges) {
       add(name, 'gauge', gauge.help, [...gauge.samples]);
+    }
+
+    if (this.histograms.size > 0) {
+      const name = 'basefyio_http_request_duration_seconds';
+      out.push(`# HELP ${name} Request latency by route class and status class.`);
+      out.push(`# TYPE ${name} histogram`);
+      for (const [key, h] of this.histograms) {
+        const [routeClass, statusClass] = key.split('|');
+        const base = `route_class="${routeClass}",status_class="${statusClass}"`;
+        MetricsService.LATENCY_BUCKETS.forEach((le, i) => {
+          out.push(`${name}_bucket{${base},le="${le}"} ${h.buckets[i]}`);
+        });
+        out.push(`${name}_bucket{${base},le="+Inf"} ${h.count}`);
+        out.push(`${name}_sum{${base}} ${h.sum.toFixed(6)}`);
+        out.push(`${name}_count{${base}} ${h.count}`);
+      }
     }
 
     add(

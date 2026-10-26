@@ -9,12 +9,14 @@ import {
   Req,
   UnauthorizedException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
-import { Observable, tap } from 'rxjs';
+import { Observable, finalize, tap } from 'rxjs';
 import { MetricsService } from './metrics.service';
+import { MetricsCollectorService } from './metrics-collector.service';
 
 /**
  * Feeds the metrics counters from every request.
@@ -32,17 +34,45 @@ export class MetricsInterceptor implements NestInterceptor {
     const req = http.getRequest();
     const res = http.getResponse();
     const started = Date.now();
+    const routeClass = classifyRoute(req?.originalUrl ?? req?.url ?? '');
+    this.metrics.inflight(1);
 
     const record = (status: number) =>
-      this.metrics.observeRequest(req?.method ?? 'UNKNOWN', status, Date.now() - started);
+      this.metrics.observeRequest(req?.method ?? 'UNKNOWN', status, Date.now() - started, routeClass);
 
     return next.handle().pipe(
       tap({
         next: () => record(res?.statusCode ?? 200),
         error: (err) => record(err?.status ?? err?.statusCode ?? 500),
       }),
+      finalize(() => this.metrics.inflight(-1)),
     );
   }
+}
+
+/**
+ * Which surface a request belongs to, from its path prefix only — never the
+ * path itself, which carries tenant table and bucket names.
+ */
+export function classifyRoute(url: string): string {
+  const path = url.replace(/^\/api\//, '/').split('?')[0];
+  if (path.startsWith('/rest/')) return 'rest';
+  if (path.startsWith('/sql')) return 'sql';
+  if (path.startsWith('/auth') || path.includes('/auth/')) return 'auth';
+  if (path.startsWith('/storage') || path.includes('/storage/')) return 'storage';
+  if (path.startsWith('/realtime') || path.includes('/realtime/')) return 'realtime';
+  if (path.startsWith('/admin/')) return 'admin';
+  if (path.startsWith('/health') || path.startsWith('/metrics')) return 'other';
+  if (
+    path.startsWith('/projects') ||
+    path.startsWith('/teams') ||
+    path.startsWith('/billing') ||
+    path.startsWith('/organizations') ||
+    path.startsWith('/feedback')
+  ) {
+    return 'dashboard';
+  }
+  return 'other';
 }
 
 /**
@@ -63,12 +93,15 @@ export class MetricsController {
   constructor(
     private readonly metrics: MetricsService,
     private readonly config: ConfigService,
+    // Optional so the controller can be built by hand in a test with no
+    // collector; the scrape then carries the in-process series only.
+    @Optional() private readonly collector?: MetricsCollectorService,
   ) {}
 
   @Get()
   @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
   @Header('Cache-Control', 'no-store')
-  scrape(@Req() req: Request): string {
+  async scrape(@Req() req: Request): Promise<string> {
     const expected = this.config.get<string>('METRICS_TOKEN');
     if (!expected) {
       throw new UnauthorizedException(
@@ -82,6 +115,10 @@ export class MetricsController {
       throw new UnauthorizedException('Invalid metrics token');
     }
 
+    // Gauges that describe the platform rather than this process — projects
+    // by status, queue depths, dependency reachability — are read at scrape
+    // time, bounded by the collector's own timeouts and cache.
+    await this.collector?.refresh().catch(() => undefined);
     return this.metrics.render();
   }
 }

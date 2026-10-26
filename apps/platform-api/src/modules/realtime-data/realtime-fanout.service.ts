@@ -36,6 +36,13 @@ export class RealtimeFanoutService implements OnModuleInit, OnModuleDestroy {
   private deliverer: LocalDeliverer | null = null;
   /** projectId → number of local subscribers. */
   private readonly localCounts = new Map<string, number>();
+
+  /** Subscribers this process holds across every project; the metrics scrape reads it. */
+  localSubscriberTotal(): number {
+    let n = 0;
+    for (const v of this.localCounts.values()) n += v;
+    return n;
+  }
   /** projectId → cached NUMSUB answer. */
   private readonly remoteInterest = new Map<string, { n: number; at: number }>();
 

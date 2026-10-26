@@ -37,6 +37,7 @@ import { ManagementModule } from './modules/management/management.module';
 import { RootConsoleModule } from './modules/root-console/root-console.module';
 import { HealthController } from './modules/health/health.controller';
 import { HealthService } from './modules/health/health.service';
+import { MetricsCollectorService } from './modules/health/metrics-collector.service';
 import {
   MetricsController,
   MetricsInterceptor,
@@ -146,6 +147,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
   controllers: [HealthController, MetricsController],
   providers: [
     HealthService,
+    MetricsCollectorService,
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ProxyThrottlerGuard },

@@ -30,6 +30,8 @@ import {
     RealtimeBroadcastService,
     QueryAccessTokenGuard,
   ],
-  exports: [RealtimeDataService],
+  // The fan-out is exported for the metrics scrape, which counts the realtime
+  // connections this process holds.
+  exports: [RealtimeDataService, RealtimeFanoutService],
 })
 export class RealtimeDataModule {}

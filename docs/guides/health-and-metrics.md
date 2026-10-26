@@ -84,6 +84,18 @@ The content type is `text/plain; version=0.0.4` and the response is never cached
 | `basefyio_http_requests_total` | counter | `method`, `status` | requests served. Routes are deliberately not a label: they contain tenant table and bucket names |
 | `basefyio_http_request_duration_milliseconds_sum` | counter | `method`, `status` | summed request duration; divide by the request count for a mean |
 | `basefyio_events_total` | counter | `event` | named events worth alerting on, such as a key refused on a route it may not reach |
+| `basefyio_http_request_duration_seconds` | histogram | `route_class`, `status_class` | latency by surface — `rest`, `sql`, `auth`, `storage`, `realtime`, `dashboard`, `admin`, `other` — and status class (`2xx`, `4xx`, `5xx`); eight classes, never a path |
+| `basefyio_inflight_requests` | gauge | — | requests being handled by this process right now |
+| `basefyio_projects` | gauge | `status` | projects by status (`PAUSED` is the deactivated state) |
+| `basefyio_bullmq_jobs` | gauge | `queue`, `state` | jobs per queue, `waiting` / `active` / `delayed` / `failed` |
+| `basefyio_sse_connections` | gauge | `stream` | realtime connections this process holds: `dashboard` and `customer` |
+| `basefyio_db_up`, `basefyio_redis_up` | gauge | — | 1 when the dependency answered within a second at scrape time |
+| `basefyio_build_info`, `basefyio_cron_leader` | gauge | `instance_id`, `image_tag` / `instance_id` | which build each replica runs and which one owns the schedule |
+
+The platform-level gauges (`basefyio_projects`, `basefyio_bullmq_jobs`, `basefyio_db_up`,
+`basefyio_redis_up`) are read when a scrape asks and cached for ten seconds, so a busy
+Prometheus cannot turn the scrape into load; a source that does not answer reports 0 rather
+than failing the scrape.
 
 Prometheus scrape configuration:
 

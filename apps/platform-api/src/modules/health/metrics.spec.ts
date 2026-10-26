@@ -137,36 +137,45 @@ describe('MetricsController', () => {
    * scrape endpoint accumulates detail over time, and one that started out
    * open does not get closed later.
    */
-  it('refuses to publish anything when no token is configured', () => {
+  // The scrape is asynchronous now (platform gauges are read when it asks).
+  it('refuses to publish anything when no token is configured', async () => {
     const c = new MetricsController(new MetricsService(), config(undefined));
-    expect(() => c.scrape(request('Bearer anything'))).toThrow(UnauthorizedException);
+    await expect(c.scrape(request('Bearer anything'))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('refuses a request with no token', () => {
+  it('refuses a request with no token', async () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    expect(() => c.scrape(request())).toThrow(UnauthorizedException);
+    await expect(c.scrape(request())).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('refuses the wrong token', () => {
+  it('refuses the wrong token', async () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    expect(() => c.scrape(request('Bearer nope'))).toThrow(UnauthorizedException);
+    await expect(c.scrape(request('Bearer nope'))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('refuses a token of the right length but the wrong value', () => {
+  it('refuses a token of the right length but the wrong value', async () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    expect(() => c.scrape(request('Bearer secrot'))).toThrow(UnauthorizedException);
+    await expect(c.scrape(request('Bearer secrot'))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('serves the metrics for the configured token', () => {
+  it('serves the metrics for the configured token', async () => {
     const m = new MetricsService();
     m.observeRequest('GET', 200, 5);
     const c = new MetricsController(m, config('secret'));
-    expect(c.scrape(request('Bearer secret'))).toMatch(/basefyio_http_requests_total/);
+    await expect(c.scrape(request('Bearer secret'))).resolves.toMatch(/basefyio_http_requests_total/);
   });
 
-  it('accepts the scheme case-insensitively, as the header is', () => {
+  it('accepts the scheme case-insensitively, as the header is', async () => {
     const c = new MetricsController(new MetricsService(), config('secret'));
-    expect(c.scrape(request('bearer secret'))).toMatch(/basefyio_uptime_seconds/);
+    await expect(c.scrape(request('bearer secret'))).resolves.toMatch(/basefyio_uptime_seconds/);
+  });
+
+  it('asks the collector for the platform gauges before rendering, and survives its failure', async () => {
+    const m = new MetricsService();
+    const collector = { refresh: jest.fn().mockRejectedValue(new Error('db away')) };
+    const c = new MetricsController(m, config('secret'), collector as any);
+    await expect(c.scrape(request('Bearer secret'))).resolves.toMatch(/basefyio_uptime_seconds/);
+    expect(collector.refresh).toHaveBeenCalledTimes(1);
   });
 });
 
