@@ -30,11 +30,13 @@ import {
   GitBranch, GitCommit, Circle, ExternalLink, ArrowRightLeft,
   RotateCcw,
   GitCompareArrows,
+  Power,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
 import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { cn, projectStatusBadgeClass } from '@/lib/utils';
 
 function timeAgo(dateStr: string) {
@@ -79,6 +81,29 @@ const DELETE_REASONS = [
 export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
   const { refreshProject } = useProject();
+
+  // Waking is the customer's explicit choice; the badge is where they make it
+  // when they said "not now" to the prompt that greeted them on opening.
+  const [waking, setWaking] = useState(false);
+  const wakeProject = async () => {
+    const yes = await confirmDialog({
+      title: 'Activate this project?',
+      description: `"${project.name}" is asleep. Nothing was deleted; activating it brings its API back exactly as it was.`,
+      confirmText: 'Yes, activate it',
+      cancelText: 'No',
+    });
+    if (!yes) return;
+    setWaking(true);
+    try {
+      await api.projects.reactivate(project.id);
+      await refreshProject?.();
+      toast.success('Project is active again');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to activate the project');
+    } finally {
+      setWaking(false);
+    }
+  };
   const [deleting, setDeleting] = useState(false);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [deployments, setDeployments] = useState<VercelDeployment[]>([]);
@@ -302,8 +327,21 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className={projectStatusBadgeClass(project.status)}>
-            {project.status}
+            {project.status === 'PAUSED' ? 'ASLEEP' : project.status}
           </Badge>
+          {project.status === 'PAUSED' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={wakeProject}
+              disabled={waking}
+              title="Activate this project"
+              className="h-6 gap-1 px-2 text-xs"
+            >
+              <Power className="h-3 w-3" />
+              {waking ? 'Activating…' : 'Activate'}
+            </Button>
+          )}
           {project.previewBranch && (
             <Link
               href={`/dashboard/projects/${project.previewBranch.parentProjectId}`}

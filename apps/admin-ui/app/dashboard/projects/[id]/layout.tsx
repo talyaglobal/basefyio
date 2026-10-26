@@ -5,6 +5,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import type { Project } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -275,6 +276,43 @@ export default function ProjectLayout({
     return () => { unsubscribe?.(); };
   }, [id, projectLoading, project, refreshProject, router]);
 
+  // A sleeping project answers nothing until someone wakes it. Opening it is
+  // the moment to ask — never to decide: "not now" keeps it asleep for this
+  // browser session, and the status badge on the overview offers the same
+  // choice whenever they are ready.
+  const offerWake = useCallback(
+    async (name: string) => {
+      const key = `basefyio_sleep_prompt:${id}`;
+      try {
+        if (sessionStorage.getItem(key)) return;
+      } catch {
+        // storage unavailable: ask every time
+      }
+      const yes = await confirmDialog({
+        title: 'This project is asleep',
+        description: `"${name}" had no requests for a while, so it was put to sleep. Nothing was deleted. Do you want to activate it now?`,
+        confirmText: 'Yes, activate it',
+        cancelText: 'No, not now',
+      });
+      if (!yes) {
+        try {
+          sessionStorage.setItem(key, '1');
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      try {
+        await api.projects.reactivate(id);
+        await refreshProject();
+        toast.success('Project is active again');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to activate the project');
+      }
+    },
+    [id, refreshProject],
+  );
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -284,6 +322,7 @@ export default function ProjectLayout({
       try {
         const proj = await api.projects.get(id);
         if (!cancelled) setProject(proj);
+        if (!cancelled && proj.status === 'PAUSED') void offerWake(proj.name);
       } catch (err) {
         console.error('[ProjectLayout] Failed to load project:', id, err);
         try {
@@ -305,7 +344,7 @@ export default function ProjectLayout({
     })();
 
     return () => { cancelled = true; };
-  }, [id, router, recoverProjectWithTeamSwitch]);
+  }, [id, router, recoverProjectWithTeamSwitch, offerWake]);
 
   if (projectLoading) {
     return (

@@ -125,7 +125,10 @@ export class SqlService implements OnModuleDestroy {
     },
   ) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: 'ACTIVE' },
+      // A sleeping project is still there. The dashboard's SQL editor may use
+      // it while it sleeps (a keyed request wakes it before reaching here);
+      // waking is the customer's explicit choice, never a side effect.
+      where: { id: projectId, status: { in: ['ACTIVE', 'PAUSED'] } },
     });
 
     if (!project) {

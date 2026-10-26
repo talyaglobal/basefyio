@@ -45,7 +45,10 @@ export class CollectionService {
     opts?: { statementTimeoutMs?: number },
   ): Promise<{ pool: Pool; project: any }> {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: 'ACTIVE' },
+      // A sleeping project is still there. The dashboard may browse it while
+      // it sleeps; waking is the customer's explicit choice, never a side
+      // effect of a read.
+      where: { id: projectId, status: { in: ['ACTIVE', 'PAUSED'] } },
     });
     if (!project) throw new NotFoundException('Project not found');
 
