@@ -10,8 +10,10 @@
  *   2. marks every personal team (personalForUserId set) as kind PERSONAL
  *   3. seeds the ADMIN/MEMBER permission rows where a team has none
  *   4. renames auto-named personal teams ("<name>'s Team") to
- *      "<name>'s Organization" from the user's current name; a custom name
- *      is left alone (--keep-names skips this step)
+ *      "<name>'s Organization", keeping the <name> part exactly as the user
+ *      has seen it (a profile name that changed since sign-up, or came from
+ *      an OAuth login as a handle, would otherwise surprise them); a custom
+ *      name is left alone (--keep-names skips this step)
  *   5. stamps organizationMigratedAt on every team that has none
  *   6. reports: users without a personal organization (the API creates
  *      those at boot through the organizations self-check, with a
@@ -69,13 +71,12 @@ async function main() {
   });
   console.log(`personal teams still named "…'s Team": ${autoNamed.length}`);
   let renamed = 0;
-  let fallbackNames = 0;
+  let differsFromProfile = 0;
   if (!keepNames) {
     for (const t of autoNamed) {
+      const name = t.name.replace(/'s Team$/, "'s Organization");
       const user = t.personalForUser;
-      if (!user) continue;
-      if (!user.firstName && !user.lastName) fallbackNames++;
-      const name = `${getDisplayName(user)}'s Organization`;
+      if (user && `${getDisplayName(user)}'s Organization` !== name) differsFromProfile++;
       if (dry) {
         console.log(`  would rename "${t.name}" -> "${name}"`);
       } else {
@@ -83,7 +84,9 @@ async function main() {
       }
       renamed++;
     }
-    console.log(`${dry ? 'would rename' : 'renamed'}: ${renamed} (name fell back to the e-mail for ${fallbackNames})`);
+    console.log(
+      `${dry ? 'would rename' : 'renamed'}: ${renamed} (${differsFromProfile} keep a name that differs from the user's current profile name)`,
+    );
   }
 
   // 5. migrated stamp
