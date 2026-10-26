@@ -47,6 +47,28 @@ succeeds, never before.
 `name` is 2–60 characters; `kind` must be one of `GET /api/organizations/kinds`; `planName` must be a
 public plan.
 
+## Feature flag
+
+The organization pages in the dashboard (the overview under `/dashboard/org/<id>`, the creation
+wizard and the header switcher) are switched on per installation with the runtime flag
+`organizations_ui`. The API routes above are always on.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/features` | public — every flag and whether it is on, e.g. `{ "organizations_ui": false }` |
+| PATCH | `/api/features/management` | root console — `{ name, enabled }` flips one flag; it is visible everywhere within 30 seconds, no deploy |
+
+A flag is a `system_settings` row `features.<name>` holding a boolean; a missing row means off.
+The root console flips it under Users & billing → Organizations.
+
+With `organizations_ui` on, the dashboard gains `/dashboard/org/<id>` (overview), `/projects`,
+`/members`, `/billing`, `/settings` and the creation wizard at `/dashboard/org/new`; the header
+switcher says "Organization", shows each organization's kind and plan, and offers "Create
+organization"; the old `/dashboard/team` and `/dashboard/billing` addresses forward to the active
+organization's pages (Stripe's return to `/dashboard/billing?success=true` included). Opening an
+organization's address makes it the active one, as opening a project does. With the flag off the
+dashboard is exactly as before.
+
 ## Role permissions
 
 The per-role flags an owner edits under Organization → Roles (`GET/PUT /api/teams/:id/role-permissions`)

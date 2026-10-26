@@ -30,7 +30,7 @@ import {
   startProactiveRefresh,
 } from '@/lib/auth';
 import type { UserProfile } from '@/lib/types';
-import { DashboardContext } from '@/app/dashboard/layout';
+import { DashboardContext, DEFAULT_FEATURES } from '@/app/dashboard/layout';
 import { ConsoleAlertBar } from '@/components/console/alert-bar';
 import { cn } from '@/lib/utils';
 
@@ -112,6 +112,8 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
       },
       teams: [],
       inviteCount: 0,
+      features: DEFAULT_FEATURES,
+      featuresLoaded: true,
     }),
     [profile],
   );

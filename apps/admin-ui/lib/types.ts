@@ -175,6 +175,16 @@ export interface ProjectListItem {
   branchSyncStatus?: 'pending' | 'ready' | 'failed' | null;
 }
 
+export type OrganizationKind =
+  | 'PERSONAL'
+  | 'COMPANY'
+  | 'STARTUP'
+  | 'AGENCY'
+  | 'EDUCATION'
+  | 'NONPROFIT'
+  | 'OPEN_SOURCE'
+  | 'OTHER';
+
 export interface Team {
   id: string;
   name: string;
@@ -185,6 +195,55 @@ export interface Team {
   projectCount: number;
   /** Members must sign in with an authenticator. */
   requireMfa?: boolean;
+  /** Organization fields (an organization is a team row); older API builds omit them. */
+  publicId?: string | null;
+  kind?: OrganizationKind;
+  plan?: { name: string; displayName: string } | null;
+}
+
+/** A team as the organization routes present it: addressed by `organizationId` (the public id). */
+export interface Organization extends Team {
+  organizationId: string;
+  projects: { awake: number; deactivated: number };
+}
+
+export interface OrganizationOverview {
+  id: string;
+  organizationId: string;
+  publicId: string | null;
+  name: string;
+  slug: string;
+  kind: OrganizationKind;
+  isPersonal: boolean;
+  description: string | null;
+  websiteUrl: string | null;
+  logoUrl: string | null;
+  requireMfa: boolean;
+  createdAt: string;
+  plan: { name: string; displayName: string } | null;
+  counts: {
+    members: number;
+    projects: number;
+    projectsAwake: number;
+    projectsDeactivated: number;
+    pendingInvites: number;
+  };
+  usage: Record<string, unknown> | null;
+}
+
+export interface OrganizationProject {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  databaseType: string;
+  createdAt: string;
+  pausedAt: string | null;
+}
+
+/** Runtime switches the operator flips in the root console; `GET /api/features`. */
+export interface FeatureFlags {
+  organizations_ui: boolean;
 }
 
 export interface TeamMember {
@@ -372,6 +431,13 @@ export interface ManagementTeam {
     firstName: string | null;
     lastName: string | null;
   } | null;
+  publicId?: string | null;
+  kind?: OrganizationKind;
+  isPersonal?: boolean;
+  plan?: { name: string; displayName: string } | null;
+  organizationMigratedAt?: string | null;
+  projectsAwake?: number;
+  projectsDeactivated?: number;
 }
 
 export interface ManagementPlan {

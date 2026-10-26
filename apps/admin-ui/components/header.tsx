@@ -44,7 +44,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
 import { ChangelogWidget } from '@/components/changelog-widget';
 import type { UserProfile } from '@/lib/types';
-import { useDashboard } from '@/app/dashboard/layout';
+import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
+import { OrganizationKindIcon } from '@/components/organization-kind';
 import { useProject } from '@/contexts/project-context';
 import { cn } from '@/lib/utils';
 
@@ -78,6 +79,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const headerRef = useRef<HTMLElement | null>(null);
 
   const { teams, inviteCount } = useDashboard();
+  // "Organization" once the operator switched the organization pages on; "Team" until then.
+  const { on: orgUi, noun, nouns, lower, lowers } = useOrgNoun();
   // Read the current project from context (populated by ProjectLayout) — no extra fetch needed
   const { project: contextProject } = useProject();
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
@@ -198,8 +201,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const headerTeamLabel = routeTeam
     ? routeTeam.name
     : viewTeamId === 'all'
-      ? 'All Teams'
-      : activeTeam?.name || 'Select team';
+      ? `All ${nouns}`
+      : activeTeam?.name || `Select ${lower}`;
   const headerOwnerTeam = routeTeam ?? (viewTeamId === 'all' ? null : activeTeam);
 
   const currentProjectInTeam = currentProjectIdFromPath
@@ -400,7 +403,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       type="text"
                       value={teamSearch}
                       onChange={(e) => setTeamSearch(e.target.value)}
-                      placeholder="Search teams..."
+                      placeholder={`Search ${lowers}...`}
                       className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
@@ -420,14 +423,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   >
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground text-xs font-bold shrink-0">*</div>
                     <div className="min-w-0 text-left flex-1">
-                      <p className="font-medium">All Teams</p>
-                      <p className="text-xs text-muted-foreground">View all projects across teams</p>
+                      <p className="font-medium">All {nouns}</p>
+                      <p className="text-xs text-muted-foreground">View all projects across {lowers}</p>
                     </div>
                   </button>
                   <div className="mx-2 my-1 border-t border-border" />
                   {filteredTeams.length === 0 ? (
                     <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                      No teams found.
+                      No {lowers} found.
                     </div>
                   ) : filteredTeams.map((team) => (
                     <button
@@ -443,13 +446,20 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       }`}
                     >
                       <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-gradient text-white text-xs font-bold shadow-sm shrink-0">
-                        {team.name.charAt(0).toUpperCase()}
+                        {orgUi ? (
+                          <OrganizationKindIcon kind={team.kind} className="h-3.5 w-3.5" />
+                        ) : (
+                          team.name.charAt(0).toUpperCase()
+                        )}
                       </div>
                       <div className="min-w-0 text-left flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate font-medium">{team.name}</p>
                           {team.role === 'OWNER' && (
                             <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 shrink-0 bg-amber-50 dark:bg-amber-950/40 px-1 rounded">Owner</span>
+                          )}
+                          {orgUi && team.plan && (
+                            <span className="text-[10px] font-semibold text-primary shrink-0 bg-primary/10 px-1 rounded">{team.plan.displayName}</span>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -460,6 +470,31 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                   ))}
                 </div>
                 <div className="border-t p-1 space-y-0.5">
+                  {orgUi ? (
+                    <>
+                      <button
+                        onClick={() => { setDropdownOpen(false); router.push(orgPath(activeTeam)); }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        Organization overview
+                      </button>
+                      <button
+                        onClick={() => { setDropdownOpen(false); router.push(orgPath(activeTeam, '/settings')); }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                        Organization settings
+                      </button>
+                      <button
+                        onClick={() => { setDropdownOpen(false); router.push('/dashboard/org/new'); }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors text-muted-foreground"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Create organization
+                      </button>
+                    </>
+                  ) : (
                   <button
                     onClick={() => { setDropdownOpen(false); router.push('/dashboard/team'); }}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
@@ -467,7 +502,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                     <Settings className="h-3.5 w-3.5" />
                     Team Settings
                   </button>
-                  {newTeamOpen ? (
+                  )}
+                  {orgUi ? null : newTeamOpen ? (
                     <div className="px-2 pb-1 pt-0.5 space-y-1.5">
                       <input
                         autoFocus
@@ -545,8 +581,8 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 <div className="border-b px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
                     {viewTeamId === 'all'
-                      ? 'Projects across all teams'
-                      : `Projects in ${activeTeam?.name ?? 'team'}`}
+                      ? `Projects across all ${lowers}`
+                      : `Projects in ${activeTeam?.name ?? lower}`}
                   </p>
                   <div className="relative mt-2">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -621,7 +657,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             variant="outline"
             size="sm"
             className="relative hidden h-9 md:inline-flex"
-            onClick={() => router.push('/dashboard/team')}
+            onClick={() => router.push(orgUi ? orgPath(activeTeam, '/members') : '/dashboard/team')}
           >
             <Bell className="mr-1.5 h-3.5 w-3.5" />
             {inviteCount} invite{inviteCount > 1 ? 's' : ''}
@@ -676,11 +712,11 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               Projects
             </button>
             <button
-              onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/team'); }}
+              onClick={() => { setMobileMenuOpen(false); router.push(orgUi ? orgPath(activeTeam, '/members') : '/dashboard/team'); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
             >
               <Users className="h-4 w-4" />
-              Team
+              {noun}
             </button>
             <button
               onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/account'); }}
@@ -698,7 +734,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             </button>
             <div className="my-1 border-t" />
             <div className="px-3 py-1 text-xs text-muted-foreground">
-              Team: {activeTeam?.name || 'Not selected'}
+              {noun}: {activeTeam?.name || 'Not selected'}
             </div>
             <div className="px-3 py-1 text-xs text-muted-foreground truncate">
               User:{' '}

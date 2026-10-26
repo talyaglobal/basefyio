@@ -31,6 +31,9 @@ import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
+import { OrganizationKindBadge, SELECTABLE_ORGANIZATION_KINDS } from '@/components/organization-kind';
+import { Switch } from '@/components/ui/switch';
+import type { FeatureFlags } from '@/lib/types';
 import type {
   AuditLogEntry,
   GscSearchPerformance,
@@ -131,6 +134,9 @@ export default function ManagementPage() {
   const [usersSearchInput, setUsersSearchInput] = useState('');
   const [usersSearchQ, setUsersSearchQ] = useState('');
   const [teams, setTeams] = useState<ManagementTeam[]>([]);
+  const [teamKindFilter, setTeamKindFilter] = useState<string>('all');
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags | null>(null);
+  const [savingFlag, setSavingFlag] = useState(false);
   const [plans, setPlans] = useState<ManagementPlan[]>([]);
   const [userPackages, setUserPackages] = useState<ManagementUserPackage[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -309,6 +315,7 @@ export default function ManagementPage() {
       } else if (tab === 'teams' && (managementPermissions?.canManageTeams || isRoot)) {
         const teamsData = await api.auth.managementTeams();
         setTeams(teamsData);
+        api.features.all().then(setFeatureFlags).catch(() => setFeatureFlags(null));
       } else if (tab === 'audit' && (managementPermissions?.canViewAuditLogs || isRoot)) {
         // Initial load handled by the fetchAuditLogs effect
       } else if (tab === 'rootAlerts' && (managementPermissions?.canViewRootAlerts || isRoot)) {
@@ -665,7 +672,7 @@ export default function ManagementPage() {
           }`}
           onClick={() => setActiveTab('teams')}
         >
-          Teams
+          Organizations
         </button>
         )}
         {(managementPermissions?.canViewAuditLogs || isRoot) && (
@@ -2368,30 +2375,91 @@ export default function ManagementPage() {
 
       {activeTab === 'teams' && (managementPermissions?.canManageTeams || isRoot) && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
-        <h2 className="text-base font-semibold">Teams</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">Organizations</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Kind
+              <select
+                value={teamKindFilter}
+                onChange={(e) => setTeamKindFilter(e.target.value)}
+                className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+              >
+                <option value="all">All</option>
+                <option value="PERSONAL">Personal</option>
+                {SELECTABLE_ORGANIZATION_KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </label>
+            {isRoot && (
+              <label
+                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+                title="Switches the organization pages, the creation wizard and the header switcher on for every dashboard user within 30 seconds. The API routes are always on."
+              >
+                <Switch
+                  checked={!!featureFlags?.organizations_ui}
+                  disabled={featureFlags === null || savingFlag}
+                  onCheckedChange={async (next) => {
+                    setSavingFlag(true);
+                    try {
+                      const flags = await api.features.set('organizations_ui', next);
+                      setFeatureFlags(flags);
+                      toast.success(next ? 'Organization pages switched on' : 'Organization pages switched off');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Could not change the flag');
+                    } finally {
+                      setSavingFlag(false);
+                    }
+                  }}
+                />
+                Organization pages in the dashboard
+              </label>
+            )}
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2">Team</th>
-                <th className="px-2 py-2">Slug</th>
+                <th className="px-2 py-2">Organization</th>
+                <th className="px-2 py-2">Kind</th>
+                <th className="px-2 py-2">Plan</th>
                 <th className="px-2 py-2">Owner</th>
                 <th className="px-2 py-2">Members</th>
                 <th className="px-2 py-2">Projects</th>
+                <th className="px-2 py-2">Public id</th>
                 <th className="px-2 py-2">Created</th>
                 <th className="px-2 py-2">Action</th>
               </tr>
             </thead>
             <tbody>
-              {teams.map((t) => (
+              {teams
+                .filter((t) => teamKindFilter === 'all' || (t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')) === teamKindFilter)
+                .map((t) => (
                 <tr key={t.id} className="border-b last:border-0">
-                  <td className="px-2 py-2 font-medium">{t.name}</td>
-                  <td className="px-2 py-2 text-muted-foreground">{t.slug}</td>
+                  <td className="px-2 py-2">
+                    <div className="font-medium">{t.name}</div>
+                    <div className="text-xs text-muted-foreground">{t.slug}</div>
+                  </td>
+                  <td className="px-2 py-2"><OrganizationKindBadge kind={t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')} /></td>
+                  <td className="px-2 py-2">{t.plan?.displayName ?? <span className="text-muted-foreground">—</span>}</td>
                   <td className="px-2 py-2">
                     {t.owner ? `${getDisplayName({ firstName: t.owner.firstName, lastName: t.owner.lastName, email: t.owner.email })} (${t.owner.email})` : 'N/A'}
                   </td>
                   <td className="px-2 py-2">{t.memberCount}</td>
-                  <td className="px-2 py-2">{t.projectCount}</td>
+                  <td className="px-2 py-2">
+                    {t.projectCount}
+                    {(t.projectsDeactivated ?? 0) > 0 && (
+                      <span className="ml-1 text-xs text-muted-foreground" title="Active · Deactivated">
+                        ({t.projectsAwake ?? 0} · {t.projectsDeactivated} deactivated)
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground" title={t.organizationMigratedAt ? `Migrated ${new Date(t.organizationMigratedAt).toLocaleDateString()}` : 'Not migrated yet'}>
+                    {t.publicId ?? '—'}
+                    {!t.organizationMigratedAt && <span className="ml-1 text-amber-600">·</span>}
+                  </td>
                   <td className="px-2 py-2 text-muted-foreground">
                     {new Date(t.createdAt).toLocaleDateString()}
                   </td>
@@ -2403,14 +2471,14 @@ export default function ManagementPage() {
                       disabled={deletingTeamId === t.id || t.projectCount > 0}
                       title={
                         t.projectCount > 0
-                          ? 'Delete projects first to remove this team'
+                          ? 'Delete projects first to remove this organization'
                           : undefined
                       }
                       onClick={async () => {
                         const ok = await confirmDialog({
-                          title: 'Delete team',
-                          description: `Delete "${t.name}" team? This action cannot be undone.`,
-                          confirmText: 'Delete team',
+                          title: 'Delete organization',
+                          description: `Delete "${t.name}"? This action cannot be undone.`,
+                          confirmText: 'Delete organization',
                           destructive: true,
                         });
                         if (!ok) return;
@@ -2418,9 +2486,9 @@ export default function ManagementPage() {
                         try {
                           await api.auth.deleteManagementTeam(t.id);
                           setTeams((prev) => prev.filter((x) => x.id !== t.id));
-                          toast.success(`Team "${t.name}" deleted`);
+                          toast.success(`Organization "${t.name}" deleted`);
                         } catch (err: any) {
-                          toast.error(err.message || 'Failed to delete team');
+                          toast.error(err.message || 'Failed to delete organization');
                         } finally {
                           setDeletingTeamId(null);
                         }

@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CreditCard, Check, AlertTriangle } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useDashboard } from '../layout';
+import { useDashboard, orgPath } from '../layout';
 import {
   Dialog,
   DialogContent,
@@ -337,8 +337,20 @@ function CardForm({
 // ── Main Page ───────────────────────────────────────────
 
 export default function BillingPage() {
-  const { activeTeamId, refreshKey } = useDashboard();
+  const { activeTeamId, refreshKey, teams, features, featuresLoaded } = useDashboard();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname() ?? '';
+
+  // With the organization pages on, /dashboard/billing is the old address of
+  // the active organization's billing page (Stripe still returns here):
+  // forward there with the query string, so the success banner survives.
+  useEffect(() => {
+    if (!featuresLoaded || !features.organizations_ui || pathname !== '/dashboard/billing') return;
+    const team = teams.find((t) => t.id === activeTeamId);
+    if (!team?.publicId) return;
+    router.replace(orgPath(team, '/billing') + window.location.search);
+  }, [featuresLoaded, features.organizations_ui, pathname, teams, activeTeamId, router]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);

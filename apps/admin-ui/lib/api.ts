@@ -26,6 +26,11 @@ import type {
   ExportJobResult,
   ImportJobProgressEvent,
   PendingInvite,
+  FeatureFlags,
+  Organization,
+  OrganizationKind,
+  OrganizationOverview,
+  OrganizationProject,
   Project,
   ProjectActivityItem,
   ProjectArchiveImportResponse,
@@ -602,6 +607,63 @@ export const api = {
         `/auth/management/marketing-agency/campaigns/${id}`,
         { method: 'DELETE' },
       );
+    },
+  },
+
+  /** Runtime feature flags; public read, root-console write. */
+  features: {
+    all() {
+      return request<FeatureFlags>('/features');
+    },
+    set(name: keyof FeatureFlags, enabled: boolean) {
+      return request<FeatureFlags>('/features/management', {
+        method: 'PATCH',
+        body: JSON.stringify({ name, enabled }),
+      });
+    },
+  },
+
+  /** Organizations by public id (an organization is a team row; `/teams` keeps working). */
+  organizations: {
+    list() {
+      return request<Organization[]>('/organizations');
+    },
+    kinds() {
+      return request<OrganizationKind[]>('/organizations/kinds');
+    },
+    create(body: { name: string; kind?: OrganizationKind; planName?: string; successUrl?: string; cancelUrl?: string }) {
+      return request<{
+        organization: OrganizationOverview;
+        checkoutRequired: { planName: string } | null;
+        checkoutUrl: string | null;
+      }>('/organizations', { method: 'POST', body: JSON.stringify(body) });
+    },
+    get(id: string) {
+      return request<OrganizationOverview>(`/organizations/${encodeURIComponent(id)}`);
+    },
+    update(
+      id: string,
+      body: { name?: string; kind?: OrganizationKind; description?: string | null; websiteUrl?: string | null; logoUrl?: string | null },
+    ) {
+      return request<OrganizationOverview>(`/organizations/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    },
+    switchTo(id: string) {
+      return request<{ teamId: string }>(`/organizations/${encodeURIComponent(id)}/switch`, { method: 'POST' });
+    },
+    projects(id: string) {
+      return request<OrganizationProject[]>(`/organizations/${encodeURIComponent(id)}/projects`);
+    },
+    members(id: string) {
+      return request<TeamMember[]>(`/organizations/${encodeURIComponent(id)}/members`);
+    },
+    invites(id: string) {
+      return request<PendingInvite[]>(`/organizations/${encodeURIComponent(id)}/invites`);
+    },
+    billing(id: string) {
+      return request<any>(`/organizations/${encodeURIComponent(id)}/billing`);
     },
   },
 

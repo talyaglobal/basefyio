@@ -22,7 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { Team } from '@/lib/types';
-import { useDashboard } from '@/app/dashboard/layout';
+import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
 
 const COLLAPSED_KEY = 'basefyio_dashboard_nav_collapsed';
 const SIDEBAR_MODE_KEY = 'basefyio_dashboard_sidebar_mode';
@@ -154,6 +154,7 @@ export function DashboardSidebar({
   const router = useRouter();
   const pathname = usePathname() ?? '';
   const { teams } = useDashboard();
+  const { on: orgUi, noun } = useOrgNoun();
   const team = teams.find((t) => t.id === activeTeamId) ?? null;
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('open');
   const [autoExpanded, setAutoExpanded] = useState(false);
@@ -216,7 +217,22 @@ export function DashboardSidebar({
 
   const collapsed = sidebarMode === 'auto' && !autoExpanded;
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
-  const items = ALL_NAV_ITEMS;
+  // With the organization pages on, the "Team" entry becomes the active
+  // organization's address; the old route keeps working and forwards there.
+  const items = orgUi
+    ? ALL_NAV_ITEMS.map((item) =>
+        item.href === '/dashboard/team'
+          ? {
+              ...item,
+              href: orgPath(team, '/members'),
+              label: noun,
+              isActive: (p: string) => p.startsWith('/dashboard/team') || p.startsWith('/dashboard/org/'),
+            }
+          : item.href === '/dashboard/billing'
+            ? { ...item, href: orgPath(team, '/billing') }
+            : item,
+      )
+    : ALL_NAV_ITEMS;
   // Root-only entries live in their own group pinned to the bottom of the nav,
   // so "Admin" always sits below the regular navigation.
   const rootItems = isRoot ? ROOT_NAV_ITEMS : [];

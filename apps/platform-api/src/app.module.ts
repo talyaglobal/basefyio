@@ -19,6 +19,7 @@ import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { FeaturesModule } from './modules/features/features.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
@@ -106,6 +107,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     AuthModule,
     TeamsModule,
     OrganizationsModule,
+    FeaturesModule,
     ProjectsModule,
     SqlModule,
     StorageModule,

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { CreditCard } from 'lucide-react';
 import { parseJwt, getAccessToken, getRefreshToken, setRootMarker, startProactiveRefresh, stopProactiveRefresh } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { UserInfo, UserProfile, Team } from '@/lib/types';
+import type { UserInfo, UserProfile, Team, FeatureFlags } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AiAssistant } from '@/components/ai-assistant';
@@ -30,7 +30,13 @@ interface DashboardContextValue {
   refreshProfile: () => void;
   teams: Team[];
   inviteCount: number;
+  /** Runtime switches from `GET /api/features`; everything is off until the API answers. */
+  features: FeatureFlags;
+  /** True once the flags were read (or the read failed); pages that redirect on a flag wait for it. */
+  featuresLoaded: boolean;
 }
+
+export const DEFAULT_FEATURES: FeatureFlags = { organizations_ui: false };
 
 export const DashboardContext = createContext<DashboardContextValue>({
   activeTeamId: '',
@@ -44,10 +50,34 @@ export const DashboardContext = createContext<DashboardContextValue>({
   refreshProfile: () => {},
   teams: [],
   inviteCount: 0,
+  features: DEFAULT_FEATURES,
+  featuresLoaded: false,
 });
 
 export function useActiveTeam() {
   return useContext(DashboardContext);
+}
+
+export function useFeatureFlags() {
+  return useContext(DashboardContext).features;
+}
+
+/**
+ * The word the dashboard uses for a team: "Organization" once the operator
+ * has switched the organization pages on, "Team" until then. Identifiers,
+ * routes and the API never change — only what people read.
+ */
+export function useOrgNoun() {
+  const on = useContext(DashboardContext).features.organizations_ui;
+  return on
+    ? { on, noun: 'Organization', nouns: 'Organizations', lower: 'organization', lowers: 'organizations' }
+    : { on, noun: 'Team', nouns: 'Teams', lower: 'team', lowers: 'teams' };
+}
+
+/** The organization route for a team, when the organization pages are on and the team has a public id. */
+export function orgPath(team: Pick<Team, 'id' | 'publicId'> | null | undefined, sub = ''): string {
+  const id = team?.publicId || team?.id;
+  return id ? `/dashboard/org/${id}${sub}` : '/dashboard/projects';
 }
 
 export function useDashboard() {
@@ -87,6 +117,8 @@ export default function DashboardLayout({
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [inviteCount, setInviteCount] = useState(0);
+  const [features, setFeatures] = useState<FeatureFlags>(DEFAULT_FEATURES);
+  const [featuresLoaded, setFeaturesLoaded] = useState(false);
   // Set when the initial team load fails (e.g. backend 502/unreachable) so we
   // can show a friendly error with Retry instead of an infinite spinner.
   const [initError, setInitError] = useState(false);
@@ -326,13 +358,27 @@ export default function DashboardLayout({
       .then((next) =>
         setTeams((prev) =>
           prev.length === next.length &&
-          prev.every((t, i) => t.id === next[i]?.id && t.name === next[i]?.name)
+          prev.every(
+            (t, i) =>
+              t.id === next[i]?.id &&
+              t.name === next[i]?.name &&
+              t.publicId === next[i]?.publicId &&
+              t.kind === next[i]?.kind &&
+              t.plan?.name === next[i]?.plan?.name &&
+              t.role === next[i]?.role,
+          )
             ? prev
             : next,
         ),
       )
       .catch(() => {});
     api.teams.myInvites().then((inv) => setInviteCount(inv.length)).catch(() => {});
+    // Flags are public and cached 30 s on the API; a failed read keeps everything off.
+    api.features
+      .all()
+      .then((f) => setFeatures((prev) => (prev.organizations_ui === !!f?.organizations_ui ? prev : { organizations_ui: !!f?.organizations_ui })))
+      .catch(() => {})
+      .finally(() => setFeaturesLoaded(true));
   }, [activeTeamId, refreshKey]);
 
   useEffect(() => {
@@ -374,9 +420,13 @@ export default function DashboardLayout({
       refreshProfile,
       teams,
       inviteCount,
+      features,
+      featuresLoaded,
     }),
     [
       activeTeamId,
+      features,
+      featuresLoaded,
       handleTeamChange,
       viewTeamId,
       setViewTeamId,

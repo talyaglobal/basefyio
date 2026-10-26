@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus, ProjectListItem } from '@/lib/types';
-import { useActiveTeam } from '../layout';
+import { useActiveTeam, useOrgNoun, orgPath } from '../layout';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -273,9 +273,21 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
 
 export default function TeamSettingsPage() {
   const router = useRouter();
+  const pathname = usePathname() ?? '';
   const searchParams = useSearchParams();
-  const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey, teams: allTeams } = useActiveTeam();
+  const { activeTeamId, setActiveTeamId, viewTeamId, refreshTeams, refreshKey, teams: allTeams, featuresLoaded } = useActiveTeam();
+  const { on: orgUi, noun, lower } = useOrgNoun();
   const currentUserId = parseJwt(getAccessToken() ?? '')?.sub ?? '';
+
+  // Once the organization pages are on, /dashboard/team is the old address of
+  // the active organization's members page: forward there, query string and
+  // all (the same component also renders under /dashboard/org/…/members).
+  useEffect(() => {
+    if (!orgUi || !featuresLoaded || pathname !== '/dashboard/team') return;
+    const team = allTeams.find((t) => t.id === activeTeamId);
+    if (!team?.publicId) return;
+    router.replace(orgPath(team, '/members') + window.location.search);
+  }, [orgUi, featuresLoaded, pathname, allTeams, activeTeamId, router]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const loadSeq = useRef(0);
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
@@ -401,7 +413,7 @@ export default function TeamSettingsPage() {
     setSavingName(true);
     try {
       await api.teams.updateTeam(activeTeamId, teamName.trim());
-      toast.success('Team name updated');
+      toast.success(`${noun} name updated`);
       setEditingName(false);
       refreshTeams();
     } catch (err: any) {
@@ -435,9 +447,9 @@ export default function TeamSettingsPage() {
     if (!activeTeamId) return;
     if (
       !(await confirmDialog({
-        title: 'Delete team',
-        description: 'Delete this team? Team must not have projects. This action cannot be undone.',
-        confirmText: 'Delete team',
+        title: `Delete ${lower}`,
+        description: `Delete this ${lower}? It must not have projects. This action cannot be undone.`,
+        confirmText: `Delete ${lower}`,
         destructive: true,
       }))
     ) {
@@ -456,7 +468,7 @@ export default function TeamSettingsPage() {
         setActiveTeamId('');
       }
       refreshTeams();
-      toast.success('Team deleted');
+      toast.success(`${noun} deleted`);
       router.push('/dashboard/projects');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete team');
@@ -582,7 +594,7 @@ export default function TeamSettingsPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Team Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{orgUi ? 'Members & roles' : 'Team Settings'}</h1>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={loadAll}>
             <RefreshCw className="h-4 w-4" />
@@ -601,8 +613,8 @@ export default function TeamSettingsPage() {
         <div className="rounded-lg border bg-card p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold">Team Name</h2>
-              <p className="text-xs text-muted-foreground">Only the team owner can change this.</p>
+              <h2 className="text-sm font-semibold">{noun} Name</h2>
+              <p className="text-xs text-muted-foreground">Only the {lower} owner can change this.</p>
             </div>
             {!editingName && (
               <Button
@@ -661,7 +673,7 @@ export default function TeamSettingsPage() {
                 disabled={members.length === 0}
               >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                Delete Team
+                Delete {noun}
               </Button>
             </div>
           )}
@@ -919,7 +931,7 @@ export default function TeamSettingsPage() {
           <div>
             <h2 className="text-lg font-semibold">Role Permissions</h2>
             <p className="text-sm text-muted-foreground">
-              Configure what each role can do in this team. Only the team owner can change these settings.
+              Configure what each role can do in this {lower}. Only the {lower} owner can change these settings.
             </p>
           </div>
 
@@ -950,8 +962,8 @@ export default function TeamSettingsPage() {
               </thead>
               <tbody className="divide-y">
                 {([
-                  { key: '', label: 'Team Settings', isHeader: true },
-                  { key: 'canRenameTeam', label: 'Rename team' },
+                  { key: '', label: `${noun} Settings`, isHeader: true },
+                  { key: 'canRenameTeam', label: `Rename ${lower}` },
                   { key: 'canInviteMembers', label: 'Invite & re-invite members' },
                   { key: 'canRemoveMembers', label: 'Remove members' },
                   { key: 'canManageIntegrations', label: 'Manage integrations' },
@@ -959,7 +971,7 @@ export default function TeamSettingsPage() {
                   { key: 'canCreateProjects', label: 'Create projects' },
                   { key: 'canDeleteProjects', label: 'Delete projects' },
                   { key: 'canRestoreProjects', label: 'Restore deleted projects' },
-                  { key: 'canMoveProjects', label: 'Move projects between teams' },
+                  { key: 'canMoveProjects', label: orgUi ? 'Move projects between organizations' : 'Move projects between teams' },
                   { key: '', label: 'Database', isHeader: true },
                   { key: 'canResetDbPassword', label: 'Reset database password' },
                   { key: '', label: 'Billing', isHeader: true },

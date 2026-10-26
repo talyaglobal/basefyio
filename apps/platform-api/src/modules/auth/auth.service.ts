@@ -1763,6 +1763,7 @@ export class AuthService {
           },
           take: 1,
         },
+        subscription: { select: { plan: { select: { name: true, displayName: true } } } },
         _count: {
           select: {
             members: true,
@@ -1772,6 +1773,20 @@ export class AuthService {
       },
     });
 
+    // Awake and deactivated counts per team in one grouped query.
+    const grouped = await this.prisma.project.groupBy({
+      by: ['teamId', 'status'],
+      where: { status: { not: 'DELETED' } },
+      _count: { _all: true },
+    });
+    const counts = new Map<string, { awake: number; deactivated: number }>();
+    for (const g of grouped) {
+      const c = counts.get(g.teamId) ?? { awake: 0, deactivated: 0 };
+      if (g.status === 'ACTIVE') c.awake += g._count._all;
+      else c.deactivated += g._count._all;
+      counts.set(g.teamId, c);
+    }
+
     return teams.map((team) => ({
       id: team.id,
       name: team.name,
@@ -1780,6 +1795,15 @@ export class AuthService {
       memberCount: team._count.members,
       projectCount: team._count.projects,
       owner: team.members[0]?.user ?? null,
+      publicId: team.publicId,
+      kind: team.kind,
+      isPersonal: !!team.personalForUserId,
+      plan: team.subscription?.plan
+        ? { name: team.subscription.plan.name, displayName: team.subscription.plan.displayName }
+        : null,
+      organizationMigratedAt: team.organizationMigratedAt,
+      projectsAwake: counts.get(team.id)?.awake ?? 0,
+      projectsDeactivated: counts.get(team.id)?.deactivated ?? 0,
     }));
   }
 
