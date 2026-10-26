@@ -4,11 +4,41 @@ on:
   push:
     branches: [production]
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     name: Build & Deploy on Server
     runs-on: ubuntu-latest
     steps:
+      # Every release carries a new version (apps/*/package.json move together;
+      # the dashboard shows the newest changelog entry's version and the API
+      # reports it on /api/health). A version that is already tagged on another
+      # commit means nobody bumped it: refuse, so the rule cannot be forgotten.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version must be new
+        id: version
+        run: |
+          VER=$(node -p "require('./apps/admin-ui/package.json').version")
+          for app in platform-api website; do
+            V=$(node -p "require('./apps/$app/package.json').version")
+            if [ "$V" != "$VER" ]; then echo "::error::apps/$app is $V but apps/admin-ui is $VER; run node scripts/release.mjs"; exit 1; fi
+          done
+          if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
+            AT=$(git rev-list -n 1 "v$VER")
+            if [ "$AT" != "$GITHUB_SHA" ]; then
+              echo "::error::v$VER is already tagged at ${AT:0:12}; bump the version with node scripts/release.mjs <patch|minor|major> before pushing to production"
+              exit 1
+            fi
+          fi
+          if ! grep -rqs "version: v$VER" apps/admin-ui/content/changelog/; then
+            echo "::error::no changelog entry carries version: v$VER (apps/admin-ui/content/changelog/)"; exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VER"
       - name: Build & Deploy via SSH
         uses: appleboy/ssh-action@v1
         timeout-minutes: 30
@@ -185,3 +215,24 @@ jobs:
             done
             df -h / | tail -1
             echo "=== Deploy complete ($SHA) ==="
+
+      # The deploy succeeded: this commit is v<version>. Tag it and publish the
+      # GitHub Release with the changelog entry as its notes.
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.version.outputs.version }}
+        run: |
+          if ! git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
+            git config user.name "talyaglobal"
+            git config user.email "talyaglobal@talyasmart.com"
+            git tag -a "v$VER" -m "v$VER" "$GITHUB_SHA"
+            git push origin "v$VER"
+          fi
+          ENTRY=$(grep -rls "version: v$VER" apps/admin-ui/content/changelog/ | head -n 1)
+          TITLE=$(sed -n 's/^title: *"\{0,1\}\(.*[^"]\)"\{0,1\}$/\1/p' "$ENTRY" | head -n 1)
+          awk 'f&&/^---$/{exit} f{print} /^---$/{c++; if(c==2)f=1}' "$ENTRY" > /tmp/notes.md || true
+          if ! gh release view "v$VER" >/dev/null 2>&1; then
+            gh release create "v$VER" --title "v$VER — ${TITLE:-release}" --notes-file /tmp/notes.md --verify-tag
+          fi
+          echo "Released v$VER"

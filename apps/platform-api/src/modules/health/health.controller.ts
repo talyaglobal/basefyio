@@ -5,6 +5,8 @@ import { CronLeaderService } from '../cluster/cron-leader.service';
 import { EmailService } from '../email/email.service';
 import { drainState } from '../../common/utils/drain-state';
 import { releaseStage } from '../../common/utils/release-stage';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PLATFORM_VERSION: string = require('../../../package.json').version;
 import { HealthService } from './health.service';
 
 type ReadinessBody =
@@ -52,7 +54,7 @@ export class HealthController {
       status: degraded ? 'degraded' : 'ok',
       // The stage the product is in, so the CLI and the dashboard say the
       // same word as the API's own e-mails and invoices.
-      release: { stage: releaseStage() },
+      release: { stage: releaseStage(), version: PLATFORM_VERSION },
       checks: {
         email: mail,
         ...deps,
