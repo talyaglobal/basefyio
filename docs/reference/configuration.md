@@ -176,6 +176,9 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `ADMISSION_MAX_WAITING` | `400` | `400` / `400` | How many may wait; beyond that a request is shed at once. |
 | `ADMISSION_MAX_WAIT_MS` | `1500` | `1500` / `1500` | The longest a request waits for a slot before it is shed. |
 | `ADMISSION_DASHBOARD_SHARE` | `30` | `30` / `30` | Per cent of the in-flight limit reserved for dashboard sessions (JWT), so customer traffic cannot lock the owner out of the console. |
+| `MESSAGE_BUS_URL` | unset | unset / `amqp://…@rabbitmq:5672` | The RabbitMQ connection the message bus uses (work queues with retries and dead-letter queues; WP-6 streams). Unset keeps the bus inert: producers answer that it is not configured, consumers stay idle, `GET /api/health` reports `checks.bus` as skipped. |
+| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `basefyio` / `basefyio_bus` | set both | Credentials the `rabbitmq` compose service is created with; put the same pair in `MESSAGE_BUS_URL`. |
+| `BUS_CONSUMERS` | `all` | `all` / `all` | Which work queues this process consumes: `all`, `none` (a pure HTTP replica), or a comma-separated list of queue names. |
 
 ## PgBouncer and per-project pooling
 

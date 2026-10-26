@@ -148,6 +148,14 @@ export default () => ({
     queueUrl: process.env.REDIS_QUEUE_URL || process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
+  // The message bus (RabbitMQ behind the MessageBus port). Unset = inert: every
+  // producer is a no-op that says so, every consumer stays registered but idle.
+  messageBus: {
+    url: process.env.MESSAGE_BUS_URL || '',
+    // all | none | comma-separated queue names this process consumes.
+    consumers: process.env.BUS_CONSUMERS || 'all',
+  },
+
   // The mailer speaks the Resend HTTP contract, but the provider behind it is
   // configurable: the SDK reads RESEND_BASE_URL from the environment, so
   // pointing it elsewhere is configuration rather than code. The key is read

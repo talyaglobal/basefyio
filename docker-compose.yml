@@ -75,6 +75,26 @@ services:
       timeout: 3s
       retries: 5
 
+
+  # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
+  # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
+  rabbitmq:
+    image: rabbitmq:4.4-management-alpine
+    restart: always
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-basefyio}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-basefyio_bus}
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -230,6 +250,9 @@ services:
       ADMISSION_MAX_WAITING: ${ADMISSION_MAX_WAITING:-400}
       ADMISSION_MAX_WAIT_MS: ${ADMISSION_MAX_WAIT_MS:-1500}
       ADMISSION_DASHBOARD_SHARE: ${ADMISSION_DASHBOARD_SHARE:-30}
+      # Message bus: unset keeps the bus inert; amqp://<user>:<password>@rabbitmq:5672 to use it.
+      MESSAGE_BUS_URL: ${MESSAGE_BUS_URL:-}
+      BUS_CONSUMERS: ${BUS_CONSUMERS:-all}
       # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       CORS_ORIGIN: "*"
@@ -392,6 +415,7 @@ volumes:
   postgres_data:
   redis_data:
   redis_queue_data:
+  rabbitmq_data:
   minio_data:
   nosql_data:
   couchdb_data:

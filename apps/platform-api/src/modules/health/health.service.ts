@@ -1,8 +1,9 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { DataEngineService } from '../data-engine/data-engine.service';
+import { MESSAGE_BUS, MessageBus } from '../message-bus/message-bus.port';
 
 export type CheckState = 'ok' | 'failing' | 'skipped';
 
@@ -19,6 +20,7 @@ export interface DependencyChecks {
   keycloak: CheckResult;
   storage: CheckResult;
   documentStore: CheckResult;
+  bus: CheckResult;
 }
 
 /** A dependency that does not answer within this is reported as failing. */
@@ -42,6 +44,7 @@ export class HealthService {
     private readonly redis: RedisService,
     private readonly config: ConfigService,
     @Optional() private readonly dataEngine?: DataEngineService,
+    @Optional() @Inject(MESSAGE_BUS) private readonly bus?: MessageBus,
   ) {}
 
   async database(): Promise<CheckResult> {
@@ -79,16 +82,23 @@ export class HealthService {
     });
   }
 
+  /** The message bus: skipped when no broker is configured, failing when configured but not connected. */
+  async busCheck(): Promise<CheckResult> {
+    if (!this.bus || !this.bus.isEnabled()) return { state: 'skipped', detail: 'not configured' };
+    return this.bus.isConnected() ? { state: 'ok' } : { state: 'failing', detail: 'not connected' };
+  }
+
   /** Every check at once; the slowest bounds the whole call at the timeout. */
   async all(): Promise<DependencyChecks> {
-    const [database, redis, keycloak, storage, documentStore] = await Promise.all([
+    const [database, redis, keycloak, storage, documentStore, bus] = await Promise.all([
       this.database(),
       this.redisCheck(),
       this.keycloak(),
       this.storage(),
       this.documentStore(),
+      this.busCheck(),
     ]);
-    return { database, redis, keycloak, storage, documentStore };
+    return { database, redis, keycloak, storage, documentStore, bus };
   }
 
   private async expect200(url: string): Promise<void> {
