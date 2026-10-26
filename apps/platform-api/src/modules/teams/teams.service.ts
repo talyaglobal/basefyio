@@ -13,6 +13,14 @@ import { BillingService } from '../billing/billing.service';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
 import { getDisplayName } from '../../common/utils/display-name';
 import { PlatformMfaService, mfaUnavailable } from '../auth/platform-mfa.service';
+import { OrganizationKind } from '@prisma/client';
+import {
+  ADMIN_DEFAULTS,
+  MEMBER_DEFAULTS,
+  PERM_KEYS,
+  ensureDefaultRolePermissions as seedDefaultRolePermissions,
+} from './role-permissions';
+import { newPublicId } from '../organizations/public-id';
 
 @Injectable()
 export class TeamsService {
@@ -36,41 +44,36 @@ export class TeamsService {
     return members.map((m) => m.userId);
   }
 
-  async createPersonalTeam(userId: string, displayName: string, teamSlug: string) {
-    const team = await this.prisma.team.create({
-      data: {
-        name: `${displayName}'s Team`,
-        slug: teamSlug,
-        personalForUserId: userId,
-        members: {
-          create: { userId, role: 'OWNER' },
-        },
-      },
-    });
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { activeTeamId: team.id },
-    });
-
-    await this.ensureDefaultRolePermissions(team.id);
-    this.logger.log(`Personal team created for "${displayName}" (${team.id})`);
-    return team;
-  }
-
-  async create(name: string, userId: string) {
-    const slug = name
+  /**
+   * A further organization for a user who already has a personal one. The
+   * personal organization itself is created at sign-up by
+   * OrganizationsCoreService, in one place.
+   */
+  async create(
+    name: string,
+    userId: string,
+    options: { kind?: OrganizationKind; suffixOnCollision?: boolean } = {},
+  ) {
+    let slug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
 
     const existing = await this.prisma.team.findUnique({ where: { slug } });
-    if (existing) throw new ConflictException('Team name already taken');
+    if (existing) {
+      // /teams keeps its 409; the organization flow takes a short suffix
+      // instead, because two companies may well share a name.
+      if (!options.suffixOnCollision) throw new ConflictException('Team name already taken');
+      slug = `${slug}-${newPublicId().slice(0, 4)}`;
+    }
 
     const team = await this.prisma.team.create({
       data: {
         name,
         slug,
+        publicId: newPublicId(),
+        kind: options.kind ?? 'COMPANY',
+        organizationMigratedAt: new Date(),
         members: {
           create: { userId, role: 'OWNER' },
         },
@@ -98,6 +101,7 @@ export class TeamsService {
       include: {
         team: {
           include: {
+            subscription: { select: { plan: { select: { name: true, displayName: true } } } },
             _count: {
               select: {
                 members: true,
@@ -119,6 +123,12 @@ export class TeamsService {
       memberCount: m.team._count.members,
       projectCount: m.team._count.projects,
       requireMfa: m.team.requireMfa,
+      // Organization fields, additive: older clients ignore them.
+      publicId: m.team.publicId,
+      kind: m.team.kind,
+      plan: m.team.subscription?.plan
+        ? { name: m.team.subscription.plan.name, displayName: m.team.subscription.plan.displayName }
+        : null,
     }));
   }
 
@@ -714,23 +724,11 @@ export class TeamsService {
 
   // ── Role permissions CRUD (OWNER only) ──
 
-  private static PERM_KEYS = [
-    'canRenameTeam', 'canInviteMembers', 'canRemoveMembers', 'canManageIntegrations',
-    'canCreateProjects', 'canDeleteProjects', 'canRestoreProjects', 'canMoveProjects',
-    'canViewBilling', 'canManageBilling',
-  ] as const;
-
-  private static ADMIN_DEFAULTS: Record<string, boolean> = {
-    canRenameTeam: true, canInviteMembers: true, canRemoveMembers: true, canManageIntegrations: true,
-    canCreateProjects: true, canDeleteProjects: true, canRestoreProjects: true, canMoveProjects: true,
-    canViewBilling: true, canManageBilling: false,
-  };
-
-  private static MEMBER_DEFAULTS: Record<string, boolean> = {
-    canRenameTeam: false, canInviteMembers: false, canRemoveMembers: false, canManageIntegrations: false,
-    canCreateProjects: true, canDeleteProjects: false, canRestoreProjects: false, canMoveProjects: false,
-    canViewBilling: false, canManageBilling: false,
-  };
+  // The flags and their defaults live in ./role-permissions, shared with the
+  // organization bootstrap and the backfill script.
+  private static PERM_KEYS = PERM_KEYS;
+  private static ADMIN_DEFAULTS: Record<string, boolean> = ADMIN_DEFAULTS;
+  private static MEMBER_DEFAULTS: Record<string, boolean> = MEMBER_DEFAULTS;
 
   private pickPerms(row: Record<string, unknown>) {
     const result: Record<string, boolean> = {};
@@ -779,13 +777,7 @@ export class TeamsService {
 
   /** Ensure default permission rows exist for a team (called on team create). */
   async ensureDefaultRolePermissions(teamId: string) {
-    for (const [role, defaults] of [['ADMIN', TeamsService.ADMIN_DEFAULTS], ['MEMBER', TeamsService.MEMBER_DEFAULTS]] as const) {
-      await this.prisma.teamRolePermission.upsert({
-        where: { teamId_role: { teamId, role: role as 'ADMIN' | 'MEMBER' } },
-        update: {},
-        create: { teamId, role: role as 'ADMIN' | 'MEMBER', ...defaults },
-      });
-    }
+    await seedDefaultRolePermissions(this.prisma, teamId);
   }
 
   async updateMemberRole(

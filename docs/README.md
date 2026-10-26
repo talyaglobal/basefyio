@@ -41,6 +41,7 @@ documented route stops existing.
 | [reference/flows-api.md](./reference/flows-api.md) | `/api/projects/:projectId/flows/*` — automation flows |
 | [reference/data-engine-api.md](./reference/data-engine-api.md) | `/api/v1/projects/:projectId/*` — schema-flexible entities, queries, structures |
 | [reference/billing-api.md](./reference/billing-api.md) | `/api/billing/*` — plans, subscription, usage, invoices |
+| [reference/organizations-api.md](./reference/organizations-api.md) | `/api/organizations/*` — organizations by public id: kinds, plan, members, projects, role permissions |
 | [API_TOKENS.md](./API_TOKENS.md) | account API tokens (`bf_pat_…`) and their scopes |
 | [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md) | the Codefyio IDE adapter at `/_codefyio/*` |
 | [integrations/tsmart.md](./integrations/tsmart.md) | platform-to-platform project feed |

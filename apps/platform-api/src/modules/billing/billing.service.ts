@@ -15,6 +15,7 @@ import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
+import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
 import PDFDocument = require('pdfkit');
 
 /** Worldwide university/college domains, built once for O(1) lookup. */
@@ -664,7 +665,7 @@ export class BillingService implements OnModuleInit {
 
   /** Get invoices for a team */
   async getInvoices(teamId: string, userId: string) {
-    await this.assertTeamMember(teamId, userId);
+    await this.assertCanViewBilling(teamId, userId);
 
     const sub = await this.prisma.subscription.findUnique({ where: { teamId } });
 
@@ -929,7 +930,7 @@ export class BillingService implements OnModuleInit {
 
   /** Get subscription with membership check */
   async getTeamSubscriptionForUser(teamId: string, userId: string) {
-    await this.assertTeamMember(teamId, userId);
+    await this.assertCanViewBilling(teamId, userId);
     return this.getTeamSubscription(teamId);
   }
 
@@ -938,13 +939,38 @@ export class BillingService implements OnModuleInit {
     await this.assertTeamMember(teamId, userId);
   }
 
+  /** Member, and — as far as ORG_PERMISSIONS_ENFORCED reaches — holder of canViewBilling. */
+  async verifyCanViewBilling(teamId: string, userId: string): Promise<void> {
+    await this.assertCanViewBilling(teamId, userId);
+  }
+
+  /**
+   * Billing is managed by the OWNER, and by a role whose stored
+   * canManageBilling flag says so (off for ADMIN and MEMBER unless the owner
+   * turned it on).
+   */
   private async assertTeamOwner(teamId: string, userId: string) {
     const m = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
-    if (!m || m.role !== 'OWNER') {
+    if (!m) throw new ForbiddenException('Not a member of this team');
+    if (m.role !== 'OWNER' && !(await grantedByRole(this.prisma, teamId, m.role, 'canManageBilling'))) {
       throw new ForbiddenException('Only the team owner can manage billing');
     }
+  }
+
+  /**
+   * Reading billing (subscription, usage, invoices, costs) used to need
+   * membership only, while the role-permissions page showed canViewBilling as
+   * off for members. The flag is applied as far as ORG_PERMISSIONS_ENFORCED
+   * allows: logged first, denied once the operator switches to enforce.
+   */
+  private async assertCanViewBilling(teamId: string, userId: string) {
+    const m = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!m) throw new ForbiddenException('Not a member of this team');
+    await requireRolePermission(this.prisma, this.logger, { teamId, userId, role: m.role, key: 'canViewBilling' });
   }
 
   private async assertTeamMember(teamId: string, userId: string) {

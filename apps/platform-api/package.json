@@ -29,6 +29,8 @@
     "embeddings:backfill:dry": "ts-node --transpile-only scripts/backfill-embeddings.ts --dry",
     "rag:gc": "ts-node --transpile-only scripts/rag-embedding-gc.ts",
     "rag:gc:dry": "ts-node --transpile-only scripts/rag-embedding-gc.ts --dry",
+    "organizations:backfill": "ts-node --transpile-only scripts/backfill-organizations.ts",
+    "organizations:backfill:dry": "ts-node --transpile-only scripts/backfill-organizations.ts --dry",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix"
   },
   "dependencies": {

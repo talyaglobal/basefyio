@@ -107,6 +107,24 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+/// What kind of organization a team is. PERSONAL is the one every user gets;
+/// the rest are what a customer picks when creating another.
+enum OrganizationKind {
+  PERSONAL
+  COMPANY
+  STARTUP
+  AGENCY
+  EDUCATION
+  NONPROFIT
+  OPEN_SOURCE
+  OTHER
+}
+
+/// An organization. The table and the API path keep the older name "team":
+/// projects, members, roles, subscription, billing, usage and the workspace
+/// address all hang off it, and every user already has a personal one, so a
+/// second entity would only duplicate that. Outwardly everything says
+/// organization; `publicId` is its random, stable address in the dashboard.
 model Team {
   id                String        @id @default(uuid())
   name              String
@@ -114,6 +132,17 @@ model Team {
   personalForUserId String?       @unique @map("personal_for_user_id")
   accountStatus     AccountStatus @default(ACTIVE) @map("account_status")
   createdAt         DateTime      @default(now()) @map("created_at")
+
+  /// 20 lowercase base-36 characters from 16 random bytes: opaque,
+  /// unguessable, stable — the organization's URL. Null only for a row the
+  /// backfill has not reached yet; every new row gets one.
+  publicId               String?          @unique @map("public_id") @db.VarChar(24)
+  kind                   OrganizationKind @default(COMPANY)
+  description            String?          @db.VarChar(512)
+  websiteUrl             String?          @map("website_url") @db.VarChar(512)
+  logoUrl                String?          @map("logo_url") @db.VarChar(1024)
+  /// When the silent migration of an existing account ran for this row.
+  organizationMigratedAt DateTime?        @map("organization_migrated_at")
 
   // Two-factor policy: members must sign in with an authenticator; enforced at
   // each member's next sign-in, never against a live session.

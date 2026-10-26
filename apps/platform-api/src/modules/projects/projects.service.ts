@@ -28,6 +28,12 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { AdminTarget, ProjectProvisioningService } from './project-provisioning.service';
 import { ProjectReadonlyRoleService, readonlyRoleNameFor } from './project-readonly-role.service';
 import { previewBranchOf } from './branches/preview-branch';
+import {
+  grantedByRole,
+  requireRolePermission,
+  roleAllows,
+  type PermissionKey,
+} from '../teams/role-permissions';
 
 
 export interface RlsBootstrapResult {
@@ -132,7 +138,15 @@ export class ProjectsService {
       throw new BadRequestException('A project with this name already exists in this team');
     }
 
-    await this.assertTeamMember(dto.teamId, userId);
+    const creatorRole = await this.assertTeamMember(dto.teamId, userId);
+    // canCreateProjects was stored and shown but never read; it is applied as
+    // far as ORG_PERMISSIONS_ENFORCED allows (logged first, denied later).
+    await requireRolePermission(this.prisma, this.logger, {
+      teamId: dto.teamId,
+      userId,
+      role: creatorRole,
+      key: 'canCreateProjects',
+    });
     if (!branch) await this.quota.assertCanCreateProject(dto.teamId);
 
     const databaseType: 'RELATIONAL' | 'NOSQL' = dto.databaseType ?? 'RELATIONAL';
@@ -909,11 +923,18 @@ export class ProjectsService {
     // Load project and verify caller is a member of source team
     const project = await this.findOne(projectId, userId);
 
-    // Caller must be OWNER of the source team
+    // The source organization's OWNER may move; so may a role whose stored
+    // canMoveProjects flag says so (the role-permissions page has shown it).
     const sourceMembership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId } },
     });
-    if (!sourceMembership || sourceMembership.role !== 'OWNER') {
+    if (!sourceMembership) {
+      throw new ForbiddenException('You are not a member of this team');
+    }
+    if (
+      sourceMembership.role !== 'OWNER' &&
+      !(await grantedByRole(this.prisma, project.teamId, sourceMembership.role, 'canMoveProjects'))
+    ) {
       throw new ForbiddenException('Only the source team owner can move projects');
     }
 
@@ -1004,8 +1025,15 @@ export class ProjectsService {
       throw new ForbiddenException('You are not a member of this team');
     }
 
+    // Owners and creators could always delete; a role whose stored
+    // canDeleteProjects flag says so now can too. Deleting moves the project
+    // to the trash, where restore is available.
     const isCreator = project.createdBy === userId;
-    if (membership.role !== 'OWNER' && !isCreator) {
+    if (
+      membership.role !== 'OWNER' &&
+      !isCreator &&
+      !(await grantedByRole(this.prisma, project.teamId, membership.role, 'canDeleteProjects'))
+    ) {
       throw new ForbiddenException('You can only delete projects you created');
     }
 
@@ -1501,6 +1529,8 @@ export class ProjectsService {
   private async assertCanManageDeleted(
     project: { teamId: string; createdBy: string | null },
     userId: string,
+    /** A stored flag that also grants this action to a role (e.g. canRestoreProjects). */
+    grantedBy?: PermissionKey,
   ): Promise<void> {
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: project.teamId, userId } },
@@ -1515,6 +1545,9 @@ export class ProjectsService {
     ) {
       return;
     }
+    if (grantedBy && (await grantedByRole(this.prisma, project.teamId, membership.role, grantedBy))) {
+      return;
+    }
     throw new ForbiddenException(
       'Only the team owner, a team admin, or the project creator can do this',
     );
@@ -1527,7 +1560,7 @@ export class ProjectsService {
       throw new ForbiddenException('Project is not deleted');
     }
 
-    await this.assertCanManageDeleted(project, userId);
+    await this.assertCanManageDeleted(project, userId, 'canRestoreProjects');
 
     const originalName = this.stripDeletedSuffix(project.name);
     const originalSlug = this.stripDeletedSuffix(project.slug);
@@ -1823,12 +1856,14 @@ export class ProjectsService {
       where: { teamId_userId: { teamId, userId } },
     });
     if (!m) throw new ForbiddenException('Not a member of this team');
+    return m.role;
   }
 
+  /** A flag that has always been enforced (canResetDbPassword): the stored row, else the role defaults. */
   private async assertTeamPermission(
     teamId: string,
     userId: string,
-    permission: string,
+    permission: PermissionKey,
   ) {
     if (!teamId) throw new ForbiddenException('No team specified');
     const member = await this.prisma.teamMember.findUnique({
@@ -1836,15 +1871,7 @@ export class ProjectsService {
     });
     if (!member) throw new ForbiddenException('Not a member of this team');
 
-    // OWNER always has all permissions
-    if (member.role === 'OWNER') return;
-
-    const rolePerms = await this.prisma.teamRolePermission.findUnique({
-      where: { teamId_role: { teamId, role: member.role } },
-    });
-
-    // If no role permissions configured, deny by default for non-owners
-    if (!rolePerms || !(rolePerms as any)[permission]) {
+    if (!(await roleAllows(this.prisma, teamId, member.role, permission))) {
       throw new ForbiddenException(
         `Your role does not have the "${permission}" permission in this team`,
       );

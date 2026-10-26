@@ -18,6 +18,7 @@ import { MigrationModule } from './modules/migrations/migration.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TeamsModule } from './modules/teams/teams.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
@@ -104,6 +105,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     EmailModule,
     AuthModule,
     TeamsModule,
+    OrganizationsModule,
     ProjectsModule,
     SqlModule,
     StorageModule,

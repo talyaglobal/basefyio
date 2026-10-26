@@ -19,6 +19,7 @@ import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 import { RedisService } from '../redis/redis.service';
 import { getDisplayName } from '../../common/utils/display-name';
+import { OrganizationsCoreService } from '../organizations/organizations-core.service';
 
 type RolePermissionKey =
   | 'canAccessManagement'
@@ -107,6 +108,7 @@ export class AuthService {
     private readonly email: EmailService,
     private readonly billing: BillingService,
     private readonly redis: RedisService,
+    private readonly organizations: OrganizationsCoreService,
   ) {
     const accessKey = this.config.get<string>('minio.accessKey') || 'kolaybase';
     const secretKey = this.config.get<string>('minio.secretKey') || 'kolaybase_secret';
@@ -372,35 +374,21 @@ export class AuthService {
     }
 
     const displayName = data.firstName || data.email.split('@')[0];
-    const emailSlug = data.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    const teamSlug = `personal-${emailSlug}-${keycloakId.slice(0, 8)}`;
 
-    const team = await this.prisma.team.create({
-      data: {
-        name: `${displayName}'s Team`,
-        slug: teamSlug,
-        personalForUserId: user.id,
-        members: { create: { userId: user.id, role: 'OWNER' } },
-      },
+    // The personal organization: row, OWNER membership, active pointer,
+    // permission rows and the subscription (the chosen plan, or free).
+    await this.organizations.ensurePersonalOrganization({
+      userId: user.id,
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      planName: data.planName,
     });
-
-    await this.prisma.user.update({ where: { id: user.id }, data: { activeTeamId: team.id } });
 
     // Clean up Redis keys
     await this.redis.del(`${this.SIGNUP_OTP_PREFIX}:${email}`);
     await this.redis.del(`${this.SIGNUP_DATA_PREFIX}:${email}`);
     await this.redis.del(`${this.SIGNUP_RATE_PREFIX}:${email}`);
-
-    const teamName = `${displayName}'s Team`;
-    try {
-      if (data.planName && data.planName !== 'free') {
-        await this.billing.createSubscriptionWithPlan(team.id, data.planName, data.email, teamName);
-      } else {
-        await this.billing.createFreeSubscription(team.id, data.email, teamName);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to create subscription for team ${team.id}: ${err}`);
-    }
 
     this.email.sendWelcome(data.email, displayName).catch(() => {});
 
@@ -508,29 +496,12 @@ export class AuthService {
         },
       });
 
-      const emailSlug = safeEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-      const slug = `personal-${emailSlug}-${sub.slice(0, 8)}`;
-
-      const teamDisplayName = (user.firstName || safeEmail.split('@')[0]);
-      const team = await this.prisma.team.create({
-        data: {
-          name: `${teamDisplayName}'s Team`,
-          slug,
-          personalForUserId: user.id,
-          members: { create: { userId: user.id, role: 'OWNER' } },
-        },
+      await this.organizations.ensurePersonalOrganization({
+        userId: user.id,
+        email: safeEmail,
+        firstName: user.firstName,
+        lastName: user.lastName,
       });
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { activeTeamId: team.id },
-      });
-
-      try {
-        await this.billing.createFreeSubscription(team.id, safeEmail, `${teamDisplayName}'s Team`);
-      } catch (err) {
-        this.logger.error(`Failed to create free subscription for team ${team.id}: ${err}`);
-      }
 
       return user;
     } catch (err: any) {

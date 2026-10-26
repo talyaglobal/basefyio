@@ -56,7 +56,7 @@ export function projectSleepWarningTemplate(data: {
         <div class="divider"></div>
 
         <p class="text" style="font-size: 13px; color: #94a3b8;">
-          You are getting this because you own this project on basefyio.
+          You are getting this because you are an owner of the organization this project belongs to on basefyio.
         </p>
       </div>`;
   return baseLayout(content);
@@ -92,7 +92,7 @@ export function projectAsleepTemplate(data: {
         <div class="divider"></div>
 
         <p class="text" style="font-size: 13px; color: #94a3b8;">
-          You are getting this because you own this project on basefyio.
+          You are getting this because you are an owner of the organization this project belongs to on basefyio.
         </p>
       </div>`;
   return baseLayout(content);

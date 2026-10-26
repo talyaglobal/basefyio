@@ -36,12 +36,12 @@ export function inviteTemplate(data: InviteData): string {
         <p class="text">
           Hello <strong>${data.invitedUsername}</strong>,
           <strong>${data.inviterUsername}</strong> has invited you to join the
-          <strong>${data.teamName}</strong> team on basefyio.
+          <strong>${data.teamName}</strong> organization on basefyio.
         </p>
 
         <div style="background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); border-radius: 12px; padding: 28px; margin: 24px 0; text-align: center;">
           <div style="font-size: 13px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px;">
-            Team
+            Organization
           </div>
           <div style="font-size: 24px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">
             ${data.teamName}

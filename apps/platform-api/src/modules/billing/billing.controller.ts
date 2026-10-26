@@ -69,7 +69,7 @@ export class BillingController {
     if (!teamId) {
       teamId = await this.billing.getUserActiveTeamId(userId);
     }
-    await this.billing.verifyTeamMembership(teamId, userId);
+    await this.billing.verifyCanViewBilling(teamId, userId);
     return this.usage.getTeamUsage(teamId);
   }
 
@@ -84,7 +84,7 @@ export class BillingController {
     if (!teamId) {
       teamId = await this.billing.getUserActiveTeamId(userId);
     }
-    await this.billing.verifyTeamMembership(teamId, userId);
+    await this.billing.verifyCanViewBilling(teamId, userId);
     return this.projectCosts.getTeamReport(teamId);
   }
 
