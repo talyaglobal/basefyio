@@ -125,3 +125,25 @@ client.from_("todos").select("id,title").eq("done", False).order("created_at", d
 
 Source: `apps/platform-api/src/modules/projects/public-api.controller.ts`, `public-api.service.ts`,
 `postgrest/parser.ts`, `postgrest/builder.ts`, `postgrest/schema-cache.ts`, `postgrest/types.ts`.
+
+## Rate limits and overload responses
+
+Every request is admitted through three checks after authentication, so a burst from one
+project never reaches the database at the expense of everyone else:
+
+- **Per-project rate limit**: a token bucket sized by the plan (`Plan.features.api_rps` and
+  `api_burst`; by default Free 50 req/s with a burst of 100, Pro 200/400, Business 500/1000).
+  Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
+  Over the limit the API answers `429` with `code: "rate_limited"` and `Retry-After`.
+- **Per-process concurrency**: each API process serves a bounded number of requests at once;
+  the next ones wait briefly in line (at most 1.5 s, visible as `X-Admission-Wait-Ms`), and when
+  the line is full the request is shed at once with `503`, `code: "overloaded"` and
+  `Retry-After: 1`. Dashboard sessions have their own share of the line, so customer traffic
+  cannot lock the console out.
+- **Restarting instance**: during a deploy a draining process answers `503 overloaded` for new
+  work while it finishes the requests it has; the load balancer stops sending it traffic.
+
+Clients should retry `429` and `503` with the `Retry-After` delay and jitter, idempotent
+requests only. The platform operator runs these checks in `log` mode first (every decision is
+counted, nothing rejected) and switches to `enforce` after reading a week of counters; see
+`ADMISSION_MODE` in the configuration reference.

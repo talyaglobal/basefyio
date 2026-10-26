@@ -171,6 +171,11 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `PLATFORM_STATUS_CANARY_OWNER` | unset | unset / set | E-mail of a ROOT user. When set (and the prober is on), the canary project is created once at boot in that user's personal organization, so the keyed REST, database, storage and realtime probes have a target without anyone clicking in the console. |
 | `CAPACITY_SAMPLER_ENABLED` | `false` | `false` / `false` | `true` samples the host (`/host/proc`), the `kolaybase-*` containers, Postgres, the pooler, Redis and the tenancy counts every 60 s on the scheduler leader, keeps a minute row for 30 days and hourly means for good, and recomputes the capacity model every 5 minutes behind the console's Capacity page. |
 | `CAPACITY_BENCHMARK_TOKEN` | unset | unset / set | Bearer token a load-test runner presents to `POST /api/admin/capacity/benchmarks/results`; unset means 401. |
+| `ADMISSION_MODE` | `log` | `log` / `log` | Admission control for every request after authentication: a per-process in-flight gate with a bounded wait line (separate shares for dashboard and customer traffic) and a per-project token bucket in Redis sized by the plan (`Plan.features.api_rps` / `api_burst`, else free 50/100, pro 200/400, business 500/1000). `off` skips it; `log` counts every decision in `basefyio_admission_decisions_total` and logs a sample without rejecting; `enforce` answers `503 overloaded` or `429 rate_limited` with `Retry-After` and `RateLimit-*` headers. Run a week on `log` first. |
+| `ADMISSION_MAX_INFLIGHT` | `200` | `200` / `200` | Requests in flight per API process before new ones wait in line. |
+| `ADMISSION_MAX_WAITING` | `400` | `400` / `400` | How many may wait; beyond that a request is shed at once. |
+| `ADMISSION_MAX_WAIT_MS` | `1500` | `1500` / `1500` | The longest a request waits for a slot before it is shed. |
+| `ADMISSION_DASHBOARD_SHARE` | `30` | `30` / `30` | Per cent of the in-flight limit reserved for dashboard sessions (JWT), so customer traffic cannot lock the owner out of the console. |
 
 ## PgBouncer and per-project pooling
 

@@ -397,6 +397,12 @@ services:
       # Capacity sampler (leader only, every 60 s) and the token for uploaded benchmark results.
       CAPACITY_SAMPLER_ENABLED: ${CAPACITY_SAMPLER_ENABLED:-false}
       CAPACITY_BENCHMARK_TOKEN: ${CAPACITY_BENCHMARK_TOKEN:-}
+      # Admission control: off | log (default, counts only) | enforce (503/429 with Retry-After).
+      ADMISSION_MODE: ${ADMISSION_MODE:-log}
+      ADMISSION_MAX_INFLIGHT: ${ADMISSION_MAX_INFLIGHT:-200}
+      ADMISSION_MAX_WAITING: ${ADMISSION_MAX_WAITING:-400}
+      ADMISSION_MAX_WAIT_MS: ${ADMISSION_MAX_WAIT_MS:-1500}
+      ADMISSION_DASHBOARD_SHARE: ${ADMISSION_DASHBOARD_SHARE:-30}
       # Operator token that unlocks GET /api/metrics; unset = the scrape answers 401.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       APP_URL: https://app.${DOMAIN}

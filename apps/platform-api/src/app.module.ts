@@ -22,6 +22,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { FeaturesModule } from './modules/features/features.module';
 import { PlatformStatusModule } from './modules/platform-status/platform-status.module';
 import { CapacityModule } from './modules/capacity/capacity.module';
+import { AdmissionModule } from './modules/admission/admission.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
@@ -112,6 +113,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     FeaturesModule,
     PlatformStatusModule,
     CapacityModule,
+    AdmissionModule,
     ProjectsModule,
     SqlModule,
     StorageModule,

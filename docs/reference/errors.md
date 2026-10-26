@@ -82,3 +82,12 @@ connection closes, and the SDK reconnects with exponential backoff.
 Source: `apps/platform-api/src/common/filters/all-exceptions.filter.ts`, `main.ts`,
 `common/guards/api-key.guard.ts`, `modules/api-tokens/scopes.guard.ts`, `app.module.ts`
 (throttler), and the message strings in each module's service.
+
+## Admission errors
+
+| HTTP | `code` | Meaning | What to do |
+|---|---|---|---|
+| 429 | `rate_limited` | The project used its plan's request rate (token bucket). `RateLimit-*` headers say how much is left and when it refills. | Retry after `Retry-After` seconds with jitter; raise the plan or spread the load. |
+| 503 | `overloaded` | The API process is at its concurrency limit and the wait line is full, or the instance is restarting. | Retry after `Retry-After` (1 s) with jitter; idempotent requests only. |
+
+A deactivated project is not an error: its first keyed request wakes it and is served.
