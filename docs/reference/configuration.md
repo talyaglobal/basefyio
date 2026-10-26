@@ -451,7 +451,7 @@ the dashboard's server routes.
 | `NEXT_PUBLIC_API_URL` | `http://localhost:4000` | no / yes (runtime only) | Initial API origin shown on the embeddings page before the API reports its own. |
 | `NEXT_PUBLIC_APP_URL` | `https://app.basefyio.com` | no / no | Canonical dashboard URL in page metadata, `robots.txt` and the sitemap. |
 | `NEXT_PUBLIC_SITE_URL` | `https://basefyio.com` | no / no | Website URL in page metadata. |
-| `NEXT_PUBLIC_DOCS_URL` | `https://basefyio.com` | no / no | Base of the dashboard's documentation links (`<value>/docs`). |
+| `NEXT_PUBLIC_DOCS_URL` | `https://docs.basefyio.com` | no / no | Origin of the documentation site the dashboard's Docs menu links to; it reads `<value>/api/docs-nav` for the page list. |
 | `NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE` | unset | no / no | `1` turns off the dashboard's live updates in the browser. |
 | `SEO_AUDIT_SITE_URL` | `https://basefyio.com` | no / no | Site the operator's SEO audit page checks. |
 
@@ -460,6 +460,8 @@ the dashboard's server routes.
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `NEXT_PUBLIC_SITE_URL` | build arg default `https://basefyio.com`; outside a production build `http://localhost:3002` | build arg + yes (`http://localhost:3002`) / no | Canonical URL for metadata, sitemap and Open Graph. |
+| `NEXT_PUBLIC_DOCS_URL` | `https://docs.<site host>` in a production build; unset on localhost (the docs stay under `/docs`) | no / no | Origin the docs are served from. The website's middleware maps `docs.<apex>` to the `/docs` pages and forwards `<apex>/docs/*` there permanently. |
+| `NEXT_PUBLIC_STATUS_URL` | `https://status.<site host>` in a production build; unset on localhost | no / no | Origin of the status page, mapped to `/status` the same way. |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | `G-99MKTVXWZV` (basefyio's own property) | build arg / no | Google Analytics tag. Set it to an empty value at build time to leave the tag out of your build. |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | unset | no / no | Search Console verification meta tag. |
 | `NEXT_PUBLIC_APP_URL` | `https://app.basefyio.com` | no / no | Dashboard link target (sign-up, sign-in). |

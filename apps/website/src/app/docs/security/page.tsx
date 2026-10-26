@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { docsPath } from "@/lib/public-hosts";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs/security", {
@@ -75,7 +76,7 @@ Server → Service Key (apikey header)
         privileges. None of them — <code>service_role</code> included — can run DDL such as
         <code> CREATE TABLE</code> or <code>CREATE VIEW</code>, so a project key cannot change your
         schema even if it leaks. Schema changes belong to the database owner; see
-        <Link href="/docs#schema-migrations"> schema migrations</Link>.
+        <Link href={docsPath("/docs#schema-migrations")}> schema migrations</Link>.
       </p>
 
       <h3>Writing RLS Policies</h3>

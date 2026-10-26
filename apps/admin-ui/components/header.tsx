@@ -754,7 +754,14 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   );
 }
 
-const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://basefyio.com';
+// The docs live on their own host; its /api/docs-nav lists the pages with absolute addresses.
+const docsBaseUrl = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.basefyio.com';
+/** A docs page's address: the one the nav feed gives, else the path under the docs host (the feed's href keeps the /docs prefix as an id). */
+function docsHref(item: DocsLink): string {
+  if (item.url) return item.url;
+  const path = item.href === '/docs' ? '/' : item.href.replace(/^\/docs/, '');
+  return `${docsBaseUrl}${path}`;
+}
 
 // Map the docs nav's stable icon keys (from the website's /api/docs-nav) to icons.
 const DOC_ICONS: Record<string, typeof Book> = {
@@ -771,7 +778,7 @@ const DOC_ICONS: Record<string, typeof Book> = {
   cloud: Cloud,
 };
 
-interface DocsLink { label: string; href: string; icon: string }
+interface DocsLink { label: string; href: string; icon: string; url?: string }
 
 // Fallback list — used only if the live docs nav can't be fetched. The live
 // list comes from the website's /api/docs-nav so the menu mirrors the docs
@@ -836,7 +843,7 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
                 return (
                   <a
                     key={item.href}
-                    href={`${docsBaseUrl}${item.href}`}
+                    href={docsHref(item)}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => onOpenChange(false)}

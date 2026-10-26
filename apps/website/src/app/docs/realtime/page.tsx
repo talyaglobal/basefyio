@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
   "Subscribe to live INSERT/UPDATE/DELETE events on your basefyio tables and collections with the SDK or plain EventSource.";
@@ -103,7 +104,7 @@ es.addEventListener('data_change', (e) => {
 
       <hr />
       <p>
-        See the <Link href="/docs/sdk">SDK reference</Link> for the full client API.
+        See the <Link href={docsPath("/docs/sdk")}>SDK reference</Link> for the full client API.
       </p>
     </div>
   );

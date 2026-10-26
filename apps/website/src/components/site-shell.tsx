@@ -6,6 +6,7 @@ import { AuthNav } from "@/components/auth-nav";
 import { AdminFooterLink } from "@/components/admin-footer-link";
 import { MarketingFeedback } from "@/components/marketing-feedback";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
+import { docsUrl } from "@/lib/public-hosts";
 
 const NAV_LINKS = [
   { href: "/compare", label: "Compare" },
@@ -14,7 +15,7 @@ const NAV_LINKS = [
   { href: "/blog", label: "Blog" },
   { href: "/learn", label: "Learn" },
   { href: "/#pricing", label: "Pricing" },
-  { href: "/docs", label: "Docs" },
+  { href: docsUrl(), label: "Docs" },
 ];
 
 /**

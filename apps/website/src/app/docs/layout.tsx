@@ -7,6 +7,7 @@ import { AuthNav } from "@/components/auth-nav";
 import { DocsNav } from "./docs-nav";
 import { DocsSearch } from "./docs-search";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
+import { docsPath, getSiteUrl } from "@/lib/public-hosts";
 
 const docsDescription =
   "basefyio documentation: dedicated database, NoSQL data engine, authentication, storage, REST API, SDK, CLI, and self-hosting guides.";
@@ -32,10 +33,10 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-card/80 shadow-sm backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex min-w-0 items-center gap-6">
-            <BasefyioLogo href="/" />
+            <BasefyioLogo href={getSiteUrl()} />
             <span className="text-sm text-muted-foreground">/</span>
             <Link
-              href="/docs"
+              href={docsPath("/docs")}
               className="text-sm font-medium text-foreground transition-colors hover:text-primary"
             >
               Docs

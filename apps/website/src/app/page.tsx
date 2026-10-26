@@ -16,6 +16,7 @@ import { MarketingFeedback } from "@/components/marketing-feedback";
 import { HeroIllustration } from "@/components/hero-illustration";
 import { ScrollReveal } from "@/components/scroll-reveal";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
+import { docsUrl } from "@/lib/public-hosts";
 import {
   getAppPortalUrl,
   getAppSignupUrl,
@@ -157,7 +158,7 @@ export default async function Home() {
               Use cases
             </Link>
             <Link
-              href="/docs"
+              href={docsUrl()}
               className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
               Docs
@@ -211,7 +212,7 @@ export default async function Home() {
                 </span>
               </Link>
               <Link
-                href="/docs"
+                href={docsUrl()}
                 className="inline-flex h-12 items-center rounded-lg border border-border px-6 text-base font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
               >
                 Read the docs ↗

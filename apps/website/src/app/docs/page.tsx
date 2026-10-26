@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Server, Code, Terminal, Database, Shield, Cloud, Layers, ScrollText, FolderOpen, Globe, Key, Users, CreditCard, Zap, FileJson, Lock, Link2 } from "lucide-react";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
+import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
   "basefyio is a self-hosted backend-as-a-service platform. A dedicated PostgreSQL database (relational + full SQL) with an optional document store, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
@@ -166,7 +167,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
       <p>
         Both planes are available simultaneously. database handles system metadata and relational data;
         the Data Engine handles application records and document workloads.
-        See the <Link href="/docs/data-engine">Data Engine guide</Link> for details.
+        See the <Link href={docsPath("/docs/data-engine")}>Data Engine guide</Link> for details.
       </p>
 
       <h3>API Keys</h3>
@@ -210,7 +211,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
         Every project database comes with RLS roles pre-installed: <code>anon</code>, <code>authenticated</code>, and <code>service_role</code>.
         Write database RLS policies to control which rows each role can see, insert, update, or delete.
         The API automatically switches to the correct role based on the JWT token.
-        See the <Link href="/docs/security">Security & RLS guide</Link>.
+        See the <Link href={docsPath("/docs/security")}>Security & RLS guide</Link>.
       </p>
 
       <h3>SQL Editor</h3>
@@ -328,12 +329,12 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
 
       <h2>What&apos;s Next</h2>
       <ul>
-        <li><Link href="/docs/data-engine">Data Engine guide</Link> — Learn about the NoSQL document data plane</li>
-        <li><Link href="/docs/api">API Reference</Link> — Complete REST API documentation</li>
-        <li><Link href="/docs/sdk">SDK Reference</Link> — JavaScript/TypeScript client library</li>
-        <li><Link href="/docs/cli">CLI Reference</Link> — Command-line project management</li>
-        <li><Link href="/docs/security">Security & RLS</Link> — Row-level security and access control</li>
-        <li><Link href="/docs/self-hosting">Self-Hosting</Link> — Deploy basefyio with Docker Compose</li>
+        <li><Link href={docsPath("/docs/data-engine")}>Data Engine guide</Link> — Learn about the NoSQL document data plane</li>
+        <li><Link href={docsPath("/docs/api")}>API Reference</Link> — Complete REST API documentation</li>
+        <li><Link href={docsPath("/docs/sdk")}>SDK Reference</Link> — JavaScript/TypeScript client library</li>
+        <li><Link href={docsPath("/docs/cli")}>CLI Reference</Link> — Command-line project management</li>
+        <li><Link href={docsPath("/docs/security")}>Security & RLS</Link> — Row-level security and access control</li>
+        <li><Link href={docsPath("/docs/self-hosting")}>Self-Hosting</Link> — Deploy basefyio with Docker Compose</li>
       </ul>
     </div>
   );

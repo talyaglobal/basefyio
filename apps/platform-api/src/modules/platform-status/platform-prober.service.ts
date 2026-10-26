@@ -189,7 +189,7 @@ export class PlatformProberService implements OnApplicationBootstrap {
         `<div class="body"><h1 class="greeting">${label} is down</h1>` +
           `<p class="text">The availability probe for <strong>${label}</strong> has failed for three consecutive minutes. ` +
           `An incident was opened on the status page; it resolves itself after five clean minutes.</p>` +
-          `<p class="text"><a href="https://${platformDomain()}/status">Status page</a></p></div>`,
+          `<p class="text"><a href="https://status.${platformDomain()}/">Status page</a></p></div>`,
       );
       await Promise.all(roots.map((r) => this.email.sendRawHtml(r.email, `[ROOT Alert] ${label} is down`, html)));
     } catch (err: any) {

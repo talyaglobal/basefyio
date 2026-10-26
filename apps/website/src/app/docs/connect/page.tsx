@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl } from "@/lib/site-url";
+import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
   "Connect to your basefyio project database from external tools like pgAdmin, DBeaver, DataGrip, TablePlus, or the terminal.";
@@ -178,8 +179,8 @@ DIRECT_URL=postgresql://USER:PASSWORD@db.basefyio.com:6432/YOUR_DATABASE`}</code
 
       <p>
         For REST API access without a database client, see the{" "}
-        <Link href="/docs/api">API Reference</Link>. For SDK integration, see the{" "}
-        <Link href="/docs/sdk">SDK documentation</Link>.
+        <Link href={docsPath("/docs/api")}>API Reference</Link>. For SDK integration, see the{" "}
+        <Link href={docsPath("/docs/sdk")}>SDK documentation</Link>.
       </p>
     </div>
   );

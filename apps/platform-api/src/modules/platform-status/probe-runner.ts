@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 
 /** Every outbound probe identifies itself (Cloudflare and friends drop anonymous clients). */
-export const PROBE_USER_AGENT = 'basefyio-status-probe/1.0 (+https://basefyio.com/status)';
+export const PROBE_USER_AGENT = 'basefyio-status-probe/1.0 (+https://status.basefyio.com/)';
 
 export interface ProbeResult {
   ok: boolean;

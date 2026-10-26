@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { DOCS_NAV_ITEMS } from "./docs-nav-items";
+import { docsPath } from "@/lib/public-hosts";
 
 /**
  * Lightweight docs search over the shared nav source (page titles + curated
@@ -41,7 +42,7 @@ export function DocsSearch() {
   function go(href: string) {
     setOpen(false);
     setQuery("");
-    router.push(href);
+    router.push(docsPath(href));
   }
 
   function onKeyDown(e: React.KeyboardEvent) {

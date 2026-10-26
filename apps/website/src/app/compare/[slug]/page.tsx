@@ -8,6 +8,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { faqSchema } from "@/lib/seo/json-ld";
 import { getSiteUrlFromRequest, getAppSignupUrl } from "@/lib/site-url";
+import { docsUrl } from "@/lib/public-hosts";
 import {
   COMPARISONS,
   getComparison,
@@ -146,7 +147,7 @@ export default async function ComparisonPage({ params }: Params) {
               Get started
             </Link>
             <Link
-              href="/docs"
+              href={docsUrl()}
               className="inline-flex h-10 items-center gap-1 rounded-md border border-border px-5 text-sm font-medium transition-colors hover:bg-accent"
             >
               Read the docs

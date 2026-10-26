@@ -6,6 +6,7 @@ import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, Ke
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { DOCS_NAV_ITEMS } from "./docs-nav-items";
+import { docsPath, normalizeDocsPathname } from "@/lib/public-hosts";
 
 // Map the stable icon keys from the shared nav source to Lucide components
 // (component references can't cross the server→client boundary, so we map here).
@@ -24,7 +25,7 @@ const ICONS: Record<string, LucideIcon> = {
 };
 
 export function DocsNav() {
-  const pathname = usePathname();
+  const pathname = normalizeDocsPathname(usePathname());
 
   return (
     <nav className="space-y-1">
@@ -38,7 +39,7 @@ export function DocsNav() {
         return (
           <Link
             key={href}
-            href={href}
+            href={docsPath(href)}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
               isActive

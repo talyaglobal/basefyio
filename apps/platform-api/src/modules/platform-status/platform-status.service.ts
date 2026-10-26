@@ -392,7 +392,7 @@ export class PlatformStatusService {
     const values = covered.map((c) => c.month.availabilityPct).filter((v): v is number => v !== null);
     return {
       monthAvailabilityPct: values.length ? Math.min(...values) : null,
-      statusUrl: `https://${platformDomain()}/status`,
+      statusUrl: `https://status.${platformDomain()}/`,
       apiP95TargetMs: API_LATENCY_P95_TARGET_MS,
     };
   }

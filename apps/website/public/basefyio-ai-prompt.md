@@ -181,11 +181,11 @@ You can connect to your basefyio database from any SQL client:
 
 | Resource | URL |
 |----------|-----|
-| Docs home | https://basefyio.com/docs |
-| API reference | https://basefyio.com/docs/api |
-| SDK | https://basefyio.com/docs/sdk |
-| CLI | https://basefyio.com/docs/cli |
-| External DB access | https://basefyio.com/docs/connect |
+| Docs home | https://docs.basefyio.com |
+| API reference | https://docs.basefyio.com/api |
+| SDK | https://docs.basefyio.com/sdk |
+| CLI | https://docs.basefyio.com/cli |
+| External DB access | https://docs.basefyio.com/connect |
 
 ---
 

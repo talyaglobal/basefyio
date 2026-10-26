@@ -39,6 +39,8 @@ type NavItem = {
   label: string;
   icon: ElementType;
   isActive: (pathname: string) => boolean;
+  /** Stable identity for React keys; the href of an entry may change once the teams are known. */
+  id?: string;
 };
 
 const ALL_NAV_ITEMS: NavItem[] = [
@@ -115,7 +117,7 @@ function hrefForHost(href: string, host: string) {
 }
 
 function renderNavLink(
-  { href, label, icon: Icon, isActive }: NavItem,
+  { href, label, icon: Icon, isActive, id }: NavItem,
   pathname: string,
   collapsed: boolean,
   host: string,
@@ -123,7 +125,7 @@ function renderNavLink(
   const active = isActive(pathname);
   return (
     <Link
-      key={href}
+      key={id ?? href}
       href={hrefForHost(href, host)}
       title={collapsed ? label : undefined}
       className={cn(
@@ -219,18 +221,23 @@ export function DashboardSidebar({
   const w = collapsed ? COLLAPSED_W : EXPANDED_W;
   // With the organization pages on, the "Team" entry becomes the active
   // organization's address; the old route keeps working and forwards there.
+  // Every entry keeps its original href as its React key: while the teams are
+  // still loading the organization entries would otherwise share one fallback
+  // address, and three siblings with one key left a stale "Organization" row
+  // behind after the real addresses arrived.
   const items = orgUi
     ? ALL_NAV_ITEMS.map((item) =>
         item.href === '/dashboard/team'
           ? {
               ...item,
-              href: orgPath(team, '/members'),
+              id: item.href,
+              href: team ? orgPath(team, '/members') : item.href,
               label: noun,
               isActive: (p: string) => p.startsWith('/dashboard/team') || p.startsWith('/dashboard/org/'),
             }
           : item.href === '/dashboard/billing'
-            ? { ...item, href: orgPath(team, '/billing') }
-            : item,
+            ? { ...item, id: item.href, href: team ? orgPath(team, '/billing') : item.href }
+            : { ...item, id: item.href },
       )
     : ALL_NAV_ITEMS;
   // Root-only entries live in their own group pinned to the bottom of the nav,

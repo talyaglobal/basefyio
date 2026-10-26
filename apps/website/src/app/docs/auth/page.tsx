@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl } from "@/lib/site-url";
+import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
   "Add authentication to your app with basefyio: email & password, email verification, password reset, magic links, and social login (Google, GitHub) — via the SDK or REST API.";
@@ -28,7 +29,7 @@ export default function AuthDocs() {
         These are <em>not</em> the same as your basefyio dashboard account: your
         customers sign up and sign in to <em>your</em> application, and basefyio
         issues them JSON Web Tokens (JWTs) you can use to protect data with{" "}
-        <a href="/docs/security">Row-Level Security</a>.
+        <a href={docsPath("/docs/security")}>Row-Level Security</a>.
       </p>
       <p>
         You get email &amp; password, email verification, password reset, magic
@@ -207,7 +208,7 @@ const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the se
       <h2>Using the token to protect data</h2>
       <p>
         Send the user&apos;s access token with your data requests and basefyio
-        evaluates your <a href="/docs/security">Row-Level Security</a> policies as
+        evaluates your <a href={docsPath("/docs/security")}>Row-Level Security</a> policies as
         that user — so people only ever read and write the rows they&apos;re
         allowed to. The SDK attaches the token automatically once the user is
         signed in.

@@ -6,6 +6,7 @@ import { USE_CASES } from "@/lib/content/use-cases";
 import { GLOSSARY } from "@/lib/content/glossary";
 import { INTEGRATIONS } from "@/lib/content/integrations";
 import { DOCS_NAV_ITEMS } from "@/app/docs/docs-nav-items";
+import { docsUrl, statusUrl } from "@/lib/public-hosts";
 
 /**
  * Auto-discovering sitemap. Only the standalone pages are listed explicitly;
@@ -27,13 +28,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/kvkk`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
-    { url: `${base}/status`, lastModified: now, changeFrequency: "hourly", priority: 0.5 },
+    { url: statusUrl(), lastModified: now, changeFrequency: "hourly", priority: 0.5 },
   ];
 
   // Every docs page, straight from the nav registry the sidebar and docs
   // search already read — a new docs page appears here on its own.
   const docs: MetadataRoute.Sitemap = DOCS_NAV_ITEMS.map((item) => ({
-    url: `${base}${item.href}`,
+    url: docsUrl(item.href),
     lastModified: now,
     changeFrequency: "monthly",
     priority: item.href === "/docs" ? 0.8 : 0.7,

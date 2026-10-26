@@ -653,17 +653,18 @@ services:
       - traefik.http.routers.website.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.website.entrypoints=websecure
       - traefik.http.routers.website.tls.certresolver=le
-      # status.<domain> is the status page's address; it forwards to the page under the apex
-      # (one site, one certificate set, no duplicate content). Added after the DNS record existed,
-      # because Traefik requests a certificate for every router host it is given.
+      # docs.<domain> and status.<domain> are served by the same website build; its
+      # middleware maps the host to /docs and /status internally and forwards the old
+      # apex addresses. Each router host needs its DNS record first: Traefik requests
+      # a certificate for every host it is given.
+      - traefik.http.routers.docs.rule=Host(`docs.${DOMAIN}`)
+      - traefik.http.routers.docs.entrypoints=websecure
+      - traefik.http.routers.docs.tls.certresolver=le
+      - traefik.http.routers.docs.service=website
       - traefik.http.routers.status.rule=Host(`status.${DOMAIN}`)
       - traefik.http.routers.status.entrypoints=websecure
       - traefik.http.routers.status.tls.certresolver=le
       - traefik.http.routers.status.service=website
-      - traefik.http.routers.status.middlewares=status-redirect
-      - traefik.http.middlewares.status-redirect.redirectregex.regex=^https?://status\.[^/]+/?.*
-      - traefik.http.middlewares.status-redirect.redirectregex.replacement=https://${DOMAIN}/status
-      - traefik.http.middlewares.status-redirect.redirectregex.permanent=false
       - traefik.http.services.website.loadbalancer.server.port=3000
       - traefik.http.services.website.loadbalancer.healthcheck.path=/
       - traefik.http.services.website.loadbalancer.healthcheck.interval=10s

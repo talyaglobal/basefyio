@@ -1,42 +1,9 @@
 import { headers } from "next/headers";
 
-/** Public production origin (no trailing slash). */
-export const PRODUCTION_SITE_URL = "https://basefyio.com";
+import { apexOf, getSiteUrl, isLocalHostname, PRODUCTION_SITE_URL } from "./public-hosts";
 
-/**
- * Build-time / env-based URL for `metadataBase`, JSON-LD, and fallbacks.
- * Set `NEXT_PUBLIC_SITE_URL` for Docker/CI so OG URLs match your deploy.
- * In production builds, if unset, defaults to {@link PRODUCTION_SITE_URL} — never localhost.
- */
-export function getSiteUrl(): string {
-  const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-
-  if (process.env.VERCEL_URL) {
-    const host = process.env.VERCEL_URL.replace(/^https?:\/\//, "");
-    return `https://${host}`;
-  }
-
-  if (process.env.NODE_ENV !== "production") {
-    return "http://localhost:3002";
-  }
-
-  return PRODUCTION_SITE_URL;
-}
-
-function isLocalHostname(host: string): boolean {
-  try {
-    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname.endsWith(".local")
-    );
-  } catch {
-    return /localhost|127\.0\.0\.1|\[::1\]/i.test(host);
-  }
-}
+export { getSiteUrl, PRODUCTION_SITE_URL };
+export { docsUrl, docsPath, statusUrl, getDocsOrigin, getStatusOrigin } from "./public-hosts";
 
 /** Admin app / dashboard (no trailing slash). Override with `NEXT_PUBLIC_APP_URL`. */
 export const PRODUCTION_APP_URL = "https://app.basefyio.com";
@@ -102,7 +69,9 @@ export async function getSiteUrlFromRequest(): Promise<string> {
     const rawProto = h.get("x-forwarded-proto")?.split(",")[0]?.trim();
     const proto =
       rawProto === "http" || rawProto === "https" ? rawProto : "https";
-    return `${proto}://${hostHeader}`.replace(/\/$/, "");
+    // docs.<apex> and status.<apex> are served from this app too; their
+    // canonical base (sitemap, robots, metadataBase) is still the apex.
+    return `${proto}://${apexOf(hostHeader.replace(/:\d+$/, ""))}`.replace(/\/$/, "");
   }
 
   return getSiteUrl();

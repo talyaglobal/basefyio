@@ -172,11 +172,11 @@ ${stack} (use the env names above; do not rename keys unless the framework stric
 The user can also connect to their basefyio database from pgAdmin, DBeaver, DataGrip, TablePlus, or \`psql\` using the host, port, database, user, and password from DATABASE_URL. The database is always accessible — no VPN or tunnel needed.
 
 ## 6) Official documentation
-- Docs home: https://basefyio.com/docs
-- API reference: https://basefyio.com/docs/api
-- SDK: https://basefyio.com/docs/sdk
-- CLI: https://basefyio.com/docs/cli
-- External DB access: https://basefyio.com/docs/connect
+- Docs home: https://docs.basefyio.com
+- API reference: https://docs.basefyio.com/api
+- SDK: https://docs.basefyio.com/sdk
+- CLI: https://docs.basefyio.com/cli
+- External DB access: https://docs.basefyio.com/connect
 
 ## 7) CORS / CSP
 If the browser blocks the API origin, fix connect-src / CORS or use a same-origin proxy — do not change the basefyio URLs.
