@@ -26,7 +26,9 @@ const SORTERS: Record<SortKey, (p: ConsoleProjectRow) => number | string> = {
   price: (p) => p.cost?.projectedPricedUsd ?? -1,
 };
 
-const STATUSES = ['ALL', 'ACTIVE', 'PAUSED', 'DEACTIVATED', 'DELETED'] as const;
+// PAUSED is the deactivated state; the legacy DEACTIVATED rows read the same
+// word and are rare enough not to need a chip of their own.
+const STATUSES = ['ALL', 'ACTIVE', 'PAUSED', 'DELETED'] as const;
 
 export default function ConsoleProjectsPage() {
   const [data, setData] = useState<ConsoleProjectList | null>(null);
@@ -168,7 +170,7 @@ export default function ConsoleProjectsPage() {
                 status === s ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {s === 'ALL' ? 'All' : s === 'PAUSED' ? 'Asleep' : s.charAt(0) + s.slice(1).toLowerCase()}
+              {s === 'ALL' ? 'All' : s === 'PAUSED' ? 'Deactivated' : s.charAt(0) + s.slice(1).toLowerCase()}
             </button>
           ))}
         </div>

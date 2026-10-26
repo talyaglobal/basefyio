@@ -48,7 +48,17 @@ export class SqlService implements OnModuleDestroy {
    * project's connection params change (e.g. password reset), the stale pool is
    * closed and replaced.
    */
-  private readonly pools = new Map<string, { pool: Pool; hash: string }>();
+  private readonly pools = new Map<string, { pool: Pool; hash: string; lastUsedAt: number }>();
+
+  /**
+   * A pool that has not run a query for this long is closed and forgotten.
+   * `pg` already drops idle connections after 30 s, so this is about the
+   * objects themselves: a deactivated project, or one nobody queries from the
+   * dashboard any more, should not keep a pool around for the life of the
+   * process.
+   */
+  private static readonly POOL_IDLE_MS = 10 * 60_000;
+  private evictTimer?: NodeJS.Timeout;
 
   private getPool(project: {
     id: string;
@@ -64,12 +74,16 @@ export class SqlService implements OnModuleDestroy {
       )
       .digest('hex');
     const existing = this.pools.get(project.id);
-    if (existing && existing.hash === hash) return existing.pool;
+    if (existing && existing.hash === hash) {
+      existing.lastUsedAt = Date.now();
+      return existing.pool;
+    }
     if (existing) {
       // Connection params changed — drop the stale pool.
       existing.pool.end().catch(() => undefined);
       this.pools.delete(project.id);
     }
+    this.ensureEviction();
     const pool = new Pool({
       host: project.dbHost,
       port: project.dbPort,
@@ -86,11 +100,28 @@ export class SqlService implements OnModuleDestroy {
       this.pools.delete(project.id);
       pool.end().catch(() => undefined);
     });
-    this.pools.set(project.id, { pool, hash });
+    this.pools.set(project.id, { pool, hash, lastUsedAt: Date.now() });
     return pool;
   }
 
+  /** Started with the first pool; never keeps the process alive on its own. */
+  private ensureEviction(): void {
+    if (this.evictTimer) return;
+    this.evictTimer = setInterval(() => this.evictIdlePools(), 60_000);
+    this.evictTimer.unref?.();
+  }
+
+  private evictIdlePools(): void {
+    const cutoff = Date.now() - SqlService.POOL_IDLE_MS;
+    for (const [projectId, entry] of this.pools) {
+      if (entry.lastUsedAt > cutoff) continue;
+      this.pools.delete(projectId);
+      entry.pool.end().catch(() => undefined);
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
+    if (this.evictTimer) clearInterval(this.evictTimer);
     await Promise.all(
       [...this.pools.values()].map(({ pool }) => pool.end().catch(() => undefined)),
     );

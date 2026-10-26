@@ -12,6 +12,7 @@ import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import jwksClient, { JwksClient } from 'jwks-rsa';
 import { PgBouncerService } from '../../modules/pgbouncer/pgbouncer.service';
+import { KeycloakAdminService } from '../../modules/auth/keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   API_KEY_SCOPE_KEY,
@@ -40,8 +41,9 @@ export class ApiKeyGuard implements CanActivate {
     private readonly config: ConfigService,
     private readonly reflector: Reflector,
     // Optional so the guard can still be built by hand in a test that has no
-    // interest in the pooler.
+    // interest in the pooler or the realm.
     @Optional() private readonly pgbouncer?: PgBouncerService,
+    @Optional() private readonly keycloak?: KeycloakAdminService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -59,9 +61,9 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Missing apikey');
     }
 
-    // Status is read rather than filtered on, so a sleeping project can be
-    // woken instead of refused. Anything else — deactivated, deleted — is
-    // still "invalid key", which is all a caller needs to know.
+    // Status is read rather than filtered on, so a deactivated project can be
+    // activated instead of refused. Anything else — deleted, or a legacy
+    // frozen row — is still "invalid key", which is all a caller needs to know.
     const project = await this.prisma.project.findFirst({
       where: { OR: [{ anonKey: apiKey }, { serviceKey: apiKey }] },
       select: { id: true, anonKey: true, serviceKey: true, keycloakRealm: true, status: true },
@@ -72,7 +74,7 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     if (project.status === 'PAUSED') {
-      await this.wake(project.id);
+      await this.wake(project.id, project.keycloakRealm);
     }
 
     const isService = project.serviceKey === apiKey;
@@ -139,19 +141,19 @@ export class ApiKeyGuard implements CanActivate {
    * check written at only one of them is a hole that reads as covered.
    */
   /**
-   * A sleeping project answers its first request by waking up.
+   * A deactivated project answers its first request by activating itself.
    *
-   * Sleeping exists to stop spending disk, memory and CPU on a project nobody
-   * calls — not to lock anyone out. So the moment somebody does call, the
-   * project comes back: a request carrying a valid project key is the best
-   * evidence there is that it is wanted again, and the caller gets their
-   * answer rather than an error they have to go and understand.
+   * Deactivation exists to stop spending memory, connections and backup time
+   * on a project nobody calls — not to lock anyone out. So the moment
+   * somebody does call, the project comes back: a request carrying a valid
+   * project key is the best evidence there is that it is wanted again, and
+   * the caller gets their answer rather than an error to go and understand.
    *
-   * `updateMany` scoped to the sleeping state makes this safe under a burst:
-   * of all the requests that arrive together, exactly one wakes it and the
-   * rest simply carry on.
+   * `updateMany` scoped to the deactivated state makes this safe under a
+   * burst: of all the requests that arrive together, exactly one activates it
+   * and the rest simply carry on.
    */
-  private async wake(projectId: string): Promise<void> {
+  private async wake(projectId: string, keycloakRealm: string): Promise<void> {
     const { count } = await this.prisma.project.updateMany({
       where: { id: projectId, status: 'PAUSED' },
       data: { status: 'ACTIVE', pausedAt: null, idleWarningSentAt: null },
@@ -170,15 +172,22 @@ export class ApiKeyGuard implements CanActivate {
         data: {
           projectId,
           kind: 'project.updated',
-          title: 'Project woken by a request',
+          title: 'Project activated by a request',
           detail:
-            'It was asleep after a long quiet spell and a request arrived, so it was brought back. ' +
-            'Nothing was lost while it slept.',
+            'It had been deactivated after a long quiet spell and a request arrived, so it was brought back. ' +
+            'Nothing was lost while it was deactivated.',
         },
       })
       .catch(() => undefined);
 
-    this.logger.log(`Project ${projectId} woken by an incoming request`);
+    this.logger.log(`Project ${projectId} activated by an incoming request`);
+
+    // Deactivation closed sign-in for the project's users; open it again. Not
+    // awaited for the same reason as the pooler below — this request does
+    // not need the realm, and the next sign-in is seconds away at most.
+    void this.keycloak?.enableRealm(keycloakRealm).catch((err: any) =>
+      this.logger.warn(`Realm ${keycloakRealm} not re-enabled after activating ${projectId}: ${err?.message ?? err}`),
+    );
 
     // The pooler's configuration is built from the projects that are awake, so
     // it has to be rewritten for direct database connections to work again.

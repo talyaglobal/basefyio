@@ -62,9 +62,9 @@ function deployStateColor(state: string) {
   }
 }
 
-// Three words for a project's life, the same ones everywhere: active, asleep,
-// deleted. "Deactivated" is an older state the list still shows for projects
-// that are in it; the dialog does not offer it.
+// Three words for a project's life, the same ones everywhere: active,
+// deactivated, deleted. Deactivated is a pause — the API stops answering and
+// sign-in closes until it is activated again — and never a deletion.
 type StatusChoice = 'ACTIVE' | 'PAUSED' | 'DELETE';
 
 // What the badge offers when clicked. Every option maps to an action the
@@ -79,14 +79,14 @@ const STATUS_OPTIONS: Array<{
   {
     value: 'ACTIVE',
     label: 'Active',
-    hint: 'Serving requests. Waking an asleep project restores it exactly as it was.',
+    hint: 'Serving requests. Activating a deactivated project restores it exactly as it was.',
     icon: Power,
     tone: 'text-teal-500',
   },
   {
     value: 'PAUSED',
-    label: 'Asleep',
-    hint: 'Its API stops answering until it is woken. Nothing is deleted; a request carrying its key wakes it again.',
+    label: 'Deactivated',
+    hint: 'Its API stops answering and sign-in closes until it is activated again. Nothing is deleted, ever; a request carrying its key activates it again.',
     icon: Moon,
     tone: 'text-amber-500',
   },
@@ -135,7 +135,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // The status badge is a control: clicking it opens this dialog, and the
-  // choice — wake, sleep, switch off or delete — is always the customer's.
+  // choice — activate, deactivate or delete — is always the customer's.
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [statusChoice, setStatusChoice] = useState<StatusChoice>('ACTIVE');
   const [statusSaving, setStatusSaving] = useState(false);
@@ -157,7 +157,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
         toast.success('Project is active again');
       } else {
         await api.projects.sleep(project.id);
-        toast.success('Project is asleep. A request with its API key wakes it again.');
+        toast.success('Project deactivated. A request with its API key activates it again.');
       }
       setStatusDialogOpen(false);
       await refreshProject?.();

@@ -304,7 +304,7 @@ export class EmailService implements OnModuleInit {
     });
   }
 
-  /** Warns the owner that a quiet project is about to be put to sleep. */
+  /** Warns the owner that a quiet project is about to be deactivated. */
   async sendProjectSleepWarning(
     to: string,
     projectName: string,
@@ -316,16 +316,16 @@ export class EmailService implements OnModuleInit {
     const html = projectSleepWarningTemplate({ projectName, idleDays, daysLeft, dashboardUrl });
     return this.send({
       to,
-      subject: `${projectName} goes to sleep in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+      subject: `${projectName} will be deactivated in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
       html,
     });
   }
 
-  /** Tells the owner a quiet project has been put to sleep, and how to wake it. */
+  /** Tells the owner a quiet project has been deactivated, and how to activate it. */
   async sendProjectAsleep(to: string, projectName: string, projectId: string, idleDays: number) {
     const dashboardUrl = `${this.appUrl}/dashboard/projects/${projectId}`;
     const html = projectAsleepTemplate({ projectName, idleDays, dashboardUrl });
-    return this.send({ to, subject: `${projectName} is asleep — wake it any time`, html });
+    return this.send({ to, subject: `${projectName} has been deactivated — activate it any time`, html });
   }
 
   async sendProjectWelcome(to: string, projectName: string) {

@@ -1123,12 +1123,23 @@ export class ProjectsService {
   }
 
   /**
-   * Deactivate a project: freeze it (auth disabled, dropped from data-plane
-   * routing) without deleting data. A deactivated project does NOT count against
-   * the plan's project quota, so the freed slot can be used for another project.
-   * It is permanently purged after 14 days if not reactivated.
+   * "Deactivate" and "sleep" are one state now (`PAUSED`). The older
+   * deactivation — a frozen project that gave up its plan slot and was purged
+   * after 14 days — is gone: the owner's rule is that a deactivated project is
+   * never deleted. The route stays so existing clients keep working.
    */
   async deactivate(id: string, userId: string) {
+    return this.sleep(id, userId);
+  }
+
+  /**
+   * Deactivate a project on request: the same state the idle sweep produces,
+   * chosen deliberately. Its API answers nothing and its users cannot sign in
+   * until it is activated again; nothing is deleted, the plan slot stays
+   * taken, and a request carrying its key activates it again — a pause, not
+   * a lock. No notice is sent: the person asking is the one who would get it.
+   */
+  async sleep(id: string, userId: string) {
     const project = await this.findOne(id, userId);
 
     const membership = await this.prisma.teamMember.findUnique({
@@ -1142,27 +1153,29 @@ export class ProjectsService {
       throw new ForbiddenException('You can only deactivate projects you created');
     }
 
-    if (project.status === 'DEACTIVATED') {
+    if (project.status === 'PAUSED') {
       return { message: 'Project is already deactivated' };
     }
-    if (project.status === 'DELETED') {
-      throw new ForbiddenException('Deleted projects cannot be deactivated');
+    if (project.status !== 'ACTIVE') {
+      throw new ForbiddenException('Only an active project can be deactivated');
     }
 
-    // Close auth so nobody can log in while the project is frozen.
-    try {
-      await this.keycloak.disableRealm(project.keycloakRealm);
-    } catch (err) {
-      this.logger.warn(`Deactivate: failed to disable Keycloak realm for "${project.name}": ${err}`);
-    }
-
-    await this.prisma.project.update({
-      where: { id },
-      data: { status: 'DEACTIVATED', deactivatedAt: new Date() },
+    // Flip only if it is still active, so two tabs racing deactivate it once.
+    const { count } = await this.prisma.project.updateMany({
+      where: { id, status: 'ACTIVE' },
+      data: { status: 'PAUSED', pausedAt: new Date(), idleWarningSentAt: null },
     });
+    if (count === 0) {
+      return { message: 'Project is already deactivated' };
+    }
 
-    // Free the plan quota slot and drop the project from PgBouncer routing.
-    this.usageService.decrementProjectCount(project.teamId).catch(() => {});
+    // Close sign-in for the project's own users while it is deactivated. Best
+    // effort: activation re-enables the realm regardless.
+    await this.keycloak.disableRealm(project.keycloakRealm).catch((err: any) =>
+      this.logger.warn(`Deactivate: realm not disabled for "${project.name}": ${err?.message ?? err}`),
+    );
+
+    // The pooler routes active projects only; drop this one from its config.
     this.pgbouncer.regenerateConfig().catch((err) =>
       this.logger.warn(`PgBouncer config update failed: ${err}`),
     );
@@ -1171,79 +1184,11 @@ export class ProjectsService {
 
     await this.activity.append(id, {
       userId,
-      kind: ProjectActivityKind.PROJECT_DEACTIVATED,
-      title: 'Project deactivated',
-      detail: project.name,
-    });
-
-    {
-      const memberIds = await this.teamMemberUserIds(project.teamId);
-      const actorName = await this.resolveActorName(userId);
-      await this.realtime.publish({
-        entityType: 'project',
-        action: 'updated',
-        entityId: id,
-        actorUserId: userId,
-        teamId: project.teamId,
-        userIds: memberIds,
-        payload: { name: project.name, status: 'DEACTIVATED', actorName },
-      });
-    }
-
-    return { message: 'Project deactivated' };
-  }
-
-  /**
-   * Put a project to sleep on request: the same state the idle sweep
-   * produces, chosen deliberately. Its API answers nothing until it is woken,
-   * nothing is deleted, the plan slot stays taken, and a request carrying its
-   * key wakes it again — a pause, not a lock. No notice is sent: the person
-   * asking is the one who would receive it.
-   */
-  async sleep(id: string, userId: string) {
-    const project = await this.findOne(id, userId);
-
-    const membership = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: project.teamId, userId } },
-    });
-    if (!membership) {
-      throw new ForbiddenException('You are not a member of this team');
-    }
-    const isCreator = project.createdBy === userId;
-    if (membership.role !== 'OWNER' && !isCreator) {
-      throw new ForbiddenException('You can only put projects you created to sleep');
-    }
-
-    if (project.status === 'PAUSED') {
-      return { message: 'Project is already asleep' };
-    }
-    if (project.status !== 'ACTIVE') {
-      throw new ForbiddenException('Only an active project can be put to sleep');
-    }
-
-    // Flip only if it is still awake, so two tabs racing put it to sleep once.
-    const { count } = await this.prisma.project.updateMany({
-      where: { id, status: 'ACTIVE' },
-      data: { status: 'PAUSED', pausedAt: new Date(), idleWarningSentAt: null },
-    });
-    if (count === 0) {
-      return { message: 'Project is already asleep' };
-    }
-
-    // The pooler routes awake projects only; drop this one from its config.
-    this.pgbouncer.regenerateConfig().catch((err) =>
-      this.logger.warn(`PgBouncer config update failed: ${err}`),
-    );
-
-    this.logger.log(`Project "${project.name}" put to sleep by user ${userId}`);
-
-    await this.activity.append(id, {
-      userId,
       kind: ProjectActivityKind.PROJECT_UPDATED,
-      title: 'Project put to sleep',
+      title: 'Project deactivated',
       detail:
-        'A team member put it to sleep from the dashboard. Its API stops answering until it is woken; ' +
-        'nothing is deleted, and a request carrying its key wakes it again.',
+        'A team member deactivated it from the dashboard. Its API stops answering until it is activated; ' +
+        'nothing is deleted, and a request carrying its key activates it again.',
     });
 
     {
@@ -1260,7 +1205,7 @@ export class ProjectsService {
       });
     }
 
-    return { message: 'Project is asleep' };
+    return { message: 'Project deactivated' };
   }
 
   /**
@@ -1499,10 +1444,12 @@ export class ProjectsService {
     });
   }
 
-  /** Deactivated (frozen) projects for a team — the "Deactivated" list. */
+  /**
+   * Deactivated projects for a team — the "Deactivated" list. `PAUSED` is
+   * the state; the legacy `DEACTIVATED` rows are listed alongside until they
+   * are activated, and nothing in this list is ever purged.
+   */
   async findDeactivated(teamId: string | undefined, userId: string) {
-    await this.purgeDeactivatedPastRetention();
-
     const memberships = await this.prisma.teamMember.findMany({
       where: { userId, ...(teamId ? { teamId } : {}) },
       select: { teamId: true, role: true },
@@ -1513,8 +1460,8 @@ export class ProjectsService {
     const teamIds = memberships.map((m) => m.teamId);
 
     const projects = await this.prisma.project.findMany({
-      where: { teamId: { in: teamIds }, status: 'DEACTIVATED' },
-      orderBy: [{ deactivatedAt: 'desc' }, { updatedAt: 'desc' }],
+      where: { teamId: { in: teamIds }, status: { in: ['PAUSED', 'DEACTIVATED'] } },
+      orderBy: [{ pausedAt: 'desc' }, { deactivatedAt: 'desc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
         name: true,
@@ -1524,6 +1471,7 @@ export class ProjectsService {
         createdAt: true,
         updatedAt: true,
         deactivatedAt: true,
+        pausedAt: true,
         createdBy: true,
         teamId: true,
         team: { select: { id: true, name: true } },
@@ -1534,9 +1482,12 @@ export class ProjectsService {
       const role = roleByTeam.get(p.teamId);
       const canManage =
         role === 'OWNER' || role === 'ADMIN' || p.createdBy === userId;
-      const { team, ...rest } = p;
+      const { team, pausedAt, ...rest } = p;
       return {
         ...rest,
+        // The list shows one "deactivated since" date whichever path got the
+        // project here.
+        deactivatedAt: rest.deactivatedAt ?? pausedAt,
         teamName: team?.name ?? null,
         canManage,
       };
@@ -1856,59 +1807,13 @@ export class ProjectsService {
     return expired.length;
   }
 
-  /** Permanently remove deactivated projects past the 14-day retention window. */
-  private async purgeDeactivatedPastRetention(): Promise<number> {
-    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-
-    const expired = await this.prisma.project.findMany({
-      where: {
-        status: 'DEACTIVATED',
-        OR: [
-          { deactivatedAt: { lt: cutoff } },
-          { AND: [{ deactivatedAt: null }, { updatedAt: { lt: cutoff } }] },
-        ],
-      },
-    });
-
-    if (expired.length === 0) {
-      return 0;
-    }
-
-    this.logger.log(
-      `Deactivated cleanup: permanently deleting ${expired.length} project(s) past 14-day retention`,
-    );
-
-    for (const project of expired) {
-      try {
-        await this.deleteProjectRealm(project.keycloakRealm);
-        await this.dropDatabase(project.dbName).catch(() => {});
-        await this.dropDatabaseUser(project.dbUser).catch(() => {});
-        await this.dropReadonlyRoleQuietly(project.dbReadonlyUser);
-        await this.prisma.project.delete({ where: { id: project.id } });
-        this.logger.log(`Cleanup: permanently deleted deactivated "${project.name}"`);
-      } catch (err: any) {
-        this.logger.error(
-          `Cleanup: failed to delete deactivated project "${project.name}": ${err.message}`,
-        );
-      }
-    }
-
-    this.pgbouncer.regenerateConfig().catch((err) =>
-      this.logger.warn(`PgBouncer config update failed after deactivated cleanup: ${err}`),
-    );
-
-    return expired.length;
-  }
-
+  // A deactivated project is never purged. The 14-day cleanup that used to
+  // live here is gone on purpose: only the trash (`DELETED`) expires.
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupExpiredDeletedProjects() {
     const n = await this.purgeDeletedProjectsPastRetention();
     if (n > 0) {
       this.logger.log(`Trash cleanup: removed ${n} expired project(s) past 24h retention`);
-    }
-    const d = await this.purgeDeactivatedPastRetention();
-    if (d > 0) {
-      this.logger.log(`Deactivated cleanup: removed ${d} project(s) past 14-day retention`);
     }
   }
 

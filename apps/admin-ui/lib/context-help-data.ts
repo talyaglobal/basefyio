@@ -173,7 +173,7 @@ export const HELP_MAP: Record<string, HelpContent> = {
       'Pause the project to stop billing when not in use.',
       'View resource usage and plan limits.',
     ],
-    tips: ['Asleep projects keep all their data but stop serving API requests until they are woken.'],
+    tips: ['Deactivated projects keep all their data but stop serving API requests until they are activated again.'],
     docPath: '/docs/settings',
   },
 };

@@ -2,10 +2,10 @@ import { baseLayout } from './base.template';
 
 /**
  * The two notices an idle project produces: a warning while there is still
- * time to keep it awake, and the confirmation once it has gone to sleep.
+ * time to keep it active, and the confirmation once it has been deactivated.
  *
  * Both say the same three things, because they are the three a customer
- * actually worries about: nothing has been deleted, waking it takes one
+ * actually worries about: nothing has been deleted, activating it takes one
  * click, and here is why it happened.
  */
 
@@ -29,25 +29,25 @@ export function projectSleepWarningTemplate(data: {
         <div style="text-align: center;">
           <div class="icon-circle icon-purple">&#9203;</div>
         </div>
-        <h1 class="greeting">${data.projectName} is about to go to sleep</h1>
+        <h1 class="greeting">${data.projectName} is about to be deactivated</h1>
         <p class="text">
           It has had no API requests for ${days(data.idleDays)}. Projects that stay
-          quiet are put to sleep so we are not running a database nobody is
+          quiet are deactivated so we are not running a database nobody is
           calling — it keeps the platform fast for everyone and keeps your bill down.
         </p>
 
         <div class="info-card">
-          <div class="info-card-title">If nothing changes, it sleeps in</div>
+          <div class="info-card-title">If nothing changes, it is deactivated in</div>
           <div class="info-card-value">${days(data.daysLeft)}</div>
         </div>
 
         <p class="text">
           <strong>Nothing is deleted.</strong> Your tables, rows, files and users all
-          stay exactly as they are. A sleeping project simply stops answering
-          requests until you wake it, which takes one click in the dashboard.
+          stay exactly as they are. A deactivated project simply stops answering
+          requests until you activate it again, which takes one click in the dashboard.
         </p>
 
-        <p class="text">To keep it awake, just use it — a single API call is enough.</p>
+        <p class="text">To keep it active, just use it — a single API call is enough.</p>
 
         <div style="text-align: center; margin: 28px 0;">
           <a href="${data.dashboardUrl}" target="_blank" style="${BUTTON}">Open the project</a>
@@ -70,23 +70,23 @@ export function projectAsleepTemplate(data: {
   const content = `
       <div class="body">
         <div style="text-align: center;">
-          <div class="icon-circle icon-blue">&#128164;</div>
+          <div class="icon-circle icon-blue">&#9208;</div>
         </div>
-        <h1 class="greeting">${data.projectName} is asleep</h1>
+        <h1 class="greeting">${data.projectName} has been deactivated</h1>
         <p class="text">
-          It had no API requests for ${days(data.idleDays)}, so we have put it to
-          sleep. Its API is not answering right now — anything pointed at it
-          will get an error until you wake it.
+          It had no API requests for ${days(data.idleDays)}, so we have deactivated
+          it. Its API is not answering right now — anything pointed at it will
+          get an error until you activate it again.
         </p>
 
         <p class="text">
           <strong>Nothing has been deleted and nothing will be.</strong> Your database,
-          your files and your users are all intact and waiting. Waking the project
-          restores it exactly as you left it.
+          your files and your users are all intact and waiting. Activating the
+          project restores it exactly as you left it.
         </p>
 
         <div style="text-align: center; margin: 28px 0;">
-          <a href="${data.dashboardUrl}" target="_blank" style="${BUTTON}">Wake the project</a>
+          <a href="${data.dashboardUrl}" target="_blank" style="${BUTTON}">Activate the project</a>
         </div>
 
         <div class="divider"></div>

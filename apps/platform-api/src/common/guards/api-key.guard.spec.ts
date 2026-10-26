@@ -392,8 +392,9 @@ describe('ApiKeyGuard — a sleeping project wakes on the first request', () => 
       },
     };
     const pooler = { calls: 0, regenerateConfig: async () => void pooler.calls++ };
-    const g = new ApiKeyGuard(prisma, config, reflectorFor(), pooler as any);
-    return { g, updates, activity, stamps, pooler };
+    const realms = { enabled: [] as string[], enableRealm: async (r: string) => void realms.enabled.push(r) };
+    const g = new ApiKeyGuard(prisma, config, reflectorFor(), pooler as any, realms as any);
+    return { g, updates, activity, stamps, pooler, realms };
   }
 
   const ctx = () =>
@@ -410,10 +411,12 @@ describe('ApiKeyGuard — a sleeping project wakes on the first request', () => 
     await expect(h.g.canActivate(ctx())).resolves.toBe(true);
     expect(h.updates[0].data).toMatchObject({ status: 'ACTIVE', pausedAt: null });
     expect(h.stamps).toHaveLength(1);
-    expect(h.activity[0].data.title).toBe('Project woken by a request');
+    expect(h.activity[0].data.title).toBe('Project activated by a request');
     // Fire and forget, so give the microtask queue a turn.
     await new Promise((r) => setImmediate(r));
     expect(h.pooler.calls).toBe(1);
+    // Deactivation closed sign-in; activation opens it again.
+    expect(h.realms.enabled).toEqual(['kb-p1']);
   });
 
   it('only one of a burst does the waking', async () => {

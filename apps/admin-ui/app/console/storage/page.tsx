@@ -24,8 +24,8 @@ import {
 import { cn } from '@/lib/utils';
 
 const CATEGORIES: Array<{ key: StorageCategory; label: string; hint: string }> = [
-  { key: 'project', label: 'Live projects', hint: 'Active and asleep projects' },
-  { key: 'deleted_project', label: 'Deleted projects', hint: 'Left behind by deleted or deactivated projects' },
+  { key: 'project', label: 'Live projects', hint: 'Active and deactivated projects' },
+  { key: 'deleted_project', label: 'Deleted projects', hint: 'Left behind by deleted projects' },
   { key: 'platform', label: 'Platform', hint: 'Feedback attachments, marketing renders' },
   { key: 'orphan', label: 'No owner', hint: 'Matches no project at all' },
 ];

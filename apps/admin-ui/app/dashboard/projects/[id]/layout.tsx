@@ -276,10 +276,10 @@ export default function ProjectLayout({
     return () => { unsubscribe?.(); };
   }, [id, projectLoading, project, refreshProject, router]);
 
-  // A sleeping project answers nothing until someone wakes it. Opening it is
-  // the moment to ask — never to decide: "not now" keeps it asleep for this
-  // browser session, and the status badge on the overview offers the same
-  // choice whenever they are ready.
+  // A deactivated project answers nothing until someone activates it. Opening
+  // it is the moment to ask — never to decide: "not now" keeps it deactivated
+  // for this browser session, and the status badge on the overview offers the
+  // same choice whenever they are ready.
   const offerWake = useCallback(
     async (name: string) => {
       const key = `basefyio_sleep_prompt:${id}`;
@@ -289,8 +289,8 @@ export default function ProjectLayout({
         // storage unavailable: ask every time
       }
       const yes = await confirmDialog({
-        title: 'This project is asleep',
-        description: `"${name}" had no requests for a while, so it was put to sleep. Nothing was deleted. Do you want to activate it now?`,
+        title: 'This project is deactivated',
+        description: `"${name}" had no requests for a while, so it was deactivated. Nothing was deleted. Do you want to activate it now?`,
         confirmText: 'Yes, activate it',
         cancelText: 'No, not now',
       });

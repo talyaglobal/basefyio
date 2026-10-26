@@ -310,7 +310,7 @@ export default function ProjectsPage() {
   const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
 
-  // Deactivated projects (frozen — 14-day retention, off the plan quota)
+  // Deactivated projects (paused — data kept, never purged)
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [deactivatedProjects, setDeactivatedProjects] = useState<ProjectListItem[]>([]);
   const [loadingDeactivated, setLoadingDeactivated] = useState(false);
@@ -737,8 +737,8 @@ export default function ProjectsPage() {
     if (!deactivateConfirm) return;
     setDeactivating(true);
     try {
-      await api.projects.deactivate(deactivateConfirm.id);
-      toast.success('Project deactivated');
+      await api.projects.sleep(deactivateConfirm.id);
+      toast.success('Project deactivated. A request with its API key activates it again.');
       setDeactivateConfirm(null);
       loadAll();
       loadDeactivatedProjects();
@@ -749,14 +749,14 @@ export default function ProjectsPage() {
     }
   }
 
-  // Shared by the deactivated list and by waking a sleeping project: the API
-  // accepts both, and only the wording differs.
-  async function handleReactivate(id: string, asleep = false) {
+  // Shared by the deactivated list and by the row action: one state, one
+  // way back.
+  async function handleReactivate(id: string) {
     setReactivatingId(id);
     try {
       await api.projects.reactivate(id);
       setDeactivatedProjects((prev) => prev.filter((p) => p.id !== id));
-      toast.success(asleep ? 'Project woken' : 'Project reactivated');
+      toast.success('Project activated');
       loadAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to reactivate project');
@@ -810,7 +810,7 @@ export default function ProjectsPage() {
     if (ids.length === 0) return;
     setBulkDeactivating(true);
     try {
-      const results = await Promise.allSettled(ids.map((id) => api.projects.deactivate(id)));
+      const results = await Promise.allSettled(ids.map((id) => api.projects.sleep(id)));
       const ok = results.filter((r) => r.status === 'fulfilled').length;
       const failed = ids.length - ok;
       const idSet = new Set(ids);
@@ -1297,7 +1297,7 @@ export default function ProjectsPage() {
                 }}
               />
 
-              {/* Deactivated — frozen projects, off the plan quota, 14-day retention */}
+              {/* Deactivated — paused projects, data kept, never purged */}
               <DeactivatedZone
                 active={showDeactivated}
                 count={deactivatedProjects.length}
@@ -1455,11 +1455,10 @@ export default function ProjectsPage() {
                         role="tooltip"
                         className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-popover px-3 py-2 text-left text-xs leading-snug text-popover-foreground shadow-md group-hover:block group-focus-visible:block"
                       >
-                        Deactivated projects are <span className="font-medium">frozen</span> — closed to
-                        use and their data preserved — and they{' '}
-                        <span className="font-medium">don&apos;t count against your plan&apos;s project
-                        limit</span>. They are <span className="font-medium">permanently removed after 14
-                        days</span> if not reactivated. Reactivating needs a free project slot on your plan.
+                        Deactivated projects stop answering requests and close sign-in, with{' '}
+                        <span className="font-medium">all their data kept</span>. They are{' '}
+                        <span className="font-medium">never deleted</span>: activate one here, from its
+                        status badge, or simply send it a request with its API key.
                       </span>
                     </span>
                     <span className="text-sm text-muted-foreground">({deactivatedProjects.length})</span>
@@ -1476,7 +1475,7 @@ export default function ProjectsPage() {
                   <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                     <PowerOff className="h-12 w-12 mb-3 opacity-30" />
                     <p className="text-sm font-medium">No deactivated projects</p>
-                    <p className="text-xs mt-1">Deactivate a project to free a slot without deleting its data</p>
+                    <p className="text-xs mt-1">Deactivate a project to pause it without deleting anything</p>
                   </div>
                 ) : (
                   <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -1704,7 +1703,7 @@ export default function ProjectsPage() {
           onMoveTeam={(team) => { setMoveTeamModal({ project: ctxMenu.project, targetTeam: team }); setCtxMenu(null); }}
           onEdit={() => { openEditModal(ctxMenu.project); setCtxMenu(null); }}
           onDeactivate={() => { setDeactivateConfirm(ctxMenu.project); setCtxMenu(null); }}
-          onWake={() => { handleReactivate(ctxMenu.project.id, true); setCtxMenu(null); }}
+          onWake={() => { handleReactivate(ctxMenu.project.id); setCtxMenu(null); }}
           onDelete={() => { setDeleteConfirm(ctxMenu.project); setCtxMenu(null); }}
         />
       )}
@@ -1909,10 +1908,9 @@ export default function ProjectsPage() {
           <p className="text-sm font-semibold mb-3">&quot;{deactivateConfirm.name}&quot;</p>
           <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              The project is <strong>frozen</strong> — closed to use, but its data is kept. It{' '}
-              <strong>frees a slot on your plan</strong> so you can create another project. You can
-              reactivate it anytime (a free project slot is required). If left deactivated, it is{' '}
-              <strong>permanently deleted after 14 days</strong>.
+              The project stops answering requests and its users cannot sign in, but{' '}
+              <strong>nothing is deleted — ever</strong>. Activate it anytime from this list or its
+              status badge; a request carrying its API key activates it again as well.
             </p>
           </div>
           <div className="flex gap-2">
@@ -1949,9 +1947,8 @@ export default function ProjectsPage() {
           </div>
           <div className="rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 px-3 py-2 mb-4">
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              They are <strong>frozen</strong> — closed to use, data kept — and <strong>free their plan
-              slots</strong>. Reactivate anytime; if left deactivated they are <strong>permanently deleted
-              after 14 days</strong>.
+              They stop answering requests and close sign-in, with <strong>all their data kept — nothing
+              is ever deleted</strong>. Activate any of them later from this list or its status badge.
             </p>
           </div>
           <div className="flex gap-2">
@@ -2840,14 +2837,15 @@ const ContextMenu = React.forwardRef<HTMLDivElement, {
         )}
 
         <div className="my-1 h-px bg-border" />
-        {project.status === 'PAUSED' && (
+        {project.status === 'PAUSED' ? (
           <button onClick={onWake} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
-            <Power className="h-3.5 w-3.5 text-teal-500" /> Wake project
+            <Power className="h-3.5 w-3.5 text-teal-500" /> Activate project
+          </button>
+        ) : (
+          <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
+            <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
           </button>
         )}
-        <button onClick={onDeactivate} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-accent transition-colors">
-          <PowerOff className="h-3.5 w-3.5 text-muted-foreground" /> Deactivate
-        </button>
         <button onClick={onDelete} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
           <Trash2 className="h-3.5 w-3.5" /> Delete Project
         </button>

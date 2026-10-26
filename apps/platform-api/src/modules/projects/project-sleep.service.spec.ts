@@ -62,12 +62,14 @@ function setup(opts: { env?: Record<string, string>; candidates?: any[]; mailThr
   Object.assign(process.env, opts.env ?? {});
 
   const pgbouncer = { calls: 0, regenerateConfig: async () => void pgbouncer.calls++ };
+  const realms = { disabled: [] as string[], disableRealm: async (r: string) => void realms.disabled.push(r) };
   const svc = new ProjectSleepService(
     prisma as any,
     { get: () => undefined } as any,
     email as any,
     activitySvc as any,
     pgbouncer as any,
+    realms as any,
   );
   if (opts.candidates) {
     (svc as any).findQuietProjects = async () => opts.candidates;

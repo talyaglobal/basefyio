@@ -62,12 +62,12 @@ function buildStatusData(
 ) {
   const active = projects.filter((p) => p.status === 'ACTIVE').length;
   const paused = projects.filter((p) => p.status === 'PAUSED').length;
-  // Deactivated + deleted projects are excluded from the main list, so their
-  // counts are fetched separately and passed in.
+  // Deactivated projects are the paused ones in the main list plus any legacy
+  // frozen rows, which the separately fetched count covers (it includes both,
+  // so take whichever is larger rather than adding them up).
   return [
     { name: 'Active', value: active, color: '#14b8a6', query: 'status=ACTIVE' },
-    { name: 'Asleep', value: paused, color: '#f59e0b', query: 'status=PAUSED' },
-    { name: 'Deactivated', value: deactivatedCount, color: '#94a3b8', query: 'view=deactivated' },
+    { name: 'Deactivated', value: Math.max(paused, deactivatedCount), color: '#f59e0b', query: 'view=deactivated' },
     { name: 'Deleted', value: deletedCount, color: '#ef4444', query: 'view=trash' },
   ].filter((d) => d.value > 0);
 }
