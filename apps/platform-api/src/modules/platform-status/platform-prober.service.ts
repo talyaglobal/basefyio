@@ -41,21 +41,47 @@ export class PlatformProberService implements OnApplicationBootstrap {
     @Optional() private readonly bootTasks?: BootTaskService,
   ) {}
 
-  /** A deploy marker for this image, once per tag across replicas. */
+  /** A deploy marker for this image, once per tag across replicas; and the canary, once, when an owner is named. */
   onApplicationBootstrap(): void {
     const tag = (process.env.IMAGE_TAG || '').trim();
-    if (!tag) return;
-    void (async () => {
-      try {
-        if (!((await this.bootTasks?.claim(`deploy-marker:${tag}`, 24 * 60 * 60_000)) ?? true)) return;
-        const recent = await this.prisma.platformDeployMarker.findFirst({
-          where: { imageTag: tag, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } },
-        });
-        if (!recent) await this.status.recordDeploy(tag, 'API started');
-      } catch (err: any) {
-        this.logger.warn(`Deploy marker skipped: ${err?.message ?? err}`);
+    if (tag) {
+      void (async () => {
+        try {
+          if (!((await this.bootTasks?.claim(`deploy-marker:${tag}`, 24 * 60 * 60_000)) ?? true)) return;
+          const recent = await this.prisma.platformDeployMarker.findFirst({
+            where: { imageTag: tag, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } },
+          });
+          if (!recent) await this.status.recordDeploy(tag, 'API started');
+        } catch (err: any) {
+          this.logger.warn(`Deploy marker skipped: ${err?.message ?? err}`);
+        }
+      })();
+    }
+    void this.ensureCanary();
+  }
+
+  /**
+   * PLATFORM_STATUS_CANARY_OWNER names a ROOT user by e-mail; when set and no
+   * canary exists yet, the canary project is created in that user's personal
+   * organization at boot (one replica, once). The same thing the console's
+   * "create it now" does, for installs that are run without a browser.
+   */
+  private async ensureCanary(): Promise<void> {
+    const email = (process.env.PLATFORM_STATUS_CANARY_OWNER || '').trim().toLowerCase();
+    if (!email || !isPlatformStatusEnabled()) return;
+    try {
+      if (await this.status.canaryConfig()) return;
+      if (!((await this.bootTasks?.claim('platform-status-canary', 60 * 60_000)) ?? true)) return;
+      const owner = await this.prisma.user.findFirst({ where: { email, role: 'ROOT' }, select: { id: true } });
+      if (!owner) {
+        this.logger.warn(`Canary not created: ${email} is not a ROOT user`);
+        return;
       }
-    })();
+      const config = await this.status.setupCanary(owner.id);
+      this.logger.log(`Canary project ${config.projectId} created for ${email}`);
+    } catch (err: any) {
+      this.logger.warn(`Canary setup failed: ${err?.message ?? err}`);
+    }
   }
 
   @Cron(CronExpression.EVERY_30_SECONDS)
