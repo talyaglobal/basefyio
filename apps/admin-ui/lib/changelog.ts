@@ -24,7 +24,7 @@ function parseFrontmatter(raw: string): { data: Record<string, string>; body: st
   const data: Record<string, string> = {};
   for (const line of header.split(/\r?\n/)) {
     const m = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
-    if (m) data[m[1]] = m[2].trim();
+    if (m) data[m[1]] = m[2].trim().replace(/^"(.*)"$/, '$1');
   }
   return { data, body };
 }
