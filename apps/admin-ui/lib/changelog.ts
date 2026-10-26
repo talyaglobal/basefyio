@@ -46,7 +46,15 @@ export function listChangelogEntries(): ChangelogEntry[] {
       out.push({ slug: data.slug, date: data.date, title: data.title, kind: vk(data.kind), version: data.version || undefined, summary: data.summary || '', body });
     } catch {}
   }
-  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // Newest first; on the same day the higher version wins, so the version badge
+  // and the "what's new" popup always show the latest release.
+  const ver = (v?: string) => (v || '0').replace(/^v/, '').split('.').map((n) => Number(n) || 0);
+  return out.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    const va = ver(a.version), vb = ver(b.version);
+    for (let i = 0; i < 3; i++) if ((va[i] ?? 0) !== (vb[i] ?? 0)) return (vb[i] ?? 0) - (va[i] ?? 0);
+    return a.slug < b.slug ? 1 : a.slug > b.slug ? -1 : 0;
+  });
 }
 
 export function getChangelogEntry(slug: string): ChangelogEntry | null {
