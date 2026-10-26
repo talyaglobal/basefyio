@@ -10,6 +10,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+# Which stage the product is in; "beta" shows the badge next to every mark.
+ARG NEXT_PUBLIC_RELEASE_STAGE=beta
+ENV NEXT_PUBLIC_RELEASE_STAGE=$NEXT_PUBLIC_RELEASE_STAGE
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 RUN mkdir -p public
 RUN npm run build

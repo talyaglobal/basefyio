@@ -2,6 +2,7 @@
 
 > **The open-source, self-hosted backend platform you fully own.**
 
+[![Status: beta](https://img.shields.io/badge/status-beta-f59e0b.svg)](#)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg)](https://www.typescriptlang.org/)

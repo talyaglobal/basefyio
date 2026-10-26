@@ -385,6 +385,8 @@ services:
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       # `off` stops queueing an embedding job for every executed SQL statement.
       SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
+      # Which stage the product is in: "beta" puts the badge on e-mails and invoices and in /api/health.
+      RELEASE_STAGE: ${RELEASE_STAGE:-beta}
       APP_URL: https://app.${DOMAIN}
       ADMIN_URL: https://admin.${DOMAIN}
       CORS_ORIGIN: "*"
@@ -552,6 +554,8 @@ services:
       API_INTERNAL_URL: http://platform-api:4000
       NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      # Which stage the product is in (inlined at build; the runtime value is informational).
+      NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     deploy:
       resources:
         limits:

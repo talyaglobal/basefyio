@@ -212,6 +212,8 @@ services:
       REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
+      # Which stage the product is in: "beta" puts the badge on e-mails and invoices and in /api/health.
+      RELEASE_STAGE: ${RELEASE_STAGE:-beta}
       CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
       PGBOUNCER_PORT: 6432
@@ -300,6 +302,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     restart: unless-stopped
     environment:
       API_INTERNAL_URL: http://platform-api:4000
@@ -317,6 +320,7 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3002}
         # Leave unset in .env to use default; an empty value here removes the tag from the build.
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-G-99MKTVXWZV}
+        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
     restart: unless-stopped
     ports:
       - "${WEBSITE_PORT:-3002}:3000"

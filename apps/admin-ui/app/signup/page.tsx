@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
+import { BetaBadge } from '@/components/beta-badge';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -248,7 +249,10 @@ function SignupForm() {
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Database className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">basefyio</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+            basefyio
+            <BetaBadge />
+          </h1>
           <p className="text-sm text-muted-foreground">
             {step === 'form' ? 'Create your account' : 'Check your email'}
           </p>

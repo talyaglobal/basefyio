@@ -124,9 +124,14 @@ jobs:
               fi
               echo "Stripe keys: both ${sk_mode}, same account"
             fi
+            # The release stage is inlined into both Next builds, so it comes
+            # from .env.production like the Stripe key; unset means beta.
+            RELEASE_STAGE_VALUE=$(env_value RELEASE_STAGE)
+            echo "Release stage: ${RELEASE_STAGE_VALUE:-beta (default)}"
             docker build \
               -t ghcr.io/$OWNER/basefyio-ui:$SHA \
               --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="$STRIPE_PK" \
+              --build-arg NEXT_PUBLIC_RELEASE_STAGE="${RELEASE_STAGE_VALUE:-beta}" \
               apps/admin-ui
             docker tag ghcr.io/$OWNER/basefyio-ui:$SHA ghcr.io/$OWNER/basefyio-ui:latest
 
@@ -134,6 +139,7 @@ jobs:
             docker build \
               -t ghcr.io/$OWNER/basefyio-website:$SHA \
               --build-arg NEXT_PUBLIC_SITE_URL=https://basefyio.com \
+              --build-arg NEXT_PUBLIC_RELEASE_STAGE="${RELEASE_STAGE_VALUE:-beta}" \
               -f apps/website/Dockerfile .
             docker tag ghcr.io/$OWNER/basefyio-website:$SHA ghcr.io/$OWNER/basefyio-website:latest
 

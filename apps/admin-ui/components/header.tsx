@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BetaBadge } from '@/components/beta-badge';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
@@ -305,6 +306,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
             <Database className="h-4 w-4" />
           </div>
           <span className="hidden text-lg font-bold gradient-text sm:inline">basefyio</span>
+          <BetaBadge className="hidden sm:inline-flex" />
         </Link>
 
         {/* Primary nav links */}

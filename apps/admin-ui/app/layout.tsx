@@ -16,7 +16,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com';
 export const metadata: Metadata = {
   title: {
     default: 'basefyio — Open Source Backend Platform',
-    template: '%s | basefyio',
+    template: process.env.NEXT_PUBLIC_RELEASE_STAGE?.toLowerCase() === 'ga' ? '%s | basefyio' : '%s | basefyio beta',
   },
   description:
     'Self-hosted, open-source backend platform with a dedicated database per project, authentication, storage, real-time APIs, and team collaboration — a backend you fully own.',

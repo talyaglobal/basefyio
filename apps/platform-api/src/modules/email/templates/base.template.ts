@@ -1,3 +1,11 @@
+import { isBeta, RELEASE_LABEL } from '../../../common/utils/release-stage';
+
+/** The "beta" pill next to the mark while the product is in beta; nothing afterwards. */
+function betaBadge(): string {
+  if (!isBeta()) return '';
+  return `<span class="beta" style="display: inline-block; vertical-align: middle; margin-left: 8px; background: rgba(59, 130, 246, 0.15); color: #1e40af; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 100px; letter-spacing: 0.4px;">${RELEASE_LABEL}</span>`;
+}
+
 export function baseLayout(content: string): string {
   return `
 <!DOCTYPE html>
@@ -173,7 +181,7 @@ export function baseLayout(content: string): string {
     <div class="container">
       <div class="header" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 32px 40px; text-align: center;">
         <div class="logo-wrap" style="display: inline-block; padding: 10px 22px; border-radius: 999px; background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7); margin-bottom: 12px;">
-          <div class="logo" style="font-size: 28px; font-weight: 700; color: #0f172a; letter-spacing: -0.5px;">base<span class="logo-accent" style="color: #3b82f6;">fyio</span></div>
+          <div class="logo" style="font-size: 28px; font-weight: 700; color: #0f172a; letter-spacing: -0.5px;">base<span class="logo-accent" style="color: #3b82f6;">fyio</span>${betaBadge()}</div>
         </div>
         <div class="badge" style="display: inline-block; background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%); color: #1e40af; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 100px; letter-spacing: 0.3px; margin-top: 12px;">Next-gen database</div>
       </div>

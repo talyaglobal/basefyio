@@ -1,6 +1,7 @@
 'use client';
 
 import type { ElementType, ReactNode } from 'react';
+import { BetaBadge } from '@/components/beta-badge';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -144,7 +145,10 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
               <BarChart3 className="h-4 w-4 text-white" />
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-semibold text-white">basefyio</div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
+                basefyio
+                <BetaBadge tone="dark" />
+              </div>
               <div className="text-[11px] uppercase tracking-wider text-zinc-500">Root console</div>
             </div>
           </div>

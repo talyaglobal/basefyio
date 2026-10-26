@@ -1,4 +1,5 @@
 import { randomInt } from 'crypto';
+import { isBeta, RELEASE_LABEL } from '../../common/utils/release-stage';
 import {
   Injectable,
   Logger,
@@ -545,6 +546,10 @@ export class BillingService implements OnModuleInit {
     // Header — title left, brand right
     doc.fillColor(DARK).font('Helvetica-Bold').fontSize(28).text(isReceipt ? 'Receipt' : 'Invoice', 50, 50);
     doc.fillColor('#3b82f6').fontSize(18).text('basefyio', 350, 56, { width: 195, align: 'right' });
+    if (isBeta()) {
+      // The same small "beta" that sits next to the mark everywhere else.
+      doc.fillColor(MUTE).font('Helvetica').fontSize(8).text(RELEASE_LABEL, 350, 78, { width: 195, align: 'right' });
+    }
 
     // Meta block
     let y = 100;

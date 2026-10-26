@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { isBeta, RELEASE_LABEL } from "@/lib/release-stage";
 
 export const runtime = "edge";
 
@@ -23,8 +24,24 @@ export default function TwitterImage() {
           fontFamily: "system-ui, sans-serif",
         }}
       >
-        <div style={{ fontSize: 72, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          basefyio
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <div style={{ fontSize: 72, fontWeight: 700, letterSpacing: "-0.02em" }}>
+            basefyio
+          </div>
+          {isBeta() && (
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 600,
+                padding: "4px 14px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.18)",
+                border: "1px solid rgba(255,255,255,0.45)",
+              }}
+            >
+              {RELEASE_LABEL}
+            </div>
+          )}
         </div>
         <div
           style={{

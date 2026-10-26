@@ -4,6 +4,7 @@ import { Response } from 'express';
 import { CronLeaderService } from '../cluster/cron-leader.service';
 import { EmailService } from '../email/email.service';
 import { drainState } from '../../common/utils/drain-state';
+import { releaseStage } from '../../common/utils/release-stage';
 import { HealthService } from './health.service';
 
 type ReadinessBody =
@@ -49,6 +50,9 @@ export class HealthController {
 
     return {
       status: degraded ? 'degraded' : 'ok',
+      // The stage the product is in, so the CLI and the dashboard say the
+      // same word as the API's own e-mails and invoices.
+      release: { stage: releaseStage() },
       checks: {
         email: mail,
         ...deps,

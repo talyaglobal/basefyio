@@ -163,6 +163,7 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `SQL_QUERY_EMBEDDING` | `on` | `on` / `on` | `off` stops queueing an embedding job for every executed SQL statement (semantic search over past queries keeps what it already indexed). |
 | `IMPORT_STALE_AFTER_MS` | `1800000` | no / no | On boot, an import or export job still marked active after this long with no progress is failed as an orphan of a dead process; younger ones are left alone, since another replica may be running them. |
 | `REALTIME_FANOUT` | `redis` | no / no | `off` keeps realtime events (the customer data stream and the dashboard's own stream) inside each API process; with Redis they reach the connections every replica holds. |
+| `RELEASE_STAGE` | `beta` | `beta` / `beta` | Which stage the product is in. `beta` puts a small "beta" badge next to the mark in e-mails and invoices and reports `release.stage` on `GET /api/health`; `ga` removes it. Anything else counts as `beta`. The dashboard and the website read the same value as `NEXT_PUBLIC_RELEASE_STAGE`, **inlined at build time** — the deploy workflow passes it from `.env.production`, so the value must be there before the build, not only in the running container. |
 
 ## PgBouncer and per-project pooling
 
