@@ -2,6 +2,7 @@ import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth'
 import type { ConsoleOverview, ConsoleProjectDetail, ConsoleProjectList, ConsoleStorage, ConsoleDisk } from './console-types';
 import type { ConsoleAlertFeed } from './console-alert-types';
 import type { ConsoleStatus, PublicStatus, IncidentView, IncidentInput } from './platform-status-types';
+import type { CapacityOverview, CapacityHistoryPoint, CapacityBenchmarkRun, SimulationInput, SimulationResult } from './capacity-types';
 import type { RlsMutationOptions, RlsMutationResult, RlsPoliciesOverview, RlsPolicyInput } from './rls-policies';
 import type {
   EmbeddingDisclosure,
@@ -2893,6 +2894,28 @@ export const api = {
       return request<{ projectId: string; anonKey: string; storageProbeUrl: string | null }>('/platform-status/canary', {
         method: 'POST',
       });
+    },
+  },
+
+  /** Capacity: what the platform carries, how much more fits, and the what-if simulation (root console). */
+  capacity: {
+    overview() {
+      return request<CapacityOverview>('/admin/capacity/overview');
+    },
+    history(days = 90) {
+      return request<CapacityHistoryPoint[]>(`/admin/capacity/model/history?days=${days}`);
+    },
+    simulate(input: SimulationInput) {
+      return request<SimulationResult>('/admin/capacity/simulate', { method: 'POST', body: JSON.stringify(input) });
+    },
+    benchmarks() {
+      return request<CapacityBenchmarkRun[]>('/admin/capacity/benchmarks');
+    },
+    saveScenario(name: string, input: SimulationInput) {
+      return request<{ saved: true }>('/admin/capacity/scenarios', { method: 'POST', body: JSON.stringify({ name, input }) });
+    },
+    scenarios() {
+      return request<Record<string, SimulationInput>>('/admin/capacity/scenarios');
     },
   },
 };

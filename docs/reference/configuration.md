@@ -168,6 +168,8 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 | `PLATFORM_STATUS_ENABLED` | `false` | `false` / `false` | `true` runs the availability prober on the scheduler leader every 30 s (API, dashboard, auth, database endpoint, storage, realtime, from inside the platform) and the 5-minute roll-ups behind `GET /api/platform-status/public` and the console's Reliability page. Internal probing alone cannot see a dead host, so pair it with an external monitor. |
 | `PLATFORM_STATUS_PROBE_TOKEN` | unset | unset / set | Bearer token an external monitor presents to `POST /api/platform-status/samples`; unset means the endpoint answers 401 and only internal samples exist. |
 | `PLATFORM_DOMAIN` | `DOMAIN` | — | The public domain the probes target (`api.<domain>`, `app.<domain>`, `auth.<domain>`, `db.<domain>`, `storage.<domain>`). |
+| `CAPACITY_SAMPLER_ENABLED` | `false` | `false` / `false` | `true` samples the host (`/host/proc`), the `kolaybase-*` containers, Postgres, the pooler, Redis and the tenancy counts every 60 s on the scheduler leader, keeps a minute row for 30 days and hourly means for good, and recomputes the capacity model every 5 minutes behind the console's Capacity page. |
+| `CAPACITY_BENCHMARK_TOKEN` | unset | unset / set | Bearer token a load-test runner presents to `POST /api/admin/capacity/benchmarks/results`; unset means 401. |
 
 ## PgBouncer and per-project pooling
 

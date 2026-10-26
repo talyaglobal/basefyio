@@ -44,6 +44,7 @@ documented route stops existing.
 | [reference/billing-api.md](./reference/billing-api.md) | `/api/billing/*` — plans, subscription, usage, invoices |
 | [reference/organizations-api.md](./reference/organizations-api.md) | `/api/organizations/*` — organizations by public id: kinds, plan, members, projects, role permissions |
 | [reference/platform-status-api.md](./reference/platform-status-api.md) | `/api/platform-status/*` — the public status payload, external probe ingestion, incidents, the canary |
+| [reference/capacity-api.md](./reference/capacity-api.md) | `/api/admin/capacity/*` — load samples, the capacity model, the what-if simulation, benchmark results |
 | [API_TOKENS.md](./API_TOKENS.md) | account API tokens (`bf_pat_…`) and their scopes |
 | [CODEFYIO_ADAPTER.md](./CODEFYIO_ADAPTER.md) | the Codefyio IDE adapter at `/_codefyio/*` |
 | [integrations/tsmart.md](./integrations/tsmart.md) | platform-to-platform project feed |

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Activity,
+  Gauge,
   BarChart3,
   Box,
   ExternalLink,
@@ -52,6 +53,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     items: [
       { href: '/console/manage', label: 'Users & billing', icon: ShieldCheck },
       { href: '/console/reliability', label: 'Reliability', icon: Activity },
+      { href: '/console/capacity', label: 'Capacity', icon: Gauge },
     ],
   },
   {

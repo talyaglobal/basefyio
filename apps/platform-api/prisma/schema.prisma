@@ -2199,3 +2199,58 @@ model PlatformDeployMarker {
   @@index([startedAt(sort: Desc)])
   @@map("platform_deploy_markers")
 }
+
+// ── Capacity (WP-2): samples, roll-ups, model snapshots, benchmark runs ───────
+
+/// One row per minute from the sampler: every number it could read, as JSON. Kept 30 days.
+model CapacitySample {
+  id         BigInt   @id @default(autoincrement())
+  ts         DateTime
+  instanceId String   @map("instance_id") @db.VarChar(80)
+  metrics    Json
+
+  @@index([ts])
+  @@map("capacity_samples")
+}
+
+/// Hourly means of the samples, kept for good.
+model CapacityRollup {
+  id      String   @id @default(uuid())
+  hour    DateTime @unique
+  metrics Json
+
+  @@map("capacity_rollups")
+}
+
+/// The capacity model's answer, stored hourly so the runway trend is visible.
+model CapacityModelSnapshot {
+  id       String   @id @default(uuid())
+  ts       DateTime
+  snapshot Json
+
+  @@index([ts(sort: Desc)])
+  @@map("capacity_model_snapshots")
+}
+
+enum CapacityBenchmarkStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// A load-test run (k6 outside the product) and its curve.
+model CapacityBenchmarkRun {
+  id          String                  @id @default(uuid())
+  scenario    String                  @db.VarChar(40)
+  target      String                  @db.VarChar(40)
+  status      CapacityBenchmarkStatus @default(PENDING)
+  startedAt   DateTime                @default(now()) @map("started_at")
+  finishedAt  DateTime?               @map("finished_at")
+  params      Json?
+  result      Json?
+  triggeredBy String?                 @map("triggered_by")
+
+  @@index([startedAt(sort: Desc)])
+  @@map("capacity_benchmark_runs")
+}
