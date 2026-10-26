@@ -2,6 +2,7 @@
 // environment once, when it is first required.
 import './mail-provider-env';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { json, urlencoded } from 'express';
@@ -12,7 +13,13 @@ import { BigIntSerializationInterceptor } from './common/interceptors/bigint-ser
 import { drainState } from './common/utils/drain-state';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+
+  // How many proxies stand between the client and this process: Traefik is
+  // one, a load balancer in front of it makes two. Express then derives
+  // `req.ip` from the right-most X-Forwarded-For hop a trusted proxy did not
+  // add, which is what the rate limiters, sign-in audit and realtime keys use.
+  app.set('trust proxy', trustedProxyHops());
 
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
@@ -114,5 +121,10 @@ async function bootstrap() {
 
 /** Below Docker's 30 s grace period, with room for the exit itself. */
 const DRAIN_DEADLINE_MS = 25_000;
+
+function trustedProxyHops(): number {
+  const n = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? '1', 10);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+}
 
 bootstrap();

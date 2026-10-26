@@ -101,10 +101,9 @@ export function parsePresence(
   return { key, meta };
 }
 
+// Express's answer behind the trusted proxies (`trust proxy` in main.ts); the
+// left-most X-Forwarded-For hop is whatever the client chose to send.
 function clientIpOf(req: Request): string {
-  const xff = req.headers['x-forwarded-for'];
-  const first = Array.isArray(xff) ? xff[0] : xff;
-  if (typeof first === 'string' && first.trim()) return first.split(',')[0].trim();
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 

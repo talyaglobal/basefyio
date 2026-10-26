@@ -27,6 +27,8 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { TsmartIntegrationModule } from './modules/integrations/tsmart/tsmart-integration.module';
 import { TeamIntegrationsModule } from './modules/team-integrations/team-integrations.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { RedisService } from './modules/redis/redis.service';
+import { RedisThrottlerStorage } from './common/throttling/redis-throttler-storage';
 import { AiModule } from './modules/ai/ai.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -74,7 +76,15 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     // App-level IP rate limiting (defense in depth against brute-force / DoS).
     // Generous default so legit dashboard/API use is unaffected; the high-volume
     // anonymous data API (rest/v1) is exempt via @SkipThrottle on its controllers.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    // Limits are counted in Redis so every replica shares one bucket per
+    // client; the storage falls back to memory while Redis is unreachable.
+    ThrottlerModule.forRootAsync({
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => ({
+        throttlers: [{ ttl: 60_000, limit: 300 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     PrismaModule,
     GuardsModule,
     // Registered before anything that (transitively) imports ProjectsModule —

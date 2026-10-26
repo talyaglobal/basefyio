@@ -157,7 +157,10 @@ Behaviour is described in [storage-api.md](./storage-api.md).
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
-| `REDIS_URL` | `redis://localhost:6379` | fixed `redis://redis:6379` / fixed | Job queues, caches, rate-limit counters, realtime fan-out, the scheduled-job lease. |
+| `REDIS_URL` | `redis://localhost:6379` | fixed `redis://redis:6379` / fixed | Caches, rate-limit counters, realtime fan-out. |
+| `REDIS_QUEUE_URL` | = `REDIS_URL` | `redis://redis-queue:6379` / same | Durable state: BullMQ job queues, the scheduled-job lease, usage counters. The compose files run it as a second instance with `maxmemory-policy noeviction` and an append-only log, because the cache instance's `allkeys-lru` may evict exactly these keys under memory pressure. Unset = everything on `REDIS_URL`, as before. |
+| `TRUSTED_PROXY_HOPS` | `1` | `1` / `1` | Proxies between the client and the API (Traefik = 1; a load balancer in front of it = 2). Sets Express's `trust proxy`, which decides what `req.ip` means for rate limits, the sign-in audit and realtime connection keys. |
+| `SQL_QUERY_EMBEDDING` | `on` | `on` / `on` | `off` stops queueing an embedding job for every executed SQL statement (semantic search over past queries keeps what it already indexed). |
 
 ## PgBouncer and per-project pooling
 

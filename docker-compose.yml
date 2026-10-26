@@ -61,6 +61,20 @@ services:
       timeout: 3s
       retries: 5
 
+  # Durable state (job queues, the scheduled-job lease, usage counters) on an
+  # instance that never evicts; see docker-compose.prod.yml for why.
+  redis-queue:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_queue_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -193,6 +207,11 @@ services:
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       REDIS_URL: redis://redis:6379
+      # Durable state (job queues, the scheduled-job lease, usage counters)
+      # goes to the noeviction instance; unset it to keep everything on one.
+      REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
       CORS_ORIGIN: "*"
       PGBOUNCER_HOST: pgbouncer
       PGBOUNCER_PORT: 6432
@@ -350,6 +369,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  redis_queue_data:
   minio_data:
   nosql_data:
   couchdb_data:

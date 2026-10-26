@@ -37,6 +37,9 @@ export interface SqlRlsContext {
   jwtClaims?: Record<string, unknown>;
 }
 
+/** Whether every executed statement is queued for semantic indexing; on unless switched off. */
+const SQL_QUERY_EMBEDDING = (process.env.SQL_QUERY_EMBEDDING ?? 'on').toLowerCase() !== 'off';
+
 @Injectable()
 export class SqlService implements OnModuleDestroy {
   private readonly logger = new Logger(SqlService.name);
@@ -295,8 +298,11 @@ export class SqlService implements OnModuleDestroy {
       });
 
       // Asynchronously index the query for semantic search — fire and forget.
-      // Only index non-trivial queries (>20 chars) to avoid noise.
-      if (query.trim().length > 20) {
+      // Only index non-trivial queries (>20 chars) to avoid noise. One job
+      // per statement is a lot of queue traffic for a feature few use, so an
+      // operator can switch it off (SQL_QUERY_EMBEDDING=off) without losing
+      // anything else.
+      if (SQL_QUERY_EMBEDDING && query.trim().length > 20) {
         const normalizedQuery = query
           .replace(/\/\*[\s\S]*?\*\//g, ' ')
           .replace(/--[^\n]*/g, ' ')

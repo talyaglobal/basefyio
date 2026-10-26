@@ -23,7 +23,12 @@ export const FLOW_QUEUE = 'flow';
   imports: [
     BullModule.forRootAsync({
       useFactory: (config: ConfigService) => {
-        const redisUrl = config.get<string>('redis.url') || 'redis://localhost:6379';
+        // Queue state must not be evicted, so BullMQ uses the durable instance
+        // (the cache instance when no separate one is configured).
+        const redisUrl =
+          config.get<string>('redis.queueUrl') ||
+          config.get<string>('redis.url') ||
+          'redis://localhost:6379';
         const url = new URL(redisUrl);
         const isTls = url.protocol === 'rediss:';
         const db = (() => {

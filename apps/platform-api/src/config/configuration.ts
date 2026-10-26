@@ -142,6 +142,10 @@ export default () => ({
 
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
+    // State that must never be evicted — queue bookkeeping, the cron lease,
+    // usage counters — lives on a `noeviction` instance when one is
+    // configured, and on the cache instance otherwise (one Redis still works).
+    queueUrl: process.env.REDIS_QUEUE_URL || process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
   // The mailer speaks the Resend HTTP contract, but the provider behind it is

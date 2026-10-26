@@ -177,6 +177,33 @@ services:
       retries: 10
       start_period: 30s
 
+  # Durable state — BullMQ job queues, the scheduled-job lease, usage
+  # counters — on an instance that refuses writes rather than evicting them
+  # (`noeviction`), with an append-only log so a restart loses nothing. The
+  # cache instance above keeps `allkeys-lru`, which is right for caches and
+  # wrong for a queue.
+  redis-queue:
+    image: redis:7-alpine
+    restart: always
+    oom_score_adj: -900
+    command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_queue_data:/data
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   minio:
     image: minio/minio:latest
     restart: always
@@ -350,6 +377,14 @@ services:
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
       REDIS_URL: redis://redis:6379
+      # Durable state (job queues, the scheduled-job lease, usage counters)
+      # goes to the noeviction instance; unset it to keep everything on one.
+      REDIS_QUEUE_URL: ${REDIS_QUEUE_URL:-redis://redis-queue:6379}
+      # Proxies between the client and the API: Traefik alone is 1; a load
+      # balancer in front of it makes 2. Drives Express's `trust proxy`.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      # `off` stops queueing an embedding job for every executed SQL statement.
+      SQL_QUERY_EMBEDDING: ${SQL_QUERY_EMBEDDING:-on}
       APP_URL: https://app.${DOMAIN}
       ADMIN_URL: https://admin.${DOMAIN}
       CORS_ORIGIN: "*"
@@ -492,6 +527,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      redis-queue:
+        condition: service_healthy
       mongodb:
         condition: service_healthy
     labels:
@@ -576,6 +613,7 @@ volumes:
   # each restore.
   pitr_scratch:
   redis_data:
+  redis_queue_data:
   minio_data:
   couchdb_data:
   mongodb_data:

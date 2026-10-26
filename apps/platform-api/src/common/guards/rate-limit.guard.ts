@@ -18,6 +18,17 @@ export const RATE_LIMIT_KEY = 'rateLimit';
 export const RateLimit = (maxRequests: number, windowSeconds: number) =>
   SetMetadata(RATE_LIMIT_KEY, { maxRequests, windowSeconds });
 
+/**
+ * Count the hit and start the window on the first hit, in one step. Done as
+ * two commands, a crash between INCR and EXPIRE left a counter with no expiry
+ * — a client locked out of sign-in until someone noticed.
+ */
+const COUNT_HIT = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return n
+`;
+
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   constructor(
@@ -33,18 +44,18 @@ export class RateLimitGuard implements CanActivate {
     if (!config) return true;
 
     const request = context.switchToHttp().getRequest();
-    const ip =
-      (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      request.ip ||
-      'unknown';
+    // Express's view of the client behind the trusted proxies (`trust proxy`
+    // in main.ts), never the left-most X-Forwarded-For hop the client supplies.
+    const ip = request.ip || request.socket?.remoteAddress || 'unknown';
 
     const route = request.route?.path || request.url;
     const key = `rl:${route}:${ip}`;
 
-    const current = await this.redis.get(key);
-    const count = current ? parseInt(current, 10) : 0;
+    const count = Number(
+      await this.redis.getClient().eval(COUNT_HIT, 1, key, String(config.windowSeconds)),
+    );
 
-    if (count >= config.maxRequests) {
+    if (count > config.maxRequests) {
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -53,13 +64,6 @@ export class RateLimitGuard implements CanActivate {
         },
         HttpStatus.TOO_MANY_REQUESTS,
       );
-    }
-
-    // Atomically increment and set TTL on first access
-    const client = this.redis.getClient();
-    const newCount = await client.incr(key);
-    if (newCount === 1) {
-      await client.expire(key, config.windowSeconds);
     }
     return true;
   }

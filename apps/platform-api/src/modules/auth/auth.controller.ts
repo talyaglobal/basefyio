@@ -53,9 +53,10 @@ export class AuthController {
   @UseGuards(RateLimitGuard)
   @RateLimit(10, 60) // 10 login attempts per minute per IP
   async login(@Body() dto: LoginDto, @Req() req: Request) {
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      req.ip;
+    // Express resolves the client behind the trusted proxies (`trust proxy`
+    // in main.ts); the left-most X-Forwarded-For hop is whatever the client
+    // chose to send.
+    const ipAddress = req.ip || req.socket?.remoteAddress;
     const userAgent = req.headers['user-agent'];
     return this.authService.login(dto.email, dto.password, {
       ipAddress,

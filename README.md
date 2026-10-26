@@ -149,7 +149,7 @@ cp .env.example .env
 ### 2. Start the infrastructure only
 
 ```bash
-docker compose up -d postgres keycloak redis minio pgbouncer
+docker compose up -d postgres keycloak redis redis-queue minio pgbouncer
 ```
 
 Postgres is published on `localhost:5433`, Keycloak on `8080`, MinIO on `9000`/`9001`, Redis on `6379`.

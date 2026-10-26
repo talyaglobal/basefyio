@@ -132,7 +132,7 @@ export class CronLeaderService implements OnApplicationBootstrap, OnModuleDestro
     // instead of waiting for the TTL to run out.
     try {
       await this.redis
-        .getClient()
+        .getDurableClient()
         .eval(RELEASE_IF_OWNED, 1, CRON_LEADER_KEY, this.instanceId);
     } catch (err: any) {
       this.logger.debug(`Could not release the cron lease on shutdown: ${err?.message}`);
@@ -185,7 +185,7 @@ export class CronLeaderService implements OnApplicationBootstrap, OnModuleDestro
 
   private async tryLease(): Promise<boolean> {
     const result = await this.redis
-      .getClient()
+      .getDurableClient()
       .eval(ACQUIRE_OR_RENEW, 1, CRON_LEADER_KEY, this.instanceId, String(this.ttlMs));
     return Number(result) === 1;
   }

@@ -42,7 +42,7 @@ const build = (
   for (const key of ENV_KEYS) delete process.env[key];
   Object.assign(process.env, env);
   const getCronJobs = jest.fn(() => new Map(jobs.map((job, i) => [`job-${i}`, job])));
-  const redis = { getClient: () => ({ eval: evalMock }) } as any;
+  const redis = { getClient: () => ({ eval: evalMock }), getDurableClient: () => ({ eval: evalMock }) } as any;
   const metrics = new MetricsService();
   const svc = new CronLeaderService(redis, { getCronJobs } as any, metrics);
   // The election round is private on purpose; the tests drive it directly so

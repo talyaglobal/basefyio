@@ -25,11 +25,13 @@ export class ProjectSdkAuthController {
     private readonly anonymousAuth: ProjectAnonymousAuthService,
   ) {}
 
-  /** Real end-user IP from the proxy chain (first X-Forwarded-For hop). */
+  /**
+   * Real end-user IP: Express's answer behind the trusted proxies (`trust
+   * proxy` in main.ts). The left-most X-Forwarded-For hop is whatever the
+   * client chose to send, so it is not read.
+   */
   private clientIp(req: Request): string | undefined {
-    const xff = req.headers['x-forwarded-for'];
-    const raw = Array.isArray(xff) ? xff[0] : xff;
-    const ip = (raw ? raw.split(',')[0] : req.ip || req.socket?.remoteAddress || '').trim();
+    const ip = (req.ip || req.socket?.remoteAddress || '').trim();
     return ip || undefined;
   }
 

@@ -2,21 +2,90 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
+/** The subset of commands durable state needs; bound to the durable client. */
+export interface DurableCommands {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, ttlSeconds: number): Promise<void>;
+  del(key: string): Promise<void>;
+  incr(key: string): Promise<number>;
+  incrby(key: string, value: number): Promise<number>;
+  expire(key: string, seconds: number): Promise<void>;
+  mget(...keys: string[]): Promise<(string | null)[]>;
+  keys(pattern: string): Promise<string[]>;
+  getdel(key: string): Promise<string | null>;
+}
+
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private client!: Redis;
+  /**
+   * Durable state — BullMQ bookkeeping, the cron-leader lease, usage counters
+   * — goes to a second instance configured `noeviction` (`REDIS_QUEUE_URL`).
+   * The cache instance runs `allkeys-lru`, which under memory pressure could
+   * evict exactly the keys whose loss is not harmless. With one Redis
+   * configured both names point at the same connection, as before.
+   */
+  private durableClient!: Redis;
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
     const url = this.config.get<string>('redis.url') || 'redis://localhost:6379';
     this.client = new Redis(url);
-    this.logger.log('Redis client connected');
+    const queueUrl = this.config.get<string>('redis.queueUrl') || url;
+    this.durableClient = queueUrl === url ? this.client : new Redis(queueUrl);
+    this.logger.log(
+      queueUrl === url
+        ? 'Redis client connected (one instance for cache and durable state)'
+        : 'Redis clients connected (cache and a separate durable instance)',
+    );
   }
 
   onModuleDestroy() {
     this.client.disconnect();
+    if (this.durableClient !== this.client) this.durableClient.disconnect();
+  }
+
+  /** The connection for state that must not be evicted. */
+  getDurableClient(): Redis {
+    return this.durableClient;
+  }
+
+  /** The same small command surface as this service, on the durable connection. */
+  durable(): DurableCommands {
+    const c = () => this.durableClient;
+    return {
+      get: (key) => c().get(key),
+      set: async (key, value, ttlSeconds) => {
+        await c().set(key, value, 'EX', ttlSeconds);
+      },
+      del: async (key) => {
+        await c().del(key);
+      },
+      incr: (key) => c().incr(key),
+      incrby: (key, value) => c().incrby(key, value),
+      expire: async (key, seconds) => {
+        await c().expire(key, seconds);
+      },
+      mget: (...keys) => c().mget(...keys),
+      keys: (pattern) => c().keys(pattern),
+      getdel: (key) => RedisService.getdelOn(c(), key),
+    };
+  }
+
+  private static async getdelOn(client: Redis, key: string): Promise<string | null> {
+    // GETDEL is atomic on Redis 6.2+; the script is the same thing for older servers.
+    try {
+      return await (client as any).getdel(key);
+    } catch {
+      const script = `
+        local val = redis.call('GET', KEYS[1])
+        if val then redis.call('DEL', KEYS[1]) end
+        return val
+      `;
+      return (await client.eval(script, 1, key)) as string | null;
+    }
   }
 
   async set(key: string, value: string, ttlSeconds: number): Promise<void> {

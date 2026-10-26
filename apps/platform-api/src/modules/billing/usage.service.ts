@@ -21,6 +21,16 @@ export class UsageService {
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * Counters live on the durable Redis: they are flushed to the database only
+   * every few hours, and the per-project request stamp derived from them is
+   * what keeps a busy project from being deactivated as idle. An eviction
+   * under memory pressure would lose both.
+   */
+  private get counters() {
+    return this.redis.durable();
+  }
+
   private apiRequestsKey(teamId: string): string {
     return `usage:api_requests:${teamId}`;
   }
@@ -44,23 +54,23 @@ export class UsageService {
    */
   async trackApiRequest(teamId: string, projectId?: string | null): Promise<void> {
     const key = this.apiRequestsKey(teamId);
-    await this.redis.incr(key);
-    await this.redis.expire(key, COUNTER_TTL_SECONDS);
+    await this.counters.incr(key);
+    await this.counters.expire(key, COUNTER_TTL_SECONDS);
     if (projectId) {
       const pkey = this.projectApiRequestsKey(projectId);
-      await this.redis.incr(pkey);
-      await this.redis.expire(pkey, COUNTER_TTL_SECONDS);
+      await this.counters.incr(pkey);
+      await this.counters.expire(pkey, COUNTER_TTL_SECONDS);
     }
   }
 
   async trackBandwidth(teamId: string, bytes: number, projectId?: string | null): Promise<void> {
     const key = this.bandwidthKey(teamId);
-    await this.redis.incrby(key, bytes);
-    await this.redis.expire(key, COUNTER_TTL_SECONDS);
+    await this.counters.incrby(key, bytes);
+    await this.counters.expire(key, COUNTER_TTL_SECONDS);
     if (projectId) {
       const pkey = this.projectBandwidthKey(projectId);
-      await this.redis.incrby(pkey, bytes);
-      await this.redis.expire(pkey, COUNTER_TTL_SECONDS);
+      await this.counters.incrby(pkey, bytes);
+      await this.counters.expire(pkey, COUNTER_TTL_SECONDS);
     }
   }
 
@@ -72,8 +82,8 @@ export class UsageService {
     if (!usage) return null;
 
     const [apiReqs, bw] = await Promise.all([
-      this.redis.get(this.apiRequestsKey(teamId)),
-      this.redis.get(this.bandwidthKey(teamId)),
+      this.counters.get(this.apiRequestsKey(teamId)),
+      this.counters.get(this.bandwidthKey(teamId)),
     ]);
 
     return {
@@ -91,7 +101,7 @@ export class UsageService {
     if (projectIds.length === 0) return out;
     try {
       const keys = projectIds.flatMap((id) => [this.projectApiRequestsKey(id), this.projectBandwidthKey(id)]);
-      const values = await this.redis.mget(...keys);
+      const values = await this.counters.mget(...keys);
       projectIds.forEach((id, i) => {
         out.set(id, {
           apiRequests: parseInt(values[i * 2] || '0', 10),
@@ -158,8 +168,8 @@ export class UsageService {
     });
     for (const p of projects) {
       const [api, bw] = await Promise.all([
-        this.redis.getdel(this.projectApiRequestsKey(p.id)),
-        this.redis.getdel(this.projectBandwidthKey(p.id)),
+        this.counters.getdel(this.projectApiRequestsKey(p.id)),
+        this.counters.getdel(this.projectBandwidthKey(p.id)),
       ]);
       const apiCount = parseInt(api || '0', 10);
       const bwBytes = BigInt(bw || '0');
@@ -232,8 +242,8 @@ export class UsageService {
     const projectCount = team.projects.length;
     const memberCount = team.members.length;
 
-    const apiReqs = await this.redis.getdel(this.apiRequestsKey(teamId));
-    const bw = await this.redis.getdel(this.bandwidthKey(teamId));
+    const apiReqs = await this.counters.getdel(this.apiRequestsKey(teamId));
+    const bw = await this.counters.getdel(this.bandwidthKey(teamId));
 
     await this.prisma.teamUsage.upsert({
       where: { teamId },
@@ -308,8 +318,8 @@ export class UsageService {
     const periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
     for (const usage of allUsage) {
-      const apiReqs = await this.redis.getdel(this.apiRequestsKey(usage.teamId));
-      const bw = await this.redis.getdel(this.bandwidthKey(usage.teamId));
+      const apiReqs = await this.counters.getdel(this.apiRequestsKey(usage.teamId));
+      const bw = await this.counters.getdel(this.bandwidthKey(usage.teamId));
       const totalApi = usage.apiRequestsMonth + parseInt(apiReqs || '0', 10);
       const totalBw = usage.bandwidthMonth + BigInt(bw || '0');
 
@@ -348,8 +358,8 @@ export class UsageService {
     // reconstructed project by project.
     const projectUsages = await this.prisma.projectUsage.findMany();
     for (const pu of projectUsages) {
-      const api = await this.redis.getdel(this.projectApiRequestsKey(pu.projectId));
-      const bw = await this.redis.getdel(this.projectBandwidthKey(pu.projectId));
+      const api = await this.counters.getdel(this.projectApiRequestsKey(pu.projectId));
+      const bw = await this.counters.getdel(this.projectBandwidthKey(pu.projectId));
       const totalApi = pu.apiRequestsMonth + parseInt(api || '0', 10);
       const totalBw = pu.bandwidthMonth + BigInt(bw || '0');
       await this.prisma.usageRecord.createMany({
