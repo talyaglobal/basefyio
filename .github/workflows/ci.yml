@@ -24,6 +24,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/platform-api/package-lock.json
 
+      # The API depends on packages/data-engine through a file: link whose entry
+      # point is its dist/; without this build seven suites fail to compile.
+      - name: Build the data-engine package
+        working-directory: packages/data-engine
+        run: (npm ci || npm install) && npm run build
+
       - name: Install dependencies
         run: npm ci
 
