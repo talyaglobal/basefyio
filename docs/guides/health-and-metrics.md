@@ -1,12 +1,12 @@
 # Health and metrics
 
-Two routes tell you whether a basefyio install is up and how it is doing. Neither takes a
-project key.
+Three routes tell you whether a basefyio install is up and how it is doing. None of them takes
+a project key.
 
 ## `GET /api/health` — liveness plus the things that fail quietly
 
-Public, exempt from the rate limit, and used by Traefik and Docker to decide whether to route
-traffic to the API container.
+Public, exempt from the rate limit, and used by Traefik and Docker to decide whether the API
+container is alive.
 
 ```bash
 curl -s https://api.<your-domain>/api/health
@@ -16,7 +16,12 @@ curl -s https://api.<your-domain>/api/health
 {
   "status": "ok",
   "checks": {
-    "email": { "state": "ok", "checkedAt": "2026-10-20T11:58:00.000Z" }
+    "email": { "state": "ok", "checkedAt": "2026-10-20T11:58:00.000Z" },
+    "database": { "state": "ok", "latencyMs": 2 },
+    "redis": { "state": "ok", "latencyMs": 1 },
+    "keycloak": { "state": "ok", "latencyMs": 14 },
+    "storage": { "state": "ok", "latencyMs": 3 },
+    "documentStore": { "state": "skipped", "detail": "no engine" }
   },
   "instance": { "id": "a1b2c3d4", "role": "leader", "imageTag": "3f9c1e2a7b4d" }
 }
@@ -26,14 +31,36 @@ curl -s https://api.<your-domain>/api/health
   the scheduled jobs (or a `follower`), and the image tag it was started from (`IMAGE_TAG`,
   `unknown` when unset). With one replica it simply identifies the build.
 - `status` is `ok` or `degraded`. **The HTTP code stays 200 in both cases** on purpose: an
-  undeliverable e-mail is no reason to take the API out of the load balancer, so a monitor
-  must read `status`, not the status code.
+  undeliverable e-mail or an unreachable Keycloak is no reason to restart the API container,
+  so a monitor must read `status`, not the status code.
 - `checks.email.state` is one of `unchecked` (not probed yet), `ok`, `failing` (the provider
   rejected a send; `detail` says why) or `not-configured` (no mail key at all). Password
   resets, verification codes and team invitations depend on it.
+- `checks.database`, `redis`, `keycloak`, `storage` and `documentStore` are probed on every
+  call with a one-second limit each (`SELECT 1`, `PING`, Keycloak's `/health/ready`, MinIO's
+  `/minio/health/live`, the document engine's own ping). Each is `ok`, `failing` (with a
+  one-line `detail` and the `latencyMs` it took to find out) or `skipped` (not configured on
+  this install). Any `failing` check makes `status` `degraded`.
+- `draining: true` appears while the process is shutting down (see the next route).
 
-What makes the process itself unhealthy (database unreachable, Keycloak down) shows up as the
-route not answering; Docker's restart policy and the Traefik health check handle that.
+## `GET /api/health/ready` — whether to send traffic here
+
+The route for a load balancer or a proxy health check. It answers `200 {"ready":true}` when the
+platform database answers within a second and the process is not shutting down, and
+`503 {"ready":false,"reason":"draining"|"database"}` otherwise.
+
+```bash
+curl -s -w ' %{http_code}\n' https://api.<your-domain>/api/health/ready
+```
+
+Only the platform database decides readiness. Redis, Keycloak or storage being down degrades
+the API (visible on `/api/health`), but pulling every replica out of rotation for it would turn
+a partial outage into a total one.
+
+On `SIGTERM` the API marks itself draining first, so this route turns 503 before the listener
+closes; requests already in flight then finish, and the process exits by itself within 25 s —
+inside the 30 s `stop_grace_period` both compose files give the `platform-api` service. A
+rolling restart behind a balancer that polls this route therefore loses no request.
 
 ## `GET /api/metrics` — Prometheus text format
 
@@ -77,7 +104,7 @@ and `health.status != ok` from a blackbox probe.
 
 ## Container health checks
 
-`docker-compose.prod.yml` wires the same route into Traefik so a container receives traffic
+`docker-compose.prod.yml` wires the liveness route into Traefik so a container receives traffic
 only once the app answers:
 
 ```
@@ -85,6 +112,10 @@ traefik.http.services.api.loadbalancer.healthcheck.path=/api/health
 traefik.http.services.api.loadbalancer.healthcheck.interval=10s
 traefik.http.services.api.loadbalancer.healthcheck.timeout=5s
 ```
+
+A balancer with a failure threshold (one that needs several misses before it drops a server)
+should poll `/api/health/ready` instead; Traefik's single-miss check is deliberately kept on
+the always-200 liveness route so a one-second database stall can never empty the rotation.
 
 The dashboard is checked on `/login`, the website on `/`. Postgres, Keycloak, Redis, MinIO,
 PgBouncer and MongoDB carry Docker `healthcheck:` blocks; `docker compose ps` shows their

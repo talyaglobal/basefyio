@@ -41,11 +41,11 @@ export class ProjectsController {
     private readonly projectPitr: ProjectPitrService,
   ) {}
 
+  // Typed as the class itself, not an intersection: an intersection compiles
+  // to `Object` and the validation pipe silently skipped it, so nothing in
+  // the body was ever checked.
   @Post()
-  async create(
-    @Body() body: CreateProjectDto & { teamId: string },
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async create(@Body() body: CreateProjectDto, @CurrentUser() user: JwtPayload) {
     return this.projectsService.create(body, user.sub);
   }
 

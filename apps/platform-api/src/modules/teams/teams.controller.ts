@@ -18,6 +18,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { ObservabilityService } from '../observability/observability.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
+import { UpdateTeamSecurityDto } from './dto/update-team-security.dto';
 
 @Controller('teams')
 @UseGuards(JwtAuthGuard)
@@ -382,5 +383,22 @@ export class TeamsController {
       });
       throw err;
     }
+  }
+
+  // The dashboard's security page has called these two since the two-factor
+  // policy shipped; the service existed, the routes did not, and the page
+  // showed a 404 as "could not load".
+  @Get(':id/security')
+  async getSecurity(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.teamsService.getSecurity(id, user.sub);
+  }
+
+  @Patch(':id/security')
+  async updateSecurity(
+    @Param('id') id: string,
+    @Body() body: UpdateTeamSecurityDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.teamsService.setRequireMfa(id, user.sub, body.requireMfa);
   }
 }

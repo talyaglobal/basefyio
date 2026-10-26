@@ -157,6 +157,9 @@ services:
       context: .
       dockerfile: apps/platform-api/Dockerfile
     restart: unless-stopped
+    # The API drains on SIGTERM (readiness goes 503, requests in flight
+    # finish, hard exit after 25 s); give it that long before the kill.
+    stop_grace_period: 30s
     environment:
       PORT: 4000
       DB_CRED_ENC_KEY: ${DB_CRED_ENC_KEY:-}

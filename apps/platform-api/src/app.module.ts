@@ -34,6 +34,7 @@ import { QuickbooksModule } from './modules/quickbooks/quickbooks.module';
 import { ManagementModule } from './modules/management/management.module';
 import { RootConsoleModule } from './modules/root-console/root-console.module';
 import { HealthController } from './modules/health/health.controller';
+import { HealthService } from './modules/health/health.service';
 import {
   MetricsController,
   MetricsInterceptor,
@@ -134,6 +135,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
   ],
   controllers: [HealthController, MetricsController],
   providers: [
+    HealthService,
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_GUARD, useClass: ProxyThrottlerGuard },

@@ -279,6 +279,9 @@ services:
     # command keeps working.
     image: ghcr.io/${GHCR_OWNER}/basefyio-api:${IMAGE_TAG:-latest}
     restart: always
+    # The API drains on SIGTERM (readiness goes 503, requests in flight
+    # finish, hard exit after 25 s); give it that long before the kill.
+    stop_grace_period: 30s
     environment:
       PORT: 4000
       NODE_ENV: production

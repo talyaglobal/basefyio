@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { BigIntSerializationInterceptor } from './common/interceptors/bigint-serialization.interceptor';
+import { drainState } from './common/utils/drain-state';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
@@ -82,8 +83,36 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 4000);
 
+  // Stopping without dropping anyone. The signal first marks the process as
+  // draining — registered before Nest's own hook so the readiness route says
+  // 503 before the listener closes — then Nest closes the server and lets the
+  // requests in flight finish, and a deadline below Docker's 30 s grace
+  // period (`stop_grace_period` in both compose files) makes sure a stuck
+  // stream can never turn a restart into a kill.
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      drainState.start();
+      const server = app.getHttpServer();
+      server.closeIdleConnections?.();
+      setTimeout(() => process.exit(0), DRAIN_DEADLINE_MS).unref();
+    });
+  }
+  app.enableShutdownHooks();
+
   await app.listen(port);
+
+  // Longer than the proxy's idle timeout, so the proxy is never the one to
+  // see a connection the API closed first (a race that surfaces as random
+  // 502s under load).
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.requestTimeout = 120_000;
+
   console.log(`Platform API running on http://localhost:${port}`);
 }
+
+/** Below Docker's 30 s grace period, with room for the exit itself. */
+const DRAIN_DEADLINE_MS = 25_000;
 
 bootstrap();

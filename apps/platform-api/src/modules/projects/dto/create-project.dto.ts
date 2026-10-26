@@ -1,6 +1,15 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
+/**
+ * Everything the dashboard and the CLI send to create a project. The class
+ * is the whole contract: the global pipe whitelists these fields and rejects
+ * any other, so a field the wizard grows later has to be declared here
+ * before it can reach the service.
+ */
 export class CreateProjectDto {
+  @IsUUID()
+  teamId!: string;
+
   @IsString()
   @IsNotEmpty()
   @MinLength(2)

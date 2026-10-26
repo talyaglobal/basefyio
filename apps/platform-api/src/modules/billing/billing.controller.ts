@@ -25,9 +25,13 @@ import { ProjectCostService } from './project-cost.service';
 import { StripeService } from '../stripe/stripe.service';
 import { ObservabilityService } from '../observability/observability.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { RequestWithTraceId } from '../../common/middleware/trace-id.middleware';
 
 const EMAIL_REPORTS_KEY = 'email_reports_config';
+
+/** How long a handled Stripe event id is remembered; Stripe retries for up to 3 days. */
+const WEBHOOK_SEEN_TTL_SECONDS = 3 * 24 * 60 * 60;
 
 @Controller('billing')
 export class BillingController {
@@ -40,6 +44,7 @@ export class BillingController {
     private readonly stripe: StripeService,
     private readonly observability: ObservabilityService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {}
 
   @Get('plans')
@@ -758,6 +763,23 @@ export class BillingController {
 
     this.logger.log(`Stripe webhook received: ${event.type}`);
 
+    // Stripe delivers at least once and retries anything that is not a 2xx,
+    // so the same event can arrive twice; a plan change applied twice is a
+    // support ticket. Claim the event id first; a second delivery is simply
+    // acknowledged. If Redis is unavailable the event is handled anyway —
+    // a missed de-duplication is cheaper than a missed payment.
+    const seenKey = `stripe:evt:${event.id}`;
+    let fresh = true;
+    try {
+      fresh = (await this.redis.getClient().set(seenKey, '1', 'EX', WEBHOOK_SEEN_TTL_SECONDS, 'NX')) === 'OK';
+    } catch (err: any) {
+      this.logger.warn(`Webhook de-duplication unavailable: ${err.message}`);
+    }
+    if (!fresh) {
+      this.logger.log(`Stripe webhook ${event.id} (${event.type}) already handled; acknowledged again`);
+      return res.json({ received: true, duplicate: true });
+    }
+
     try {
       switch (event.type) {
         case 'checkout.session.completed':
@@ -780,6 +802,12 @@ export class BillingController {
       }
     } catch (err: any) {
       this.logger.error(`Webhook handler error for ${event.type}: ${err.message}`);
+      // Forget the claim and fail the delivery, so Stripe retries and the
+      // retry is handled rather than acknowledged as a duplicate. Swallowing
+      // the error here meant a failed plan change was never retried and never
+      // visible anywhere but a log line.
+      await this.redis.del(seenKey).catch(() => undefined);
+      return res.status(500).json({ error: 'Webhook handler failed; the delivery will be retried' });
     }
 
     return res.json({ received: true });

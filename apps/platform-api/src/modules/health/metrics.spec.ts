@@ -93,7 +93,13 @@ describe('HealthController', () => {
     const { HealthController } = await import('./health.controller');
     const email = { getDeliverability: () => ({ state: mailState }) } as any;
     const leader = { getInstanceId: () => 'api-1-c0ffee', getRole: () => role } as any;
-    return new HealthController(email, leader);
+    // Every dependency answers, so only the mail state decides the verdict here.
+    const ok = { state: 'ok', latencyMs: 1 };
+    const health = {
+      all: async () => ({ database: ok, redis: ok, keycloak: ok, storage: ok, documentStore: ok }),
+      database: async () => ok,
+    } as any;
+    return new HealthController(email, leader, health);
   };
 
   afterEach(() => {
@@ -107,18 +113,19 @@ describe('HealthController', () => {
    */
   it('names the replica that answered, its role and the build it runs', async () => {
     process.env.IMAGE_TAG = 'abc123def456';
-    const body = (await build('ok')).check();
+    const body = await (await build('ok')).check();
     expect(body.status).toBe('ok');
     expect(body.instance).toEqual({ id: 'api-1-c0ffee', role: 'leader', imageTag: 'abc123def456' });
   });
 
   it('reports an unknown build when no tag was passed to the container', async () => {
-    expect((await build('ok', 'follower')).check().instance).toMatchObject({ role: 'follower', imageTag: 'unknown' });
+    const body = await (await build('ok', 'follower')).check();
+    expect(body.instance).toMatchObject({ role: 'follower', imageTag: 'unknown' });
   });
 
   /** The proxy routes on the status code, so a dead mail key must stay a 200 with status "degraded". */
   it('keeps the degraded verdict for a failing mail key alongside the instance block', async () => {
-    const body = (await build('failing')).check();
+    const body = await (await build('failing')).check();
     expect(body.status).toBe('degraded');
     expect(body.checks.email).toEqual({ state: 'failing' });
   });
