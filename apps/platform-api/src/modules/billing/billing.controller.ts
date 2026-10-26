@@ -738,27 +738,35 @@ export class BillingController {
     }
   }
 
+  // `passthrough`: the handler sets the status and returns the body for Nest
+  // to send. Returning the Express response object, as this did before, hands
+  // a cyclic structure to the global serializer, which recurses until the
+  // stack overflows — after the reply had gone out, so Stripe saw a 200 and
+  // the process then died and restarted on every delivery.
   @Post('webhook')
   @HttpCode(200)
   async handleWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature: string,
-    @Res() res: Response,
-  ) {
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Record<string, unknown>> {
     if (!signature) {
-      return res.status(400).json({ error: 'Missing stripe-signature header' });
+      res.status(400);
+      return { error: 'Missing stripe-signature header' };
     }
 
     let event;
     try {
       const rawBody = req.rawBody;
       if (!rawBody) {
-        return res.status(400).json({ error: 'Missing raw body' });
+        res.status(400);
+        return { error: 'Missing raw body' };
       }
       event = this.stripe.constructWebhookEvent(rawBody, signature);
     } catch (err: any) {
       this.logger.warn(`Webhook signature verification failed: ${err.message}`);
-      return res.status(400).json({ error: 'Webhook signature verification failed' });
+      res.status(400);
+      return { error: 'Webhook signature verification failed' };
     }
 
     this.logger.log(`Stripe webhook received: ${event.type}`);
@@ -777,7 +785,7 @@ export class BillingController {
     }
     if (!fresh) {
       this.logger.log(`Stripe webhook ${event.id} (${event.type}) already handled; acknowledged again`);
-      return res.json({ received: true, duplicate: true });
+      return { received: true, duplicate: true };
     }
 
     try {
@@ -807,9 +815,10 @@ export class BillingController {
       // the error here meant a failed plan change was never retried and never
       // visible anywhere but a log line.
       await this.redis.del(seenKey).catch(() => undefined);
-      return res.status(500).json({ error: 'Webhook handler failed; the delivery will be retried' });
+      res.status(500);
+      return { error: 'Webhook handler failed; the delivery will be retried' };
     }
 
-    return res.json({ received: true });
+    return { received: true };
   }
 }

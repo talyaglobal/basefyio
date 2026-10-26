@@ -6,6 +6,10 @@ import { EmailService } from '../email/email.service';
 import { drainState } from '../../common/utils/drain-state';
 import { HealthService } from './health.service';
 
+type ReadinessBody =
+  | { ready: true }
+  | { ready: false; reason: 'draining' | 'database'; detail?: string };
+
 /**
  * Liveness, readiness, and the few things that fail quietly.
  *
@@ -61,16 +65,23 @@ export class HealthController {
     };
   }
 
+  // `passthrough` so the status can be set here while Nest still sends the
+  // body. Returning the Express response object itself would hand a cyclic
+  // structure to the global serializer, which recurses until the stack
+  // overflows and the process dies — on a route every balancer polls.
   @Get('ready')
   @Header('Cache-Control', 'no-store')
-  async ready(@Res() res: Response) {
+  async ready(@Res({ passthrough: true }) res: Response): Promise<ReadinessBody> {
     if (drainState.isDraining()) {
-      return res.status(503).json({ ready: false, reason: 'draining' });
+      res.status(503);
+      return { ready: false, reason: 'draining' };
     }
     const database = await this.health.database();
     if (database.state !== 'ok') {
-      return res.status(503).json({ ready: false, reason: 'database', detail: database.detail });
+      res.status(503);
+      return { ready: false, reason: 'database', detail: database.detail };
     }
-    return res.status(200).json({ ready: true });
+    res.status(200);
+    return { ready: true };
   }
 }

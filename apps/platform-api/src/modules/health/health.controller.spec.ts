@@ -26,10 +26,11 @@ function build(opts: { db?: 'ok' | 'failing'; redis?: 'ok' | 'failing' } = {}) {
   const email = { getDeliverability: () => ({ state: 'ok' as const }) };
   const leader = { getInstanceId: () => 'i-1', getRole: () => 'leader' };
   const controller = new HealthController(email as any, leader as any, health);
+  // Passthrough response: the handler sets the status and returns the body
+  // for Nest to send, so the test sees both.
   const res = () => {
-    const r: any = { statusCode: 200, body: undefined };
+    const r: any = { statusCode: 200 };
     r.status = (code: number) => ((r.statusCode = code), r);
-    r.json = (body: unknown) => ((r.body = body), r);
     return r;
   };
   return { controller, res };
@@ -41,26 +42,26 @@ describe('HealthController', () => {
   it('is ready when the database answers', async () => {
     const { controller, res } = build();
     const r = res();
-    await controller.ready(r);
+    const body = await controller.ready(r);
     expect(r.statusCode).toBe(200);
-    expect(r.body).toEqual({ ready: true });
+    expect(body).toEqual({ ready: true });
   });
 
   it('is not ready while draining, before anything else is asked', async () => {
     const { controller, res } = build({ db: 'ok' });
     drainState.start();
     const r = res();
-    await controller.ready(r);
+    const body = await controller.ready(r);
     expect(r.statusCode).toBe(503);
-    expect(r.body).toMatchObject({ ready: false, reason: 'draining' });
+    expect(body).toMatchObject({ ready: false, reason: 'draining' });
   });
 
   it('is not ready when the platform database does not answer', async () => {
     const { controller, res } = build({ db: 'failing' });
     const r = res();
-    await controller.ready(r);
+    const body = await controller.ready(r);
     expect(r.statusCode).toBe(503);
-    expect(r.body).toMatchObject({ ready: false, reason: 'database' });
+    expect(body).toMatchObject({ ready: false, reason: 'database' });
   });
 
   it('stays ready when only Redis is down — a partial outage must not become a total one', async () => {
@@ -68,6 +69,16 @@ describe('HealthController', () => {
     const r = res();
     await controller.ready(r);
     expect(r.statusCode).toBe(200);
+  });
+
+  // The global serializer walks whatever a handler returns; an Express
+  // response object is cyclic and took the process down with it.
+  it('never returns the response object itself', async () => {
+    const { controller, res } = build();
+    const r = res();
+    const body = await controller.ready(r);
+    expect(body).not.toBe(r);
+    expect(JSON.stringify(body)).toBe('{"ready":true}');
   });
 
   it('reports every dependency on the liveness route and degrades without failing it', async () => {
