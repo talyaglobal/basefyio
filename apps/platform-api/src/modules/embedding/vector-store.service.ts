@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { EntityType, FindSimilarOptions, SimilarityResult } from './types';
 
@@ -7,11 +7,48 @@ function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(',')}]`;
 }
 
+/**
+ * The vector table as the migration defined it. It is raw SQL because Prisma
+ * has no vector column type, which is also why a deployment that applies
+ * `schema.prisma` with `db push` never created it: production ran without
+ * it for five months, every embedding failed to persist, and the only sign
+ * was an ERROR line per job. Each statement is idempotent, so every replica
+ * may run them at boot.
+ */
+const ENSURE_STORE_SQL = [
+  `CREATE EXTENSION IF NOT EXISTS vector`,
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+  `CREATE TABLE IF NOT EXISTS "embeddings_store" (
+     "id"        TEXT PRIMARY KEY REFERENCES "embedding_records"("id") ON DELETE CASCADE,
+     "embedding" vector(1536) NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS "embeddings_store_hnsw_idx"
+     ON "embeddings_store" USING hnsw ("embedding" vector_cosine_ops)
+     WITH (m = 16, ef_construction = 64)`,
+];
+
 @Injectable()
-export class VectorStoreService {
+export class VectorStoreService implements OnModuleInit {
   private readonly logger = new Logger(VectorStoreService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureStore();
+  }
+
+  /** Create whatever part of the vector store is missing; never fails the boot. */
+  async ensureStore(): Promise<void> {
+    try {
+      for (const sql of ENSURE_STORE_SQL) {
+        await this.prisma.$executeRawUnsafe(sql);
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `Vector store not verified at boot (${err?.message ?? err}); embeddings will fail to persist until embeddings_store exists`,
+      );
+    }
+  }
 
   /**
    * Insert or update a vector in embeddings_store.
