@@ -90,6 +90,8 @@ test('boot: the API signs in and prepares the master realm', async () => {
   assert.ok(flows.some((f) => f.alias === 'auto-link-broker'), 'auto-link flow exists');
   const clients = await adminGet('/master/clients?clientId=basefyio-platform');
   assert.equal(clients.length, 1, 'platform OAuth client exists');
+  const [cli] = await adminGet('/master/clients?clientId=admin-cli');
+  assert.notEqual(cli.attributes?.['client.use.lightweight.access.token.enabled'], 'true', 'admin-cli issues full access tokens');
   await kc.assertHealthy();
 });
 
@@ -112,13 +114,18 @@ test('project realm: create, clients, users, tokens carry the claims the API rea
   assert.equal(found?.id, userId);
 
   // Keycloak 25 moved `sub` into a new default client scope ("basic"); the
-  // API verifies end-user tokens and reads sub, email and auth_time from them.
+  // API verifies end-user tokens and reads sub and email from them.
   const tokens = await passwordGrant(REALM, anonClient, USER_EMAIL, 'Compat-pass-1!');
   const c = claims(tokens.access_token);
   assert.equal(c.sub, userId, 'access token carries sub');
   assert.equal(c.email, USER_EMAIL, 'access token carries email');
-  assert.equal(typeof c.auth_time, 'number', 'auth_time mapper works');
   assert.match(c.iss, new RegExp(`/realms/${REALM}$`));
+  // The anon client carries the auth_time mapper. Keycloak writes the AUTH_TIME
+  // session note only when a browser sign-in completes, so a password grant
+  // gets no auth_time from it on any version — the same on 24 and 26.
+  const [anon] = await adminGet(`/${REALM}/clients?clientId=${anonClient}`);
+  const mappers = await adminGet(`/${REALM}/clients/${anon.id}/protocol-mappers/models`);
+  assert.ok(mappers.some((m) => m.name === 'auth_time'), 'auth_time mapper on the anon client');
 
   await kc.resetRealmUserPassword(REALM, userId, 'Compat-pass-2!');
   await passwordGrant(REALM, anonClient, USER_EMAIL, 'Compat-pass-2!');
@@ -160,8 +167,11 @@ test('platform users: create, sign in, reset, delete', async () => {
   assert.ok(id);
   const found = await kc.findPlatformUserByEmail(PLATFORM_EMAIL);
   assert.equal(found?.id, id);
+  // Platform sign-in: a password grant on admin-cli, whose token must carry sub
+  // and email (Keycloak 25+ makes admin-cli tokens lightweight; boot undoes it).
   const tokens = await passwordGrant('master', 'admin-cli', PLATFORM_EMAIL, 'Platform-pass-1!');
   assert.equal(claims(tokens.access_token).sub, id, 'master-realm token carries sub');
+  assert.equal(claims(tokens.access_token).email, PLATFORM_EMAIL, 'master-realm token carries email');
   await kc.resetPlatformUserPassword(id, 'Platform-pass-2!', PLATFORM_EMAIL);
   await passwordGrant('master', 'admin-cli', PLATFORM_EMAIL, 'Platform-pass-2!');
   await kc.deletePlatformUser(id);

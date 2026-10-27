@@ -66,6 +66,9 @@ const AUTH_TIME_MAPPER = {
   },
 };
 
+/** Client attribute behind "Always use lightweight access token" (Keycloak 23+). */
+const LIGHTWEIGHT_ACCESS_TOKEN = 'client.use.lightweight.access.token.enabled';
+
 @Injectable()
 export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
@@ -113,6 +116,7 @@ export class KeycloakAdminService implements OnModuleInit {
     });
     await this.authenticate();
     this.logger.log('Keycloak admin client initialized');
+    await this.ensureSignInClientFullTokens();
     await this.ensureRealmTokenLifespan();
     await this.ensureAutoLinkFlow('master');
     await this.ensurePlatformOAuthClient();
@@ -142,6 +146,31 @@ export class KeycloakAdminService implements OnModuleInit {
       if (updated) this.logger.log(`SMTP settings written to ${updated} realm(s)`);
     } catch (err: any) {
       this.logger.warn(`Could not write SMTP settings to the realms: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * Platform sign-in is a password grant on the master realm's admin client
+   * (keycloak.adminClientId, admin-cli), and every guarded route reads `sub` and
+   * `email` from that token. Keycloak 25+ creates admin-cli with lightweight
+   * access tokens, and its 26.0.0 migration switches them on for existing
+   * realms too: those tokens carry neither claim, so nobody could use the
+   * dashboard. Turn it back off — only when it is on, so a Keycloak 24 server
+   * (where it never is) sees no write. Never fails the boot.
+   */
+  private async ensureSignInClientFullTokens(): Promise<void> {
+    const clientId = this.config.get<string>('keycloak.adminClientId') || 'admin-cli';
+    try {
+      const [c] = await this.client.clients.find({ realm: 'master', clientId });
+      const attributes = (c?.attributes ?? {}) as Record<string, string>;
+      if (!c?.id || String(attributes[LIGHTWEIGHT_ACCESS_TOKEN]) !== 'true') return;
+      await this.client.clients.update(
+        { realm: 'master', id: c.id },
+        { ...c, attributes: { ...attributes, [LIGHTWEIGHT_ACCESS_TOKEN]: 'false' } },
+      );
+      this.logger.log(`Lightweight access tokens switched off on "${clientId}" (platform sign-in needs sub and email)`);
+    } catch (err: any) {
+      this.logger.warn(`Could not check the token settings of "${clientId}": ${err?.message ?? err}`);
     }
   }
 
@@ -1087,12 +1116,14 @@ export class KeycloakAdminService implements OnModuleInit {
   private readonly authTimeMapped = new Set<string>();
 
   /**
-   * Ensure a realm client puts `auth_time` in its access tokens. Keycloak 24 only puts it in
-   * the ID token by default, and the SDK sign-in returns only the access token, so without this
-   * a consumer has no way to tell when the person last entered their password (OIDC's re-auth
-   * checks). Realms created before AUTH_TIME_MAPPER was part of createClients get it here, on
-   * their first sign-in. Best-effort and cached per process: a failure only means the claim is
-   * still missing, never a failed sign-in.
+   * Ensure a realm client puts `auth_time` in its access tokens. Realms created before
+   * AUTH_TIME_MAPPER was part of createClients get it here, on their first sign-in.
+   * Best-effort and cached per process: a failure only means the claim is still missing, never
+   * a failed sign-in.
+   *
+   * Limit: Keycloak (24 and 26 alike) writes the AUTH_TIME session note only when a browser
+   * sign-in completes, so tokens from the SDK's password grant still carry no auth_time
+   * (test/keycloak-compat.test.mjs).
    */
   async ensureRealmClientAuthTimeMapper(realmName: string, clientId: string): Promise<void> {
     const key = `${realmName}/${clientId}`;
