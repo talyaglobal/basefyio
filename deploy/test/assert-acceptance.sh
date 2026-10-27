@@ -70,12 +70,45 @@ psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=postgres options='-c
 pass "direct role creates databases and roles, sends -c options, and is not a superuser"
 unset PGPASSWORD
 
-# Platform sign-in as the bootstrap admin, then a project: a realm in Keycloak 26, a database, keys.
-admin_user="$(envv KEYCLOAK_ADMIN_USER)"; admin_pw="$(envv KEYCLOAK_ADMIN_PASSWORD)"
-login_body="$(python3 -c 'import json,sys; print(json.dumps({"email": sys.argv[1], "password": sys.argv[2]}))' "$admin_user" "$admin_pw")"
+# The first account, the way an operator creates one: sign up, read the code
+# from the mail (platform mail over SMTP), confirm it. Confirming signs in,
+# so the token comes from Keycloak 26's admin-cli and must carry sub.
+OWNER=captain@example.test; OWNER_PW='Captain-pass-1!'
+signup_body="$(python3 -c 'import json,sys; print(json.dumps({"email": sys.argv[1], "password": sys.argv[2], "firstName": "Captain", "lastName": "Test"}))' "$OWNER" "$OWNER_PW")"
+curl -sf -X POST "$API/auth/signup" -H 'Content-Type: application/json' -d "$signup_body" >/dev/null || fail "sign-up failed"
+otp=""
+for _ in $(seq 1 30); do
+  id="$(curl -sf "http://127.0.0.1:8025/api/v1/search?query=to:$OWNER" | json 'd["messages"][0]["ID"] if d.get("messages") else ""')"
+  if [ -n "$id" ]; then
+    otp="$(curl -sf "http://127.0.0.1:8025/api/v1/message/$id" | python3 -c '
+import json, re, sys
+m = json.load(sys.stdin)
+body = (m.get("Text") or "") + " " + (m.get("HTML") or "")
+body = re.sub(r"(?is)<style.*?</style>", " ", body)
+body = re.sub(r"(?s)<[^>]+>", " ", body)
+hit = re.search(r"(?<![#\w])(\d{6})(?!\w)", body)
+print(hit.group(1) if hit else "")')"
+  fi
+  [ -n "$otp" ] && break
+  sleep 2
+done
+[ -n "$otp" ] || fail "the sign-up code did not arrive over SMTP"
+pass "the platform's sign-up code arrived over SMTP"
+token="$(curl -sf -X POST "$API/auth/signup/verify-otp" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$OWNER\",\"otp\":\"$otp\"}" | json 'd["accessToken"]')" || fail "confirming the sign-up failed"
+claim() { printf '%s' "$1" | python3 -c '
+import base64, json, sys
+p = sys.stdin.read().split(".")[1]; p += "=" * (-len(p) % 4)
+print(json.loads(base64.urlsafe_b64decode(p)).get(sys.argv[1], ""))' "$2"; }
+[ -n "$(claim "$token" sub)" ] || fail "the platform token has no sub (lightweight admin-cli tokens)"
+[ "$(claim "$token" email)" = "$OWNER" ] || fail "the platform token does not carry the e-mail"
+login_body="$(python3 -c 'import json,sys; print(json.dumps({"email": sys.argv[1], "password": sys.argv[2]}))' "$OWNER" "$OWNER_PW")"
 token="$(curl -sf -X POST "$API/auth/login" -H 'Content-Type: application/json' -d "$login_body" | json 'd["accessToken"]')" \
   || fail "platform sign-in failed"
-pass "platform sign-in through Keycloak 26"
+pass "account created and signed in through Keycloak 26; the token carries sub and email"
+
+# A project: a realm in Keycloak 26, a database, keys.
+admin_user="$(envv KEYCLOAK_ADMIN_USER)"; admin_pw="$(envv KEYCLOAK_ADMIN_PASSWORD)"
 team="$(curl -sf "$API/teams" -H "Authorization: Bearer $token" | json 'd[0]["id"]')"
 project="$(curl -sf -X POST "$API/projects" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
   -d "{\"name\":\"acceptance\",\"teamId\":\"$team\",\"databaseType\":\"RELATIONAL\"}")" || fail "project creation failed"
@@ -89,10 +122,6 @@ smtp_host="$(curl -sf "$KC/admin/realms/$realm" -H "Authorization: Bearer $kc_to
 [ "$smtp_host" = "mailpit" ] || fail "the project realm has SMTP host '$smtp_host'"
 pass "the project realm sends Keycloak's own mail through the platform's SMTP server"
 
-# Platform mail over SMTP: a sign-up code.
-curl -sf -X POST "$API/auth/signup" -H 'Content-Type: application/json' \
-  -d '{"email":"captain@example.test","password":"Captain-pass-1!","firstName":"Captain","lastName":"Test"}' >/dev/null \
-  || fail "sign-up failed"
 # Keycloak's own mail: an action e-mail from the project realm.
 curl -sf -X POST "$KC/admin/realms/$realm/users" -H "Authorization: Bearer $kc_token" -H 'Content-Type: application/json' \
   -d '{"username":"crew@example.test","email":"crew@example.test","enabled":true,"firstName":"Crew","lastName":"Test","emailVerified":true}' >/dev/null
@@ -102,9 +131,17 @@ curl -sf -X PUT "$KC/admin/realms/$realm/users/$crew/execute-actions-email" -H "
 sleep 5
 inbox="$(curl -sf http://127.0.0.1:8025/api/v1/messages | json '" ".join(sorted({t["Address"] for m in d["messages"] for t in m["To"]}))')"
 echo "mailpit received for: $inbox"
-[[ " $inbox " == *" captain@example.test "* ]] || fail "the platform's sign-up mail did not arrive over SMTP"
 [[ " $inbox " == *" crew@example.test "* ]] || fail "Keycloak's own mail did not arrive over SMTP"
-pass "platform mail and Keycloak mail both delivered over SMTP"
+pass "Keycloak's own mail delivered over SMTP"
+
+# Nothing fell over while all of this ran. PgBouncer is left out: it restarts
+# until the API has written its first configuration, as it always has.
+for s in $(./basefyio ps --services); do
+  [ "$s" = pgbouncer ] && continue
+  n="$(docker inspect --format '{{.RestartCount}}' "$(./basefyio ps -q "$s")")"
+  [ "$n" = 0 ] || fail "$s restarted $n time(s)"
+done
+pass "no service restarted"
 
 echo
 echo "All acceptance checks passed."

@@ -117,12 +117,22 @@ means restoring that backup. Everyone signs in again after the switch. From
 Keycloak 25 on, its health endpoint lives on the management port 9000; the
 installer points the API's health check there.
 
+Keycloak 25 and newer also give the master realm's `admin-cli` client
+lightweight access tokens, which carry no `sub` or `email` — and dashboard
+sign-in is a password grant on that client. When the API starts it switches
+that one setting off on its sign-in client (`KEYCLOAK_ADMIN_CLIENT_ID`,
+`admin-cli` by default). This applies to an external Keycloak too, where the
+API at boot also raises the master realm's token and session lifespans (30
+minutes, 30 days), adds an account-linking login flow and creates its own
+`basefyio-platform` client.
+
 ### MinIO images
 
 The upstream `minio/minio` image can no longer be pulled anonymously from Docker
 Hub. A new installation is pinned to the exact build basefyio's cloud runs,
 mirrored to the basefyio registry (when images are pulled with a registry login),
-or to a public, digest-pinned build of the same server otherwise. An existing
+or otherwise to a public MinIO build from Chainguard pinned by digest (a newer
+MinIO release, which an empty installation can start on). An existing
 installation keeps the MinIO image it already has unless you set `MINIO_IMAGE`.
 
 ---
