@@ -7,6 +7,7 @@
 #   scripts/install.sh rollback             return to the release before the last upgrade
 #   scripts/install.sh restore <backup-dir> put a database backup back (replaces current data)
 #   scripts/install.sh status               what runs, which release, which options
+#   scripts/install.sh root <email>         make a signed-up account a platform administrator (ROOT)
 #
 # Options:
 #   --answers FILE     answers as KEY=VALUE lines (same names as below)
@@ -56,6 +57,7 @@ ANSWERS_FILE=""
 NONINTERACTIVE="${BASEFYIO_NONINTERACTIVE:-0}"
 DRY_RUN=0
 RESTORE_DIR=""
+ROOT_EMAIL=""
 INTERNAL_ROLE=""             # rollback-apply, set when the installer re-runs itself
 
 # ── output ────────────────────────────────────────────────────────────────────
@@ -64,13 +66,14 @@ ok()   { printf '\033[1;32m ok\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m !!\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '2,46p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 
 # ── arguments ─────────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
   case "$1" in
     install|upgrade|rollback|status) COMMAND="$1" ;;
     restore) COMMAND="restore"; RESTORE_DIR="${2:-}"; shift ;;
+    root) COMMAND="root"; ROOT_EMAIL="${2:-}"; shift ;;
     rollback-apply) COMMAND="install"; INTERNAL_ROLE="rollback-apply" ;;
     --answers) ANSWERS_FILE="${2:?--answers needs a file}"; shift ;;
     --yes|-y|--non-interactive) NONINTERACTIVE=1 ;;
@@ -781,8 +784,29 @@ cmd_status() {
   if api_ready; then ok "API ready"; else warn "API not ready"; fi
 }
 
+# A new installation has no platform administrator: the first account signs up
+# like any other (e-mail code), and this makes it ROOT — the console, plans and
+# limits, users. Only an existing account is changed; nothing is created.
+cmd_root() {
+  [ -n "$ROOT_EMAIL" ] || die "usage: scripts/install.sh root <email> (an account that has signed up)"
+  setup_common
+  local k; for k in BASEFYIO_KEYCLOAK BASEFYIO_DB_ADMIN_ROLE BASEFYIO_PGBOUNCER_BIND BASEFYIO_DOCSTORE BASEFYIO_OFFLINE BASEFYIO_IMAGES; do
+    [ -n "${!k:-}" ] || export "$k=$(env_get "$k")"
+  done
+  compose_files
+  local pg_user; pg_user="$(env_get POSTGRES_USER)"; pg_user="${pg_user:-kolaybase}"
+  local changed
+  changed="$(dc exec -T postgres psql -v ON_ERROR_STOP=1 -U "$pg_user" -d kolaybase -At -v email="$ROOT_EMAIL" <<'SQL'
+WITH u AS (UPDATE users SET role = 'ROOT' WHERE lower(email) = lower(:'email') RETURNING id) SELECT count(*) FROM u;
+SQL
+)" || die "could not reach the platform database"
+  [ "$(printf '%s' "$changed" | tr -d '[:space:]')" = 1 ] || die "no account with the e-mail $ROOT_EMAIL; sign up first, then run this again"
+  ok "$ROOT_EMAIL is a platform administrator (ROOT); it takes effect on the next request"
+}
+
 case "$COMMAND" in
   install) cmd_install ;;
+  root) cmd_root ;;
   upgrade) cmd_upgrade ;;
   rollback) cmd_rollback ;;
   restore) cmd_restore ;;

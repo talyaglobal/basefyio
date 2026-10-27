@@ -54,7 +54,8 @@ export default function SelfHostingDocs() {
       <pre><code>{`git clone https://github.com/talyaglobal/basefyio.git basefyio && cd basefyio
 scripts/install.sh            # interactive
 scripts/install.sh --yes --answers answers.env   # unattended
-./basefyio ps                 # docker compose for this installation`}</code></pre>
+./basefyio ps                 # docker compose for this installation
+scripts/install.sh root you@example.com          # after signing up: the first administrator`}</code></pre>
       <p>
         Answers can also come from environment variables (<code>BASEFYIO_KEYCLOAK=26</code>,{" "}
         <code>BASEFYIO_AI=off</code>, <code>BASEFYIO_MAIL=smtp</code>, …); they are stored in the env file, so an

@@ -15,6 +15,7 @@ import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { QuickbooksService } from '../quickbooks/quickbooks.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
+import { DEFAULT_PLANS } from './default-plans';
 import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
 import PDFDocument = require('pdfkit');
 
@@ -50,12 +51,32 @@ export class BillingService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    await this.ensureDefaultPlans();
     if (this.stripe.isEnabled()) {
       try {
         await this.syncStripePlans();
       } catch (err: any) {
         this.logger.error(`Failed to sync Stripe plans: ${err.message}`);
       }
+    }
+  }
+
+  /**
+   * A new installation starts with an empty plans table, and without the free
+   * plan no organization gets a subscription and nobody can create a project.
+   * Write the default plans then — only when there is no plan at all, so an
+   * installation whose plans exist (edited or not) is never touched.
+   */
+  private async ensureDefaultPlans(): Promise<void> {
+    try {
+      if ((await this.prisma.plan.count()) > 0) return;
+      const { count } = await this.prisma.plan.createMany({
+        data: DEFAULT_PLANS,
+        skipDuplicates: true,
+      });
+      this.logger.log(`The plans table was empty; created ${count} default plans`);
+    } catch (err: any) {
+      this.logger.error(`Could not create the default plans: ${err?.message ?? err}`);
     }
   }
 

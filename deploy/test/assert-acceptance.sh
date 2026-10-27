@@ -107,6 +107,14 @@ token="$(curl -sf -X POST "$API/auth/login" -H 'Content-Type: application/json' 
   || fail "platform sign-in failed"
 pass "account created and signed in through Keycloak 26; the token carries sub and email"
 
+# A new installation has no administrator until the operator names one.
+code="$(curl -s -o /dev/null -w '%{http_code}' "$API/admin/console/techdocs" -H "Authorization: Bearer $token")"
+[ "$code" = 403 ] || fail "a fresh account reached the root console (HTTP $code)"
+scripts/install.sh root "$OWNER" || fail "install.sh root failed"
+code="$(curl -s -o /dev/null -w '%{http_code}' "$API/admin/console/techdocs" -H "Authorization: Bearer $token")"
+[ "$code" = 200 ] || fail "the account is not ROOT after install.sh root (HTTP $code)"
+pass "install.sh root makes the first account a platform administrator"
+
 # A project: a realm in Keycloak 26, a database, keys.
 admin_user="$(envv KEYCLOAK_ADMIN_USER)"; admin_pw="$(envv KEYCLOAK_ADMIN_PASSWORD)"
 team="$(curl -sf "$API/teams" -H "Authorization: Bearer $token" | json 'd[0]["id"]')"

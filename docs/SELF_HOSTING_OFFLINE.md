@@ -107,6 +107,20 @@ scripts/install.sh --yes --answers answers.env
 plan without changing anything. A new installation starts from `.env.example`
 with every password and key generated.
 
+### The first administrator
+
+A new installation has no platform administrator. Sign up in the dashboard like
+any user (the confirmation code arrives by mail), then make that account ROOT:
+
+```bash
+scripts/install.sh root you@example.com
+```
+
+ROOT opens the console, where you manage users, plans and their limits. On first
+start the API creates the default plans (Free, Pro, Business, and an unlimited
+Legacy plan that is not offered at sign-up); new organizations start on Free, so
+raise its limits in the console if your users need more than five projects each.
+
 ### Keycloak 26
 
 Keycloak migrates its own database the first time a newer version starts, and
