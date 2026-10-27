@@ -1175,7 +1175,8 @@ export function CreateProjectDialog({
                       <li>
                         If some tables still show 0 rows or permission errors, add the{' '}
                         <strong>Database password</strong> (Settings → Database) so basefyio
-                        can copy data over a direct Postgres connection.
+                        can copy data over a direct Postgres connection. It also carries your
+                        users&apos; passwords over, so they keep signing in as before.
                       </li>
                       <li>
                         Match the <strong>Supabase project URL</strong> to the same source you
@@ -1280,7 +1281,7 @@ export function CreateProjectDialog({
                   id="db-password"
                   value={databasePassword}
                   onChange={(e) => setDatabasePassword(e.target.value)}
-                  placeholder="Only if some tables fail to import"
+                  placeholder="Recommended: carries passwords and protected rows"
                   name="supabase-db-password"
                   autoComplete="new-password"
                   spellCheck={false}
@@ -1288,9 +1289,10 @@ export function CreateProjectDialog({
                   data-lpignore="true"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Normally the <strong>service_role</strong> key is enough. Use Dashboard &rarr; Database &rarr; password
-                  only if specific tables still return permission errors — then we read those rows over a direct Postgres
-                  connection.
+                  Supabase &rarr; Settings &rarr; Database. With it, your users keep signing in with the passwords they
+                  already have, and tables behind row-level security are copied in full over a direct Postgres
+                  connection. Without it, users and data still come across, but users need a password reset before
+                  they can sign in.
                 </p>
               </div>
 
@@ -1743,6 +1745,7 @@ export function CreateProjectDialog({
               <Badge variant="secondary">
                 <Shield className="h-3 w-3 mr-1" />
                 {importResult.auth.users} users
+                {importResult.auth.passwords ? ` · ${importResult.auth.passwords} with passwords` : ''}
               </Badge>
               <Badge variant="secondary">
                 <HardDrive className="h-3 w-3 mr-1" />

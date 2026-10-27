@@ -5,6 +5,7 @@ jest.mock('../auth/keycloak-admin.service', () => ({ KeycloakAdminService: class
 jest.mock('pg', () => ({ Pool: jest.fn() }));
 
 import { Pool } from 'pg';
+import { of } from 'rxjs';
 import {
   SupabaseImportService,
   type ImportProgress,
@@ -447,5 +448,139 @@ describe('SupabaseImportService.runSyncImport', () => {
       expect.objectContaining({ table: 'odd', importedRows: 0, note: expect.stringMatching(/no primary key/) }),
     ]);
     expect(progress.warnings[0]).toMatch(/could not be synced/);
+  });
+});
+
+describe('SupabaseImportService.importAuth', () => {
+  const HASH = '$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW';
+  const PROJECT = { id: 'p1', keycloakRealm: 'realm-p1' };
+  const sourceUser = (id: string, email: string | null, extra: Record<string, unknown> = {}) => ({
+    id,
+    email,
+    phone: '',
+    role: 'authenticated',
+    created_at: '2025-01-02T03:04:05Z',
+    email_confirmed_at: '2025-01-02T03:05:00Z',
+    user_metadata: {},
+    ...extra,
+  });
+
+  function authService(
+    users: unknown[],
+    o: {
+      hashes?: Map<string, string> | null;
+      importRealmUsers?: (realm: string, batch: any[]) => Promise<unknown>;
+    } = {},
+  ) {
+    const svc = service();
+    svc.http = { get: jest.fn(() => of({ data: { users } })) };
+    svc.keycloak = {
+      importRealmUsers: jest.fn(
+        o.importRealmUsers ??
+          (async (_realm: string, batch: any[]) =>
+            batch.map((u) => ({ action: 'ADDED', username: u.username, id: u.id }))),
+      ),
+    };
+    svc.importedPasswords = { stash: jest.fn(async (_p: string, entries: unknown[]) => entries.length) };
+    svc.readSourcePasswordHashes = jest.fn().mockResolvedValue(o.hashes === undefined ? null : o.hashes);
+    return svc;
+  }
+
+  const run = (svc: any, progress: ImportProgress) =>
+    svc.importAuth('https://x.supabase.co', {}, PROJECT, progress, 'Shop');
+
+  it('creates users with their source ids and carries their passwords over', async () => {
+    const svc = authService(
+      [
+        sourceUser('11111111-1111-1111-1111-111111111111', 'Ada@Example.com', {
+          user_metadata: { full_name: 'Ada Lovelace' },
+        }),
+        sourceUser('22222222-2222-2222-2222-222222222222', 'bob@example.com', { email_confirmed_at: null }),
+        sourceUser('33333333-3333-3333-3333-333333333333', null),
+        sourceUser('44444444-4444-4444-4444-444444444444', 'gone@example.com', { deleted_at: '2025-02-01T00:00:00Z' }),
+        sourceUser('55555555-5555-5555-5555-555555555555', 'banned@example.com', { banned_until: '2999-01-01T00:00:00Z' }),
+      ],
+      { hashes: new Map([['11111111-1111-1111-1111-111111111111', HASH], ['22222222-2222-2222-2222-222222222222', '$argon2id$x']]) },
+    );
+    const progress = progressOf();
+    await run(svc, progress);
+
+    const [realm, batch] = svc.keycloak.importRealmUsers.mock.calls[0];
+    expect(realm).toBe('realm-p1');
+    expect(batch).toEqual([
+      expect.objectContaining({
+        id: '11111111-1111-1111-1111-111111111111',
+        username: 'ada@example.com',
+        email: 'Ada@Example.com',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        enabled: true,
+        emailVerified: true,
+        createdTimestamp: Date.parse('2025-01-02T03:04:05Z'),
+      }),
+      expect.objectContaining({ id: '22222222-2222-2222-2222-222222222222', emailVerified: false, firstName: 'bob', lastName: 'bob' }),
+      expect.objectContaining({ id: '55555555-5555-5555-5555-555555555555', enabled: false }),
+    ]);
+    expect(progress.auth).toEqual({ users: 3, skipped: 2, passwords: 1 });
+    expect(svc.importedPasswords.stash).toHaveBeenCalledWith('p1', [
+      { userId: '11111111-1111-1111-1111-111111111111', email: 'Ada@Example.com', hash: HASH },
+    ]);
+    expect(progress.warnings.join('\n')).toMatch(/1 user\(s\) have a password in a format that cannot be verified/);
+    expect(progress.warnings.join('\n')).toMatch(/banned at the source were imported disabled/);
+    expect(progress.warnings.join('\n')).not.toMatch(/passwords were not carried over/);
+  });
+
+  it('without the database password, users still arrive with their ids and the warning says why passwords did not', async () => {
+    const svc = authService([sourceUser('11111111-1111-1111-1111-111111111111', 'ada@example.com')]);
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(progress.auth.users).toBe(1);
+    expect(svc.importedPasswords.stash).not.toHaveBeenCalled();
+    expect(progress.warnings.join('\n')).toMatch(/needs the source database password/);
+  });
+
+  it('an address already taken by a different account is reported, and its password is not attached to it', async () => {
+    const svc = authService([sourceUser('11111111-1111-1111-1111-111111111111', 'ada@example.com')], {
+      hashes: new Map([['11111111-1111-1111-1111-111111111111', HASH]]),
+      importRealmUsers: async (_r, batch) =>
+        batch.map((u: any) => ({ action: 'SKIPPED', username: u.username, id: 'kc-generated-id' })),
+    });
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(progress.auth).toMatchObject({ users: 0, skipped: 1 });
+    expect(svc.importedPasswords.stash).not.toHaveBeenCalled();
+    expect(progress.warnings.join('\n')).toMatch(/1 user\(s\) already existed in this project under a different id/);
+  });
+
+  it('a user re-imported under the same id (a sync) keeps getting their password', async () => {
+    const svc = authService([sourceUser('11111111-1111-1111-1111-111111111111', 'ada@example.com')], {
+      hashes: new Map([['11111111-1111-1111-1111-111111111111', HASH]]),
+      importRealmUsers: async (_r, batch) =>
+        batch.map((u: any) => ({ action: 'SKIPPED', username: u.username, id: u.id })),
+    });
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(svc.importedPasswords.stash).toHaveBeenCalledTimes(1);
+    expect(progress.warnings.join('\n')).not.toMatch(/different id/);
+  });
+
+  it('one bad user does not sink the rest of its batch', async () => {
+    const svc = authService(
+      [
+        sourceUser('11111111-1111-1111-1111-111111111111', 'ada@example.com'),
+        sourceUser('22222222-2222-2222-2222-222222222222', 'bad@example.com'),
+      ],
+      {
+        importRealmUsers: async (_r, batch) => {
+          if (batch.some((u: any) => u.username === 'bad@example.com')) throw new Error('duplicate key');
+          return batch.map((u: any) => ({ action: 'ADDED', username: u.username, id: u.id }));
+        },
+      },
+    );
+    const progress = progressOf();
+    await run(svc, progress);
+    expect(svc.keycloak.importRealmUsers).toHaveBeenCalledTimes(3);
+    expect(progress.auth).toMatchObject({ users: 1, skipped: 1 });
+    expect(progress.warnings).toContain('Auth user "bad@example.com": duplicate key');
   });
 });

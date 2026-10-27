@@ -282,7 +282,12 @@ POST /api/projects/import-supabase
 ```
 
 `databasePassword` (optional) lets the importer read the source database directly; without it
-tables are read over the source's REST API. `existingProjectId` re-imports into a project of the
+tables are read over the source's REST API. Users are created with the ids they had at the
+source, so `auth.users` references and `auth.uid()` policies keep matching them. Their password
+hashes can only be read from the source database: with `databasePassword` they are kept
+(encrypted) and checked on each user's first sign-in, which then stores the password in the
+project's identity provider; without it users must reset their password. The result's
+`auth.passwords` counts the users whose password is waiting for that first sign-in. `existingProjectId` re-imports into a project of the
 same team instead of creating one. `mode: "sync"` requires `existingProjectId` and fetches only
 what the source has gained; with `repairKeys: true` a sync first adds missing primary keys. The
 answer is `{ jobId, project: { id, name, slug }, reimport }`.

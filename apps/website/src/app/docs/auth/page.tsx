@@ -107,7 +107,7 @@ const { unsubscribe } = bf.auth.onAuthStateChange((event, session) => {
       <pre><code>{`const { error } = await bf.auth.verifyEmail('482917')`}</code></pre>
 
       {/* ── Password reset ─────────────────────────────── */}
-      <h2>Password reset</h2>
+      <h2 id="password-reset">Password reset</h2>
       <p>Send a reset code to the user&apos;s email, then set a new password with that code:</p>
       <pre><code>{`// 1. Email the user a reset code
 await bf.auth.forgotPassword('jane@example.com')
@@ -174,6 +174,46 @@ const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the se
         edit their profile, or remove them. Adding a user with an email that
         already exists is rejected.
       </p>
+
+      {/* ── Imported users ─────────────────────────────── */}
+      <h2 id="imported-users">Users imported from Supabase</h2>
+      <p>
+        When a project is imported from Supabase, its users come along with the
+        same user ids they had there. Rows that reference{" "}
+        <code>auth.users</code> and policies that compare against{" "}
+        <code>auth.uid()</code> keep matching the same people, so a signed-in user
+        sees exactly the data they saw before.
+      </p>
+      <p>
+        Give the import your Supabase <strong>database password</strong>{" "}
+        (Supabase → Settings → Database) and passwords come along too: users
+        sign in with the email and password they already use, with no reset and
+        no email from you. The first successful <code>bf.auth.signIn</code> checks
+        the password against the one stored at Supabase and keeps it from then on.
+        Without the database password, accounts and ids still arrive, but each
+        user has to reset their password before signing in.
+      </p>
+      <ul>
+        <li>
+          Email confirmation, bans and sign-up dates carry over. Users without an
+          email address (phone-only or anonymous) are not imported.
+        </li>
+        <li>
+          A user who signed in with Google or another provider at Supabase signs
+          in the same way here once the provider is enabled for the project.
+        </li>
+        <li>
+          If the project&apos;s password rules are stricter than Supabase&apos;s,
+          a user whose old password falls short gets the error code{" "}
+          <code>password_reset_required</code> and can choose a new one through
+          the <a href="#password-reset">password reset</a> flow.
+        </li>
+        <li>
+          A sync run later adds users created at Supabase since the import and
+          brings over passwords that changed there, for users who have not signed
+          in here yet.
+        </li>
+      </ul>
 
       {/* ── REST API ───────────────────────────────────── */}
       <h2>REST API</h2>

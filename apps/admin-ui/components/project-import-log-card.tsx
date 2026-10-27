@@ -140,6 +140,7 @@ export function ProjectImportLogCard({
           <Badge variant="secondary" className="font-normal">
             <Shield className="mr-1 h-3 w-3" />
             {importLog.auth.users} users
+            {importLog.auth.passwords ? ` · ${importLog.auth.passwords} with passwords` : ''}
           </Badge>
           <Badge variant="secondary" className="font-normal">
             <HardDrive className="mr-1 h-3 w-3" />

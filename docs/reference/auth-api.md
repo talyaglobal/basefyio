@@ -74,7 +74,10 @@ Project settings that apply (defaults in brackets, changed under Authentication 
 and a code valid for 24 hours is mailed. 409 `Email already registered`.
 
 `POST signin` body: `{ email, password, totp? }`. Wrong credentials: 401
-`Invalid email or password`. When the account has an authenticator enrolled and `totp` was
+`Invalid email or password`. A user imported from Supabase signs in with their existing
+password; the first sign-in verifies it against the imported hash. When that password is right
+but breaks the project's password rules, the answer is 401 with
+`"code": "password_reset_required"`; send the user through `forgot-password`. When the account has an authenticator enrolled and `totp` was
 not supplied, the response is a **challenge** instead of tokens:
 
 ```json

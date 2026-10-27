@@ -1195,7 +1195,13 @@ export interface TableReconciliation {
 
 export interface ImportProgressData {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: { users: number; skipped: number; emailsSent: number };
+  auth: {
+    users: number;
+    skipped: number;
+    emailsSent: number;
+    /** Users whose existing password carried over (checked on their first sign-in). */
+    passwords?: number;
+  };
   storage: {
     buckets: number;
     objects: number;
@@ -1247,6 +1253,7 @@ export function normalizeImportProgressData(
       users: raw?.auth?.users ?? 0,
       skipped: raw?.auth?.skipped ?? 0,
       emailsSent: raw?.auth?.emailsSent ?? 0,
+      passwords: typeof raw?.auth?.passwords === 'number' ? raw.auth.passwords : undefined,
     },
     storage: {
       buckets: raw?.storage?.buckets ?? 0,

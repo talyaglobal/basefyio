@@ -348,6 +348,7 @@ model Project {
   realtimeBindings RealtimeBinding[]
   usage            ProjectUsage?
   userMfa          ProjectUserMfa[]
+  importedPasswordHashes ImportedPasswordHash[]
 
   // Preview branches
   /// The project this one was branched from. Null = ordinary project.
@@ -543,6 +544,34 @@ model ProjectUserMfa {
 
   @@unique([projectId, keycloakUserId])
   @@map("project_user_mfa")
+}
+
+/// A password hash carried over from an imported auth provider. Keycloak cannot
+/// verify the provider's bcrypt hashes, so each one waits here until its owner
+/// signs in with the old password: the attempt is checked against the hash, and
+/// on a match the password is handed to Keycloak and the hash is dropped.
+/// Pending while settledAt is null.
+model ImportedPasswordHash {
+  id             String    @id @default(uuid())
+  projectId      String    @map("project_id")
+  /// The same id in Keycloak and at the source: the import preserves it.
+  keycloakUserId String    @map("keycloak_user_id")
+  /// Lowercased, so a failed sign-in can look for a pending hash without asking Keycloak.
+  email          String
+  /// The source's hash, encrypted at rest when DB_CRED_ENC_KEY is set. Null once settled.
+  passwordHash   String?   @map("password_hash")
+  source         String    @default("supabase")
+  /// When the hash stopped mattering: adopted by a sign-in, or superseded by a
+  /// password set in Keycloak since (a reset, an administrator).
+  settledAt      DateTime? @map("settled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, keycloakUserId])
+  @@index([projectId, email])
+  @@map("imported_password_hashes")
 }
 
 model SqlAuditLog {

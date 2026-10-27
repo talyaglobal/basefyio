@@ -17,6 +17,7 @@ import { ProjectSdkAuthController } from './project-sdk-auth.controller';
 import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { ProjectMfaService } from './project-mfa.service';
+import { ImportedPasswordService } from './imported-password.service';
 import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
 import { PublicApiController } from './public-api.controller';
 import { PublicApiService } from './public-api.service';
@@ -83,6 +84,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectAuthConfigService,
     ProjectSdkAuthService,
     ProjectMfaService,
+    ImportedPasswordService,
     ProjectAnonymousAuthService,
     PublicApiService,
     CollectionService,

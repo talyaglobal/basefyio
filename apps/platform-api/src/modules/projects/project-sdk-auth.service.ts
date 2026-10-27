@@ -20,6 +20,7 @@ import { RedisService } from '../redis/redis.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { describeAllowedRedirects, resolveOAuthRedirect } from './oauth-redirect.util';
 import { ProjectMfaService } from './project-mfa.service';
+import { ImportedPasswordService } from './imported-password.service';
 
 type EmailType = 'verify' | 'reset' | 'welcome' | 'invite' | 'magic_link' | 'change_email' | 'reauth';
 
@@ -66,6 +67,7 @@ export class ProjectSdkAuthService {
     private readonly config: ConfigService,
     private readonly authConfig: ProjectAuthConfigService,
     private readonly mfa: ProjectMfaService,
+    private readonly importedPasswords: ImportedPasswordService,
   ) {}
 
   private getRealmAnonClientId(realmName: string): string {
@@ -141,15 +143,34 @@ export class ProjectSdkAuthService {
   ) {
     const project = await this.getProject(projectId);
     const kcClientId = this.getRealmAnonClientId(project.keycloakRealm);
-    const tokens = await this.authenticateInRealm(
-      project.keycloakRealm, kcClientId, email, password, false, clientIp, { projectId, totp },
-    );
+    const grant = () =>
+      this.authenticateInRealm(
+        project.keycloakRealm, kcClientId, email, password, false, clientIp, { projectId, totp },
+      );
+    let tokens: Awaited<ReturnType<typeof grant>>;
+    try {
+      tokens = await grant();
+    } catch (err) {
+      // An account imported from another provider has no password in Keycloak
+      // until its owner first signs in with the one they always used.
+      if (
+        !(err instanceof UnauthorizedException) ||
+        !(await this.importedPasswords.adoptOnSignIn(projectId, project.keycloakRealm, email, password))
+      ) {
+        throw err;
+      }
+      tokens = await grant();
+    }
     const user = await this.keycloak.findUserInRealm(project.keycloakRealm, email);
     const sub = this.decodeJwtPayload(tokens.accessToken)?.sub;
     const userId: string | undefined = typeof sub === 'string' && sub ? sub : user?.id;
     const emailVerified = user?.emailVerified ?? false;
     const response = { ...tokens, userId, emailVerified };
     if (!userId) return { ...response, mfaEnrollmentRequired: false };
+
+    // Signed in with a password Keycloak holds, so an imported hash still
+    // waiting for this user (say, after a reset) will never be needed.
+    void this.importedPasswords.settleForUser(projectId, userId).catch(() => undefined);
 
     const mfa = await this.mfa.getState(projectId, userId);
     const account = user?.email ?? email;

@@ -15,13 +15,18 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { firstValueFrom } from 'rxjs';
 import { Pool } from 'pg';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
 import Docker = require('dockerode');
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { ProjectsService } from './projects.service';
-import { KeycloakAdminService } from '../auth/keycloak-admin.service';
+import {
+  KeycloakAdminService,
+  type ImportedRealmUser,
+  type ImportedRealmUserResult,
+} from '../auth/keycloak-admin.service';
+import { ImportedPasswordService, type PasswordHashEntry } from './imported-password.service';
 import { StorageService } from '../storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
@@ -54,7 +59,12 @@ const KNOWN_PG_BASE_TYPES = new Set([
 
 export interface ImportProgress {
   database: { tables: number; rows: number; failedTables: string[] };
-  auth: { users: number; skipped: number };
+  auth: {
+    users: number;
+    skipped: number;
+    /** Users whose source password waits for their first sign-in (see ImportedPasswordService). */
+    passwords?: number;
+  };
   storage: {
     buckets: number;
     objects: number;
@@ -152,6 +162,8 @@ interface SupabaseUser {
   created_at: string;
   user_metadata?: Record<string, any>;
   email_confirmed_at?: string;
+  banned_until?: string | null;
+  deleted_at?: string | null;
 }
 
 interface SupabaseBucket {
@@ -214,6 +226,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly activity: ProjectActivityService,
     private readonly keys: SupabaseImportKeysService,
+    private readonly importedPasswords: ImportedPasswordService,
     @InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue,
     // Optional so a hand-built instance in a test needs no cluster module.
     @Optional() private readonly bootTasks?: BootTaskService,
@@ -3572,10 +3585,6 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
   // ── Auth Import ───────────────────────────────────────
 
-  private generateReadablePassword(): string {
-    return `Bf-${randomBytes(6).toString('base64url').slice(0, 10)}`;
-  }
-
   private async importAuth(
     baseUrl: string,
     headers: Record<string, string>,
@@ -3614,83 +3623,218 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Found ${allUsers.length} auth users to import`);
 
+    // The admin API never returns password hashes. They come from the source
+    // database, so only when its password was given.
+    const hashes = await this.readSourcePasswordHashes(baseUrl, headers, project);
+
     let skippedNoEmail = 0;
+    let skippedDeleted = 0;
     let skippedDuplicate = 0;
+    let idClashes = 0;
+    let banned = 0;
+    let unsupportedHashes = 0;
+    const toStash: PasswordHashEntry[] = [];
 
-    // Creating thousands of users one at a time takes far longer than the
-    // queue's no-progress window, and a step that reports nothing for its whole
-    // duration is indistinguishable from a wedged one. Report as it goes.
-    let done = 0;
-    let lastReport = 0;
-
+    const reps: ImportedRealmUser[] = [];
     for (const user of allUsers) {
-      done++;
-      if (onProgress && (Date.now() - lastReport > 5_000 || done === allUsers.length)) {
-        lastReport = Date.now();
-        const share = allUsers.length ? done / allUsers.length : 1;
-        await onProgress(
-          `Importing auth users... (${done} of ${allUsers.length})`,
-          55 + Math.round(share * 25),
-        );
+      const email = user.email?.trim();
+      if (!email) {
+        progress.auth.skipped++;
+        skippedNoEmail++;
+        continue;
       }
-      try {
-        const email = user.email;
-        if (!email) {
-          progress.auth.skipped++;
-          skippedNoEmail++;
-          continue;
-        }
+      if (user.deleted_at) {
+        progress.auth.skipped++;
+        skippedDeleted++;
+        continue;
+      }
 
-        const meta = user.user_metadata || {};
-        const username =
-          meta.preferred_username ||
-          meta.user_name ||
-          meta.name ||
-          email.split('@')[0];
-        const firstName =
-          meta.first_name || meta.full_name?.split(' ')[0] || '';
-        const lastName =
-          meta.last_name ||
-          meta.full_name?.split(' ').slice(1).join(' ') ||
-          '';
+      const meta = user.user_metadata || {};
+      const fullName = typeof meta.full_name === 'string' ? meta.full_name.trim() : '';
+      // Keycloak 24's user profile requires both names; an empty one makes the
+      // password grant fail with "Account is not fully set up".
+      const local = email.split('@')[0] || 'user';
+      const firstName = String(meta.first_name || fullName.split(' ')[0] || '').trim() || local;
+      const lastName =
+        String(meta.last_name || fullName.split(' ').slice(1).join(' ') || '').trim() || local;
 
-        const tempPassword = this.generateReadablePassword();
+      const bannedUntil = user.banned_until ? Date.parse(user.banned_until) : NaN;
+      const isBanned = bannedUntil > Date.now();
+      if (isBanned) banned++;
 
-        await this.keycloak.createUser(project.keycloakRealm, {
-          email,
-          password: tempPassword,
-          firstName,
-          lastName,
-        });
+      reps.push({
+        // The source's id, kept: rows, foreign keys and policies all name it,
+        // and auth.uid() reports it once the user signs in here.
+        id: user.id,
+        username: email.toLowerCase(),
+        email,
+        firstName,
+        lastName,
+        enabled: !isBanned,
+        // Only what the source confirmed. The token's email_verified claim is
+        // read as proof the address belongs to the person holding it.
+        emailVerified: !!user.email_confirmed_at,
+        createdTimestamp: Date.parse(user.created_at) || undefined,
+      });
+    }
 
-        progress.auth.users++;
-      } catch (err: any) {
-        if (
-          err.response?.status === 409 ||
-          err.message?.includes('exists')
-        ) {
+    // One user at a time took longer than the queue's no-progress window on a
+    // large project, and a step that reports nothing for its whole duration is
+    // indistinguishable from a wedged one. Batches, reported as they go.
+    let lastReport = 0;
+    for (let i = 0; i < reps.length; i += 100) {
+      const batch = reps.slice(i, i + 100);
+      const results = await this.importUserBatch(project.keycloakRealm, batch, progress);
+
+      for (const rep of batch) {
+        const result = results.get(rep.username);
+        if (!result) continue; // counted and reported by importUserBatch
+        if (result.action === 'ADDED') {
+          progress.auth.users++;
+        } else {
           progress.auth.skipped++;
           skippedDuplicate++;
-        } else {
-          const email = user.email || user.id || '(unknown)';
-          this.logger.warn(
-            `Failed to import user "${email}": ${err.message}`,
-          );
-          progress.auth.skipped++;
-          progress.warnings.push(`Auth user "${email}": ${err.message}`);
+          if (result.id !== rep.id) idClashes++;
         }
+
+        // Only for the account that carries the source's id: a clash means the
+        // address belongs to a different account here, and its password with it.
+        const hash = hashes?.get(rep.id);
+        if (!hash || result.id !== rep.id) continue;
+        if (ImportedPasswordService.isSupportedHash(hash)) {
+          toStash.push({ userId: rep.id, email: rep.email, hash });
+        } else {
+          unsupportedHashes++;
+        }
+      }
+
+      const done = Math.min(i + batch.length, reps.length);
+      if (onProgress && (Date.now() - lastReport > 5_000 || done === reps.length)) {
+        lastReport = Date.now();
+        await onProgress(
+          `Importing auth users... (${done} of ${reps.length})`,
+          55 + Math.round((done / reps.length) * 25),
+        );
       }
     }
 
+    if (toStash.length) {
+      try {
+        progress.auth.passwords = await this.importedPasswords.stash(project.id, toStash);
+      } catch (err: any) {
+        this.logger.warn(`Could not keep imported password hashes: ${err.message}`);
+        progress.warnings.push(
+          `Auth: passwords could not be carried over (${err.message}). Users can still sign in after a password reset.`,
+        );
+      }
+    }
+
+    if (hashes === null && reps.length > 0) {
+      const why = project.supabaseDatabasePassword
+        ? 'the source database could not be read'
+        : 'reading them needs the source database password';
+      progress.warnings.push(
+        `Auth: passwords were not carried over, because ${why}. ` +
+          'Users keep their accounts and ids and can sign in after a password reset; a sync with the database password brings the passwords over.',
+      );
+    }
+    if (unsupportedHashes > 0) {
+      progress.warnings.push(
+        `Auth: ${unsupportedHashes} user(s) have a password in a format that cannot be verified here; they need a password reset.`,
+      );
+    }
+    if (idClashes > 0) {
+      progress.warnings.push(
+        `Auth: ${idClashes} user(s) already existed in this project under a different id, so rows that reference them through auth.uid() will not match until they are relinked.`,
+      );
+    }
+    if (banned > 0) {
+      progress.warnings.push(
+        `Auth: ${banned} user(s) banned at the source were imported disabled.`,
+      );
+    }
     if (skippedNoEmail > 0) {
       progress.warnings.push(
         `Auth: ${skippedNoEmail} user(s) skipped (no email address).`,
+      );
+    }
+    if (skippedDeleted > 0) {
+      progress.warnings.push(
+        `Auth: ${skippedDeleted} user(s) skipped (deleted at the source).`,
       );
     }
     if (skippedDuplicate > 0) {
       progress.warnings.push(
         `Auth: ${skippedDuplicate} user(s) skipped (already exists in Keycloak).`,
       );
+    }
+  }
+
+  /**
+   * Create a batch of users, keyed in the result by username. A single bad
+   * user fails the whole batch, so a failed batch is retried one user at a
+   * time rather than losing the other ninety-nine.
+   */
+  private async importUserBatch(
+    realm: string,
+    batch: ImportedRealmUser[],
+    progress: ImportProgress,
+  ): Promise<Map<string, ImportedRealmUserResult>> {
+    const out = new Map<string, ImportedRealmUserResult>();
+    const record = (results: ImportedRealmUserResult[]) => {
+      for (const r of results) out.set(r.username.toLowerCase(), r);
+    };
+
+    try {
+      record(await this.keycloak.importRealmUsers(realm, batch));
+      return out;
+    } catch (err: any) {
+      if (batch.length > 1) {
+        this.logger.warn(`A batch of ${batch.length} users failed (${err.message}); retrying one by one`);
+      }
+    }
+
+    for (const rep of batch) {
+      try {
+        record(await this.keycloak.importRealmUsers(realm, [rep]));
+      } catch (err: any) {
+        this.logger.warn(`Failed to import user "${rep.email}": ${err.message}`);
+        progress.auth.skipped++;
+        progress.warnings.push(`Auth user "${rep.email}": ${err.message}`);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Password hashes from the source's auth.users, by user id. Null when they
+   * cannot be read: no database password, or the database is unreachable.
+   */
+  private async readSourcePasswordHashes(
+    baseUrl: string,
+    headers: Record<string, string>,
+    project: any,
+  ): Promise<Map<string, string> | null> {
+    const pwd: string | undefined = project.supabaseDatabasePassword;
+    if (!pwd) return null;
+    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
+    const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+    if (!ref) return null;
+
+    const pool = await this.openSupabaseSourcePool(ref, pwd);
+    if (!pool) return null;
+    try {
+      const { rows } = await pool.query<{ id: string; encrypted_password: string }>(
+        `select id::text as id, encrypted_password
+           from auth.users
+          where encrypted_password is not null and encrypted_password <> ''`,
+      );
+      return new Map(rows.map((r) => [r.id, r.encrypted_password]));
+    } catch (err: any) {
+      this.logger.warn(`Could not read password hashes from the source: ${err.message}`);
+      return null;
+    } finally {
+      await pool.end().catch(() => undefined);
     }
   }
 

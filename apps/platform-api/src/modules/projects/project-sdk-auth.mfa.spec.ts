@@ -6,6 +6,7 @@ jest.mock('../email/email.service', () => ({ EmailService: class {} }));
 jest.mock('../redis/redis.service', () => ({ RedisService: class {} }));
 jest.mock('./project-auth-config.service', () => ({ ProjectAuthConfigService: class {} }));
 jest.mock('./project-mfa.service', () => ({ ProjectMfaService: class {} }));
+jest.mock('./imported-password.service', () => ({ ImportedPasswordService: class {} }));
 
 import {
   BadRequestException,
@@ -55,6 +56,7 @@ function build(o: {
   hasOtp?: boolean;
   allowAnonymous?: boolean;
   requireEmailVerify?: boolean;
+  adopt?: boolean;
 } = {}) {
   const prisma = { project: { findFirst: jest.fn().mockResolvedValue(PROJECT) } };
   const keycloak = {
@@ -105,12 +107,17 @@ function build(o: {
     confirmEnrollment: jest.fn(),
   };
   const redis = { set: jest.fn().mockResolvedValue(undefined), get: jest.fn(), del: jest.fn(), incr: jest.fn(), expire: jest.fn() };
+  const importedPasswords = {
+    adoptOnSignIn: jest.fn().mockResolvedValue(o.adopt ?? false),
+    settleForUser: jest.fn().mockResolvedValue(undefined),
+  };
   const svc = new ProjectSdkAuthService(
     prisma as any, keycloak as any, {} as any, redis as any, http as any, config as any, authConfig as any, mfa as any,
+    importedPasswords as any,
   );
   // Mail is not under test; keep it from touching the network.
   jest.spyOn(svc as any, 'sendEmail').mockResolvedValue(undefined);
-  return { svc, prisma, keycloak, http, authConfig, mfa, redis, config };
+  return { svc, prisma, keycloak, http, authConfig, mfa, redis, config, importedPasswords };
 }
 
 const grantBody = (http: { post: jest.Mock }, call = 0) => new URLSearchParams(http.post.mock.calls[call][1] as string);
@@ -206,11 +213,45 @@ describe('ProjectSdkAuthService.signin — second factor', () => {
   });
 
   it('a plain wrong password is still "Invalid email or password"', async () => {
-    const { svc } = build({
+    const { svc, importedPasswords } = build({
       hasOtp: false,
       post: () => throwError(() => kcFailure('invalid_grant', 'Invalid user credentials')),
     });
     await expect(svc.signin('p1', 'ada@example.com', 'nope')).rejects.toThrow('Invalid email or password');
+    expect(importedPasswords.adoptOnSignIn).toHaveBeenCalledWith('p1', 'realm-p1', 'ada@example.com', 'nope');
+  });
+
+  it('an imported user signs in with their old password: it is adopted, then the grant is retried', async () => {
+    let calls = 0;
+    const { svc, importedPasswords } = build({
+      adopt: true,
+      post: () =>
+        calls++ === 0
+          ? throwError(() => kcFailure('invalid_grant', 'Invalid user credentials'))
+          : of({ data: KC_TOKENS }),
+    });
+    const res = await svc.signin('p1', 'ada@example.com', 'old-pw');
+    expect(res).toMatchObject({ ...EXPECTED_TOKENS, userId: 'u1' });
+    expect(importedPasswords.adoptOnSignIn).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(2);
+  });
+
+  it('a successful sign-in settles any imported hash still waiting for the user', async () => {
+    const { svc, importedPasswords } = build();
+    await svc.signin('p1', 'ada@example.com', 'pw');
+    expect(importedPasswords.adoptOnSignIn).not.toHaveBeenCalled();
+    expect(importedPasswords.settleForUser).toHaveBeenCalledWith('p1', 'u1');
+  });
+
+  it('a missing totp is never treated as an imported password', async () => {
+    const { svc, importedPasswords } = build({
+      hasOtp: true,
+      post: () => throwError(() => kcFailure('invalid_grant', 'Invalid user credentials')),
+    });
+    await expect(svc.signin('p1', 'ada@example.com', 'pw')).rejects.toThrow(UnauthorizedException);
+    // adoptOnSignIn only acts on a pending hash with no Keycloak password, which
+    // an authenticator-holding account cannot be; calling it is harmless.
+    expect(importedPasswords.adoptOnSignIn).toHaveBeenCalledTimes(1);
   });
 });
 

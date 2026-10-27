@@ -176,7 +176,12 @@ export function ImportProgressToast() {
             <>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-700 dark:text-emerald-400">
                 <span>{activeImport.result.database.tables} tables</span>
-                <span>{activeImport.result.auth.users} users</span>
+                <span>
+                  {activeImport.result.auth.users} users
+                  {activeImport.result.auth.passwords
+                    ? ` · ${activeImport.result.auth.passwords} with passwords`
+                    : ''}
+                </span>
                 <span>{activeImport.result.storage.objects} files</span>
               </div>
               {(() => {

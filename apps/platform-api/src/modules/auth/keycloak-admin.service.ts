@@ -17,6 +17,25 @@ export interface ProjectClients {
   serviceKey: string;
 }
 
+/** The part of a Keycloak user an import writes. `id` is kept as given. */
+export interface ImportedRealmUser {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  enabled: boolean;
+  emailVerified: boolean;
+  createdTimestamp?: number;
+}
+
+export interface ImportedRealmUserResult {
+  action: 'ADDED' | 'SKIPPED';
+  username: string;
+  /** The id the user has in the realm now: the given one when added, the existing user's when skipped. */
+  id: string;
+}
+
 type SupportedIdpProvider =
   | 'google'
   | 'microsoft'
@@ -1398,6 +1417,50 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
     return (creds || []).some((c: any) => c.type === 'otp');
+  }
+
+  async userHasPasswordCredential(realmName: string, userId: string): Promise<boolean> {
+    await this.ensureAuth();
+    const creds = await this.client.users.getCredentials({ realm: realmName, id: userId });
+    return (creds || []).some((c: any) => c.type === 'password');
+  }
+
+  /** Whether the realm's brute-force detection has the user locked out right now. */
+  async isUserLockedOut(realmName: string, userId: string): Promise<boolean> {
+    await this.ensureAuth();
+    const status = await this.client.attackDetection.findOne({ realm: realmName, id: userId });
+    return status?.disabled === true;
+  }
+
+  /**
+   * Create users with the ids they already carry elsewhere.
+   *
+   * The ordinary create endpoint always mints a new id, while an imported
+   * project's rows, foreign keys and policies all name the old one — a user
+   * created that way signs in as a stranger to their own data. The realm's
+   * partial import keeps the id it is given. A user that already exists (same
+   * username or email) is skipped, never overwritten, and its result carries
+   * the id it actually has, so the caller can tell a kept identity from a clash.
+   *
+   * No credentials are written: the source's password hashes are in a format
+   * Keycloak cannot verify, and wait in ImportedPasswordHash instead.
+   */
+  async importRealmUsers(
+    realmName: string,
+    users: ImportedRealmUser[],
+  ): Promise<ImportedRealmUserResult[]> {
+    await this.ensureAuth();
+    const res = await this.client.realms.partialImport({
+      realm: realmName,
+      rep: { ifResourceExists: 'SKIP', users: users.map((u) => ({ ...u, requiredActions: [] })) },
+    });
+    return (res?.results ?? [])
+      .filter((r) => r.resourceType === 'USER')
+      .map((r) => ({
+        action: r.action === 'ADDED' ? 'ADDED' : 'SKIPPED',
+        username: r.resourceName,
+        id: r.id,
+      }));
   }
 
   // ── Platform user operations ──
