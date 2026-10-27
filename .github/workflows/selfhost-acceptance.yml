@@ -65,4 +65,10 @@ jobs:
         if: failure()
         run: |
           ./basefyio ps || true
-          ./basefyio logs --tail 120 platform-api keycloak || true
+          for s in $(./basefyio ps -a --format '{{.Service}}' 2>/dev/null); do
+            echo "::group::$s"
+            ./basefyio logs --tail 80 "$s" || true
+            docker inspect --format '{{json .State.Health}}' "$(./basefyio ps -a -q "$s")" 2>/dev/null | head -c 3000 || true
+            echo "::endgroup::"
+          done
+          free -m; df -h /; uptime

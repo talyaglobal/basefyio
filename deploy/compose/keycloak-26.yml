@@ -17,10 +17,13 @@ services:
           "CMD-SHELL",
           "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q 'UP'"
         ]
+      # The first start builds Keycloak's optimised server (several minutes on a
+      # small or busy host) and creates its schema; a generous budget only
+      # matters when it is slow, healthy is reported as soon as it is ready.
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 60s
+      retries: 60
+      start_period: 300s
   platform-api:
     environment:
       KEYCLOAK_HEALTH_URL: http://keycloak:9000/health/ready
