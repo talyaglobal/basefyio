@@ -102,7 +102,8 @@ jobs:
 
   test-sdk-python:
     name: Python SDK — tests
-    runs-on: ubuntu-latest
+    # setup-python has no 3.9 for Ubuntu 26.04, which ubuntu-latest became in 2026-10.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ['3.9', '3.12']
