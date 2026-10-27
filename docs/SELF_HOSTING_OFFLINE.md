@@ -42,7 +42,7 @@ on an existing installation changes nothing.
 | Question | Answers (default first) | What it changes |
 |---|---|---|
 | Compose file | `selfhost`, `prod` | which file the stack runs from; an existing `.env` / `.env.production` decides the default |
-| Release | newest release tag, any tag from `v2.9.6` on, or `current` | the installer checks the tag out and continues with that release's own installer; the release is written to `IMAGE_TAG` and reported by `GET /api/health` |
+| Release | newest release tag, any tag from `v2.9.8` on, or `current` | the installer checks the tag out and continues with that release's own installer; the release is written to `IMAGE_TAG` and reported by `GET /api/health` |
 | Platform images | `build` (self-host) / `pull` (production-shaped), `bundle` | build from the checkout, pull from the registry, or load a bundle (step 3) |
 | Keycloak | `24`, `26`, `external` | the bundled Keycloak version, or none: then you give the URL the API calls, the URL browsers see, a master-realm admin user and password, and optionally its readiness URL |
 | Direct Postgres role | `no`, `yes` | creates a role with `CREATEDB` and `CREATEROLE` (not a superuser) and publishes Postgres on `127.0.0.1:5432` (configurable), beside PgBouncer — for an application that manages its own databases and roles and sends connection-time settings such as `-c TimeZone=UTC -c jit=off`, which PgBouncer's transaction mode refuses |
@@ -57,7 +57,7 @@ At the end the installer prints the release and its components — default and
 supported versions, and whether the release changed the database:
 
 ```
-Release v2.9.6  (database changes since the previous release: none)
+Release v2.9.8  (database changes since the previous release: none)
   Component    Default  Supported / pinned
   Keycloak     24       24.0.5 26.8.1
   PostgreSQL   16       pgvector/pgvector:0.8.7-pg16-bookworm (self-host); docker/postgres (production-shaped)
@@ -83,7 +83,7 @@ that was answered before.
 
 ```bash
 cat > answers.env <<'EOF'
-BASEFYIO_VERSION=v2.9.6
+BASEFYIO_VERSION=v2.9.8
 BASEFYIO_KEYCLOAK=26
 BASEFYIO_DOCSTORE=no
 BASEFYIO_AI=off
@@ -194,7 +194,7 @@ and what is running.
 
 ```bash
 git clone https://github.com/talyaglobal/basefyio.git basefyio && cd basefyio
-git checkout v2.9.6            # the release you will run offline
+git checkout v2.9.8            # the release you will run offline
 
 # Self-host file, plus the TLS proxy profile if you will terminate HTTPS with
 # your own certificate (see "TLS" below):
@@ -266,7 +266,7 @@ Start the proxy profile with `./basefyio --profile tls up -d`.
 
 ```bash
 ./basefyio exec platform-api node -e "fetch('http://127.0.0.1:4000/api/health').then(r=>r.text()).then(console.log)"
-# {"status":"ok",…,"release":{"stage":"…","version":"2.9.6"},"checks":{…}}
+# {"status":"ok",…,"release":{"stage":"…","version":"2.9.8"},"checks":{…}}
 ```
 
 `email.state: not-configured` means mail is off, not that the API is unhealthy.

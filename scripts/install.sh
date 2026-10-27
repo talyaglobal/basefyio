@@ -49,7 +49,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MIN_VERSION="v2.9.6"          # the first release that carries this installer
+MIN_VERSION="v2.9.8"          # the first release that carries this installer
 HEALTH_TIMEOUT_S="${BASEFYIO_HEALTH_TIMEOUT:-900}"
 
 COMMAND="install"
