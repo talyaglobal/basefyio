@@ -62,11 +62,11 @@ pass "AI switched off in the API"
 # The direct role: databases and roles of its own, with connection-time
 # settings PgBouncer's transaction mode refuses.
 export PGPASSWORD=Acceptance-pass-1
-psql "host=127.0.0.1 port=5432 user=marina_admin dbname=postgres options='-c TimeZone=UTC -c jit=off'" -v ON_ERROR_STOP=1 \
-  -c "show timezone" -c "create database marina_one" -c "create role marina_one_app login password 'x'" \
-  -c "grant connect on database marina_one to marina_one_app" >/dev/null || fail "the direct role cannot create a database and a role"
-[ "$(psql "host=127.0.0.1 port=5432 user=marina_admin dbname=postgres" -Atc "select rolsuper from pg_roles where rolname='marina_admin'")" = "f" ] \
-  || fail "marina_admin is a superuser"
+psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=postgres options='-c TimeZone=UTC -c jit=off'" -v ON_ERROR_STOP=1 \
+  -c "show timezone" -c "create database tenant_one" -c "create role tenant_one_app login password 'x'" \
+  -c "grant connect on database tenant_one to tenant_one_app" >/dev/null || fail "the direct role cannot create a database and a role"
+[ "$(psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=postgres" -Atc "select rolsuper from pg_roles where rolname='acceptance_admin'")" = "f" ] \
+  || fail "acceptance_admin is a superuser"
 pass "direct role creates databases and roles, sends -c options, and is not a superuser"
 unset PGPASSWORD
 

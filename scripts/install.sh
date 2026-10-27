@@ -267,7 +267,8 @@ resolve_base_and_env() {
   if [ "$BASEFYIO_BASE" = prod ]; then BASE_FILE=docker-compose.prod.yml; DEFAULT_ENV=.env.production
   else BASE_FILE=docker-compose.yml; DEFAULT_ENV=.env; fi
   ENV_FILE="${BASEFYIO_ENV_FILE:-$DEFAULT_ENV}"
-  EXISTING=0; [ -f "$ENV_FILE" ] && EXISTING=1
+  EXISTING=0
+  if [ -f "$ENV_FILE" ]; then EXISTING=1; fi
 }
 
 # Defaults for every question come from the env file when the installer ran
@@ -529,7 +530,7 @@ keep_current_images() {
   for svc in platform-api admin-ui website; do
     img="$(dc images -q "$svc" 2>/dev/null | head -n1)"
     [ -n "$img" ] || continue
-    docker tag "$img" "basefyio-rollback/$svc:$label" 2>/dev/null && ok "kept $svc as basefyio-rollback/$svc:$label"
+    if docker tag "$img" "basefyio-rollback/$svc:$label" 2>/dev/null; then ok "kept $svc as basefyio-rollback/$svc:$label"; fi
   done
 }
 
