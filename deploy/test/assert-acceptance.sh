@@ -67,7 +67,10 @@ psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=postgres options='-c
   -c "grant connect on database tenant_one to tenant_one_app" >/dev/null || fail "the direct role cannot create a database and a role"
 [ "$(psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=postgres" -Atc "select rolsuper from pg_roles where rolname='acceptance_admin'")" = "f" ] \
   || fail "acceptance_admin is a superuser"
-pass "direct role creates databases and roles, sends -c options, and is not a superuser"
+# scripts/init-db.sql locks the platform database to its owner.
+psql "host=127.0.0.1 port=5432 user=acceptance_admin dbname=kolaybase" -Atc "select 1" >/dev/null 2>&1 \
+  && fail "the direct role can connect to the platform database"
+pass "direct role creates databases and roles, sends -c options, is not a superuser, cannot open the platform database"
 unset PGPASSWORD
 
 # The first account, the way an operator creates one: sign up, read the code
