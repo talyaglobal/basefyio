@@ -110,6 +110,9 @@ are off unless set to exactly `true`.
 | `KEYCLOAK_ADMIN_USER` | `admin` | yes / yes (required) | Master-realm administrator the API uses to create a realm per project. Also the first dashboard login of a fresh install. |
 | `KEYCLOAK_ADMIN_PASSWORD` | `admin` | yes / yes (required) | Its password. |
 | `KEYCLOAK_ADMIN_CLIENT_ID` | `admin-cli` | fixed / fixed | Client used for that admin login. |
+| `KEYCLOAK_HEALTH_URL` | unset (`<KEYCLOAK_URL>/health/ready`) | yes / yes | Readiness URL the health check probes. Keycloak 25 and newer answer on the management port: `http://keycloak:9000/health/ready` (set by `deploy/compose/keycloak-26.yml`). |
+| `KEYCLOAK_REALM_SMTP` | `false` | yes / yes | `true` with `MAIL_TRANSPORT=smtp`: the API writes the SMTP server into every realm at start-up and into each new realm, so Keycloak's own mail (password reset and verification links of its login pages) can leave. |
+| `KEYCLOAK_IMAGE` | `quay.io/keycloak/keycloak:24.0` | compose / compose | Keycloak image; `scripts/install.sh` pins it per release (`deploy/components.env`). |
 | `KEYCLOAK_POST_LOGOUT_REDIRECT_URIS` | empty | no / no | Extra post-logout redirect URIs (comma- or space-separated) added to the dashboard's Keycloak client. |
 | `PLATFORM_KEYCLOAK_CLIENT_ID` | `kolaybase-platform` | no / no | Client id of the dashboard's OAuth client in the master realm; the API creates or updates it at start-up. Change it only on a fresh install — a new value creates a second client. (`.env.example` shows `basefyio-platform`; compose does not pass it, so the code default is what runs.) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | empty | yes / yes | Google sign-in for the **dashboard** (configured as an identity provider in the master realm). Project end-user providers are set per project, not here. |
@@ -258,6 +261,12 @@ Details: [REALTIME_API.md](../REALTIME_API.md).
 | `RESEND_BASE_URL` | the provider's own (`https://api.resend.com`) | no / yes | API base of a provider that speaks the same HTTP contract; wins over the key-prefix rule. |
 | `RESEND_FROM_EMAIL` | `basefyio <noreply@basefyio.com>` | yes / yes | Sender. The value contains `<` and `>`: quote it in any file a shell will `source`. |
 | `RESEND_REPLY_TO` | `support@basefyio.com` | yes / yes | Reply-To header. |
+| `MAIL_TRANSPORT` | `resend` | yes / yes | How platform mail leaves: `resend` (the HTTP API above) or `smtp`. The startup probe and `/api/health` (`checks.email`) report either. |
+| `MAIL_FROM` | unset (`RESEND_FROM_EMAIL`) | yes / yes | Sender for SMTP, as `Name <address>` (quote it in env files). |
+| `SMTP_HOST`, `SMTP_PORT` | unset, `587` | yes / yes | SMTP server for `MAIL_TRANSPORT=smtp`; no host means mail is not configured. |
+| `SMTP_USER`, `SMTP_PASSWORD` | unset | yes / yes | Login; no user means no authentication. |
+| `SMTP_SECURE` | `starttls` | yes / yes | `starttls` (upgrade required, usually 587), `tls` (implicit, 465), `none` (plain text; a trusted relay only). |
+| `SMTP_TLS_REJECT_UNAUTHORIZED` | `true` | yes / yes | `false` accepts a self-signed server certificate. |
 | `FEEDBACK_NOTIFY_EMAILS` | `support@talyasmart.com` | no / no | Comma-separated recipients of new-feedback notifications. |
 | `BILLING_SUMMARY_RECIPIENT` | `support@talyasmart.com` | no / no | Recipient of the scheduled billing summary mail. |
 
@@ -288,6 +297,10 @@ The dev file starts the Couchbase `nosql` and `nosql-init` containers by default
 the provider defaults to `disabled`; start the stack with explicit service names to skip them.
 
 ## Embeddings and AI
+
+| Variable | Default | Dev / prod | Meaning |
+|---|---|---|---|
+| `AI_ENABLED` | `true` | yes / yes | `false` switches off every feature that sends data to a hosted model: the dashboard assistant, project agents, platform and per-project embeddings, SQL statement embedding, retrieval, recommendations and the marketing tools. Every hosted-model key reads as empty and every embedding provider refuses, so nothing reaches OpenAI, Anthropic, Cohere, fal.ai, ElevenLabs or a remote Ollama. |
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
@@ -338,7 +351,7 @@ Off until a target is set. Records are forwarded by the API process that created
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
 | `GHCR_OWNER` | — | — / compose | Registry owner in the production image names `ghcr.io/<owner>/basefyio-*`. |
-| `IMAGE_TAG` | `latest` | — / compose + yes | Tag of the `basefyio-api`, `basefyio-ui` and `basefyio-website` images in the prod file; also passed to the API, which reports it in `/api/health` and `/api/metrics` (`unknown` when unset). |
+| `IMAGE_TAG` | `latest` | yes / compose + yes | Tag of the `basefyio-api`, `basefyio-ui` and `basefyio-website` images in the prod file; also passed to the API, which reports it in `/api/health` and `/api/metrics` (`unknown` when unset). |
 | `API_REPLICAS` | `1` | — / compose | Number of `platform-api` containers. Raise it only with `PGBOUNCER_ADMIN_PASSWORD` set and memory to spare. |
 | `API_DB_CONNECTION_LIMIT` | `20` | — / compose | Prisma pool per API replica (part of the derived `DATABASE_URL`); multiplies by the replica count. |
 | `CRON_LEADER_ELECTION` | on | no / no | One replica runs the scheduled jobs, chosen through a Redis lease. `false` = every process runs them. |
@@ -499,3 +512,20 @@ Source: `apps/platform-api/src/config/configuration.ts`, `apps/platform-api/src/
 `lib/basefyio-realtime.ts`, `Dockerfile`); `apps/website/src/lib/site-url.ts`,
 `apps/website/src/components/google-analytics.tsx`, `apps/website/Dockerfile`;
 `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`.
+
+## Self-hosting installer (scripts/install.sh)
+
+`scripts/install.sh` writes these into the env file; see `docs/SELF_HOSTING_OFFLINE.md`.
+
+| Variable | Meaning |
+|---|---|
+| `BASEFYIO_BASE` | `selfhost` (`docker-compose.yml`) or `prod` (`docker-compose.prod.yml`) |
+| `BASEFYIO_VERSION`, `BASEFYIO_PREVIOUS_VERSION`, `BASEFYIO_LAST_BACKUP` | the release running, the one before the last upgrade, and that upgrade's backup |
+| `BASEFYIO_IMAGES`, `BASEFYIO_BUNDLE` | `build`, `pull` or `bundle`, and the bundle path |
+| `BASEFYIO_KEYCLOAK` | `24`, `26` or `external` |
+| `BASEFYIO_DB_ADMIN_ROLE`, `POSTGRES_APP_ADMIN_USER`, `POSTGRES_APP_ADMIN_PASSWORD`, `POSTGRES_DIRECT_BIND`, `POSTGRES_DIRECT_PORT` | the direct Postgres role (`CREATEDB`, `CREATEROLE`, not a superuser) and where Postgres is published |
+| `BASEFYIO_PGBOUNCER_BIND` | `all`, `local` or `closed` |
+| `BASEFYIO_DOCSTORE` | `yes` or `no` (then `DATA_ENGINE_PROVIDER=postgres`) |
+| `BASEFYIO_AI`, `BASEFYIO_MAIL`, `BASEFYIO_OFFLINE`, `BASEFYIO_PIN_COMPONENTS` | AI on/off (`AI_ENABLED`), `resend`/`smtp` (`MAIL_TRANSPORT`), offline host, component pins |
+| `BASEFYIO_COMPOSE_FILES`, `BASEFYIO_PROJECT` | the overlays in use and the compose project name |
+| `POSTGRES_IMAGE`, `MINIO_IMAGE`, `PGBOUNCER_IMAGE`, `REDIS_IMAGE`, `RABBITMQ_IMAGE`, `MONGO_IMAGE`, `TRAEFIK_IMAGE`, `CURL_IMAGE`, `COUCHBASE_IMAGE`, `COUCHDB_IMAGE` | component images; each defaults in the compose files to the historical floating tag, and the installer pins them to `deploy/components.env` on a new installation |

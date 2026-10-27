@@ -42,6 +42,29 @@ export default function SelfHostingDocs() {
         </tbody>
       </table>
 
+      <h2>The installer</h2>
+      <p>
+        <code>scripts/install.sh</code> installs, reconfigures, upgrades and rolls back a self-hosted stack. It asks
+        which release to run (the tags, newest first) and which components: Keycloak 24, 26 or an external server, a
+        direct PostgreSQL role with <code>CREATEDB</code>/<code>CREATEROLE</code> beside PgBouncer, where PgBouncer
+        listens (all interfaces, this host only, or not at all), whether the document store runs, whether AI features
+        are on, and whether platform mail goes through the HTTP API or an SMTP server. Every question defaults to what
+        an installation does today, so pressing Enter through them changes nothing.
+      </p>
+      <pre><code>{`git clone https://github.com/talyaglobal/basefyio.git basefyio && cd basefyio
+scripts/install.sh            # interactive
+scripts/install.sh --yes --answers answers.env   # unattended
+./basefyio ps                 # docker compose for this installation`}</code></pre>
+      <p>
+        Answers can also come from environment variables (<code>BASEFYIO_KEYCLOAK=26</code>,{" "}
+        <code>BASEFYIO_AI=off</code>, <code>BASEFYIO_MAIL=smtp</code>, …); they are stored in the env file, so an
+        upgrade asks nothing that was answered before. A new installation pins every component image to the versions
+        the release was tested with, and the installer prints them — with whether the release changed the database —
+        when it finishes. On a host without internet access it loads an image bundle and starts without a single
+        registry call. The full guide:{" "}
+        <a href={`${REPO_DOCS}/SELF_HOSTING_OFFLINE.md`}>docs/SELF_HOSTING_OFFLINE.md</a>.
+      </p>
+
       <h2>Development: everything on one machine</h2>
       <pre><code>{`git clone https://github.com/talyaglobal/basefyio.git basefyio
 cd basefyio
@@ -140,6 +163,12 @@ open https://app.example.com/login`}</code></pre>
       </p>
 
       <h2>Updating</h2>
+      <p>
+        With the installer, <code>scripts/install.sh upgrade</code> backs up every database, moves to the release you
+        pick, and goes back to the previous release by itself if the API does not come up;{" "}
+        <code>scripts/install.sh rollback</code> and <code>scripts/install.sh restore &lt;backup&gt;</code> are the
+        explicit ways back. By hand:
+      </p>
       <pre><code>{`# new images (pull + retag, or rebuild as above), then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d`}</code></pre>
       <p>

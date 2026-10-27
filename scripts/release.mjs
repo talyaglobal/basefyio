@@ -103,4 +103,30 @@ if (existing) {
   console.log(`  changelog: ${file} (edit it before committing)`);
 }
 
+// 3. deploy/components.env: did the database schema change since the previous release?
+{
+  const COMPONENTS = 'deploy/components.env';
+  if (existsSync(COMPONENTS)) {
+    let previous = '';
+    try {
+      previous = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+    } catch {
+      /* no tag yet */
+    }
+    let changes = 'none';
+    if (previous) {
+      try {
+        execSync(`git diff --quiet ${previous} -- apps/platform-api/prisma/schema.prisma`);
+      } catch {
+        changes = 'additive';
+      }
+    } else {
+      changes = 'additive';
+    }
+    const text = readFileSync(COMPONENTS, 'utf8').replace(/^BASEFYIO_DB_CHANGES=.*$/m, `BASEFYIO_DB_CHANGES=${changes}`);
+    if (!dry) writeFileSync(COMPONENTS, text);
+    console.log(`  ${COMPONENTS}: database changes since ${previous || 'the start'}: ${changes}`);
+  }
+}
+
 console.log(dry ? 'dry run, nothing written' : `done: commit as "chore(release): ${tag}"; the deploy tags ${tag} after it succeeds`);

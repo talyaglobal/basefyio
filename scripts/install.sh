@@ -279,7 +279,6 @@ read_previous_answers() {
   if [ -z "$PREV_KEYCLOAK" ] && [ "$EXISTING" = 1 ]; then
     case "$(env_get KEYCLOAK_IMAGE)" in *:26*) PREV_KEYCLOAK=26 ;; *) PREV_KEYCLOAK=24 ;; esac
   fi
-  PREV_VERSION="$(env_get BASEFYIO_VERSION)"
 }
 
 new_env_file() {
@@ -540,7 +539,7 @@ prepare_images() {
     bundle)
       [ -f "${BASEFYIO_BUNDLE:-}" ] || die "bundle not found: ${BASEFYIO_BUNDLE:-unset}"
       log "loading images from $BASEFYIO_BUNDLE"
-      [ "$DRY_RUN" = 1 ] || scripts/load-images.sh "$BASEFYIO_BUNDLE" ;;
+      [ "$DRY_RUN" = 1 ] || bash scripts/load-images.sh "$BASEFYIO_BUNDLE" ;;
     pull)
       log "pulling images"
       [ "$DRY_RUN" = 1 ] || dc pull --ignore-buildable ;;
@@ -705,7 +704,8 @@ cmd_upgrade() {
   keep_current_images "$current"
   env_set BASEFYIO_PREVIOUS_VERSION "$current"
   env_set BASEFYIO_LAST_BACKUP "${LAST_BACKUP:-}"
-  export BASEFYIO_UPGRADE_FROM="$current" BASEFYIO_UPGRADE_FROM_COMMIT="$(git rev-parse HEAD)" BASEFYIO_UPGRADE_BACKUP="${LAST_BACKUP:-}"
+  BASEFYIO_UPGRADE_FROM_COMMIT="$(git rev-parse HEAD)"
+  export BASEFYIO_UPGRADE_FROM="$current" BASEFYIO_UPGRADE_FROM_COMMIT BASEFYIO_UPGRADE_BACKUP="${LAST_BACKUP:-}"
   export BASEFYIO_VERSION="$target"
   log "upgrading $current → $target"
   COMMAND=install

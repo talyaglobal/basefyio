@@ -243,6 +243,17 @@ jobs:
           ENTRY=$(grep -rls "version: v$VER" apps/admin-ui/content/changelog/ | head -n 1)
           TITLE=$(sed -n 's/^title: *"\{0,1\}\(.*[^"]\)"\{0,1\}$/\1/p' "$ENTRY" | head -n 1)
           awk 'f&&/^---$/{exit} f{print} /^---$/{c++; if(c==2)f=1}' "$ENTRY" > /tmp/notes.md || true
+          # The components this release is tested with (deploy/components.env), for self-hosters.
+          if [ -f deploy/components.env ]; then
+            {
+              printf '\n## Components\n\n'
+              printf 'Database changes since the previous release: %s\n\n' "$(sed -n 's/^BASEFYIO_DB_CHANGES=//p' deploy/components.env)"
+              printf '| Component | Pinned / supported |\n|---|---|\n'
+              grep -E '^(KEYCLOAK_SUPPORTED|[A-Z_]+_IMAGE(_PUBLIC)?)=' deploy/components.env | grep -vE '^KEYCLOAK_IMAGE_' \
+                | sed -E 's/^([A-Z_]+)="?([^"]*)"?$/| \1 | `\2` |/'
+              printf '\nInstall or upgrade a self-hosted stack with `scripts/install.sh` (docs/SELF_HOSTING_OFFLINE.md).\n'
+            } >> /tmp/notes.md
+          fi
           if ! gh release view "v$VER" >/dev/null 2>&1; then
             gh release create "v$VER" --title "v$VER — ${TITLE:-release}" --notes-file /tmp/notes.md --verify-tag
           fi
