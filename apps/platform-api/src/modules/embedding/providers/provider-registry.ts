@@ -1,3 +1,4 @@
+import { aiEnabled, AI_DISABLED_MESSAGE } from '../../../common/utils/ai-switch';
 import {
   EMBEDDING_PROVIDER_IDS,
   EmbeddingProvider,
@@ -166,6 +167,8 @@ export function isPrivateHost(url: string): boolean {
 
 /** Build a concrete provider; throws `auth` when a required key is missing. */
 export function createProvider(cfg: EmbeddingProviderConfig): EmbeddingProvider {
+  // Every embedding call — platform store or a project's own provider — goes through here.
+  if (!aiEnabled()) throw new Error(AI_DISABLED_MESSAGE);
   const entry = PROVIDER_CATALOGUE[cfg.provider];
   const model = cfg.model?.trim() || entry.defaultModel;
   if (entry.requiresApiKey && !cfg.apiKey) {

@@ -51,6 +51,24 @@ describe('HealthService', () => {
     fetchSpy.mockRestore();
   });
 
+  it('probes KEYCLOAK_HEALTH_URL when it is set (Keycloak 25+ serves health on the management port)', async () => {
+    const prisma = { $queryRaw: async () => [] };
+    const redis = { getClient: () => ({ ping: async () => 'PONG' }) };
+    const values: Record<string, string> = {
+      'keycloak.url': 'http://keycloak:8080',
+      'keycloak.healthUrl': 'http://keycloak:9000/health/ready',
+    };
+    const config = { get: (key: string) => values[key] };
+    const svc = new HealthService(prisma as any, redis as any, config as any, undefined);
+    const fetchSpy = jest.spyOn(globalThis, 'fetch' as any).mockResolvedValue({ status: 200 } as any);
+
+    const out = await svc.keycloak();
+
+    expect(fetchSpy).toHaveBeenCalledWith('http://keycloak:9000/health/ready', expect.anything());
+    expect(out.state).toBe('ok');
+    fetchSpy.mockRestore();
+  });
+
   it('reports the document store through its own ping', async () => {
     const prisma = { $queryRaw: async () => [] };
     const redis = { getClient: () => ({ ping: async () => 'PONG' }) };

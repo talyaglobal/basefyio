@@ -63,7 +63,9 @@ export class HealthService {
   async keycloak(): Promise<CheckResult> {
     const base = (this.config.get<string>('keycloak.url') || '').replace(/\/+$/, '');
     if (!base) return { state: 'skipped', detail: 'not configured' };
-    return this.timed(() => this.expect200(`${base}/health/ready`));
+    // Keycloak 25+ serves health on the management port; KEYCLOAK_HEALTH_URL says where.
+    const url = (this.config.get<string>('keycloak.healthUrl') || '').trim() || `${base}/health/ready`;
+    return this.timed(() => this.expect200(url));
   }
 
   async storage(): Promise<CheckResult> {

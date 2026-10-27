@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
+import { smtpTransportOptions } from './smtp-options';
 import { MetricsService } from '../health/metrics.service';
 import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
@@ -28,6 +30,8 @@ export class EmailService implements OnModuleInit {
 
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend | null = null;
+  /** Set when MAIL_TRANSPORT=smtp: platform mail goes to this server instead of the HTTP API. */
+  private smtp: nodemailer.Transporter | null = null;
   private readonly fromEmail: string;
   private readonly replyTo: string;
   private readonly appUrl: string;
@@ -50,14 +54,25 @@ export class EmailService implements OnModuleInit {
     private readonly config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    const apiKey = this.config.get<string>('resend.apiKey');
-    if (apiKey) {
-      this.resend = new Resend(apiKey);
+    const transport = this.config.get<string>('mail.transport') || 'resend';
+    if (transport === 'smtp') {
+      const options = smtpTransportOptions(this.config);
+      if (options) {
+        this.smtp = nodemailer.createTransport(options);
+      } else {
+        this.deliverability = { state: 'not-configured' };
+        this.logger.warn('MAIL_TRANSPORT=smtp but SMTP_HOST is empty — emails will not be sent');
+      }
     } else {
-      this.deliverability = { state: 'not-configured' };
-      this.logger.warn('No mail provider API key is set — emails will not be sent');
+      const apiKey = this.config.get<string>('resend.apiKey');
+      if (apiKey) {
+        this.resend = new Resend(apiKey);
+      } else {
+        this.deliverability = { state: 'not-configured' };
+        this.logger.warn('No mail provider API key is set — emails will not be sent');
+      }
     }
-    this.fromEmail = this.config.get<string>('resend.fromEmail')!;
+    this.fromEmail = this.config.get<string>('mail.from') || this.config.get<string>('resend.fromEmail')!;
     this.replyTo = this.config.get<string>('resend.replyTo')!;
     this.appUrl = this.config.get<string>('appUrl')!;
   }
@@ -70,6 +85,10 @@ export class EmailService implements OnModuleInit {
    * stop the API from starting, since everything else still works.
    */
   async onModuleInit(): Promise<void> {
+    if (this.smtp) {
+      await this.probeSmtp();
+      return;
+    }
     if (!this.resend) return;
     try {
       const probe = await this.resend.domains.list();
@@ -103,6 +122,27 @@ export class EmailService implements OnModuleInit {
         checkedAt: new Date().toISOString(),
       };
       this.logger.warn(`[EMAIL] Could not verify the provider key at startup: ${err?.message ?? err}`);
+    }
+  }
+
+  /** SMTP: one connection + login at startup. A refused login condemns the settings; a network blip only says so. */
+  private async probeSmtp(): Promise<void> {
+    try {
+      await this.smtp!.verify();
+      this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
+      this.logger.log('[EMAIL] SMTP server accepted the connection — mail can be sent');
+    } catch (err: any) {
+      const code = String(err?.code ?? '');
+      if (code === 'EAUTH' || code === 'ETLS' || code === 'ESOCKET' && /certificate/i.test(String(err?.message))) {
+        this.markFailing(`SMTP ${code}: ${err?.message ?? 'refused'}`);
+        return;
+      }
+      this.deliverability = {
+        state: 'unchecked',
+        detail: `SMTP startup check did not complete: ${err?.message ?? err}`,
+        checkedAt: new Date().toISOString(),
+      };
+      this.logger.warn(`[EMAIL] Could not verify the SMTP server at startup: ${err?.message ?? err}`);
     }
   }
 
@@ -358,6 +398,7 @@ export class EmailService implements OnModuleInit {
   }
 
   private async send(params: { to: string; subject: string; html: string }) {
+    if (this.smtp) return this.sendSmtp(params);
     if (!this.resend) {
       this.logger.warn(`[EMAIL] Skipped (no API key): "${params.subject}" → ${params.to}`);
       return null;
@@ -404,6 +445,34 @@ export class EmailService implements OnModuleInit {
         error.stack
       );
       this.metrics?.increment('email_send_failed');
+      return null;
+    }
+  }
+
+  private async sendSmtp(params: { to: string; subject: string; html: string }) {
+    try {
+      const info = await this.smtp!.sendMail({
+        from: this.fromEmail,
+        to: params.to,
+        replyTo: this.replyTo,
+        subject: params.subject,
+        html: params.html,
+      });
+      if (this.deliverability.state !== 'ok') {
+        this.deliverability = { state: 'ok', checkedAt: new Date().toISOString() };
+        this.logger.log('[EMAIL] Delivery recovered');
+      }
+      this.metrics?.increment('email_sent');
+      this.logger.log(`[EMAIL] ✓ Sent over SMTP: "${params.subject}" → ${params.to} (${info?.messageId || 'no id'})`);
+      return info;
+    } catch (error: any) {
+      this.logger.error(
+        `[EMAIL] ✗ SMTP refused: "${params.subject}" → ${params.to}\n` +
+          `From: ${this.fromEmail}\n` +
+          `Error: ${error?.code || ''} ${error?.message || error}`,
+      );
+      this.metrics?.increment('email_send_failed');
+      if (error?.code === 'EAUTH' || error?.code === 'EENVELOPE') this.markFailing(`SMTP ${error.code}: ${error.message}`);
       return null;
     }
   }

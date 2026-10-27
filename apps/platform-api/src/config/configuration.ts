@@ -1,4 +1,5 @@
 import { resolveMailBaseUrl } from '../mail-provider-env';
+import { aiEnabled } from '../common/utils/ai-switch';
 
 /** An optional integer env value: unset or blank means "not configured". */
 const optionalInt = (value: string | undefined): number | undefined => {
@@ -7,7 +8,12 @@ const optionalInt = (value: string | undefined): number | undefined => {
   return Number.isNaN(n) ? undefined : n;
 };
 
-export default () => ({
+export default () => {
+  // AI_ENABLED=false empties every hosted-model key below, so no feature can
+  // reach OpenAI, Anthropic, Cohere, fal.ai, ElevenLabs or a remote Ollama.
+  const AI = aiEnabled();
+  const aiKey = (value: string | undefined) => (AI ? value || '' : '');
+  return {
   port: parseInt(process.env.PORT || '4000', 10),
   appUrl: process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
 
@@ -34,6 +40,14 @@ export default () => ({
     adminClientId: process.env.KEYCLOAK_ADMIN_CLIENT_ID || 'admin-cli',
     /** Comma- or space-separated extra post-logout redirect URIs for basefyio-platform (production domains, etc.) */
     postLogoutRedirectUrisExtra: process.env.KEYCLOAK_POST_LOGOUT_REDIRECT_URIS || '',
+    /**
+     * Readiness URL the health check probes. Empty = `<url>/health/ready`, which is
+     * where Keycloak 24 answers; from Keycloak 25 on, health lives on the management
+     * port (`http://keycloak:9000/health/ready`).
+     */
+    healthUrl: process.env.KEYCLOAK_HEALTH_URL || '',
+    /** Write the platform's SMTP settings into every realm, so Keycloak's own mail (password reset, verification) can leave. */
+    realmSmtp: process.env.KEYCLOAK_REALM_SMTP === 'true',
   },
 
   minio: {
@@ -168,8 +182,33 @@ export default () => ({
     replyTo: process.env.RESEND_REPLY_TO || 'support@basefyio.com',
   },
 
+  /**
+   * How platform mail leaves: `resend` (default — the Resend-compatible HTTP API
+   * configured above) or `smtp` (any SMTP server; the only option on a host
+   * without internet access).
+   */
+  mail: {
+    transport: (process.env.MAIL_TRANSPORT || 'resend').trim().toLowerCase(),
+    /** Sender for SMTP; empty = RESEND_FROM_EMAIL. Same format: `Name <address>`. */
+    from: process.env.MAIL_FROM || '',
+    smtp: {
+      host: process.env.SMTP_HOST || '',
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      user: process.env.SMTP_USER || '',
+      password: process.env.SMTP_PASSWORD || '',
+      /** `starttls` (default, upgrade on 587) | `tls` (implicit, 465) | `none` (plain, trusted networks only). */
+      security: (process.env.SMTP_SECURE || 'starttls').trim().toLowerCase(),
+      /** Set to "false" to accept a self-signed server certificate. */
+      rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false',
+    },
+  },
+
+  ai: {
+    enabled: AI,
+  },
+
   openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
+    apiKey: aiKey(process.env.OPENAI_API_KEY),
   },
 
   /**
@@ -180,17 +219,17 @@ export default () => ({
    */
   marketingAgency: {
     claude: {
-      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      apiKey: aiKey(process.env.ANTHROPIC_API_KEY),
       model: process.env.ANTHROPIC_MODEL || 'claude-opus-5',
     },
     fal: {
-      apiKey: process.env.FAL_KEY || '',
+      apiKey: aiKey(process.env.FAL_KEY),
       imageModel: process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/dev',
       videoModel:
         process.env.FAL_VIDEO_MODEL || 'fal-ai/kling-video/v1/standard/text-to-video',
     },
     elevenlabs: {
-      apiKey: process.env.ELEVENLABS_API_KEY || '',
+      apiKey: aiKey(process.env.ELEVENLABS_API_KEY),
       voiceId: process.env.ELEVENLABS_VOICE_ID || '',
       model: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     },
@@ -205,7 +244,7 @@ export default () => ({
 
   embedding: {
     /** Set to "false" to disable all embedding / vector search without removing the module. */
-    enabled: process.env.EMBEDDING_ENABLED !== 'false',
+    enabled: AI && process.env.EMBEDDING_ENABLED !== 'false',
     /** Embedding provider for the platform store: openai (default) | ollama | cohere. */
     provider: process.env.EMBEDDING_PROVIDER || 'openai',
     /** Model id at the provider. Empty = the provider's default (text-embedding-3-small for OpenAI). */
@@ -233,12 +272,12 @@ export default () => ({
     hostRegion: process.env.PLATFORM_REGION || '',
     ollama: {
       /** Shared with the agent module; a trailing /v1 is tolerated. */
-      baseUrl: process.env.OLLAMA_BASE_URL || '',
+      baseUrl: aiKey(process.env.OLLAMA_BASE_URL),
       /** Optional bearer token for an Ollama behind an authenticating proxy. */
-      apiKey: process.env.OLLAMA_API_KEY || '',
+      apiKey: aiKey(process.env.OLLAMA_API_KEY),
     },
     cohere: {
-      apiKey: process.env.COHERE_API_KEY || '',
+      apiKey: aiKey(process.env.COHERE_API_KEY),
     },
   },
 
@@ -354,4 +393,5 @@ export default () => ({
       process.env.CODEFYIO_SESSION_SECRET || process.env.CODEFYIO_JWT_SECRET || '',
     sessionTtlSeconds: parseInt(process.env.CODEFYIO_SESSION_TTL || '3600', 10),
   },
-});
+};
+};

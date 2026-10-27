@@ -11,6 +11,7 @@ import KcAdminClient from '@keycloak/keycloak-admin-client';
 import { v4 as uuid } from 'uuid';
 import { randomBytes } from 'crypto';
 import axios from 'axios';
+import { realmSmtpServer } from '../email/smtp-options';
 
 export interface ProjectClients {
   anonKey: string;
@@ -116,6 +117,32 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAutoLinkFlow('master');
     await this.ensurePlatformOAuthClient();
     await this.ensurePlatformIdentityProviders();
+    await this.ensureRealmSmtp();
+  }
+
+  /**
+   * With KEYCLOAK_REALM_SMTP=true and the platform on SMTP, every realm gets the
+   * same server, so the mail Keycloak sends itself — the password reset and
+   * verification links of its login pages — can leave too. Off by default:
+   * realms keep whatever they had. Idempotent; never fails the boot.
+   */
+  private async ensureRealmSmtp(): Promise<void> {
+    const smtp = realmSmtpServer(this.config);
+    if (!smtp) return;
+    try {
+      const realms = await this.client.realms.find();
+      let updated = 0;
+      for (const realm of realms) {
+        const current = (realm.smtpServer ?? {}) as Record<string, string>;
+        const same = Object.keys(smtp).every((k) => k === 'password' || String(current[k] ?? '') === String(smtp[k]));
+        if (same && current.host) continue;
+        await this.client.realms.update({ realm: realm.realm! }, { smtpServer: smtp });
+        updated++;
+      }
+      if (updated) this.logger.log(`SMTP settings written to ${updated} realm(s)`);
+    } catch (err: any) {
+      this.logger.warn(`Could not write SMTP settings to the realms: ${err?.message ?? err}`);
+    }
   }
 
   private async ensureRealmTokenLifespan() {
@@ -472,6 +499,7 @@ export class KeycloakAdminService implements OnModuleInit {
         ssoSessionIdleTimeout: 2592000,  // 30 days
         ssoSessionMaxLifespan: 2592000,  // 30 days
         offlineSessionIdleTimeout: 2592000, // 30 days
+        ...(realmSmtpServer(this.config) ? { smtpServer: realmSmtpServer(this.config)! } : {}),
       }),
     );
 

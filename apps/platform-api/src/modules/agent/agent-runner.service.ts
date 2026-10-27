@@ -1,3 +1,4 @@
+import { aiEnabled, AI_DISABLED_MESSAGE } from '../../common/utils/ai-switch';
 import {
   Injectable,
   Logger,
@@ -175,6 +176,7 @@ export class AgentRunnerService {
       }),
     );
 
+    if (!aiEnabled()) throw new Error(AI_DISABLED_MESSAGE);
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY ?? '',
       baseURL: this.resolveBaseUrl(version.provider),

@@ -1,3 +1,4 @@
+import { aiEnabled } from '../../common/utils/ai-switch';
 import {
   Injectable,
   Logger,
@@ -38,7 +39,7 @@ export interface SqlRlsContext {
 }
 
 /** Whether every executed statement is queued for semantic indexing; on unless switched off. */
-const SQL_QUERY_EMBEDDING = (process.env.SQL_QUERY_EMBEDDING ?? 'on').toLowerCase() !== 'off';
+const SQL_QUERY_EMBEDDING = aiEnabled() && (process.env.SQL_QUERY_EMBEDDING ?? 'on').toLowerCase() !== 'off';
 
 @Injectable()
 export class SqlService implements OnModuleDestroy {

@@ -31,7 +31,8 @@
     "rag:gc:dry": "ts-node --transpile-only scripts/rag-embedding-gc.ts --dry",
     "organizations:backfill": "ts-node --transpile-only scripts/backfill-organizations.ts",
     "organizations:backfill:dry": "ts-node --transpile-only scripts/backfill-organizations.ts --dry",
-    "lint": "eslint \"{src,test}/**/*.ts\" --fix"
+    "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "test:keycloak-compat": "node --test test/keycloak-compat.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
