@@ -1,0 +1,25 @@
+# Build the platform images from this checkout instead of pulling them
+# (BASEFYIO_IMAGES=build on the production-shaped file). Same Dockerfiles and
+# contexts as the release pipeline; the images keep the names the file pulls,
+# tagged with the release (IMAGE_TAG), so a rollback is a tag switch.
+services:
+  postgres:
+    build:
+      context: ./docker/postgres
+  platform-api:
+    build:
+      context: .
+      dockerfile: apps/platform-api/Dockerfile
+  admin-ui:
+    build:
+      context: ./apps/admin-ui
+      args:
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}
+  website:
+    build:
+      context: .
+      dockerfile: apps/website/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${WEBSITE_URL:-https://basefyio.com}
+        NEXT_PUBLIC_RELEASE_STAGE: ${RELEASE_STAGE:-beta}

@@ -1,0 +1,26 @@
+# Keycloak 26 instead of 24 (scripts/install.sh: BASEFYIO_KEYCLOAK=26).
+#
+# One-way: Keycloak migrates its database on the first start of the newer
+# version and cannot go back without restoring a backup, which the installer
+# takes before switching. From Keycloak 25 on, health lives on the management
+# port 9000, and the bootstrap admin is set with KC_BOOTSTRAP_ADMIN_*.
+services:
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q 'UP'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+  platform-api:
+    environment:
+      KEYCLOAK_HEALTH_URL: http://keycloak:9000/health/ready

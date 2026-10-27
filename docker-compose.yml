@@ -2,7 +2,7 @@ services:
   # ── Infrastructure ───────────────────────────────────────
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kolaybase}
@@ -20,7 +20,7 @@ services:
       retries: 5
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:24.0}
     restart: unless-stopped
     environment:
       KC_DB: postgres
@@ -49,7 +49,7 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
@@ -64,7 +64,7 @@ services:
   # Durable state (job queues, the scheduled-job lease, usage counters) on an
   # instance that never evicts; see docker-compose.prod.yml for why.
   redis-queue:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     volumes:
@@ -79,7 +79,7 @@ services:
   # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
   # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
   rabbitmq:
-    image: rabbitmq:4.4-management-alpine
+    image: ${RABBITMQ_IMAGE:-rabbitmq:4.4-management-alpine}
     restart: always
     hostname: rabbitmq
     environment:
@@ -96,7 +96,7 @@ services:
       start_period: 60s
 
   minio:
-    image: minio/minio:latest
+    image: ${MINIO_IMAGE:-minio/minio:latest}
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kolaybase}
@@ -109,7 +109,7 @@ services:
       - minio_data:/data
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer:latest}
     restart: unless-stopped
     ports:
       - "${PGBOUNCER_PORT:-6432}:6432"
@@ -130,7 +130,7 @@ services:
   #   docker compose --profile couchdb up -d couchdb
   # then set DATA_ENGINE_PROVIDER=couchdb and NOSQL_CONNSTR=http://couchdb:5984
   couchdb:
-    image: apache/couchdb:3
+    image: ${COUCHDB_IMAGE:-apache/couchdb:3}
     profiles: ["couchdb"]
     restart: unless-stopped
     ports:
@@ -148,7 +148,7 @@ services:
       start_period: 10s
 
   nosql:
-    image: couchbase/server:community-7.6.2
+    image: ${COUCHBASE_IMAGE:-couchbase/server:community-7.6.2}
     restart: unless-stopped
     ports:
       - "${NOSQL_MGMT_PORT:-8091}:8091"
@@ -167,7 +167,7 @@ services:
       start_period: 30s
 
   nosql-init:
-    image: curlimages/curl:latest
+    image: ${CURL_IMAGE:-curlimages/curl:latest}
     depends_on:
       nosql:
         condition: service_healthy
@@ -225,6 +225,21 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
+      # Platform mail over SMTP instead of the HTTP API (MAIL_TRANSPORT=smtp), the
+      # AI master switch, and Keycloak 25+ health; all default to today's behaviour.
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-resend}
+      MAIL_FROM: ${MAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-starttls}
+      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
+      KEYCLOAK_REALM_SMTP: ${KEYCLOAK_REALM_SMTP:-false}
+      KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      # The release this stack runs (scripts/install.sh writes it); reported by /api/health.
+      IMAGE_TAG: ${IMAGE_TAG:-}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       REDIS_URL: redis://redis:6379
       # Durable state (job queues, the scheduled-job lease, usage counters)
@@ -386,7 +401,7 @@ services:
   # here, so a proxy-less dev stack does not start trusting forwarded headers.
   # See docs/SELF_HOSTING_OFFLINE.md.
   traefik:
-    image: traefik:v3.1
+    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
     profiles: ["tls"]
     restart: unless-stopped
     command:

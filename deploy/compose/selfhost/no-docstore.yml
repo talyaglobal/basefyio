@@ -1,0 +1,11 @@
+# No document store (BASEFYIO_DOCSTORE=no) on the self-host file: Couchbase
+# and its initialiser do not start and publish no ports. The installer sets
+# DATA_ENGINE_PROVIDER=postgres, so the Data Engine keeps documents in Postgres.
+services:
+  nosql:
+    profiles: ["docstore"]
+  nosql-init:
+    profiles: ["docstore"]
+  platform-api:
+    environment:
+      DATA_ENGINE_PROVIDER: ${DATA_ENGINE_PROVIDER:-postgres}

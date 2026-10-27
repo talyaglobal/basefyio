@@ -1,0 +1,17 @@
+# No bundled Keycloak: the platform uses one that already runs elsewhere
+# (scripts/install.sh: BASEFYIO_KEYCLOAK=external). KEYCLOAK_URL is how the
+# API reaches it, KEYCLOAK_PUBLIC_URL is what browsers and token issuers see,
+# and KEYCLOAK_ADMIN_USER / KEYCLOAK_ADMIN_PASSWORD are a master-realm admin
+# the API signs in with to manage realms.
+services:
+  keycloak:
+    profiles: ["bundled-keycloak"]
+  platform-api:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+        required: false
+    environment:
+      KEYCLOAK_URL: ${KEYCLOAK_URL:?KEYCLOAK_URL must point at the external Keycloak}
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:?KEYCLOAK_PUBLIC_URL must be set}
+      KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}

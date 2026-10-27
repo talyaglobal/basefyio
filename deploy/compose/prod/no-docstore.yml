@@ -1,0 +1,12 @@
+# No document store (BASEFYIO_DOCSTORE=no) on the production-shaped file:
+# MongoDB does not start. The installer sets DATA_ENGINE_PROVIDER=postgres.
+services:
+  mongodb:
+    profiles: ["docstore"]
+  platform-api:
+    depends_on:
+      mongodb:
+        condition: service_healthy
+        required: false
+    environment:
+      DATA_ENGINE_PROVIDER: ${DATA_ENGINE_PROVIDER:-postgres}

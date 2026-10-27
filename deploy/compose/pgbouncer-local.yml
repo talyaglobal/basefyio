@@ -1,0 +1,5 @@
+# PgBouncer only on the host's loopback (BASEFYIO_PGBOUNCER_BIND=local).
+services:
+  pgbouncer:
+    ports: !override
+      - "127.0.0.1:${PGBOUNCER_PORT:-6432}:6432"

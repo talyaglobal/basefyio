@@ -1,0 +1,16 @@
+# A host without internet access (BASEFYIO_OFFLINE=yes): silence the optional
+# outbound calls a few components make at start, so nothing waits on a
+# network that is not there.
+services:
+  platform-api:
+    environment:
+      CHECKPOINT_DISABLE: "1"
+  admin-ui:
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+  website:
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+  minio:
+    environment:
+      MINIO_UPDATE: "off"

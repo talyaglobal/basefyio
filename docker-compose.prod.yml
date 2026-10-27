@@ -2,7 +2,7 @@ services:
   # ── Reverse Proxy ───────────────────────────────────────
 
   traefik:
-    image: traefik:v3.1
+    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
     restart: always
     command:
       - --log.level=INFO
@@ -113,7 +113,7 @@ services:
       retries: 5
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:24.0}
     restart: always
     oom_score_adj: -900
     environment:
@@ -156,7 +156,7 @@ services:
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 --save 300 100
@@ -183,7 +183,7 @@ services:
   # cache instance above keeps `allkeys-lru`, which is right for caches and
   # wrong for a queue.
   redis-queue:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: always
     oom_score_adj: -900
     command: redis-server --maxmemory 192mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
@@ -208,7 +208,7 @@ services:
   # ── Message bus (WP-5): RabbitMQ 4 — quorum work queues, retry queues, DLQs; WP-6 streams ──
   # Inert for the API until MESSAGE_BUS_URL is set. Management UI only on the internal network.
   rabbitmq:
-    image: rabbitmq:4.4-management-alpine
+    image: ${RABBITMQ_IMAGE:-rabbitmq:4.4-management-alpine}
     restart: always
     hostname: rabbitmq
     environment:
@@ -233,7 +233,7 @@ services:
       start_period: 60s
 
   minio:
-    image: minio/minio:latest
+    image: ${MINIO_IMAGE:-minio/minio:latest}
     restart: always
     oom_score_adj: -900
     environment:
@@ -266,7 +266,7 @@ services:
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: ${PGBOUNCER_IMAGE:-edoburu/pgbouncer:latest}
     restart: always
     oom_score_adj: -900
     ports:
@@ -291,7 +291,7 @@ services:
   # CouchDB was retired 2026-06-12; its volume (couchdb_data) is preserved
   # on disk in case the old test entities are ever needed.
   mongodb:
-    image: mongo:7
+    image: ${MONGO_IMAGE:-mongo:7}
     restart: always
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${NOSQL_USERNAME}
@@ -404,6 +404,19 @@ services:
       RESEND_BASE_URL: ${RESEND_BASE_URL:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-basefyio <noreply@basefyio.com>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-support@basefyio.com}
+      # Platform mail over SMTP instead of the HTTP API (MAIL_TRANSPORT=smtp), the
+      # AI master switch, and Keycloak 25+ health; all default to today's behaviour.
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-resend}
+      MAIL_FROM: ${MAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-starttls}
+      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
+      KEYCLOAK_REALM_SMTP: ${KEYCLOAK_REALM_SMTP:-false}
+      KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}
+      AI_ENABLED: ${AI_ENABLED:-true}
       REDIS_URL: redis://redis:6379
       # Durable state (job queues, the scheduled-job lease, usage counters)
       # goes to the noeviction instance; unset it to keep everything on one.

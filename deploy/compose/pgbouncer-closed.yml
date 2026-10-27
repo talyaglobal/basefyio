@@ -1,0 +1,5 @@
+# PgBouncer not published at all (BASEFYIO_PGBOUNCER_BIND=closed): reachable
+# only from containers on the stack's own network.
+services:
+  pgbouncer:
+    ports: !reset []

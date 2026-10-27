@@ -1,0 +1,10 @@
+# Postgres reachable directly, beside PgBouncer (BASEFYIO_DB_ADMIN_ROLE=yes).
+# For an application that manages its own databases and roles, and that sends
+# connection-time settings (-c TimeZone=UTC, -c jit=off) which PgBouncer's
+# transaction mode refuses. Loopback only unless POSTGRES_DIRECT_BIND says
+# otherwise; the installer creates the role (POSTGRES_APP_ADMIN_USER, with
+# CREATEDB and CREATEROLE, not a superuser).
+services:
+  postgres:
+    ports: !override
+      - "${POSTGRES_DIRECT_BIND:-127.0.0.1}:${POSTGRES_DIRECT_PORT:-5432}:5432"
