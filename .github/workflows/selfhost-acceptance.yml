@@ -1,0 +1,68 @@
+name: Self-host installer
+
+# scripts/install.sh on clean GitHub-hosted machines:
+# - defaults: choosing nothing on an existing installation leaves the compose
+#   configuration exactly as it was (apart from the release written to IMAGE_TAG);
+# - acceptance: a fresh install with Keycloak 26, no document store, AI off,
+#   SMTP, PgBouncer on loopback and a direct Postgres role starts, signs in,
+#   creates a project and delivers mail from the platform and from Keycloak.
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [production]
+    paths:
+      - 'scripts/install.sh'
+      - 'deploy/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.prod.yml'
+      - '.env.example'
+      - '.github/workflows/selfhost-acceptance.yml'
+      - 'apps/platform-api/src/modules/email/**'
+      - 'apps/platform-api/src/modules/auth/keycloak-admin.service.ts'
+      - 'apps/platform-api/src/modules/health/**'
+      - 'apps/platform-api/src/config/**'
+
+jobs:
+  defaults:
+    name: No choices — configuration unchanged
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: shellcheck
+        run: shellcheck -S warning scripts/install.sh deploy/test/assert-acceptance.sh
+      - name: An existing self-host installation, configured before the installer existed
+        run: |
+          cp .env.example .env
+          docker compose -p basefyio --env-file .env -f docker-compose.yml config > /tmp/before.yml
+      - name: Run the installer choosing nothing (settings only)
+        run: BASEFYIO_SKIP_START=1 BASEFYIO_VERSION=current scripts/install.sh --yes
+      - name: Same services, images, ports and settings — only IMAGE_TAG now names the release
+        run: |
+          ./basefyio config > /tmp/after.yml
+          diff <(grep -v 'IMAGE_TAG' /tmp/before.yml) <(grep -v 'IMAGE_TAG' /tmp/after.yml) && echo "identical"
+          grep -q 'IMAGE_TAG: v' /tmp/after.yml
+
+  acceptance:
+    name: Keycloak 26 · no document store · AI off · SMTP · PgBouncer local · direct role
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Room for the image builds
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+      - name: Install from this checkout with the acceptance answers
+        run: scripts/install.sh --yes --answers deploy/test/acceptance.env
+      - name: Assertions
+        run: deploy/test/assert-acceptance.sh
+      - name: State on failure
+        if: failure()
+        run: |
+          ./basefyio ps || true
+          ./basefyio logs --tail 120 platform-api keycloak || true

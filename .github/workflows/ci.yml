@@ -143,3 +143,49 @@ jobs:
         run: |
           if [ -z "$E2E_EMAIL" ]; then echo "::notice::E2E_* secrets not set; running the public smoke tests only"; fi
           npx playwright test --grep-invert @gated --reporter=github,list
+
+  keycloak-compat:
+    name: Keycloak ${{ matrix.keycloak }} — admin service against a real server
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every version deploy/components.env lists as supported.
+        keycloak: ['24.0.5', '26.8.1']
+    steps:
+      - uses: actions/checkout@v4
+      # Node 22: the compiled service requires the Keycloak admin client, an ES module.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Start Keycloak ${{ matrix.keycloak }}
+        run: |
+          docker run -d --name kc -p 8080:8080 -p 9000:9000 \
+            -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -e KC_HEALTH_ENABLED=true \
+            quay.io/keycloak/keycloak:${{ matrix.keycloak }} start-dev
+      - name: Build the data-engine package
+        working-directory: packages/data-engine
+        run: (npm ci || npm install) && npm run build
+      - name: Build the API
+        working-directory: apps/platform-api
+        run: npm ci && npx prisma generate && npm run build
+      - name: Wait for Keycloak
+        run: |
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null && exit 0
+            sleep 2
+          done
+          docker logs kc | tail -n 80; exit 1
+      - name: Admin service against Keycloak ${{ matrix.keycloak }}
+        working-directory: apps/platform-api
+        env:
+          KEYCLOAK_URL: http://localhost:8080
+          KEYCLOAK_ADMIN_USER: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+        run: npm run test:keycloak-compat
+      - name: Keycloak log on failure
+        if: failure()
+        run: docker logs kc | tail -n 120
