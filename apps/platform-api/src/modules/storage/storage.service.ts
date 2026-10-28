@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
   BadRequestException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -18,6 +19,7 @@ import { stat } from 'fs/promises';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../billing/quota.service';
+import { StorageCatalogService } from './storage-catalog.service';
 
 export interface StorageObject {
   name: string;
@@ -81,6 +83,9 @@ export class StorageService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly quota: QuotaService,
+    // Optional so the service can still be built by hand without a catalog;
+    // every write below reports to it when it is there (see StorageCatalogService).
+    @Optional() private readonly catalog?: StorageCatalogService,
   ) {
     // One place decides which store this is: MINIO_* by default, S3_* when
     // STORAGE_DRIVER=s3. Everything below only ever sees an S3 client.
@@ -238,6 +243,7 @@ export class StorageService {
     }
 
     this.logger.log(`Bucket "${minioBucket}" created (public=${isPublic})`);
+    await this.catalog?.upsertBucket(projectId, { name, public: isPublic, owner: userId });
 
     return {
       id: minioBucket,
@@ -264,6 +270,7 @@ export class StorageService {
 
     await this.client.removeBucket(minioBucket);
     this.logger.log(`Bucket "${minioBucket}" deleted`);
+    await this.catalog?.deleteBucket(projectId, bucketName);
     return { message: `Bucket "${bucketName}" deleted` };
   }
 
@@ -327,7 +334,33 @@ export class StorageService {
       await this.applyBucketPolicy(minioBucket, '');
     }
 
+    await this.catalog?.setBucketPublic(projectId, bucketName, isPublic);
     return { public: isPublic };
+  }
+
+  /**
+   * The project's buckets by name, without the per-bucket statistics that make
+   * {@link listBuckets} walk every object. For callers that need the names and
+   * nothing more (the Supabase-compatible `GET /bucket`).
+   */
+  async listBucketNames(
+    projectId: string,
+    userId?: string,
+  ): Promise<Array<{ name: string; physical: string; createdAt: string }>> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const prefix = this.minioProjectPrefix(project.storagePrefix ?? project.slug);
+    const allProjects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, slug: true, storagePrefix: true },
+    });
+    const allBuckets = await this.client.listBuckets();
+    return allBuckets
+      .filter((b) => this.resolveMinioBucketOwner(b.name, allProjects)?.id === project.id)
+      .map((b) => ({
+        name: b.name.substring(prefix.length),
+        physical: b.name,
+        createdAt: b.creationDate.toISOString(),
+      }));
   }
 
   /**
@@ -557,6 +590,7 @@ export class StorageService {
           // cast past the ambiguous overload typing.
           await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${key}`);
           await this.client.removeObject(minioBucket, key);
+          await this.catalog?.moveObject(projectId, bucketName, key, newKey);
           moved++;
         }
       } else {
@@ -565,12 +599,88 @@ export class StorageService {
         if (newKey === src) continue;
         await (this.client.copyObject as any)(minioBucket, newKey, `/${minioBucket}/${src}`);
         await this.client.removeObject(minioBucket, src);
+        await this.catalog?.moveObject(projectId, bucketName, src, newKey);
         moved++;
       }
     }
 
     this.logger.log(`Moved ${moved} object(s) to "${dest || '/'}" in "${minioBucket}"`);
     return { moved };
+  }
+
+  /**
+   * Rename one object to an exact key, optionally into another bucket of the
+   * same project (copy + delete; S3 has no native move). Unlike
+   * {@link moveObjects}, the destination is the whole key, not a folder.
+   */
+  async moveObject(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    destinationBucket: string = bucketName,
+  ): Promise<{ name: string }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const src = this.cleanKey(sourceKey, 'source');
+    const dest = this.cleanKey(destinationKey, 'destination');
+    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
+    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
+      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
+    }
+    if (srcPhysical === destPhysical && src === dest) return { name: dest };
+    await this.copyObjectIn(srcPhysical, src, destPhysical, dest);
+    await this.client.removeObject(srcPhysical, src);
+    await this.catalog?.moveObject(projectId, bucketName, src, dest, destinationBucket);
+    return { name: dest };
+  }
+
+  /** Duplicate one object under another key, optionally into another bucket of the same project. */
+  async copyObject(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    destinationBucket: string = bucketName,
+    meta: Record<string, string> = {},
+  ): Promise<{ name: string; size: number; etag?: string; id?: string }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const src = this.cleanKey(sourceKey, 'source');
+    const dest = this.cleanKey(destinationKey, 'destination');
+    const srcPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const destPhysical = this.minioBucketName(project.storagePrefix ?? project.slug, destinationBucket);
+    if (!(await this.client.bucketExists(srcPhysical))) throw new NotFoundException(`Bucket "${bucketName}" not found`);
+    if (destPhysical !== srcPhysical && !(await this.client.bucketExists(destPhysical))) {
+      throw new NotFoundException(`Bucket "${destinationBucket}" not found`);
+    }
+    const source = await this.statObjectIn(srcPhysical, src);
+    if (!source) throw new NotFoundException(`Object "${src}" not found`);
+    await this.quota.assertCanUploadStorage(project.teamId, source.size);
+    await this.copyObjectIn(srcPhysical, src, destPhysical, dest);
+    const stat = (await this.statObjectIn(destPhysical, dest)) ?? source;
+    const id = await this.catalog?.recordUpload(
+      projectId,
+      destinationBucket,
+      dest,
+      stat,
+      (stat.metaData?.['content-type'] as string | undefined) || 'application/octet-stream',
+      meta,
+    );
+    return { name: dest, size: stat.size, etag: stat.etag, id };
+  }
+
+  private cleanKey(raw: string, what: string): string {
+    const key = (raw || '').replace(/^\/+/, '');
+    if (!key || key.includes('..') || key.includes('\0')) throw new BadRequestException(`Invalid ${what} key`);
+    return key;
+  }
+
+  /** Server-side copy between physical buckets of the same store. */
+  async copyObjectIn(srcPhysical: string, srcKey: string, destPhysical: string, destKey: string): Promise<void> {
+    await (this.client.copyObject as any)(destPhysical, destKey, `/${srcPhysical}/${srcKey}`);
   }
 
   async uploadObject(
@@ -602,12 +712,14 @@ export class StorageService {
     this.logger.log(`Uploaded "${objectName}" to "${minioBucket}"`);
 
     const stat = await this.client.statObject(minioBucket, objectName);
+    const id = await this.catalog?.recordUpload(projectId, bucketName, objectName, stat, contentType, undefined);
     return {
       name: objectName,
       size: stat.size,
       contentType: stat.metaData?.['content-type'] || contentType,
       lastModified: stat.lastModified,
       etag: stat.etag,
+      id,
     };
   }
 
@@ -664,12 +776,14 @@ export class StorageService {
         `Upload of "${objectName}" stored ${stat.size} bytes, expected ${declared}`,
       );
     }
+    const id = await this.catalog?.recordUpload(projectId, bucketName, objectName, stat, contentType, meta);
     return {
       name: objectName,
       size: stat.size,
       contentType: stat.metaData?.['content-type'] || contentType,
       lastModified: stat.lastModified,
       etag: stat.etag,
+      id,
     };
   }
 
@@ -694,14 +808,83 @@ export class StorageService {
     }
   }
 
+  /**
+   * Like {@link getObject}, but only `length` bytes from `offset` — what a
+   * `Range` request for a video or a resumed download needs. The stat is the
+   * whole object's, so the caller can write Content-Range from it.
+   */
+  async getPartialObject(
+    projectId: string,
+    userId: string | undefined,
+    bucketName: string,
+    objectName: string,
+    offset: number,
+    length?: number,
+  ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
+    const project = await this.assertProjectAccess(projectId, userId);
+    const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    return this.getObjectIn(minioBucket, objectName, { offset, length });
+  }
+
+  /**
+   * The bytes of one object in a physical bucket the caller already resolved,
+   * whole or as a range. Missing → 404.
+   */
+  async getObjectIn(
+    minioBucket: string,
+    objectName: string,
+    range?: { offset: number; length?: number },
+  ): Promise<{ stream: Readable; stat: Minio.BucketItemStat }> {
+    try {
+      const stat = await this.client.statObject(minioBucket, objectName);
+      const stream = range
+        ? await this.client.getPartialObject(minioBucket, objectName, range.offset, range.length)
+        : await this.client.getObject(minioBucket, objectName);
+      return { stream, stat };
+    } catch (err: any) {
+      if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
+        throw new NotFoundException(`Object "${objectName}" not found`);
+      }
+      throw new InternalServerErrorException(`Failed to get object: ${err.message}`);
+    }
+  }
+
+  /** Objects directly under `prefix` in a physical bucket (folder markers skipped). */
+  listObjectsIn(minioBucket: string, prefix = '', recursive = false): Promise<StorageObject[]> {
+    return new Promise((resolve, reject) => {
+      const objects: StorageObject[] = [];
+      const stream = this.client.listObjectsV2(minioBucket, prefix, recursive);
+      stream.on('data', (obj) => {
+        if (obj.name && (obj.name === prefix || obj.name.endsWith('/'))) return;
+        objects.push({
+          name: obj.name || '',
+          prefix: obj.prefix,
+          size: obj.size || 0,
+          lastModified: obj.lastModified || new Date(),
+          etag: obj.etag,
+        });
+      });
+      stream.on('error', reject);
+      stream.on('end', () => resolve(objects));
+    });
+  }
+
+  /** Remove exact keys from a physical bucket; nothing is expanded. */
+  async removeObjectsIn(minioBucket: string, keys: readonly string[]): Promise<void> {
+    if (keys.length === 0) return;
+    await this.client.removeObjects(minioBucket, [...keys]);
+  }
+
   async deleteObjects(
     projectId: string,
     userId: string | undefined,
     bucketName: string,
     objectNames: string[],
+    options: { expandFolders?: boolean } = {},
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
+    const expandFolders = options.expandFolders ?? true;
 
     // Expand any folder paths (ending in '/') into all the objects beneath them
     // so selecting a folder deletes its whole contents.
@@ -709,7 +892,7 @@ export class StorageService {
     for (const raw of objectNames || []) {
       const name = (raw || '').replace(/^\/+/, '');
       if (!name) continue;
-      if (name.endsWith('/')) {
+      if (name.endsWith('/') && expandFolders) {
         for (const k of await this.listKeysUnder(minioBucket, name)) keys.add(k);
       } else {
         keys.add(name);
@@ -719,6 +902,7 @@ export class StorageService {
     const all = Array.from(keys);
     await this.client.removeObjects(minioBucket, all);
     this.logger.log(`Deleted ${all.length} object(s) from "${minioBucket}"`);
+    await this.catalog?.deleteObjects(projectId, bucketName, all);
     return { message: `Deleted ${all.length} object(s)` };
   }
 

@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
   PayloadTooLargeException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { RedisService } from '../redis/redis.service';
 import { StorageService } from './storage.service';
 import { StorageAccessService } from './storage-access.service';
 import { StorageCaller, isPrivileged, ownerMeta, ownerTag } from './storage-caller';
+import { StorageCatalogService } from './storage-catalog.service';
 
 /** S3 and compatible stores require every part but the last to be at least this large. */
 export const MIN_CHUNK_BYTES = 5 * 1024 * 1024;
@@ -135,6 +137,7 @@ export class UploadSessionService {
     private readonly quota: QuotaService,
     private readonly storage: StorageService,
     private readonly access: StorageAccessService,
+    @Optional() private readonly catalog?: StorageCatalogService,
   ) {
     const chunkMb = positive(this.config.get('storage.resumable.chunkMb'), 8);
     this.defaultChunkBytes = Math.min(MAX_CHUNK_BYTES, Math.max(MIN_CHUNK_BYTES, Math.floor(chunkMb * 1024 * 1024)));
@@ -306,6 +309,15 @@ export class UploadSessionService {
 
     await this.prisma.storageUploadSession.update({ where: { id: row.id }, data: { status: 'completed' } });
     this.logger.log(`Upload session ${row.id} completed: "${row.objectKey}" (${stat.size} bytes)`);
+    // The assembled object reaches the catalog like a single-request upload does.
+    await this.catalog?.recordUpload(
+      projectId,
+      bucket,
+      row.objectKey,
+      stat,
+      stat.metaData?.['content-type'] || row.contentType,
+      row.ownerSub ? { 'x-amz-meta-owner': row.ownerSub } : undefined,
+    );
     return {
       name: row.objectKey,
       size: stat.size,

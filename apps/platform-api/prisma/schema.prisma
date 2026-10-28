@@ -282,6 +282,12 @@ model Project {
   /// When RLS roles (anon / authenticated / service_role) and auth.* helpers
   /// were installed into the project DB. Null = not yet bootstrapped.
   rlsBootstrappedAt DateTime?           @map("rls_bootstrapped_at")
+  /// How the Supabase-compatible storage facade (`/api/storage/v1`) authorises
+  /// object access: `presets` applies the StoragePolicy access rules; `rls`
+  /// evaluates the project's own policies on `storage.objects` under the
+  /// caller's role. Imports from Supabase that copied storage policies are
+  /// set to `rls`.
+  storageAuthz      String              @default("presets") @map("storage_authz")
 
   // Folder
   folderId String? @map("folder_id")
