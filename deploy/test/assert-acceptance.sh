@@ -24,7 +24,13 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 API=http://127.0.0.1:4000/api
 KC=http://127.0.0.1:8080
 
-running="$(./basefyio ps --services --status running | sort | tr '\n' ' ')"
+# PgBouncer restarts, with growing pauses, until the API has written its first
+# configuration; give it up to three minutes to be up between those restarts.
+for _ in $(seq 1 36); do
+  running="$(./basefyio ps --services --status running | sort | tr '\n' ' ')"
+  [[ " $running " == *" pgbouncer "* ]] && break
+  sleep 5
+done
 echo "running: $running"
 for s in postgres keycloak minio redis redis-queue rabbitmq pgbouncer platform-api admin-ui website; do
   [[ " $running " == *" $s "* ]] || fail "$s is not running"
