@@ -564,6 +564,53 @@ describe('SupabaseImportService.importAuth', () => {
     expect(progress.warnings.join('\n')).not.toMatch(/different id/);
   });
 
+  it('lists users in pages of 100, the ceiling GoTrue accepts, until a short page ends it', async () => {
+    const all = Array.from({ length: 250 }, (_, i) =>
+      sourceUser(`${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`, `u${i}@example.com`),
+    );
+    const svc = authService([]);
+    svc.http.get = jest.fn((_url: string, o: any) => {
+      const { page, per_page } = o.params;
+      return of({ data: { users: all.slice((page - 1) * per_page, page * per_page) } });
+    });
+    const progress = progressOf();
+    await run(svc, progress);
+
+    expect(svc.http.get).toHaveBeenCalledTimes(3);
+    for (const [, o] of svc.http.get.mock.calls) expect(o.params.per_page).toBe(100);
+    expect(svc.http.get.mock.calls.map(([, o]: any[]) => o.params.page)).toEqual([1, 2, 3]);
+    expect(progress.auth.users).toBe(250);
+    expect(progress.warnings.join('\n')).not.toMatch(/page \d+ failed/);
+  });
+
+  it('a first page that fails is the whole import failing', async () => {
+    const svc = authService([]);
+    svc.http.get = jest.fn(() => {
+      throw new Error('Request failed with status code 500');
+    });
+    await expect(run(svc, progressOf())).rejects.toThrow(
+      'Failed to fetch Supabase auth users: Request failed with status code 500',
+    );
+  });
+
+  it('a later page that fails keeps what came before and says what was lost', async () => {
+    const first = Array.from({ length: 100 }, (_, i) =>
+      sourceUser(`${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`, `u${i}@example.com`),
+    );
+    const svc = authService([]);
+    svc.http.get = jest.fn((_url: string, o: any) => {
+      if (o.params.page === 1) return of({ data: { users: first } });
+      throw new Error('Request failed with status code 502');
+    });
+    const progress = progressOf();
+    await run(svc, progress);
+
+    expect(progress.auth.users).toBe(100);
+    expect(progress.warnings).toContain(
+      'Auth users page 2 failed (Request failed with status code 502), so only the 100 user(s) listed before it were imported. Run a sync to fetch the rest.',
+    );
+  });
+
   it('one bad user does not sink the rest of its batch', async () => {
     const svc = authService(
       [

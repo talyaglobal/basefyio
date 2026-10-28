@@ -214,6 +214,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   private static readonly SCHEMA_SCRATCH_VOLUME =
     process.env.PITR_SCRATCH_VOLUME || 'kolaybase_pitr_scratch';
 
+  /** GoTrue's admin listing fails outright above this page size. */
+  private static readonly AUTH_USERS_PER_PAGE = 100;
+
   /** Which host and user actually reached a given source project. */
   private readonly sourceConnByRef = new Map<string, { host: string; user: string }>();
 
@@ -3595,7 +3598,9 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
   ) {
     let allUsers: SupabaseUser[] = [];
     let page = 1;
-    const perPage = 500;
+    // GoTrue answers `per_page` above 100 with a 500 ("Database error finding
+    // users") on hosted projects, so pages stay at its documented ceiling.
+    const perPage = SupabaseImportService.AUTH_USERS_PER_PAGE;
 
     while (true) {
       try {
@@ -3617,6 +3622,12 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             `Failed to fetch Supabase auth users: ${err.message}`,
           );
         }
+        // Earlier pages are already in hand; losing the rest silently would
+        // look like a smaller project, so say which page stopped the listing.
+        this.logger.warn(`Auth users page ${page} failed: ${err.message}`);
+        progress.warnings.push(
+          `Auth users page ${page} failed (${err.message}), so only the ${allUsers.length} user(s) listed before it were imported. Run a sync to fetch the rest.`,
+        );
         break;
       }
     }
