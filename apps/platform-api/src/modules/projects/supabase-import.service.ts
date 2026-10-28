@@ -28,6 +28,25 @@ import {
 } from '../auth/keycloak-admin.service';
 import { ImportedPasswordService, type PasswordHashEntry } from './imported-password.service';
 import { StorageService } from '../storage/storage.service';
+import {
+  DESTINATION_UID_RETURN_SQL,
+  DEST_UPSERT_BUCKET_SQL,
+  DEST_UPSERT_OBJECT_SQL,
+  SOURCE_STORAGE_BUCKETS_SQL,
+  SOURCE_STORAGE_OBJECTS_LEGACY_SQL,
+  SOURCE_STORAGE_OBJECTS_SQL,
+  SOURCE_STORAGE_POLICIES_SQL,
+  type SourceStorageBucket,
+  type SourceStorageObject,
+  type SourceStoragePolicy,
+  buildStoragePolicyStatements,
+  createRoleIfAbsentSql,
+  destBucketParams,
+  destObjectParams,
+  extraRolesIn,
+  logicalBucketName,
+  ownerMetaFor,
+} from './supabase-storage-catalog';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IMPORT_QUEUE } from '../queue/queue.module';
 import type { ImportJobData } from '../queue/import.processor';
@@ -191,6 +210,14 @@ interface SupabaseStorageObject {
   name: string;
   id?: string;
   metadata?: { size?: number; mimetype?: string };
+}
+
+/** The source database's `storage` catalog, read when the password is known. */
+interface SourceStorageCatalog {
+  buckets: SourceStorageBucket[];
+  /** Keyed `<source bucket id>/<object name>`. */
+  objects: Map<string, SourceStorageObject>;
+  policies: SourceStoragePolicy[];
 }
 
 @Injectable()
@@ -1416,6 +1443,8 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Failed to fetch storage buckets: ${err.message}`);
     }
 
+    const sourceCatalog = await this.loadSourceStorageCatalog(baseUrl, headers, project);
+
     for (let b = 0; b < buckets.length; b++) {
       if (this.cancelledJobs.has(jobId)) return;
 
@@ -1461,6 +1490,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
             project.id, undefined, logicalBucketName, obj.name, stream,
             obj.metadata?.size ?? size ?? 0,
             obj.metadata?.mimetype || contentType || 'application/octet-stream',
+            ownerMetaFor(sourceCatalog?.objects.get(`${supabaseBucketId}/${obj.name}`)),
           );
           progress.storage.objects++;
         } catch (err: any) {
@@ -1468,6 +1498,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           progress.warnings.push(`Storage object "${logicalBucketName}/${obj.name}" failed: ${err.message}`);
         }
       }
+    }
+
+    if (!this.cancelledJobs.has(jobId)) {
+      await this.applySourceStorageCatalog(project, sourceCatalog, progress);
     }
   }
 
@@ -4034,6 +4068,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       if (n) desiredLogicalNames.add(n);
     }
 
+    // Owners, ids, timestamps and the row-level security policies live in the
+    // source database, not behind the storage API; with the password they
+    // come across too, so the facade can apply the app's own policies here.
+    const sourceCatalog = await this.loadSourceStorageCatalog(baseUrl, headers, project);
+
     for (const bucket of buckets) {
       const logicalBucketName = (bucket.name || bucket.id || '').trim();
       if (!logicalBucketName) {
@@ -4132,6 +4171,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
               stream,
               byteLength,
               obj.metadata?.mimetype || contentType || 'application/octet-stream',
+              ownerMetaFor(sourceCatalog?.objects.get(`${supabaseBucketId}/${obj.name}`)),
             );
             progress.storage.objects++;
             copiedHere++;
@@ -4184,12 +4224,162 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    if (!this.cancelledJobs.has(jobId)) {
+      await this.applySourceStorageCatalog(project, sourceCatalog, progress);
+    }
+
     if (desiredLogicalNames.size > 0) {
       try {
         await this.storage.pruneProjectStorageBuckets(project.id, desiredLogicalNames);
       } catch (err: any) {
         this.logger.warn(`Storage prune after import failed: ${err.message}`);
         progress.warnings.push(`Storage cleanup (extra buckets) failed: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * The source's `storage` catalog: bucket rows, object rows (keyed
+   * `<bucket id>/<name>`) and the policies on both tables. Needs the database
+   * password; without it the import still copies every file, just without
+   * owners and policies, and the project stays on the preset access rules.
+   */
+  private async loadSourceStorageCatalog(
+    baseUrl: string,
+    headers: Record<string, string>,
+    project: any,
+  ): Promise<SourceStorageCatalog | null> {
+    const pwd: string | undefined = project?.supabaseDatabasePassword;
+    if (!pwd) return null;
+    const jwt = headers['Authorization']?.replace(/^Bearer\s+/i, '') || headers['apikey'];
+    const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+    if (!ref) return null;
+    const pool = await this.openSupabaseSourcePool(ref, pwd);
+    if (!pool) return null;
+    try {
+      const { rows: buckets } = await pool.query<SourceStorageBucket>(SOURCE_STORAGE_BUCKETS_SQL);
+      let objectRows: SourceStorageObject[];
+      try {
+        ({ rows: objectRows } = await pool.query<SourceStorageObject>(SOURCE_STORAGE_OBJECTS_SQL));
+      } catch {
+        ({ rows: objectRows } = await pool.query<SourceStorageObject>(SOURCE_STORAGE_OBJECTS_LEGACY_SQL));
+      }
+      const objects = new Map<string, SourceStorageObject>();
+      for (const row of objectRows) objects.set(`${row.bucket_id}/${row.name}`, row);
+      let policies: SourceStoragePolicy[] = [];
+      try {
+        ({ rows: policies } = await pool.query<SourceStoragePolicy>(SOURCE_STORAGE_POLICIES_SQL));
+      } catch (err: any) {
+        this.logger.warn(`Could not read storage policies from the source: ${err.message}`);
+      }
+      this.logger.log(
+        `Source storage catalog: ${buckets.length} bucket(s), ${objects.size} object row(s), ${policies.length} policy(ies)`,
+      );
+      return { buckets, objects, policies };
+    } catch (err: any) {
+      this.logger.warn(`Could not read the source storage catalog: ${err.message}`);
+      return null;
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Writes the source's storage rows and policies into the project database
+   * and, when policies came across, switches the project's storage
+   * authorisation to them (`storageAuthz = 'rls'`).
+   *
+   * The catalog tables come from the RLS bootstrap, re-run here because a
+   * project provisioned before they existed will not have them. Failures are
+   * reported as warnings: the files are already in place by this point.
+   */
+  private async applySourceStorageCatalog(
+    project: any,
+    source: SourceStorageCatalog | null,
+    progress: ImportProgress,
+  ): Promise<void> {
+    if (!source) return;
+    try {
+      await this.projectsService.ensureRlsBootstrap(project.id);
+    } catch (err: any) {
+      this.logger.warn(`Storage catalog: RLS bootstrap not applied for ${project.id}: ${err.message}`);
+    }
+
+    const pool = new Pool({
+      host: project.dbHost || 'postgres',
+      port: project.dbPort || 5432,
+      database: project.dbName,
+      user: project.dbUser,
+      password: project.dbPassword,
+      max: 2,
+      statement_timeout: 120_000,
+      connectionTimeoutMillis: 15_000,
+    });
+    let policiesApplied = 0;
+    try {
+      const { rows: probe } = await pool.query<{ ok: boolean }>(`select to_regclass('storage.objects') is not null as ok`);
+      if (!probe[0]?.ok) {
+        progress.warnings.push(
+          'Storage policies and owners were not copied: the project database has no storage catalog yet. ' +
+            'Run POST /projects/:id/ensure-rls-bootstrap, then the storage catalog backfill.',
+        );
+        return;
+      }
+
+      const bucketIdToName = new Map<string, string>();
+      for (const bucket of source.buckets) {
+        const name = logicalBucketName(bucket);
+        if (!name) continue;
+        bucketIdToName.set(bucket.id, name);
+        await pool.query(DEST_UPSERT_BUCKET_SQL, destBucketParams(bucket));
+      }
+      let objectRows = 0;
+      for (const object of source.objects.values()) {
+        try {
+          await pool.query(DEST_UPSERT_OBJECT_SQL, destObjectParams(object, bucketIdToName));
+          objectRows++;
+        } catch (err: any) {
+          this.logger.debug(`Storage catalog row "${object.bucket_id}/${object.name}" not copied: ${err.message}`);
+        }
+      }
+
+      const { rows: uid } = await pool.query<{ returns: string }>(DESTINATION_UID_RETURN_SQL);
+      const castAuthUid = (uid[0]?.returns || '').toLowerCase() === 'text';
+      for (const role of extraRolesIn(source.policies)) {
+        await pool.query(createRoleIfAbsentSql(role)).catch(() => undefined);
+      }
+      const failures: string[] = [];
+      for (const statement of buildStoragePolicyStatements(source.policies, { castAuthUid })) {
+        try {
+          await pool.query(statement.drop);
+          await pool.query(statement.create);
+          policiesApplied++;
+        } catch (err: any) {
+          failures.push(`${statement.name}: ${err.message}`);
+        }
+      }
+      if (failures.length) {
+        progress.warnings.push(
+          `${failures.length} storage policy(ies) could not be replayed: ${failures.slice(0, 3).join(' | ')}`,
+        );
+      }
+      this.logger.log(
+        `Storage catalog copied for ${project.id}: ${bucketIdToName.size} bucket(s), ${objectRows} object row(s), ${policiesApplied} policy(ies)`,
+      );
+    } catch (err: any) {
+      this.logger.warn(`Storage catalog not copied for ${project.id}: ${err.message}`);
+      progress.warnings.push(`Storage policies and owners were not copied: ${err.message}`);
+      return;
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+
+    if (policiesApplied > 0) {
+      try {
+        await this.prisma.project.update({ where: { id: project.id }, data: { storageAuthz: 'rls' } });
+        this.logger.log(`Project ${project.id} storage authorisation set to "rls" (${policiesApplied} policies copied)`);
+      } catch (err: any) {
+        progress.warnings.push(`Storage policies were copied but the project could not be switched to them: ${err.message}`);
       }
     }
   }
