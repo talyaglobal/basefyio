@@ -99,6 +99,7 @@ async function bootstrap() {
       'upload-metadata',
       'upload-offset',
       'x-signature',
+      'x-metadata',
     ],
     exposedHeaders: [
       'Content-Range',
@@ -110,6 +111,11 @@ async function bootstrap() {
       'Upload-Offset',
       'Upload-Length',
       'Tus-Resumable',
+      // storage-js downloads: size, cache validation, file name, partial content
+      'Content-Length',
+      'ETag',
+      'Content-Disposition',
+      'Accept-Ranges',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
