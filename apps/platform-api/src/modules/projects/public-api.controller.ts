@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
-import { PublicApiService, RlsContext } from './public-api.service';
+import { CompatWriteResult, PublicApiService, RlsContext } from './public-api.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import {
   acceptSupported,
@@ -98,17 +98,32 @@ export class PublicApiController {
     @Param('table') table: string,
     @Body() body: Record<string, unknown> | Record<string, unknown>[],
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Headers('prefer') prefer?: string,
+    @Headers('accept') accept?: string,
   ) {
     const payload = this.getPayload(req);
-    const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.insert(
+    if (!this.compat(req)) {
+      const returnRep = prefer?.includes('return=representation') ?? false;
+      return this.publicApi.insert(
+        payload.projectId,
+        table,
+        body,
+        returnRep,
+        this.buildCtx(payload),
+      );
+    }
+
+    this.assertCompatHeaders(req, accept);
+    const r = await this.publicApi.insertCompat(
       payload.projectId,
       table,
       body,
-      returnRep,
-      this.buildCtx(payload),
+      req.query as Record<string, string>,
+      this.buildCtx(payload, true),
+      { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
+    return this.replyWrite(res, r, 201, accept);
   }
 
   @Patch(':table')
@@ -116,35 +131,64 @@ export class PublicApiController {
     @Param('table') table: string,
     @Body() body: Record<string, unknown>,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Headers('prefer') prefer?: string,
+    @Headers('accept') accept?: string,
   ) {
     const payload = this.getPayload(req);
-    const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.update(
+    if (!this.compat(req)) {
+      const returnRep = prefer?.includes('return=representation') ?? false;
+      return this.publicApi.update(
+        payload.projectId,
+        table,
+        req.query as Record<string, string>,
+        body,
+        returnRep,
+        this.buildCtx(payload),
+      );
+    }
+
+    this.assertCompatHeaders(req, accept);
+    const r = await this.publicApi.updateCompat(
       payload.projectId,
       table,
       req.query as Record<string, string>,
       body,
-      returnRep,
-      this.buildCtx(payload),
+      this.buildCtx(payload, true),
+      { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
+    return this.replyWrite(res, r, 200, accept);
   }
 
   @Delete(':table')
   async remove(
     @Param('table') table: string,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Headers('prefer') prefer?: string,
+    @Headers('accept') accept?: string,
   ) {
     const payload = this.getPayload(req);
-    const returnRep = prefer?.includes('return=representation') ?? false;
-    return this.publicApi.delete(
+    if (!this.compat(req)) {
+      const returnRep = prefer?.includes('return=representation') ?? false;
+      return this.publicApi.delete(
+        payload.projectId,
+        table,
+        req.query as Record<string, string>,
+        returnRep,
+        this.buildCtx(payload),
+      );
+    }
+
+    this.assertCompatHeaders(req, accept);
+    const r = await this.publicApi.deleteCompat(
       payload.projectId,
       table,
       req.query as Record<string, string>,
-      returnRep,
-      this.buildCtx(payload),
+      this.buildCtx(payload, true),
+      { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
+    return this.replyWrite(res, r, 200, accept);
   }
 
   private getPayload(req: Request): ApiKeyPayload {
@@ -155,6 +199,23 @@ export class PublicApiController {
 
   private buildCtx(payload: ApiKeyPayload, compat = false): RlsContext {
     return { role: payload.dbRole, jwtClaims: payload.jwtClaims, ...(compat ? { compat } : {}) };
+  }
+
+  /**
+   * PostgREST's answer to a write: 201 for POST; 200 with the rows when a
+   * representation was asked for, otherwise 204 for PATCH and DELETE and an
+   * empty 201 for POST. `Content-Range` carries the affected count when
+   * `Prefer: count=` was sent, which is where postgrest-js reads it.
+   */
+  private replyWrite(res: Response, r: CompatWriteResult, okStatus: 200 | 201, accept?: string) {
+    const n = r.representation ? r.rows.length : (r.total ?? 0);
+    res.setHeader('Content-Range', contentRange(0, n, r.total));
+    if (!r.representation) {
+      res.status(okStatus === 201 ? 201 : 204);
+      return undefined;
+    }
+    res.status(okStatus);
+    return wantsObject(accept) ? r.rows[0] : r.rows;
   }
 
   /** The guard decided when it admitted the request; recompute if it did not. */

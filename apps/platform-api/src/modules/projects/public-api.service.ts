@@ -19,8 +19,16 @@ import { parseQuery } from './postgrest/parser';
 import { SelectBuilder } from './postgrest/builder';
 import { SchemaCache } from './postgrest/schema-cache';
 import { ParsedQuery, PostgrestParseError } from './postgrest/types';
-import { CountMode } from './postgrest/compat';
-import { notAcceptableObject, parseErrorToPostgrest, pgToPostgrest } from './postgrest/errors';
+import { assertIdent } from './postgrest/parser';
+import { ProjectSchema, TableInfo } from './postgrest/schema-cache';
+import { CountMode, Prefer, parseColumnsParam } from './postgrest/compat';
+import {
+  PostgrestHttpError,
+  notAcceptableObject,
+  parseErrorToPostgrest,
+  pgToPostgrest,
+  postgrestBody,
+} from './postgrest/errors';
 
 export type PgDbRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -54,7 +62,25 @@ export interface CompatRows {
   offset: number;
 }
 
+/** How a PostgREST client wants a write answered. */
+export interface WriteOptions {
+  prefer: Prefer;
+  /** `.single()` after the write — exactly one row, or 406 and a rollback. */
+  wantsObject?: boolean;
+}
+
+/** What a PostgREST-shaped write produced. */
+export interface CompatWriteResult {
+  /** The representation (through `select=` when given); empty unless asked for. */
+  rows: Record<string, unknown>[];
+  /** Affected rows; `null` unless `Prefer: count=` was sent. */
+  total: number | null;
+  representation: boolean;
+}
+
 const COMPAT_BUILDER = { nullsDefault: 'postgres' as const };
+/** Column carrying the whole written row through a `select=` projection. */
+const RAW_ROW = '__basefyio_raw';
 
 const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
   'anon',
@@ -361,6 +387,249 @@ export class PublicApiService {
       }
       return returnRepresentation ? r.__rows : { count: r.__count };
     });
+  }
+
+  /* ───────────────────────── PostgREST-shaped writes ───────────────────────── */
+
+  /**
+   * An insert or upsert for a PostgREST client.
+   *
+   * The differences from {@link insert} are what postgrest-js relies on: the
+   * column list is the union of every row's keys (or the `columns=` hint it
+   * sends for arrays), a key a row lacks becomes DEFAULT under
+   * `Prefer: missing=default` and NULL otherwise, `Prefer: resolution=` with
+   * `on_conflict=` (or the primary key) is an upsert, and `select=` shapes
+   * the returned representation. An empty array inserts nothing and is 201 [].
+   */
+  async insertCompat(
+    projectId: string,
+    table: string,
+    body: Record<string, unknown> | Record<string, unknown>[],
+    query: Record<string, string | string[]>,
+    ctx: RlsContext,
+    opts: WriteOptions,
+  ): Promise<CompatWriteResult> {
+    this.validateTableName(table);
+    const parsed = parseQuery(query);
+    const rows = Array.isArray(body) ? body : [body];
+    const rlsCtx: RlsContext = { ...ctx, compat: true };
+
+    return this.withRls(projectId, rlsCtx, async (client) => {
+      if (!rows.length) return { raw: [], out: [], count: 0 };
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const info = this.tableInfo(schema, table);
+        const cols = parseColumnsParam(query.columns) ?? [...new Set(rows.flatMap((r) => Object.keys(r ?? {})))];
+        for (const c of cols) this.assertColumn(info, c);
+        if (!cols.length) {
+          throw new PostgrestHttpError(400, postgrestBody('PGRST100', 'No columns provided'));
+        }
+
+        const params: unknown[] = [];
+        const groups = rows.map((row) => {
+          const src = row ?? {};
+          const cells = cols.map((c) => {
+            if (!(c in src)) {
+              if (opts.prefer.missing === 'default') return 'DEFAULT';
+              params.push(null);
+              return `$${params.length}`;
+            }
+            params.push(src[c] ?? null);
+            return `$${params.length}`;
+          });
+          return `(${cells.join(', ')})`;
+        });
+
+        let sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
+        if (opts.prefer.resolution) {
+          const target = parseColumnsParam(query.on_conflict) ?? info.primaryKey;
+          for (const c of target) this.assertColumn(info, c);
+          if (!target.length) {
+            throw new PostgrestHttpError(
+              400,
+              postgrestBody(
+                'PGRST100',
+                `Cannot upsert into "${table}": it has no primary key`,
+                null,
+                'Pass on_conflict=<columns> naming a unique constraint.',
+              ),
+            );
+          }
+          sql += ` ON CONFLICT (${target.map((c) => `"${c}"`).join(', ')})`;
+          sql +=
+            opts.prefer.resolution === 'ignore-duplicates'
+              ? ' DO NOTHING'
+              : ` DO UPDATE SET ${cols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')}`;
+        }
+        sql += ' RETURNING *';
+        return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
+      };
+      return this.withSchemaRetry(projectId, run, true);
+    }).then((r) => {
+      for (const row of r.raw) {
+        this.realtimeData.publishChange(projectId, { type: 'INSERT', kind: 'table', entity: table, new: row });
+      }
+      return this.compatWriteResult(r, opts);
+    });
+  }
+
+  /** An update for a PostgREST client; see {@link insertCompat} for the shape. */
+  async updateCompat(
+    projectId: string,
+    table: string,
+    query: Record<string, string | string[]>,
+    body: Record<string, unknown>,
+    ctx: RlsContext,
+    opts: WriteOptions,
+  ): Promise<CompatWriteResult> {
+    this.validateTableName(table);
+    const parsed = parseQuery(query);
+    const rlsCtx: RlsContext = { ...ctx, compat: true };
+
+    return this.withRls(projectId, rlsCtx, async (client) => {
+      const setCols = Object.keys(body ?? {});
+      if (!setCols.length) {
+        throw new PostgrestHttpError(400, postgrestBody('PGRST100', 'No data to update'));
+      }
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const info = this.tableInfo(schema, table);
+        for (const c of setCols) this.assertColumn(info, c);
+        const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
+        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
+        this.assertWriteFilter(where, 'PATCH', 'updates');
+
+        let idx = params.length;
+        const setClause = setCols.map((k) => `"${k}" = $${++idx}`).join(', ');
+        const values = [...params, ...setCols.map((k) => body[k] ?? null)];
+        const sql = `UPDATE "${table}" AS ${alias} SET ${setClause} WHERE ${where} RETURNING *`;
+        return this.runCompatWrite(client, schema, table, parsed, sql, values, opts);
+      };
+      return this.withSchemaRetry(projectId, run, true);
+    }).then((r) => {
+      for (const row of r.raw) {
+        this.realtimeData.publishChange(projectId, { type: 'UPDATE', kind: 'table', entity: table, new: row });
+      }
+      return this.compatWriteResult(r, opts);
+    });
+  }
+
+  /** A delete for a PostgREST client; see {@link insertCompat} for the shape. */
+  async deleteCompat(
+    projectId: string,
+    table: string,
+    query: Record<string, string | string[]>,
+    ctx: RlsContext,
+    opts: WriteOptions,
+  ): Promise<CompatWriteResult> {
+    this.validateTableName(table);
+    const parsed = parseQuery(query);
+    const rlsCtx: RlsContext = { ...ctx, compat: true };
+
+    return this.withRls(projectId, rlsCtx, async (client) => {
+      const run = async (force: boolean) => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const builder = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER);
+        const { alias, where, params } = builder.buildWriteWhere(table, parsed);
+        this.assertWriteFilter(where, 'DELETE', 'deletes');
+        const sql = `DELETE FROM "${table}" AS ${alias} WHERE ${where} RETURNING *`;
+        return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
+      };
+      return this.withSchemaRetry(projectId, run, true);
+    }).then((r) => {
+      for (const row of r.raw) {
+        this.realtimeData.publishChange(projectId, { type: 'DELETE', kind: 'table', entity: table, old: row });
+      }
+      return this.compatWriteResult(r, opts);
+    });
+  }
+
+  /**
+   * Execute a write that ends in `RETURNING *`, shaping what comes back.
+   *
+   * With `select=` and a representation wanted, the write becomes a CTE and
+   * the projection reads from it, so embeds and aliases work on a write as
+   * they do on a read; the whole row rides along under {@link RAW_ROW} for
+   * realtime. `.single()` is checked here, inside the transaction, so a
+   * write that did not touch exactly one row is rolled back with its 406.
+   */
+  private async runCompatWrite(
+    client: PoolClient,
+    schema: ProjectSchema,
+    table: string,
+    parsed: ParsedQuery,
+    writeSql: string,
+    params: unknown[],
+    opts: WriteOptions,
+  ): Promise<{ raw: Record<string, unknown>[]; out: Record<string, unknown>[]; count: number }> {
+    const representation = opts.prefer.return === 'representation';
+    const projected = representation && !(parsed.select.length === 1 && parsed.select[0].kind === 'star');
+
+    let raw: Record<string, unknown>[];
+    let out: Record<string, unknown>[];
+    if (projected) {
+      const proj = new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).buildProjection(
+        table,
+        parsed,
+        '_w',
+        params,
+        { rawAs: RAW_ROW },
+      );
+      const result = await client.query(`WITH _w AS (${writeSql}) ${proj.sql}`, proj.params);
+      raw = result.rows.map((r: Record<string, unknown>) => r[RAW_ROW] as Record<string, unknown>);
+      out = result.rows.map((r: Record<string, unknown>) => {
+        const { [RAW_ROW]: _raw, ...rest } = r;
+        return rest;
+      });
+    } else {
+      const result = await client.query(writeSql, params);
+      raw = result.rows;
+      out = representation ? result.rows : [];
+    }
+    if (opts.wantsObject && raw.length !== 1) throw notAcceptableObject(raw.length);
+    return { raw, out, count: raw.length };
+  }
+
+  private compatWriteResult(
+    r: { out: Record<string, unknown>[]; count: number },
+    opts: WriteOptions,
+  ): CompatWriteResult {
+    return {
+      rows: r.out,
+      total: opts.prefer.count ? r.count : null,
+      representation: opts.prefer.return === 'representation',
+    };
+  }
+
+  private tableInfo(schema: ProjectSchema, table: string): TableInfo {
+    const info = schema.tables.get(table);
+    if (!info) throw new PostgrestParseError(`Relation "${table}" not found`, undefined, 'PGRST205');
+    return info;
+  }
+
+  private assertColumn(info: TableInfo, column: string): void {
+    assertIdent(column, 'column');
+    if (!info.columns.has(column)) {
+      throw new PostgrestParseError(
+        `Could not find the '${column}' column of '${info.name}' in the schema cache`,
+        undefined,
+        'PGRST204',
+      );
+    }
+  }
+
+  /** An unfiltered UPDATE or DELETE takes the whole table; refused, as it always was. */
+  private assertWriteFilter(where: string, verb: string, noun: string): void {
+    if (where) return;
+    throw new PostgrestHttpError(
+      400,
+      postgrestBody(
+        '21000',
+        `${verb} requires at least one filter to prevent full-table ${noun}`,
+        null,
+        'Add a filter such as ?id=eq.1.',
+      ),
+    );
   }
 
   async update(

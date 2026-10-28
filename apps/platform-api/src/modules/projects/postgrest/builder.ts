@@ -110,12 +110,16 @@ export class SelectBuilder {
     query: ParsedQuery,
     source: string,
     seedParams: unknown[] = [],
-  ): { sql: string; params: unknown[] } {
+    options: { rawAs?: string } = {},
+  ): { sql: string; params: unknown[]; alias: string } {
     const info = this.table(table);
     this.params.push(...seedParams);
     const alias = this.nextAlias();
-    const sql = this.buildSelectBody(table, alias, info, query, '', { from: source, projectionOnly: true });
-    return { sql, params: this.params };
+    let sql = this.buildSelectBody(table, alias, info, query, '', { from: source, projectionOnly: true });
+    // The whole written row alongside the projection, for the realtime
+    // broadcast, which carries full rows whatever the client asked to see.
+    if (options.rawAs) sql = sql.replace(/^SELECT /, `SELECT row_to_json(${alias}) AS "${options.rawAs}", `);
+    return { sql, params: this.params, alias };
   }
 
   /** The parameters accumulated so far, exposed for callers that compose counts. */
