@@ -141,6 +141,59 @@ test('project realm: create, clients, users, tokens carry the claims the API rea
   assert.ok(info.clientCount >= 2);
 });
 
+test('project realm: GoTrue claims, metadata and a session minted without a password', async () => {
+  const anonClient = `${REALM}-anon`;
+  const aal2Client = `${REALM}-anon-aal2`;
+  // createClients made both clients with the mappers; ensure is a no-op on them and the
+  // path a realm from before the facade takes.
+  await kc.ensureRealmClientGoTrueMappers(REALM, anonClient);
+  await kc.ensureRealmClientGoTrueMappers(REALM, aal2Client);
+  for (const [clientId, aal] of [[anonClient, 'aal1'], [aal2Client, 'aal2']]) {
+    const [c] = await adminGet(`/${REALM}/clients?clientId=${clientId}`);
+    assert.ok(c, `${clientId} exists`);
+    const names = (await adminGet(`/${REALM}/clients/${c.id}/protocol-mappers/models`)).map((m) => m.name);
+    for (const n of ['app_metadata', 'user_metadata', 'role', 'aal', 'aud-authenticated', 'phone']) {
+      assert.ok(names.includes(n), `${clientId} has the ${n} mapper`);
+    }
+    assert.equal(names.includes('amr'), aal === 'aal2', `amr only on the aal2 client`);
+  }
+
+  const user = await kc.findUserInRealm(REALM, USER_EMAIL);
+  await kc.setRealmUserMetadata(REALM, user.id, {
+    app_metadata: { organization_id: 'org-compat' },
+    user_metadata: { full_name: 'Compat User' },
+  });
+  const tokens = await passwordGrant(REALM, anonClient, USER_EMAIL, 'Compat-pass-2!');
+  const c = claims(tokens.access_token);
+  assert.equal(c.role, 'authenticated', 'role claim');
+  assert.equal(c.aal, 'aal1', 'aal claim');
+  assert.ok([].concat(c.aud).includes('authenticated'), 'authenticated audience');
+  assert.equal(c.app_metadata?.organization_id, 'org-compat', 'app_metadata is a JSON claim');
+  assert.equal(c.app_metadata?.provider, 'email', 'default provider kept');
+  assert.equal(c.user_metadata?.full_name, 'Compat User', 'user_metadata is a JSON claim');
+  assert.equal(c.phone, '+905550000000', 'phone from the phoneNumber attribute');
+
+  const aal2 = claims((await passwordGrant(REALM, aal2Client, USER_EMAIL, 'Compat-pass-2!')).access_token);
+  assert.equal(aal2.aal, 'aal2');
+  assert.deepEqual(aal2.amr, [{ method: 'totp' }], 'amr is a JSON claim');
+
+  await kc.setRealmAccessTokenLifespan(REALM, 3600);
+  assert.equal((await adminGet(`/${REALM}`)).accessTokenLifespan, 3600);
+
+  // Minting: impersonation + prompt=none. Needs the admin account to be allowed to
+  // impersonate in the realm, which the master admin is.
+  const redirectUri = 'http://localhost:4000/api/rest/v1/auth/callback/compat/_mint';
+  await kc.ensureAnonClientRedirectUri(REALM, 'http://localhost:4000/api/rest/v1/auth/callback/compat/*');
+  const minted = await kc.mintSessionForUser(REALM, user.id, anonClient, redirectUri);
+  const m = claims(minted.accessToken);
+  assert.equal(m.sub, user.id, 'minted token names the user');
+  assert.equal(m.azp, anonClient, 'minted token belongs to the anon client');
+  assert.equal(m.role, 'authenticated');
+  assert.ok(minted.refreshToken, 'minted session can be refreshed');
+  const problems = await kc.ensureRealmGoTrueCompat(REALM);
+  assert.deepEqual(problems, []);
+});
+
 test('project realm: identity providers and anonymous users', async () => {
   await kc.upsertIdentityProvider(REALM, 'google', 'compat-client-id', 'compat-secret', `http://localhost:4000/api/rest/v1/auth/callback/google`);
   const idps = await kc.listIdentityProviders(REALM);

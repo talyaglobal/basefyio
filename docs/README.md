@@ -25,6 +25,7 @@ documented route stops existing.
 | Page | Routes |
 |---|---|
 | [reference/auth-api.md](./reference/auth-api.md) | `/api/rest/v1/auth/*` — sign-up, sign-in, passwordless, OAuth, session |
+| [reference/supabase-auth-v1.md](./reference/supabase-auth-v1.md) | `/api/auth/v1/*` — the same identity system in GoTrue's shapes, for `@supabase/supabase-js` |
 | [reference/rest-api.md](./reference/rest-api.md) | `/api/rest/v1/:table`, `/api/rest/v1/rpc/:fn` — tables through the PostgREST query grammar |
 | [reference/collections-api.md](./reference/collections-api.md) | `/api/rest/v1/collections/*` — document collections |
 | [reference/sql-api.md](./reference/sql-api.md) | `POST /api/sql/execute` — SQL with bound parameters |

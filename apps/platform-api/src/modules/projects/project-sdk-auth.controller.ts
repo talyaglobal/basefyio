@@ -14,6 +14,7 @@ import {
 import { Request, Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
 import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
+import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
 import { AuthenticatedKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 
@@ -23,6 +24,7 @@ export class ProjectSdkAuthController {
   constructor(
     private readonly sdkAuth: ProjectSdkAuthService,
     private readonly anonymousAuth: ProjectAnonymousAuthService,
+    private readonly gotrue: SupabaseAuthCompatService,
   ) {}
 
   /**
@@ -217,6 +219,11 @@ export class ProjectSdkAuthController {
     return this.sdkAuth.verifyReauth(projectId, body.otp);
   }
 
+  /**
+   * The invitation is the GoTrue one: a password-less user and a link that signs them in.
+   * The older flow mailed a link to a route that never existed, so no invitation could be
+   * accepted; the facade's invite is the working one, and both routes share it.
+   */
   @Post('invite')
   async inviteUser(
     @Req() req: Request,
@@ -226,7 +233,8 @@ export class ProjectSdkAuthController {
     if (role !== 'service') {
       throw new ForbiddenException('Invite requires service_role key');
     }
-    return this.sdkAuth.inviteUser(projectId, body.email);
+    const user = await this.gotrue.invite(projectId, { email: body?.email });
+    return { message: `Invitation sent to ${body.email}`, userId: user.id };
   }
 
   @Post('refresh')
