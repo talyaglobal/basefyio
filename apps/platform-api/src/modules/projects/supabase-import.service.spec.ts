@@ -451,6 +451,97 @@ describe('SupabaseImportService.runSyncImport', () => {
   });
 });
 
+describe('SupabaseImportService.openSupabaseSourceRoute', () => {
+  const REF = 'abcdefghijklmnopqrst';
+  const PASSWORD = 'hunter2-secret';
+  const CANDIDATES = (SupabaseImportService as any).SUPABASE_POOLER_REGIONS.length * 2;
+
+  const pgError = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+  /** Every pooler candidate answers with what `errFor` says; the direct endpoint fails as `direct` says. */
+  function routeService(direct: Error | null, errFor: (host: string) => Error | null) {
+    const svc = service();
+    svc.sourceConnByRef = new Map();
+    svc.connectPoolWithRetry = jest.fn(async () => {
+      if (direct) throw direct;
+    });
+    (Pool as unknown as jest.Mock).mockImplementation((opts: any) => ({
+      connect: jest.fn(async () => {
+        const err = errFor(opts.host);
+        if (err) throw err;
+        return { release: jest.fn() };
+      }),
+      end: jest.fn(async () => undefined),
+    }));
+    return svc;
+  }
+
+  afterEach(() => (Pool as unknown as jest.Mock).mockReset());
+
+  it('names the one region that rejected the password over the many that never heard of the tenant', async () => {
+    const svc = routeService(
+      Object.assign(new Error('connect ENETUNREACH 2a05:d012::1:5432'), { code: 'ENETUNREACH' }),
+      (host) =>
+        host.includes('eu-central-1')
+          ? pgError('28P01', `password authentication failed for user "postgres.${REF}"`)
+          : pgError('XX000', 'Tenant or user not found'),
+    );
+    const route = await svc.openSupabaseSourceRoute(REF, PASSWORD);
+
+    expect(route.pool).toBeNull();
+    expect(route.failure).toEqual({
+      summary: `direct: ENETUNREACH connect ENETUNREACH 2a05:d012::1:5432; pooler: 28P01 password authentication failed, 2 of ${CANDIDATES} candidates`,
+      passwordRejected: true,
+    });
+    const line = SupabaseImportService.unreachableSourceWarning(route.failure);
+    expect(line).toBe(
+      `Could not reach the source database directly (direct: ENETUNREACH connect ENETUNREACH 2a05:d012::1:5432; pooler: 28P01 password authentication failed, 2 of ${CANDIDATES} candidates). Tables protected by RLS may have imported empty; passwords were not carried. The database password was rejected — check Supabase → Settings → Database.`,
+    );
+    expect(line).not.toContain(PASSWORD);
+  });
+
+  it('reports the commonest pooler failure when nothing points at the password', async () => {
+    const svc = routeService(
+      new Error(`Connection to "supabase-direct-${REF}" timed out after 20s`),
+      () => pgError('ETIMEDOUT', `connect ETIMEDOUT with password ${PASSWORD}`),
+    );
+    const route = await svc.openSupabaseSourceRoute(REF, PASSWORD);
+
+    expect(route.pool).toBeNull();
+    expect(route.failure?.passwordRejected).toBe(false);
+    expect(route.failure?.summary).toBe(
+      `direct: Connection to "supabase-direct-${REF}" timed out after 20s; pooler: ETIMEDOUT connect ETIMEDOUT with password ***, ${CANDIDATES} of ${CANDIDATES} candidates`,
+    );
+    expect(SupabaseImportService.unreachableSourceWarning(route.failure)).not.toMatch(/password was rejected/);
+  });
+
+  it('a pooler region that accepts the credentials is the route, and is remembered', async () => {
+    const svc = routeService(
+      Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }),
+      (host) => (host === 'aws-0-eu-central-1.pooler.supabase.com' ? null : pgError('XX000', 'Tenant or user not found')),
+    );
+    const route = await svc.openSupabaseSourceRoute(REF, PASSWORD);
+
+    expect(route.failure).toBeNull();
+    expect(route.pool).not.toBeNull();
+    expect(svc.sourceConnByRef.get(REF)).toEqual({
+      host: 'aws-0-eu-central-1.pooler.supabase.com',
+      user: `postgres.${REF}`,
+    });
+  });
+
+  it('describes an error by its code first, and never with the password', () => {
+    const describe = (err: unknown) => SupabaseImportService.describeConnectionError(err, PASSWORD);
+    expect(describe(pgError('28P01', 'password authentication failed'))).toBe('28P01 password authentication failed');
+    expect(describe(pgError('XX000', 'Tenant or user not found'))).toBe('tenant or user not found');
+    expect(describe(pgError('ENOTFOUND', `getaddrinfo ENOTFOUND db.${REF}.supabase.co`))).toBe(
+      `ENOTFOUND getaddrinfo ENOTFOUND db.${REF}.supabase.co`,
+    );
+    expect(describe(new Error(`bad ${PASSWORD} here`))).toBe('bad *** here');
+    expect(describe(new Error('x'.repeat(200)))).toHaveLength(120);
+  });
+});
+
 describe('SupabaseImportService.importAuth', () => {
   const HASH = '$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW';
   const PROJECT = { id: 'p1', keycloakRealm: 'realm-p1' };

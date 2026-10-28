@@ -154,6 +154,19 @@ interface SupabaseTable {
   table_schema: string;
 }
 
+/** Why no direct Postgres route to the source opened, in one line, password never included. */
+export interface SourceRouteFailure {
+  /** `direct: <reason>; pooler: <commonest reason>, N of M candidates` */
+  summary: string;
+  /** Some route answered 28P01: the password itself is wrong. */
+  passwordRejected: boolean;
+}
+
+interface SourceRoute {
+  pool: Pool | null;
+  failure: SourceRouteFailure | null;
+}
+
 interface SupabaseUser {
   id: string;
   email: string;
@@ -1680,6 +1693,16 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * immediately.
    */
   private async openSupabaseSourcePool(ref: string, password: string): Promise<Pool | null> {
+    return (await this.openSupabaseSourceRoute(ref, password)).pool;
+  }
+
+  /**
+   * Like `openSupabaseSourcePool`, but when no route opens it also says why,
+   * in words the person at the panel can act on. A wrong password and a host
+   * without a route to Supabase used to produce the same silent fallback; the
+   * first is theirs to fix, the second is ours.
+   */
+  private async openSupabaseSourceRoute(ref: string, password: string): Promise<SourceRoute> {
     const direct = new Pool({
       host: `db.${ref}.supabase.co`,
       port: 5432,
@@ -1692,17 +1715,19 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       statement_timeout: 120_000,
     });
 
+    let directReason = '';
     try {
       await this.connectPoolWithRetry(direct, `supabase-direct-${ref}`, 2);
       this.sourceConnByRef.set(ref, { host: `db.${ref}.supabase.co`, user: 'postgres' });
       this.logger.log(
         `Direct Postgres copy enabled (db.${ref}.supabase.co) — bypasses PostgREST row-level grants`,
       );
-      return direct;
+      return { pool: direct, failure: null };
     } catch (err: any) {
       await direct.end().catch(() => undefined);
+      directReason = SupabaseImportService.describeConnectionError(err, password);
       this.logger.warn(
-        `Direct Postgres connection failed (${err.message}); trying the IPv4 connection pooler`,
+        `Direct Postgres connection failed (${directReason}); trying the IPv4 connection pooler`,
       );
     }
 
@@ -1712,7 +1737,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       candidates.push(`aws-0-${region}.pooler.supabase.com`);
     }
 
-    const probe = async (host: string): Promise<Pool | null> => {
+    // Each candidate either opens or reports why not. The reasons are kept per
+    // class rather than per host: a wrong password is rejected by the one
+    // region that knows the tenant, while the other thirty-three say the
+    // tenant does not exist, and only the former is worth telling anyone.
+    const probe = async (host: string): Promise<{ pool: Pool | null; reason: string }> => {
       const pool = new Pool({
         host,
         port: 5432, // session mode; transaction mode (6543) drops prepared statements
@@ -1727,19 +1756,23 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       try {
         const client = await pool.connect();
         client.release();
-        return pool;
-      } catch {
+        return { pool, reason: '' };
+      } catch (err: any) {
         await pool.end().catch(() => undefined);
-        return null;
+        return { pool: null, reason: SupabaseImportService.describeConnectionError(err, password) };
       }
     };
 
     const results = await Promise.all(candidates.map(probe));
     let winner: Pool | null = null;
     let winnerHost = '';
+    const poolerReasons = new Map<string, number>();
     for (let i = 0; i < results.length; i++) {
-      const pool = results[i];
-      if (!pool) continue;
+      const { pool, reason } = results[i];
+      if (!pool) {
+        poolerReasons.set(reason, (poolerReasons.get(reason) ?? 0) + 1);
+        continue;
+      }
       if (!winner) {
         winner = pool;
         winnerHost = candidates[i];
@@ -1753,13 +1786,76 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Direct Postgres copy enabled via pooler (${winnerHost}, user postgres.${ref}) — bypasses PostgREST row-level grants`,
       );
-      return winner;
+      return { pool: winner, failure: null };
     }
 
-    this.logger.warn(
-      `No reachable Postgres route to Supabase project "${ref}" (direct endpoint is IPv6-only and no pooler region accepted the credentials); falling back to PostgREST for data`,
+    const failure = SupabaseImportService.summariseRouteFailure(
+      directReason,
+      poolerReasons,
+      candidates.length,
     );
-    return null;
+    this.logger.warn(
+      `No reachable Postgres route to Supabase project "${ref}" (${failure.summary}); falling back to PostgREST for data`,
+    );
+    return { pool: null, failure };
+  }
+
+  /** The panel line for an import that had to fall back to PostgREST. */
+  static unreachableSourceWarning(failure: SourceRouteFailure | null): string {
+    const why = failure ? ` (${failure.summary})` : '';
+    const line = `Could not reach the source database directly${why}. Tables protected by RLS may have imported empty; passwords were not carried.`;
+    return failure?.passwordRejected
+      ? `${line} The database password was rejected — check Supabase → Settings → Database.`
+      : line;
+  }
+
+  /**
+   * One line for a failed connection attempt: the driver's code when it has
+   * one, else the message, never the password. Postgres and the OS phrase the
+   * same failure a dozen ways; the code is what people search for.
+   */
+  static describeConnectionError(err: any, password: string): string {
+    const scrub = (text: string) =>
+      (password ? text.split(password).join('***') : text).replace(/\s+/g, ' ').trim();
+    const message = scrub(String(err?.message ?? err ?? 'unknown error'));
+    const code = typeof err?.code === 'string' ? err.code : '';
+    if (code === '28P01') return '28P01 password authentication failed';
+    if (/tenant or user not found/i.test(message)) return 'tenant or user not found';
+    // Supavisor and the OS both put the useful part first; the rest is noise.
+    const short = message.length > 120 ? `${message.slice(0, 119)}…` : message;
+    if (code && code !== 'XX000') return `${code} ${short}`;
+    return short;
+  }
+
+  /**
+   * Condense the direct attempt and the pooler probes into one explanation.
+   * A password rejection anywhere outranks the crowd: every wrong-region
+   * probe says "tenant not found" whether or not the password was right, so
+   * the majority verdict would hide the one finding that matters.
+   */
+  static summariseRouteFailure(
+    directReason: string,
+    poolerReasons: Map<string, number>,
+    candidates: number,
+  ): SourceRouteFailure {
+    const rejected = [...poolerReasons.keys()].find((r) => r.startsWith('28P01'));
+    let top: string | undefined = rejected;
+    let topCount = rejected ? (poolerReasons.get(rejected) ?? 0) : 0;
+    if (!top) {
+      for (const [reason, count] of poolerReasons) {
+        if (count > topCount) {
+          top = reason;
+          topCount = count;
+        }
+      }
+    }
+    const passwordRejected =
+      Boolean(rejected) || directReason.startsWith('28P01');
+    const pooler = top
+      ? `${top}, ${topCount} of ${candidates} candidates`
+      : `no answer, ${candidates} candidates`;
+    const summary = `direct: ${directReason || 'not attempted'}; pooler: ${pooler}`;
+    return { summary, passwordRejected };
   }
 
   /**
@@ -2246,11 +2342,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         if (onProgress) {
           await onProgress('Connecting to the Supabase database...', 7);
         }
-        sourcePool = await this.openSupabaseSourcePool(ref, pwd);
+        const route = await this.openSupabaseSourceRoute(ref, pwd);
+        sourcePool = route.pool;
         if (!sourcePool) {
-          progress.warnings.push(
-            'Could not reach the source database directly, so tables protected by row-level security may have imported empty. Check the verification counts below.',
-          );
+          progress.warnings.push(SupabaseImportService.unreachableSourceWarning(route.failure));
         }
       } else {
         this.logger.warn(
