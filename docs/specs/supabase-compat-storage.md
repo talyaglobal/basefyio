@@ -62,3 +62,58 @@ GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role; GRANT ALL ON
 
 ## 7. Tests
 Specs with stubbed MinIO (`storage.service` methods mocked) + stubbed RLS runner driving the REAL `@supabase/storage-js` (dependency of supabase-js in node_modules) client against the Nest app: upload (multipart Blob + raw), duplicate 409, update/upsert, download bytes+headers, HEAD exists, list (folders/files/sort/search/offset), remove, createSignedUrl → GET signed, createSignedUploadUrl → PUT, move/copy, buckets CRUD with service key, error shape. Docs: `docs/reference/storage-v1-api.md` + `DOC_MAP` entry in `docs/route-coverage.spec.ts:28-60`.
+
+## 8. Deploy notes (implementation landed 2026-10-28)
+
+What shipped: `modules/project-db/` (ProjectRlsRunner), `modules/storage-facade/` (keyed `storage/v1` controller, unguarded public/signed controller, catalog operator routes, signing, error filter), `modules/storage/storage-catalog.*` (catalog sync from every StorageService write and from completed upload sessions), rls-bootstrap.sql §5 (storage schema), `Project.storageAuthz`, importer storage parts, `docs/reference/storage-v1-api.md`.
+
+### Environment
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `STORAGE_URL_SIGNING_SECRET` | recommended | — | HS256 key for `createSignedUrl` / `createSignedUploadUrl` tokens. Unset → each project signs with a key derived from its service key (boot logs a warning). Rotating it invalidates every outstanding signed URL. |
+| `STORAGE_SIGNED_URL_MAX_SECONDS` | no | `31536000` | Ceiling for `expiresIn` (1…n). |
+| `STORAGE_MAX_UPLOAD_MB`, `STORAGE_MAX_CONCURRENT_UPLOADS`, `STORAGE_UPLOAD_TMP_DIR` | no | existing | Shared with the dashboard upload route; the facade uses the same spool and semaphore sizes. |
+
+### Database (control plane)
+
+- `projects.storage_authz TEXT NOT NULL DEFAULT 'presets'` — `prisma/migrations/20261028120000_project_storage_authz/migration.sql`; production applies `schema.prisma` through `prisma db push` at container start, and the build runs `prisma generate` (`prebuild`). Nothing to run by hand beyond the usual image build.
+
+### Project databases
+
+- The RLS bootstrap now carries §5 (`storage` schema, `storage.buckets` / `storage.objects`, helpers, grants). It is idempotent and runs for every new project at provisioning. **Existing projects do not get it until the bootstrap is re-applied:** `POST /api/projects/:id/ensure-rls-bootstrap` (dashboard session) or `apps/platform-api/scripts/backfill-rls.ts`. Until then the catalog hooks log at debug level and skip (uploads are unaffected).
+- Dedicated-host projects: `ensureRlsBootstrap` still refuses them (unchanged); apply §5 through the provisioning flow.
+- After the bootstrap, `POST /api/projects/:id/storage/catalog/backfill` fills the catalog from the store; `GET /api/projects/:id/storage/catalog` reports `{ storageAuthz, catalogAvailable }`.
+
+### main.ts (AUTH agent — not done by the storage agent)
+
+1. CORS: `allowedHeaders` += `x-upsert`, `cache-control`, `x-metadata`, `range`; `exposedHeaders` += `Content-Length`, `ETag`, `Content-Disposition`, `Accept-Ranges`.
+2. The `/api/p/<projectId>/…` rewrite that sets `req.headers['x-bf-project'] = <projectId>` and strips the prefix, registered before the router (the facade's public routes and `getPublicUrl` depend on it; the keyed routes refuse a header that names another project).
+3. Body parsers: `isJsonBody` / `isFormBody` from `common/middleware/supabase-paths.middleware` (done). Without them a raw upload whose content type is JSON is consumed by the parser; the facade then falls back to `req.rawBody` (the app is created with `rawBody: true`), so it still works but buffers the body in memory.
+4. `server.requestTimeout` is 120 s; a 500 MB upload on a slow link needs more — raise to at least 600 s for the storage routes (or globally).
+5. The storage integration spec (`storage-v1.storage-js.spec.ts`) sets all of 2 and 3 up on its own test app, so main.ts can be verified against it.
+
+### Smoke test after deploy
+
+```bash
+# keyed
+curl -s -H "apikey: $ANON" https://api.basefyio.com/api/storage/v1/bucket
+# public URL (project in the path)
+curl -sI https://api.basefyio.com/api/p/$PROJECT/storage/v1/object/public/<public-bucket>/<key>
+# storage-js
+node -e "const {StorageClient}=require('@supabase/storage-js');new StorageClient('https://api.basefyio.com/api/p/$PROJECT/storage/v1',{apikey:'$ANON'}).from('<bucket>').list().then(console.log)"
+```
+
+### Switching a project to RLS
+
+1. `POST /api/projects/:id/ensure-rls-bootstrap`
+2. Write policies on `storage.objects` / `storage.buckets` (fresh projects: `owner_id = auth.uid()`; Supabase imports keep `owner = auth.uid()`).
+3. `PATCH /api/projects/:id/storage/authz { "mode": "rls" }` — runs the backfill first and refuses while the catalog is missing.
+4. The Supabase importer does 1–3 itself when the source password is given and storage policies were found.
+
+### Deferred
+
+- `listV2` (cursor pagination), analytics and vector buckets, bucket `type`.
+- Option B listing is O(n) per request (store listing + per-object stat for owner-only); fine for dashboard-sized buckets, not for very large public buckets — move such projects to `rls`.
+- Catalog reconciliation beyond the manual backfill (no scheduled drift check).
+- Policies are replayed as text; a policy referencing a function the destination lacks is reported in the import warnings and skipped.

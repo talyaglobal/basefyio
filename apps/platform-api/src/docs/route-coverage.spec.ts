@@ -31,6 +31,7 @@ const DOC_MAP: DocMapEntry[] = [
   { doc: 'docs/reference/rest-api.md', controllers: [`${M}/projects/public-api.controller.ts`] },
   { doc: 'docs/reference/collections-api.md', controllers: [`${M}/projects/public-collection-api.controller.ts`, `${M}/projects/collection.controller.ts`] },
   { doc: 'docs/reference/storage-api.md', controllers: [`${M}/storage/storage.controller.ts`, `${M}/storage/storage-policy.controller.ts`, `${M}/storage/upload-session.controller.ts`] },
+  { doc: 'docs/reference/storage-v1-api.md', controllers: [`${M}/storage-facade/storage-v1.controller.ts`, `${M}/storage-facade/storage-v1-public.controller.ts`, `${M}/storage-facade/storage-catalog.controller.ts`] },
   { doc: 'docs/reference/sql-api.md', controllers: [`${M}/sql/sql.controller.ts`] },
   { doc: 'docs/REALTIME_API.md', controllers: [`${M}/realtime-data/realtime-data.controller.ts`] },
   { doc: 'docs/reference/embeddings-api.md', controllers: [`${M}/tenant-embedding/tenant-embedding-public.controller.ts`, `${M}/tenant-embedding/tenant-embedding.controller.ts`, `${M}/tenant-embedding/ai-disclosure.controller.ts`] },
