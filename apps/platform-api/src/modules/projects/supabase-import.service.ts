@@ -174,6 +174,7 @@ interface SupabaseUser {
   role: string;
   created_at: string;
   user_metadata?: Record<string, any>;
+  app_metadata?: Record<string, any>;
   email_confirmed_at?: string;
   banned_until?: string | null;
   deleted_at?: string | null;
@@ -3821,6 +3822,13 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         // read as proof the address belongs to the person holding it.
         emailVerified: !!user.email_confirmed_at,
         createdTimestamp: Date.parse(user.created_at) || undefined,
+        // Both metadata documents, as the user had them: the realm's claim mappers copy
+        // them into every token, which is what policies written against
+        // `auth.jwt() -> 'app_metadata'` read.
+        attributes: {
+          app_metadata: [JSON.stringify(user.app_metadata ?? { provider: 'email', providers: ['email'] })],
+          user_metadata: [JSON.stringify(user.user_metadata ?? {})],
+        },
       });
     }
 
@@ -3841,6 +3849,18 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           progress.auth.skipped++;
           skippedDuplicate++;
           if (result.id !== rep.id) idClashes++;
+          // A sync: the user exists with their own id, so bring their metadata up to
+          // date (the partial import leaves an existing user untouched). Best-effort.
+          if (result.id === rep.id && rep.attributes) {
+            try {
+              await this.keycloak.setRealmUserMetadata(project.keycloakRealm, rep.id, {
+                app_metadata: JSON.parse(rep.attributes.app_metadata?.[0] ?? '{}'),
+                user_metadata: JSON.parse(rep.attributes.user_metadata?.[0] ?? '{}'),
+              });
+            } catch (err: any) {
+              this.logger.warn(`Could not update metadata of "${rep.email}": ${err?.message ?? err}`);
+            }
+          }
         }
 
         // Only for the account that carries the source's id: a clash means the
