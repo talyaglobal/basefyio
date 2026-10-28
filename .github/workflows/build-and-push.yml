@@ -197,6 +197,13 @@ jobs:
               printf '\nIMAGE_TAG=%s\n' "$SHA" >> .env.production
             fi
 
+            # ── Restore lost image names ──
+            # A prune can strip the name from an image a running container
+            # still uses; `up -d` then pulls that name, and minio/minio is no
+            # longer served anonymously — the v2.9.6 deploy died on it.
+            # Same name, same image: nothing is recreated.
+            bash scripts/ops/restore-image-names.sh
+
             # ── Deploy ──
             echo "=== Deploying $SHA ==="
             IMAGE_TAG=$SHA docker compose -f docker-compose.prod.yml --env-file .env.production up -d --remove-orphans
