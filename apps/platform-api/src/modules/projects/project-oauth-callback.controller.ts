@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
+import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 
 /**
  * Where the identity provider sends the browser back.
@@ -39,7 +40,10 @@ function isFollowableRedirect(value: string | undefined): value is string {
 
 @Controller('rest/v1/auth')
 export class ProjectOAuthCallbackController {
-  constructor(private readonly sdkAuth: ProjectSdkAuthService) {}
+  constructor(
+    private readonly sdkAuth: ProjectSdkAuthService,
+    private readonly gotrue: SupabaseAuthCompatService,
+  ) {}
 
   @Get('callback/:projectId/:provider')
   async oauthCallback(
@@ -59,6 +63,14 @@ export class ProjectOAuthCallbackController {
     // this API, not the app. What stays here is a shape check, so no change in
     // that service can ever put a javascript: or data: URL in Location.
     const safeRedirect = isFollowableRedirect(result.redirectTo) ? result.redirectTo : '/';
+
+    // Started by `GET /auth/v1/authorize`: the app's supabase-js is waiting, and
+    // it reads a PKCE `?code=` or GoTrue's fragment, not this controller's.
+    if (result.gotrue) {
+      const location = await this.gotrue.completeOAuth(projectId, provider, { ...result, redirectTo: safeRedirect });
+      res.redirect(isFollowableRedirect(location) ? location : '/');
+      return;
+    }
 
     const params = new URLSearchParams({
       access_token: result.accessToken,
