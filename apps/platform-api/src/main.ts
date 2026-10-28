@@ -12,6 +12,12 @@ import { BigIntSerializationInterceptor } from './common/interceptors/bigint-ser
 import { drainState } from './common/utils/drain-state';
 import { RealtimeStreamService } from './common/realtime/realtime-stream.service';
 import { RealtimeDataService } from './modules/realtime-data/realtime-data.service';
+import {
+  STORAGE_REQUEST_TIMEOUT_MS,
+  isFormBody,
+  isJsonBody,
+  rewriteSupabasePaths,
+} from './common/middleware/supabase-paths.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
@@ -22,11 +28,20 @@ async function bootstrap() {
   // add, which is what the rate limiters, sign-in audit and realtime keys use.
   app.set('trust proxy', trustedProxyHops());
 
+  // Supabase-compatible paths (`/auth/v1/…` at the root, `/api/p/<projectId>/…`),
+  // before anything reads the URL — see the middleware for the shapes.
+  app.use(rewriteSupabasePaths);
+
   // Nest's own parsers keep req.rawBody (the app was created with rawBody: true); registering
   // express.json() here instead made Nest skip its parser, and the Stripe webhook, which verifies
   // the signature over the raw bytes, could never see a body.
-  app.useBodyParser('json', { limit: '10mb' });
-  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
+  //
+  // A storage upload (`POST|PUT /storage/v1/object/<bucket>/<path>`) is the file itself,
+  // streamed; when the file happens to be JSON the parser would swallow it before the
+  // route could stream it to the store. The `type` predicate leaves those bodies alone;
+  // the object routes that do take JSON (list, sign, move, copy, upload/sign) keep it.
+  app.useBodyParser('json', { limit: '10mb', type: isJsonBody });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb', type: isFormBody });
 
   app.use(
     helmet({
@@ -66,11 +81,42 @@ async function bootstrap() {
       'Authorization',
       'apikey',
       'x-project-id',
+      'x-bf-project',
       'prefer',
       'x-client-info',
       'x-supabase-api-version',
+      // postgrest-js: schema selection, ranges, retries
+      'accept-profile',
+      'content-profile',
+      'range',
+      'range-unit',
+      'x-retry-count',
+      // storage-js: upsert, cache hints, resumable uploads
+      'x-upsert',
+      'cache-control',
+      'tus-resumable',
+      'upload-length',
+      'upload-metadata',
+      'upload-offset',
+      'x-signature',
+      'x-metadata',
     ],
-    exposedHeaders: ['Content-Range', 'X-Total-Count'],
+    exposedHeaders: [
+      'Content-Range',
+      'X-Total-Count',
+      'Link',
+      'Preference-Applied',
+      'Location',
+      'X-Supabase-Api-Version',
+      'Upload-Offset',
+      'Upload-Length',
+      'Tus-Resumable',
+      // storage-js downloads: size, cache validation, file name, partial content
+      'Content-Length',
+      'ETag',
+      'Content-Disposition',
+      'Accept-Ranges',
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
@@ -130,7 +176,12 @@ async function bootstrap() {
   const server = app.getHttpServer();
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.requestTimeout = 120_000;
+  // How long a client may take to send a whole request. Node applies one value
+  // to every request, and a storage upload of a few hundred megabytes over a
+  // slow link takes far longer than the two minutes everything else should. So
+  // the server allows an upload's worth, and every request that is not one has
+  // the old bound put back on its socket as an inactivity timeout below.
+  server.requestTimeout = STORAGE_REQUEST_TIMEOUT_MS;
 
   console.log(`Platform API running on http://localhost:${port}`);
 }

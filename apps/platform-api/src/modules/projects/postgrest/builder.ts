@@ -20,6 +20,16 @@ import { ProjectSchema, Relationship, SchemaCache, TableInfo } from './schema-ca
  * parameter. Embedded resources become correlated JSON subqueries, aggregated
  * to one row or an array according to the resolved relationship.
  */
+export interface SelectBuilderOptions {
+  /**
+   * Which NULLS placement an order term gets when it names none.
+   * `legacy` is this API's original choice (ASC NULLS FIRST / DESC NULLS
+   * LAST); `postgres` is what Postgres and PostgREST do (ASC NULLS LAST /
+   * DESC NULLS FIRST), which a postgrest-js client expects from `.order()`.
+   */
+  nullsDefault?: 'legacy' | 'postgres';
+}
+
 export class SelectBuilder {
   private readonly params: unknown[] = [];
   private aliasSeq = 0;
@@ -27,6 +37,7 @@ export class SelectBuilder {
   constructor(
     private readonly schema: ProjectSchema,
     private readonly cache: SchemaCache,
+    private readonly options: SelectBuilderOptions = {},
   ) {}
 
   build(table: string, query: ParsedQuery): { sql: string; params: unknown[] } {
@@ -46,7 +57,11 @@ export class SelectBuilder {
   buildCount(table: string, query: ParsedQuery): { sql: string; params: unknown[] } {
     const info = this.table(table);
     const alias = this.nextAlias();
-    const where = this.buildWhere(alias, info, query, '');
+    const rootWhere = this.buildWhere(alias, info, query, '');
+    // An `!inner` embed drops parent rows without a match, so the total must
+    // apply the same EXISTS predicates the data query does.
+    const inner = this.innerPredicates(table, alias, query.select, query, '');
+    const where = [rootWhere, ...inner].filter(Boolean).join(' AND ');
     const sql = [
       `SELECT COUNT(*)::int AS total FROM "${table}" ${alias}`,
       where ? `WHERE ${where}` : '',
@@ -77,6 +92,34 @@ export class SelectBuilder {
     const alias = this.nextAlias();
     const where = this.buildWhere(alias, info, query, '');
     return { alias, where, params: this.params };
+  }
+
+  /**
+   * The `select=` projection applied to the rows a write returns.
+   *
+   * PostgREST lets `.insert().select('id,author:users(name)')` shape the
+   * representation like a read, embeds included. The write runs in a CTE and
+   * this renders the SELECT over it: the same select list as a read, but
+   * read FROM the CTE under the root alias, and without the root filters,
+   * ordering or paging, which belong to the write's own WHERE. The write's
+   * bind values come first in the statement, so they are seeded before any
+   * parameter the projection binds.
+   */
+  buildProjection(
+    table: string,
+    query: ParsedQuery,
+    source: string,
+    seedParams: unknown[] = [],
+    options: { rawAs?: string } = {},
+  ): { sql: string; params: unknown[]; alias: string } {
+    const info = this.table(table);
+    this.params.push(...seedParams);
+    const alias = this.nextAlias();
+    let sql = this.buildSelectBody(table, alias, info, query, '', { from: source, projectionOnly: true });
+    // The whole written row alongside the projection, for the realtime
+    // broadcast, which carries full rows whatever the client asked to see.
+    if (options.rawAs) sql = sql.replace(/^SELECT /, `SELECT row_to_json(${alias}) AS "${options.rawAs}", `);
+    return { sql, params: this.params, alias };
   }
 
   /** The parameters accumulated so far, exposed for callers that compose counts. */
@@ -157,12 +200,16 @@ export class SelectBuilder {
     info: TableInfo,
     query: ParsedQuery,
     pathPrefix: string,
+    source: { from?: string; projectionOnly?: boolean } = {},
   ): string {
     // `!inner` embeds contribute an EXISTS predicate on this relation, so a
     // parent row with no matching child is dropped — collected here because the
     // predicate belongs in this query's WHERE, not the embed's subquery.
     const innerPredicates: string[] = [];
     const cols = this.buildSelectList(table, alias, info, query.select, query, pathPrefix, innerPredicates);
+    if (source.projectionOnly) {
+      return `SELECT ${cols.join(', ')} FROM ${source.from ?? `"${table}"`} ${alias}`;
+    }
     const rootWhere = this.buildWhere(alias, info, query, pathPrefix);
     const where = [rootWhere, ...innerPredicates].filter(Boolean).join(' AND ');
     const order = this.buildOrder(alias, info, query, pathPrefix);
@@ -170,7 +217,7 @@ export class SelectBuilder {
 
     return [
       `SELECT ${cols.join(', ')}`,
-      `FROM "${table}" ${alias}`,
+      `FROM ${source.from ?? `"${table}"`} ${alias}`,
       where ? `WHERE ${where}` : '',
       order ? `ORDER BY ${order}` : '',
       paging,
@@ -260,6 +307,50 @@ export class SelectBuilder {
     }
     // to-many and many-to-many return an array, never null.
     return `(SELECT COALESCE(json_agg(${rowAlias}), '[]'::json) FROM (${inner}) ${rowAlias}) AS "${label}"`;
+  }
+
+  /**
+   * The EXISTS predicates the `!inner` embeds of a select list put on their
+   * parent, without rendering the embeds themselves. A count wants exactly
+   * these: the projection would bind parameters the statement never uses,
+   * which Postgres refuses, so the predicates are built on their own.
+   */
+  private innerPredicates(
+    parentTable: string,
+    parentAlias: string,
+    items: SelectItem[],
+    query: ParsedQuery,
+    pathPrefix: string,
+  ): string[] {
+    const out: string[] = [];
+    for (const item of items) {
+      if (item.kind !== 'embed' || !item.inner) continue;
+      const rel = this.cache.resolveRelationship(this.schema, parentTable, item.relation, item.hint);
+      if (!rel) {
+        throw new PostgrestParseError(
+          `Could not find a relationship between "${parentTable}" and "${item.relation}"` +
+            (item.hint ? ` using hint "${item.hint}"` : ''),
+          'Define a foreign key, or disambiguate with a hint.',
+          'PGRST200',
+        );
+      }
+      const childInfo = this.table(item.relation);
+      const childAlias = this.nextAlias();
+      const label = item.alias ?? item.relation;
+      const childPath = pathPrefix ? `${pathPrefix}.${label}` : label;
+      const join = this.embedJoin(rel, parentAlias, childAlias, item.relation);
+      const embedWhere = this.buildWhere(childAlias, childInfo, query, childPath);
+      const nested = this.innerPredicates(item.relation, childAlias, item.select, query, childPath);
+      const fromJunction = rel.junction ? this.junctionFrom(rel, parentAlias, childAlias) : '';
+      const existsWhere = [join, embedWhere, ...nested].filter(Boolean).join(' AND ');
+      out.push(
+        `EXISTS (SELECT 1 FROM "${item.relation}" ${childAlias}` +
+          (fromJunction ? ` ${fromJunction}` : '') +
+          (existsWhere ? ` WHERE ${existsWhere}` : '') +
+          `)`,
+      );
+    }
+    return out;
   }
 
   private embedJoin(
@@ -473,14 +564,17 @@ export class SelectBuilder {
   private orderTermSql(alias: string, info: TableInfo, term: OrderTerm): string {
     const expr = this.fieldSql(alias, info, term.field);
     const dir = term.dir === 'desc' ? 'DESC' : 'ASC';
+    // Postgres puts NULLs last ascending and first descending; this API's
+    // original default was the reverse and is kept for its own SDKs.
+    const postgres = this.options.nullsDefault === 'postgres';
     const nulls =
       term.nulls === 'first'
         ? 'NULLS FIRST'
         : term.nulls === 'last'
           ? 'NULLS LAST'
           : dir === 'DESC'
-            ? 'NULLS LAST'
-            : 'NULLS FIRST';
+            ? (postgres ? 'NULLS FIRST' : 'NULLS LAST')
+            : (postgres ? 'NULLS LAST' : 'NULLS FIRST');
     return `${expr} ${dir} ${nulls}`;
   }
 

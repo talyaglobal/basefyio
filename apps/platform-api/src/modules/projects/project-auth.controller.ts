@@ -595,8 +595,19 @@ export class ProjectAuthController {
     @Body() body: Record<string, any>,
     @CurrentUser() user?: JwtPayload,
   ) {
-    await this.projectsService.findOne(projectId, user?.sub);
-    return this.authConfigService.update(projectId, body, user?.sub);
+    const project = await this.projectsService.findOne(projectId, user?.sub);
+    const updated = await this.authConfigService.update(projectId, body, user?.sub);
+    // The setting is stored here but the lifetime is Keycloak's to apply; without this
+    // write every realm kept the 1800 s it was created with, whatever the setting said.
+    const lifespan = Number(body?.tokenExpirySeconds);
+    if (Number.isFinite(lifespan) && lifespan > 0 && project.keycloakRealm) {
+      await this.keycloak
+        .setRealmAccessTokenLifespan(project.keycloakRealm, lifespan)
+        .catch((err: any) =>
+          logger.warn(`Token lifetime not applied to realm "${project.keycloakRealm}": ${err?.message ?? err}`),
+        );
+    }
+    return updated;
   }
 
   @Put('providers/:provider')
@@ -699,7 +710,18 @@ export class ProjectAuthController {
       healthy = false;
     }
     if (healthy) {
-      return { message: 'Realm is healthy, no repair needed', realm: realmName };
+      // A healthy realm can still predate the GoTrue facade: no claim mappers, no aal2
+      // client, a token lifetime that ignores the setting. Bring those up to date here,
+      // which is what makes this route the one to run after upgrading.
+      const problems = await this.keycloak.ensureRealmGoTrueCompat(realmName);
+      await this.applyTokenLifespan(projectId, realmName);
+      return {
+        message: problems.length
+          ? `Realm is healthy; GoTrue compatibility repaired with problems: ${problems.join('; ')}`
+          : 'Realm is healthy; GoTrue compatibility verified',
+        realm: realmName,
+        problems,
+      };
     }
 
     // Provision a FRESH realm under a new name and repoint the project at it. We
@@ -711,6 +733,8 @@ export class ProjectAuthController {
     const newRealm = `${base}-r${Date.now().toString(36)}`;
     await this.keycloak.createRealm(newRealm);
     await this.keycloak.createClients(newRealm);
+    await this.keycloak.ensureRealmGoTrueCompat(newRealm);
+    await this.applyTokenLifespan(projectId, newRealm);
     await this.projectsService.updateKeycloakRealm(projectId, newRealm);
 
     await this.activity.append(projectId, {
@@ -721,5 +745,18 @@ export class ProjectAuthController {
     });
 
     return { message: 'Realm re-provisioned', realm: newRealm, previousRealm: realmName };
+  }
+
+  /** The stored tokenExpirySeconds, written to the realm. Best-effort. */
+  private async applyTokenLifespan(projectId: string, realmName: string): Promise<void> {
+    try {
+      const cfg = await this.authConfigService.getOrCreate(projectId);
+      const lifespan = Number(cfg.tokenExpirySeconds);
+      if (Number.isFinite(lifespan) && lifespan > 0) {
+        await this.keycloak.setRealmAccessTokenLifespan(realmName, lifespan);
+      }
+    } catch (err: any) {
+      logger.warn(`Token lifetime not applied to realm "${realmName}": ${err?.message ?? err}`);
+    }
   }
 }

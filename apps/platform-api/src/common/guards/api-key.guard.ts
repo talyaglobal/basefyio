@@ -18,6 +18,7 @@ import {
   API_KEY_SCOPE_KEY,
   ApiKeyScope,
 } from '../decorators/api-key-scope.decorator';
+import { isSupabaseCompat } from '../../modules/projects/postgrest/compat';
 
 export type PgRequestRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -200,6 +201,9 @@ export class ApiKeyGuard implements CanActivate {
 
   private admit(context: ExecutionContext, request: any, payload: ApiKeyPayload): boolean {
     request.apiKeyPayload = payload;
+    // Decided once here, where every admitted request passes, so the data-plane
+    // controller and its error filter agree on the dialect the caller speaks.
+    request.supabaseCompat = isSupabaseCompat(request.headers ?? {});
     this.assertScope(context, request, payload);
     return true;
   }
@@ -279,10 +283,14 @@ export class ApiKeyGuard implements CanActivate {
     keyProjectId: string,
     isService: boolean,
   ): void {
+    // On the data plane the body and the query string are the caller's own
+    // rows and filters: a table with a `projectId` column names no project.
+    // Only the path can there, and the data plane has no project in its path.
+    const dataPlane = /^\/(api\/)?rest\/v1\//.test(String(request.originalUrl ?? request.url ?? ''));
     const named = [
       request.params?.projectId,
-      request.body && typeof request.body === 'object' ? request.body.projectId : undefined,
-      request.query?.projectId,
+      dataPlane ? undefined : request.body && typeof request.body === 'object' ? request.body.projectId : undefined,
+      dataPlane ? undefined : request.query?.projectId,
     ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
     const foreign = named.find((id) => id !== keyProjectId);

@@ -16,6 +16,10 @@ import { ProjectAuthConfigService } from './project-auth-config.service';
 import { ProjectSdkAuthController } from './project-sdk-auth.controller';
 import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
 import { ProjectSdkAuthService } from './project-sdk-auth.service';
+import { SupabaseAuthCompatController } from './supabase-auth-compat.controller';
+import { SupabaseAuthOpenController } from './supabase-auth-open.controller';
+import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
+import { ProjectJwtVerifier } from '../../common/auth/project-jwt-verifier';
 import { ProjectMfaService } from './project-mfa.service';
 import { ImportedPasswordService } from './imported-password.service';
 import { ProjectAnonymousAuthService } from './project-anonymous-auth.service';
@@ -66,6 +70,8 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectAuthController,
     ProjectSdkAuthController,
     ProjectOAuthCallbackController,
+    SupabaseAuthCompatController,
+    SupabaseAuthOpenController,
     PublicApiController,
     CollectionController,
     PublicCollectionApiController,
@@ -83,6 +89,8 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectDataService,
     ProjectAuthConfigService,
     ProjectSdkAuthService,
+    SupabaseAuthCompatService,
+    ProjectJwtVerifier,
     ProjectMfaService,
     ImportedPasswordService,
     ProjectAnonymousAuthService,

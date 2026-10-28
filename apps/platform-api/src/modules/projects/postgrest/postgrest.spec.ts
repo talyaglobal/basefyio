@@ -1,38 +1,7 @@
 import { parseQuery, parseSelect } from './parser';
 import { SelectBuilder } from './builder';
-import { SchemaCache, ProjectSchema } from './schema-cache';
+import { fixtureSchema } from './test-fixtures';
 import { PostgrestParseError } from './types';
-
-/**
- * A small fixed schema: posts belong to a user (author) and have many comments.
- *
- *   posts(id, title, author_id, body, created_at)   author_id → users.id
- *   users(id, name, email)
- *   comments(id, post_id, body, status)             post_id  → posts.id
- *   tags(id, name) ⇄ post_tags(post_id, tag_id)      many-to-many
- */
-function fixtureSchema(): { schema: ProjectSchema; cache: SchemaCache } {
-  const tables = new Map();
-  const mk = (name: string, cols: string[], pk: string[]) =>
-    tables.set(name, { name, columns: new Set(cols), primaryKey: pk });
-  mk('posts', ['id', 'title', 'author_id', 'body', 'created_at'], ['id']);
-  mk('users', ['id', 'name', 'email', 'profile'], ['id']);
-  mk('comments', ['id', 'post_id', 'body', 'status', 'created_at'], ['id']);
-  mk('tags', ['id', 'name'], ['id']);
-  mk('post_tags', ['post_id', 'tag_id'], ['post_id', 'tag_id']);
-
-  const schema: ProjectSchema = {
-    tables,
-    foreignKeys: [
-      { constraint: 'posts_author_fk', table: 'posts', columns: ['author_id'], foreignTable: 'users', foreignColumns: ['id'] },
-      { constraint: 'comments_post_fk', table: 'comments', columns: ['post_id'], foreignTable: 'posts', foreignColumns: ['id'] },
-      { constraint: 'post_tags_post_fk', table: 'post_tags', columns: ['post_id'], foreignTable: 'posts', foreignColumns: ['id'] },
-      { constraint: 'post_tags_tag_fk', table: 'post_tags', columns: ['tag_id'], foreignTable: 'tags', foreignColumns: ['id'] },
-    ],
-    loadedAt: Date.now(),
-  };
-  return { schema, cache: new SchemaCache() };
-}
 
 function build(table: string, qs: Record<string, string | string[]>) {
   const { schema, cache } = fixtureSchema();
@@ -308,5 +277,63 @@ describe('PostgREST builder — write filters', () => {
 
   it('still rejects an unknown table', () => {
     expect(() => where('nonexistent', { id: 'eq.1' })).toThrow(PostgrestParseError);
+  });
+});
+
+/**
+ * What the PostgREST compatibility mode needs of the builder.
+ */
+describe('PostgREST builder — compat additions', () => {
+  it('applies the !inner EXISTS predicate to the count, so the total matches the page', () => {
+    const { schema, cache } = fixtureSchema();
+    const b = new SelectBuilder(schema, cache);
+    const { sql, params } = b.buildCount(
+      'posts',
+      parseQuery({ select: 'id,comments!inner(body)', 'comments.status': 'eq.open', title: 'eq.x' } as Record<string, string>),
+    );
+    expect(sql).toMatch(/COUNT\(\*\)::int AS total/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM "comments"/);
+    expect(sql).not.toMatch(/json_agg/);
+    expect(params).toEqual(['x', 'open']);
+  });
+
+  it('leaves the count alone for a non-inner embed', () => {
+    const { schema, cache } = fixtureSchema();
+    const { sql } = new SelectBuilder(schema, cache).buildCount('posts', parseQuery({ select: 'id,comments(body)' }));
+    expect(sql).not.toMatch(/EXISTS/);
+  });
+
+  it('defaults NULLS the Postgres way when asked, and the legacy way otherwise', () => {
+    const { schema, cache } = fixtureSchema();
+    const compat = new SelectBuilder(schema, cache, { nullsDefault: 'postgres' }).build('posts', parseQuery({ order: 'created_at.asc,title.desc' }));
+    expect(compat.sql).toMatch(/"created_at" ASC NULLS LAST, _bf0\."title" DESC NULLS FIRST/);
+    const legacy = build('posts', { order: 'created_at.asc,title.desc' });
+    expect(legacy.sql).toMatch(/"created_at" ASC NULLS FIRST, _bf0\."title" DESC NULLS LAST/);
+    // An explicit modifier wins in both.
+    expect(new SelectBuilder(schema, cache, { nullsDefault: 'postgres' }).build('posts', parseQuery({ order: 'title.asc.nullsfirst' })).sql).toMatch(/ASC NULLS FIRST/);
+  });
+
+  it('projects a write’s RETURNING rows through select=, embeds included, from the CTE alias', () => {
+    const { schema, cache } = fixtureSchema();
+    const b = new SelectBuilder(schema, cache);
+    const { sql, params } = b.buildProjection('posts', parseQuery({ select: 'id,author:users(name)', id: 'eq.1', order: 'id.desc', limit: '5' }), '_w', ['seed-a', 'seed-b']);
+    expect(sql).toMatch(/^SELECT _bf0\."id" AS "id", \(SELECT row_to_json/);
+    expect(sql).toMatch(/FROM _w _bf0$/);
+    // No root filter, ordering or paging: `WHERE` appears only inside the embed.
+    expect(sql).not.toMatch(/_bf0\."id" = |ORDER BY|LIMIT/);
+    expect(params).toEqual(['seed-a', 'seed-b']);
+  });
+
+  it('numbers projection parameters after the seeded write values', () => {
+    const { schema, cache } = fixtureSchema();
+    const { sql, params } = new SelectBuilder(schema, cache).buildProjection('users', parseQuery({ select: 'profile->>city' }), '_w', [1, 2, 3]);
+    expect(sql).toMatch(/"profile"->>\$4/);
+    expect(params).toEqual([1, 2, 3, 'city']);
+  });
+
+  it('ignores apikey and on_conflict in the query string', () => {
+    const { sql, params } = build('posts', { apikey: 'anon-key', on_conflict: 'id', id: 'eq.1' });
+    expect(sql).not.toMatch(/apikey|on_conflict/);
+    expect(params).toEqual(['1', 1000]);
   });
 });

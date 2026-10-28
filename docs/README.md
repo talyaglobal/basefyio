@@ -25,11 +25,13 @@ documented route stops existing.
 | Page | Routes |
 |---|---|
 | [reference/auth-api.md](./reference/auth-api.md) | `/api/rest/v1/auth/*` — sign-up, sign-in, passwordless, OAuth, session |
+| [reference/supabase-auth-v1.md](./reference/supabase-auth-v1.md) | `/api/auth/v1/*` — the same identity system in GoTrue's shapes, for `@supabase/supabase-js` |
 | [reference/rest-api.md](./reference/rest-api.md) | `/api/rest/v1/:table`, `/api/rest/v1/rpc/:fn` — tables through the PostgREST query grammar |
 | [reference/collections-api.md](./reference/collections-api.md) | `/api/rest/v1/collections/*` — document collections |
 | [reference/sql-api.md](./reference/sql-api.md) | `POST /api/sql/execute` — SQL with bound parameters |
 | [REALTIME_API.md](./REALTIME_API.md) | `/api/realtime/v1/stream`, realtime bindings |
 | [reference/storage-api.md](./reference/storage-api.md) | `/api/projects/:projectId/storage/*` — buckets and objects |
+| [reference/storage-v1-api.md](./reference/storage-v1-api.md) | `/api/storage/v1/*` — the Supabase Storage protocol (`@supabase/storage-js`) over the same buckets |
 | [reference/embeddings-api.md](./reference/embeddings-api.md) | `/api/rest/v1/embeddings/*` — vectors and semantic search |
 
 ## Platform API — called with the service key, a dashboard session or an API token

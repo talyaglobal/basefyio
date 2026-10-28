@@ -61,6 +61,7 @@ function build(o: {
   const prisma = { project: { findFirst: jest.fn().mockResolvedValue(PROJECT) } };
   const keycloak = {
     ensureRealmClientAuthTimeMapper: jest.fn().mockResolvedValue(undefined),
+    ensureRealmClientGoTrueMappers: jest.fn().mockResolvedValue(undefined),
     ensureRealmClientDirectGrant: jest.fn().mockResolvedValue(true),
     findUserInRealm: jest
       .fn()

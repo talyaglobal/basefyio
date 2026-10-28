@@ -62,7 +62,11 @@ the anon key — that is what turns a request into the `authenticated` role for 
 security, with the claims readable in SQL through `auth.uid()`, `auth.email()` and
 `auth.jwt()`. Refresh with `POST refresh` `{ "refreshToken": "…" }` →
 `{ accessToken, refreshToken, expiresIn }`. The lifetime (`expiresIn`, default 1800 s) is the
-project's `tokenExpirySeconds` setting.
+project's `tokenExpirySeconds` setting, written to the realm when the setting is saved; a
+realm created before that was wired keeps 1800 s until `POST /api/projects/:projectId/auth/repair`
+is run once. The token also carries `role`, `aal`, `app_metadata` and `user_metadata` — see
+[supabase-auth-v1.md](./supabase-auth-v1.md), the same identity system in GoTrue's shapes for
+`@supabase/supabase-js`.
 
 ## Sign-up and sign-in
 
@@ -147,8 +151,11 @@ Then:
 ## Invitations
 
 `POST invite` `{ email }` needs the **service key** (403 `Invite requires service_role key`
-otherwise): it creates the user, mails an invitation and answers
-`{ message: "Invitation sent to …" }`. 409 `User already exists in this project`.
+otherwise): it creates a password-less, unconfirmed user, mails an invitation whose link signs
+them in (`GET /api/auth/v1/verify`, valid seven days; the app lands on the project's first
+registered redirect URL with a session and may then set a password with `PUT /api/auth/v1/user`)
+and answers `{ message: "Invitation sent to …", userId }`. 409 `User already exists in this
+project`.
 
 ## Examples
 
