@@ -28,7 +28,10 @@ import {
   wantsObject,
 } from './postgrest/compat';
 import { PostgrestCompatFilter } from './postgrest/compat.filter';
-import { PostgrestHttpError, postgrestBody } from './postgrest/errors';
+import { PostgrestHttpError, notAcceptableObject, postgrestBody } from './postgrest/errors';
+
+/** Query keys of a GET rpc that are never function arguments. */
+const RPC_QUERY_RESERVED = new Set(['select', 'order', 'limit', 'offset', 'apikey', 'columns', 'on_conflict']);
 
 // High-volume anonymous data API (server-to-server from the website + SDK
 // clients): exempt from the global IP rate limiter so legitimate traffic from a
@@ -88,9 +91,72 @@ export class PublicApiController {
     @Param('fn') fn: string,
     @Body() args: Record<string, unknown>,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('prefer') prefer?: string,
+    @Headers('accept') accept?: string,
   ) {
     const payload = this.getPayload(req);
-    return this.publicApi.rpc(payload.projectId, fn, args ?? {}, this.buildCtx(payload));
+    if (!this.compat(req)) {
+      return this.publicApi.rpc(payload.projectId, fn, args ?? {}, this.buildCtx(payload));
+    }
+    return this.rpcCompat(req, res, payload, fn, args ?? {}, prefer, accept);
+  }
+
+  /**
+   * The same function over GET (and HEAD, which Express routes here): the
+   * arguments are the query parameters. postgrest-js sends this for
+   * `.rpc(fn, args, { get: true })`, meant for stable, read-only functions.
+   */
+  @Get('rpc/:fn')
+  async rpcGet(
+    @Param('fn') fn: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('prefer') prefer?: string,
+    @Headers('accept') accept?: string,
+  ) {
+    const payload = this.getPayload(req);
+    const args: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(req.query as Record<string, string | string[]>)) {
+      if (RPC_QUERY_RESERVED.has(k)) continue;
+      args[k] = Array.isArray(v) ? v[v.length - 1] : v;
+    }
+    if (!this.compat(req)) {
+      return this.publicApi.rpc(payload.projectId, fn, args, this.buildCtx(payload));
+    }
+    return this.rpcCompat(req, res, payload, fn, args, prefer, accept);
+  }
+
+  private async rpcCompat(
+    req: Request,
+    res: Response,
+    payload: ApiKeyPayload,
+    fn: string,
+    args: Record<string, unknown>,
+    prefer?: string,
+    accept?: string,
+  ) {
+    this.assertCompatHeaders(req, accept);
+    const p = parsePrefer(prefer);
+    const r = await this.publicApi.rpc(payload.projectId, fn, args, this.buildCtx(payload, true), {
+      compat: true,
+      prefer: p,
+    });
+    if (r.kind === 'void') {
+      res.status(204);
+      return undefined;
+    }
+    let value = r.value;
+    if (wantsObject(accept) && r.kind === 'array') {
+      const rows = r.value as unknown[];
+      if (rows.length !== 1) throw notAcceptableObject(rows.length);
+      value = rows[0];
+    }
+    res.setHeader('Content-Range', contentRange(0, r.rows, p.count ? r.rows : null));
+    res.status(200);
+    // Nest sends a non-object body as text; a scalar result must still be JSON.
+    res.type('application/json');
+    return JSON.stringify(value === undefined ? null : value);
   }
 
   @Post(':table')

@@ -20,6 +20,7 @@ import { SelectBuilder } from './postgrest/builder';
 import { SchemaCache } from './postgrest/schema-cache';
 import { ParsedQuery, PostgrestParseError } from './postgrest/types';
 import { assertIdent } from './postgrest/parser';
+import { FunctionMeta, RpcCall, chooseOverload, callShape } from './postgrest/rpc';
 import { ProjectSchema, TableInfo } from './postgrest/schema-cache';
 import { CountMode, Prefer, parseColumnsParam } from './postgrest/compat';
 import {
@@ -76,6 +77,20 @@ export interface CompatWriteResult {
   /** Affected rows; `null` unless `Prefer: count=` was sent. */
   total: number | null;
   representation: boolean;
+}
+
+/** How a PostgREST client calls a function. */
+export interface RpcOptions {
+  compat: true;
+  prefer: Prefer;
+}
+
+/** A function's result, shaped as PostgREST would send it. */
+export interface RpcCompatResult {
+  kind: 'void' | 'scalar' | 'object' | 'array';
+  value: unknown;
+  /** Rows for `Content-Range`: the set's length, 1 for a single value. */
+  rows: number;
 }
 
 const COMPAT_BUILDER = { nullsDefault: 'postgres' as const };
@@ -304,43 +319,128 @@ export class PublicApiService {
     fnName: string,
     args: Record<string, unknown>,
     ctx: RlsContext,
-  ) {
+  ): Promise<unknown[]>;
+  async rpc(
+    projectId: string,
+    fnName: string,
+    args: Record<string, unknown>,
+    ctx: RlsContext,
+    opts: RpcOptions,
+  ): Promise<RpcCompatResult>;
+  async rpc(
+    projectId: string,
+    fnName: string,
+    args: Record<string, unknown>,
+    ctx: RlsContext,
+    opts?: RpcOptions,
+  ): Promise<unknown[] | RpcCompatResult> {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(fnName)) {
       throw new BadRequestException('Invalid function name');
     }
-    return this.withRls(projectId, ctx, async (client) => {
-      const meta = await client.query(
+    const compat = !!opts?.compat;
+    const rlsCtx: RlsContext = compat ? { ...ctx, compat: true } : ctx;
+    return this.withRls(projectId, rlsCtx, async (client) => {
+      // Every overload: the one called is the one whose input names cover
+      // the keys sent. LIMIT 1 used to pick whichever came first.
+      const meta = await client.query<FunctionMeta>(
         `SELECT p.oid::regprocedure AS signature,
                 p.prosecdef AS definer,
-                COALESCE(array_to_json(p.proargnames), '[]'::json) AS argnames
-           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                COALESCE(array_to_json(p.proargnames), '[]'::json) AS argnames,
+                COALESCE(array_to_json(p.proargmodes), '[]'::json) AS argmodes,
+                COALESCE((SELECT array_to_json(array_agg(format_type(u.o, NULL) ORDER BY u.n))
+                            FROM unnest(p.proargtypes::oid[]) WITH ORDINALITY AS u(o, n)), '[]'::json) AS argtypes,
+                p.pronargs, p.pronargdefaults, p.proretset, p.provolatile,
+                t.typtype, t.typname, t.typrelid
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           JOIN pg_type t ON t.oid = p.prorettype
           WHERE n.nspname = 'public' AND p.proname = $1 AND p.prokind = 'f'
-          LIMIT 1`,
+          ORDER BY p.pronargs`,
         [fnName],
       );
-      if (meta.rowCount === 0) {
+      const keys = Object.keys(args ?? {});
+      const singleObject = compat && opts!.prefer.params === 'single-object';
+      const chosen = chooseOverload(meta.rows, keys, { strict: compat, singleObject });
+      if (!chosen) {
+        if (compat) {
+          const list = [...keys].sort().join(', ');
+          throw new PostgrestHttpError(
+            404,
+            postgrestBody(
+              'PGRST202',
+              `Could not find the function public.${fnName}(${list}) in the schema cache`,
+              `Searched for the function public.${fnName}${keys.length ? ` with parameters ${list}` : ' without parameters'}, but no matches were found in the schema cache.`,
+              meta.rowCount
+                ? `Perhaps you meant to call one of: ${meta.rows.map((m) => m.signature).join(', ')}`
+                : null,
+            ),
+          );
+        }
         throw new BadRequestException(`Function "${fnName}" not found`);
       }
-      if (meta.rows[0].definer && ctx.role === 'anon') {
-        throw new ForbiddenException(
-          `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`,
-        );
+      if (chosen.meta.definer && ctx.role === 'anon') {
+        const message = `Function "${fnName}" is SECURITY DEFINER, so it runs as the database owner and row-level policies do not apply to it. It cannot be called anonymously — send a signed-in user's access token, or call it from your server with the service key.`;
+        if (compat) throw new PostgrestHttpError(403, postgrestBody('42501', message));
+        throw new ForbiddenException(message);
       }
-      const argNames: string[] = meta.rows[0].argnames ?? [];
-      const provided = Object.keys(args).filter((k) => argNames.includes(k));
-      const params: unknown[] = [];
-      const named = provided
-        .map((k) => {
-          params.push(args[k]);
-          return `"${k}" := ${params.length}`;
-        })
-        .join(', ');
-      const result = await client.query(
-        `SELECT * FROM "${fnName}"(${named})`,
-        params,
-      );
-      return result.rows;
+
+      const { call, params } = this.renderRpcCall(fnName, chosen, args ?? {});
+      if (!compat) {
+        const result = await client.query(`SELECT * FROM ${call}`, params);
+        return result.rows;
+      }
+      return this.runRpcCompat(client, call, params, chosen.meta);
     });
+  }
+
+  /** `"fn"("a" := $1, "b" := $2)` — or `"fn"($1::json)` for a single JSON argument. */
+  private renderRpcCall(
+    fnName: string,
+    chosen: RpcCall,
+    args: Record<string, unknown>,
+  ): { call: string; params: unknown[] } {
+    const params: unknown[] = [];
+    if (chosen.singleJson) {
+      params.push(JSON.stringify(args));
+      return { call: `"${fnName}"($1::${chosen.jsonType})`, params };
+    }
+    const named = chosen.inputs
+      .filter((k) => k in args)
+      .map((k) => {
+        params.push(args[k]);
+        return `"${k}" := $${params.length}`;
+      })
+      .join(', ');
+    return { call: `"${fnName}"(${named})`, params };
+  }
+
+  /**
+   * Run the call and shape the result as PostgREST does: a scalar or JSON
+   * function yields its bare value, a composite yields one object, a SETOF
+   * yields an array (of bare values for a scalar set), void yields nothing.
+   */
+  private async runRpcCompat(
+    client: PoolClient,
+    call: string,
+    params: unknown[],
+    meta: FunctionMeta,
+  ): Promise<RpcCompatResult> {
+    const shape = callShape(meta);
+    if (shape === 'void') {
+      await client.query(`SELECT ${call}`, params);
+      return { kind: 'void', value: null, rows: 0 };
+    }
+    if (meta.proretset) {
+      const result = await client.query(`SELECT * FROM ${call} AS _r`, params);
+      const value = shape === 'scalar' ? result.rows.map((r: any) => r._r) : result.rows;
+      return { kind: 'array', value, rows: result.rows.length };
+    }
+    if (shape === 'composite') {
+      const result = await client.query(`SELECT * FROM ${call} AS _r`, params);
+      return { kind: 'object', value: result.rows[0] ?? null, rows: result.rows.length };
+    }
+    const result = await client.query(`SELECT ${call} AS v`, params);
+    return { kind: 'scalar', value: result.rows[0]?.v ?? null, rows: 1 };
   }
 
   async insert(
