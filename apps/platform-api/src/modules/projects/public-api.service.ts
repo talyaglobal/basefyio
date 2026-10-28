@@ -18,12 +18,9 @@ import { jwtClaimSettings } from './jwt-claim-settings';
 import { parseQuery } from './postgrest/parser';
 import { SelectBuilder } from './postgrest/builder';
 import { SchemaCache } from './postgrest/schema-cache';
-import { PostgrestParseError } from './postgrest/types';
-
-interface ParsedFilter {
-  clause: string;
-  values: unknown[];
-}
+import { ParsedQuery, PostgrestParseError } from './postgrest/types';
+import { CountMode } from './postgrest/compat';
+import { notAcceptableObject, parseErrorToPostgrest, pgToPostgrest } from './postgrest/errors';
 
 export type PgDbRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -31,24 +28,33 @@ export interface RlsContext {
   role: PgDbRole;
   /** Decoded JWT payload (claims) — will be exposed to policies via auth.jwt(). */
   jwtClaims?: Record<string, unknown>;
+  /**
+   * The caller speaks PostgREST (supabase-js / postgrest-js). Database errors
+   * are then reported with their SQLSTATE and PostgREST's status for it,
+   * rather than through {@link mapPgError}'s fixed messages.
+   */
+  compat?: boolean;
 }
 
-const OPERATOR_MAP: Record<string, string> = {
-  eq: '=',
-  neq: '!=',
-  gt: '>',
-  gte: '>=',
-  lt: '<',
-  lte: '<=',
-  like: 'LIKE',
-  ilike: 'ILIKE',
-  is: 'IS',
-  in: 'IN',
-};
+/** How a PostgREST client wants a read answered. */
+export interface SelectOptions {
+  /** `Prefer: count=…` — only then is the total computed. */
+  count?: CountMode | null;
+  /** The request was HEAD: no rows, only the total for `Content-Range`. */
+  head?: boolean;
+  /** `.single()` — exactly one row, or 406 PGRST116. */
+  wantsObject?: boolean;
+}
 
-const RESERVED_PARAMS = new Set([
-  'select', 'order', 'limit', 'offset', 'on_conflict',
-]);
+/** The rows of a PostgREST-shaped read, plus what `Content-Range` needs. */
+export interface CompatRows {
+  rows: Record<string, unknown>[];
+  /** `null` when no count was asked for. */
+  total: number | null;
+  offset: number;
+}
+
+const COMPAT_BUILDER = { nullsDefault: 'postgres' as const };
 
 const ALLOWED_ROLES: ReadonlySet<PgDbRole> = new Set<PgDbRole>([
   'anon',
@@ -114,9 +120,24 @@ export class PublicApiService {
     table: string,
     query: Record<string, string | string[]>,
     ctx: RlsContext,
-  ) {
+  ): Promise<{ data: Record<string, unknown>[]; count: number }>;
+  async select(
+    projectId: string,
+    table: string,
+    query: Record<string, string | string[]>,
+    ctx: RlsContext,
+    opts: SelectOptions,
+  ): Promise<CompatRows>;
+  async select(
+    projectId: string,
+    table: string,
+    query: Record<string, string | string[]>,
+    ctx: RlsContext,
+    opts?: SelectOptions,
+  ): Promise<{ data: Record<string, unknown>[]; count: number } | CompatRows> {
     this.validateTableName(table);
     const parsed = parseQuery(query);
+    if (opts) return this.selectCompat(projectId, table, parsed, ctx, opts);
 
     return this.withRls(projectId, ctx, async (client) => {
       // Resolving embeds needs the foreign keys, which the URL cannot carry.
@@ -146,6 +167,49 @@ export class PublicApiService {
   }
 
   /**
+   * A read for a PostgREST client: a bare page of rows, the total only when
+   * asked for (`Prefer: count=`), Postgres's own NULLS ordering, and `.single()`
+   * enforced as PostgREST does. HEAD runs the count alone — the client reads
+   * `Content-Range` and never sees a body.
+   */
+  private async selectCompat(
+    projectId: string,
+    table: string,
+    parsed: ParsedQuery,
+    ctx: RlsContext,
+    opts: SelectOptions,
+  ): Promise<CompatRows> {
+    const rlsCtx: RlsContext = { ...ctx, compat: true };
+    return this.withRls(projectId, rlsCtx, async (client) => {
+      const run = async (force: boolean): Promise<CompatRows> => {
+        const schema = await this.schemaCache.get(projectId, client, force);
+        const wantCount = !!opts.count || !!opts.head;
+        const data = opts.head
+          ? null
+          : new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).build(table, parsed);
+        const count = wantCount
+          ? new SelectBuilder(schema, this.schemaCache, COMPAT_BUILDER).buildCount(table, parsed)
+          : null;
+
+        const [dataResult, countResult] = await Promise.all([
+          data ? client.query(data.sql, data.params) : Promise.resolve(null),
+          count ? client.query(count.sql, count.params) : Promise.resolve(null),
+        ]);
+        const rows = (dataResult?.rows ?? []) as Record<string, unknown>[];
+        if (opts.wantsObject && !opts.head && rows.length !== 1) {
+          throw notAcceptableObject(rows.length);
+        }
+        return {
+          rows,
+          total: countResult ? Number(countResult.rows[0]?.total ?? 0) : null,
+          offset: parsed.offset.get('') ?? 0,
+        };
+      };
+      return this.withSchemaRetry(projectId, run, true);
+    });
+  }
+
+  /**
    * Run something that reads the cached schema, and give it one more chance
    * with a fresh one.
    *
@@ -158,6 +222,7 @@ export class PublicApiService {
   private async withSchemaRetry<T>(
     projectId: string,
     run: (force: boolean) => Promise<T>,
+    compat = false,
   ): Promise<T> {
     try {
       return await run(false);
@@ -170,17 +235,19 @@ export class PublicApiService {
         try {
           return await run(true);
         } catch (retryErr) {
-          throw this.toHttp(retryErr);
+          throw this.toHttp(retryErr, compat);
         }
       }
-      throw this.toHttp(err);
+      throw this.toHttp(err, compat);
     }
   }
 
   /** Map a parse failure to a 400 that keeps PostgREST's error code; anything
-   *  else is left for withRls / mapPgError to classify. */
-  private toHttp(err: unknown): unknown {
+   *  else is left for withRls / mapPgError to classify. A PostgREST client
+   *  gets the code's own status (a missing relation is 404 there). */
+  private toHttp(err: unknown, compat = false): unknown {
     if (err instanceof PostgrestParseError) {
+      if (compat) return parseErrorToPostgrest(err);
       return new BadRequestException({
         message: err.message,
         details: err.details,
@@ -418,7 +485,7 @@ export class PublicApiService {
       // RLS policy denial) or any other Postgres error is mapped to a proper
       // HTTP status instead of bubbling up as a generic 500.
       if (!(e?.code === PG_INSUFFICIENT_PRIVILEGE && e.__setRoleFailed)) {
-        throw mapPgError(e);
+        throw this.classify(e, ctx);
       }
 
       const lastAttempt = this.autoHealLastAttemptMs.get(projectId) ?? 0;
@@ -475,9 +542,14 @@ export class PublicApiService {
       try {
         return await this.runRlsTransaction(projectId, ctx, fn);
       } catch (retryErr: any) {
-        throw mapPgError(retryErr);
+        throw this.classify(retryErr, ctx);
       }
     }
+  }
+
+  /** The HTTP error for a failed statement, in the dialect the caller speaks. */
+  private classify(e: unknown, ctx: RlsContext): unknown {
+    return ctx.compat ? pgToPostgrest(e, ctx.role) : mapPgError(e);
   }
 
 

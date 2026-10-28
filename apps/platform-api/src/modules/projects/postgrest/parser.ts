@@ -25,7 +25,7 @@ import {
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function assertIdent(name: string, what: string): string {
+export function assertIdent(name: string, what: string): string {
   if (!IDENT.test(name)) {
     throw new PostgrestParseError(`Invalid ${what}: "${name}"`);
   }
@@ -259,8 +259,12 @@ export function parseQuery(
     if (rawVal === undefined) continue;
     const values = Array.isArray(rawVal) ? rawVal : [rawVal];
 
-    // `select` is already consumed; `columns` is an insert-only hint we ignore.
-    if (rawKey === 'select' || rawKey === 'columns') continue;
+    // `select` is already consumed; `columns` and `on_conflict` are write-only
+    // hints the write path reads itself; `apikey` is the key arriving in the
+    // query string (the guard accepts it there), never a column.
+    if (rawKey === 'select' || rawKey === 'columns' || rawKey === 'on_conflict' || rawKey === 'apikey') {
+      continue;
+    }
 
     const { path, leaf } = splitEmbeddedKey(rawKey);
 
