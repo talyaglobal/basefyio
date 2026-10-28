@@ -45,28 +45,28 @@ describe('EmailService transports', () => {
       ...BASE,
       'resend.apiKey': 're_should_not_be_used',
       'mail.transport': 'smtp',
-      'mail.from': 'Marina <noreply@marina.test>',
-      'mail.smtp.host': 'smtp.marina.test',
+      'mail.from': 'Example <noreply@example.test>',
+      'mail.smtp.host': 'smtp.example.test',
       'mail.smtp.port': 587,
     });
     await svc.onModuleInit();
     expect(svc.getDeliverability().state).toBe('ok');
     await svc.sendRawHtml('b@example.test', 'Reset', '<p>reset</p>');
     expect(ResendCtor).not.toHaveBeenCalled();
-    expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'smtp.marina.test', port: 587, requireTLS: true }));
+    expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({ host: 'smtp.example.test', port: 587, requireTLS: true }));
     expect(sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'Marina <noreply@marina.test>', to: 'b@example.test', replyTo: 'support@example.test', subject: 'Reset' }),
+      expect.objectContaining({ from: 'Example <noreply@example.test>', to: 'b@example.test', replyTo: 'support@example.test', subject: 'Reset' }),
     );
   });
 
   it('reports a refused login as failing, and an unreachable server as unchecked', async () => {
     verify.mockRejectedValueOnce(Object.assign(new Error('535 bad credentials'), { code: 'EAUTH' }));
-    const refused = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.marina.test' });
+    const refused = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.example.test' });
     await refused.onModuleInit();
     expect(refused.getDeliverability().state).toBe('failing');
 
     verify.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ESOCKET' }));
-    const unreachable = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.marina.test' });
+    const unreachable = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.example.test' });
     await unreachable.onModuleInit();
     expect(unreachable.getDeliverability().state).toBe('unchecked');
   });
@@ -83,7 +83,7 @@ describe('EmailService transports', () => {
   it('does not throw when an SMTP send fails, and counts it', async () => {
     verify.mockResolvedValue(true);
     sendMail.mockRejectedValue(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }));
-    const svc = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.marina.test' });
+    const svc = makeService({ ...BASE, 'mail.transport': 'smtp', 'mail.smtp.host': 'smtp.example.test' });
     await svc.onModuleInit();
     await expect(svc.sendRawHtml('d@example.test', 'x', 'y')).resolves.toBeNull();
   });

@@ -30,7 +30,7 @@ describe('smtpTransportOptions', () => {
 describe('parseMailbox', () => {
   it('splits a display name from the address and accepts a bare address', () => {
     expect(parseMailbox('basefyio <noreply@example.test>')).toEqual({ name: 'basefyio', address: 'noreply@example.test' });
-    expect(parseMailbox('"Marina Ops" <ops@example.test>')).toEqual({ name: 'Marina Ops', address: 'ops@example.test' });
+    expect(parseMailbox('"Example Ops" <ops@example.test>')).toEqual({ name: 'Example Ops', address: 'ops@example.test' });
     expect(parseMailbox('ops@example.test')).toEqual({ name: '', address: 'ops@example.test' });
   });
 });
@@ -42,7 +42,7 @@ describe('realmSmtpServer', () => {
     'mail.smtp.port': 587,
     'mail.smtp.user': 'mailer',
     'mail.smtp.password': 'secret',
-    'mail.from': 'Marina <noreply@example.test>',
+    'mail.from': 'Example <noreply@example.test>',
     'resend.replyTo': 'support@example.test',
   };
 
@@ -57,7 +57,7 @@ describe('realmSmtpServer', () => {
       host: 'smtp.example.test',
       port: '587',
       from: 'noreply@example.test',
-      fromDisplayName: 'Marina',
+      fromDisplayName: 'Example',
       replyTo: 'support@example.test',
       ssl: 'false',
       starttls: 'true',
