@@ -1241,6 +1241,26 @@ export class KeycloakAdminService implements OnModuleInit {
    * Replace some of a user's custom attributes, keeping the rest. Values are lists of strings,
    * as Keycloak stores them; an empty list removes the attribute.
    */
+  /**
+   * Keycloak 24+ (User Profile) treats a user update without email/firstName/lastName as
+   * clearing them and adds VERIFY_PROFILE, after which a password grant answers
+   * "Account is not fully set up". Every attribute-only update must carry these back.
+   */
+  private static profileFields(current: {
+    username?: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    emailVerified?: boolean;
+    enabled?: boolean;
+  }): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const k of ['username', 'email', 'firstName', 'lastName', 'emailVerified', 'enabled'] as const) {
+      if (current[k] !== undefined) out[k] = current[k];
+    }
+    return out;
+  }
+
   async setRealmUserAttributes(
     realmName: string,
     userId: string,
@@ -1255,7 +1275,10 @@ export class KeycloakAdminService implements OnModuleInit {
       if (v.length === 0) delete merged[k];
       else merged[k] = v;
     }
-    await this.client.users.update({ realm: realmName, id: userId }, { attributes: merged });
+    await this.client.users.update(
+      { realm: realmName, id: userId },
+      { ...KeycloakAdminService.profileFields(current), attributes: merged },
+    );
   }
 
   /** The JSON document in a user attribute, or `{}` when absent or unparsable. */
@@ -1311,6 +1334,7 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.client.users.update(
       { realm: realmName, id: userId },
       {
+        ...KeycloakAdminService.profileFields(current),
         attributes: {
           ...(current.attributes || {}),
           app_metadata: [JSON.stringify(app_metadata)],
