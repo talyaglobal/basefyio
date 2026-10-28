@@ -1680,7 +1680,10 @@ export class KeycloakAdminService implements OnModuleInit {
     await this.ensureAuth();
     // Changing email syncs username → needs editUsernameAllowed on the realm.
     if (data.email !== undefined) await this.ensureEditUsername(realmName);
-    const update: Record<string, any> = {};
+    // Keycloak 24+ (User Profile) clears profile fields a partial update omits and then
+    // refuses the password grant ("Account is not fully set up"): start from what is there.
+    const existing = await this.client.users.findOne({ realm: realmName, id: userId });
+    const update: Record<string, any> = existing ? KeycloakAdminService.profileFields(existing) : {};
     if (data.firstName !== undefined) update.firstName = data.firstName;
     if (data.lastName !== undefined) update.lastName = data.lastName;
     // Sync username to the new email so SDK signin (which authenticates by email)
@@ -1696,8 +1699,7 @@ export class KeycloakAdminService implements OnModuleInit {
     // Phone is stored as a user attribute (Keycloak has no native phone field).
     if (data.phoneNumber !== undefined || data.phoneVerified !== undefined) {
       await this.ensureUnmanagedAttributes(realmName);
-      const current = await this.client.users.findOne({ realm: realmName, id: userId });
-      const attrs: Record<string, any> = { ...(current?.attributes || {}) };
+      const attrs: Record<string, any> = { ...(existing?.attributes || {}) };
       if (data.phoneNumber !== undefined) attrs.phoneNumber = data.phoneNumber ? [data.phoneNumber] : [];
       if (data.phoneVerified !== undefined) attrs.phoneVerified = [String(!!data.phoneVerified)];
       update.attributes = attrs;
