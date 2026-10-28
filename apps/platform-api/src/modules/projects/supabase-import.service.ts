@@ -1800,6 +1800,20 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     return { pool: null, failure };
   }
 
+  /**
+   * The panel line for a schema that had to be reconstructed. The reason is
+   * trimmed so the whole line stays under 500 characters: the panel shows it
+   * in one row, and a pg_dump log is not something to read there anyway.
+   */
+  static schemaNotCopiedWarning(reason: string): string {
+    const head = 'The source schema could not be copied (';
+    const tail =
+      '), so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.';
+    const room = 500 - head.length - tail.length;
+    const why = reason.replace(/\s+/g, ' ').trim();
+    return `${head}${why.length > room ? `${why.slice(0, room - 1)}…` : why}${tail}`;
+  }
+
   /** The panel line for an import that had to fall back to PostgREST. */
   static unreachableSourceWarning(failure: SourceRouteFailure | null): string {
     const why = failure ? ` (${failure.summary})` : '';
@@ -1876,20 +1890,26 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
    * container matching the source's major version, writing to the volume this
    * process can read.
    *
-   * Returns the SQL, or null if the dump could not be produced — the import
-   * then falls back to the reconstructed tables rather than failing outright.
+   * Returns the SQL, or the reason none could be produced — the import then
+   * falls back to the reconstructed tables rather than failing outright, and
+   * the reason reaches the panel, since the API host's log is the only other
+   * place it would ever appear.
    */
   private async dumpSourceSchema(
     ref: string,
     password: string,
     majorVersion: number,
-  ): Promise<string | null> {
+  ): Promise<{ sql: string | null; reason?: string }> {
     const runId = randomUUID().slice(0, 8);
     const fileName = `schema-${runId}.sql`;
     const hostPath = join(SupabaseImportService.SCHEMA_SCRATCH_ROOT, fileName);
     const image = `postgres:${majorVersion}-alpine`;
     const docker = new Docker({ socketPath: '/var/run/docker.sock' });
     let container: Docker.Container | null = null;
+    // Which step was underway when something threw, so the reason names it.
+    let step = `pulling ${image}`;
+    const scrub = (text: string) =>
+      (password ? text.split(password).join('***') : text).replace(/\s+/g, ' ').trim();
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -1902,9 +1922,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       // Reuse whichever route actually connected — the direct endpoint when the
       // host has IPv6, the pooler otherwise. They take different usernames.
       const conn = this.sourceConnByRef.get(ref);
-      if (!conn) return null;
+      if (!conn) return { sql: null, reason: 'no direct route to the source was recorded' };
       const url = `postgresql://${encodeURIComponent(conn.user)}@${conn.host}:5432/postgres?sslmode=require`;
 
+      step = 'starting the pg_dump container';
       container = await docker.createContainer({
         Image: image,
         // The password travels in the environment rather than the URL so it
@@ -1924,6 +1945,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       } as Docker.ContainerCreateOptions);
 
       await container.start();
+      step = 'waiting for pg_dump';
       const { StatusCode } = await container.wait();
 
       if (StatusCode !== 0) {
@@ -1932,15 +1954,20 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
           .then((b) => b.toString().replace(/[^\x20-\x7e\n]/g, '').trim())
           .catch(() => '');
         this.logger.warn(`Schema dump exited ${StatusCode}: ${why}`);
-        return null;
+        const tail = scrub(why).slice(0, 300);
+        return {
+          sql: null,
+          reason: `pg_dump exited ${StatusCode}${tail ? `: ${tail}` : ''}`,
+        };
       }
 
+      step = `reading ${fileName} from the scratch volume`;
       const sql = await readFile(hostPath, 'utf8');
       await unlink(hostPath).catch(() => undefined);
-      return sql;
+      return { sql };
     } catch (err: any) {
-      this.logger.warn(`Schema dump failed: ${err.message}`);
-      return null;
+      this.logger.warn(`Schema dump failed while ${step}: ${err.message}`);
+      return { sql: null, reason: `${step} failed: ${scrub(String(err?.message ?? err))}` };
     } finally {
       if (container) await container.remove({ force: true }).catch(() => undefined);
     }
@@ -2081,7 +2108,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     pool: Pool,
     sql: string,
     progress: ImportProgress,
-  ): Promise<{ applied: number; failed: number; deferred: string[] }> {
+  ): Promise<{ applied: number; failed: number; deferred: string[]; failures: string[] }> {
     const client = await pool.connect();
     let applied = 0;
     let failed = 0;
@@ -2126,7 +2153,7 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         `${failed} schema statement(s) could not be applied. First few: ${failures.join(' | ')}`,
       );
     }
-    return { applied, failed, deferred };
+    return { applied, failed, deferred, failures };
   }
 
   /**
@@ -2361,16 +2388,30 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
     let deferredSchema: string[] = [];
     if (sourcePool) {
       const ref = this.resolveSupabaseProjectRef(baseUrl, jwt || '');
+      let schemaReason = 'no reason recorded';
       try {
         const { rows } = await sourcePool.query<{ v: string }>('show server_version');
         const major = parseInt(String(rows[0]?.v ?? ''), 10);
-        if (ref && pwd && Number.isFinite(major)) {
+        if (!Number.isFinite(major)) {
+          schemaReason = `the source reported an unreadable server version "${rows[0]?.v ?? ''}"`;
+        } else if (ref && pwd) {
           if (onProgress) await onProgress('Copying the source schema...', 8);
-          const sql = await this.dumpSourceSchema(ref, pwd, major);
-          if (sql) {
-            const { applied, failed, deferred } = await this.applySourceSchema(pool, sql, progress);
+          const dump = await this.dumpSourceSchema(ref, pwd, major);
+          const sql = dump.sql;
+          if (!sql) {
+            schemaReason = dump.reason ?? 'pg_dump produced nothing';
+          } else {
+            const { applied, failed, deferred, failures } = await this.applySourceSchema(
+              pool,
+              sql,
+              progress,
+            );
             schemaApplied = applied > 0;
             deferredSchema = deferred;
+            if (!schemaApplied) {
+              schemaReason = `none of the ${failed} dumped statement(s) could be applied`;
+              if (failures.length) schemaReason += `: ${failures.slice(0, 3).join(' | ')}`;
+            }
 
             if (schemaApplied) {
               try {
@@ -2393,11 +2434,10 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
         }
       } catch (err: any) {
         this.logger.warn(`Could not copy the source schema: ${err.message}`);
+        schemaReason = String(err?.message ?? err);
       }
       if (!schemaApplied) {
-        progress.warnings.push(
-          'The source schema could not be copied, so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.',
-        );
+        progress.warnings.push(SupabaseImportService.schemaNotCopiedWarning(schemaReason));
       }
     }
 

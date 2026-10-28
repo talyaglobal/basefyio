@@ -3,8 +3,21 @@
 jest.mock('./projects.service', () => ({ ProjectsService: class {} }));
 jest.mock('../auth/keycloak-admin.service', () => ({ KeycloakAdminService: class {} }));
 jest.mock('pg', () => ({ Pool: jest.fn() }));
+// The schema dump drives Docker and the scratch volume; both are stand-ins here.
+const mockDocker = {
+  pull: jest.fn(),
+  modem: { followProgress: jest.fn() },
+  createContainer: jest.fn(),
+};
+jest.mock('dockerode', () => jest.fn(() => mockDocker));
+jest.mock('fs/promises', () => ({
+  ...jest.requireActual('fs/promises'),
+  readFile: jest.fn(),
+  unlink: jest.fn(async () => undefined),
+}));
 
 import { Pool } from 'pg';
+import { readFile } from 'fs/promises';
 import { of } from 'rxjs';
 import {
   SupabaseImportService,
@@ -539,6 +552,131 @@ describe('SupabaseImportService.openSupabaseSourceRoute', () => {
     );
     expect(describe(new Error(`bad ${PASSWORD} here`))).toBe('bad *** here');
     expect(describe(new Error('x'.repeat(200)))).toHaveLength(120);
+  });
+});
+
+describe('SupabaseImportService.dumpSourceSchema', () => {
+  const REF = 'abcdefghijklmnopqrst';
+  const PASSWORD = 'hunter2-secret';
+
+  function dumpService(o: { route?: boolean } = {}) {
+    const svc = service();
+    svc.sourceConnByRef = new Map(
+      o.route === false ? [] : [[REF, { host: `db.${REF}.supabase.co`, user: 'postgres' }]],
+    );
+    return svc;
+  }
+
+  /** `docker.pull` succeeds and the container ends with `exit`, having logged `logs`. */
+  function containerThat(exit: number, logs = '') {
+    mockDocker.pull.mockImplementation((_image: string, cb: any) => cb(null, {}));
+    mockDocker.modem.followProgress.mockImplementation((_s: any, cb: any) => cb(null));
+    const container = {
+      start: jest.fn(async () => undefined),
+      wait: jest.fn(async () => ({ StatusCode: exit })),
+      logs: jest.fn(async () => Buffer.from(logs)),
+      remove: jest.fn(async () => undefined),
+    };
+    mockDocker.createContainer.mockResolvedValue(container);
+    return container;
+  }
+
+  beforeEach(() => {
+    mockDocker.pull.mockReset();
+    mockDocker.modem.followProgress.mockReset();
+    mockDocker.createContainer.mockReset();
+    (readFile as jest.Mock).mockReset();
+  });
+
+  it('returns the schema when pg_dump succeeds', async () => {
+    containerThat(0);
+    (readFile as jest.Mock).mockResolvedValue('CREATE TABLE public.items ();');
+    await expect(dumpService().dumpSourceSchema(REF, PASSWORD, 17)).resolves.toEqual({
+      sql: 'CREATE TABLE public.items ();',
+    });
+  });
+
+  it('says the image could not be pulled, and from where', async () => {
+    mockDocker.pull.mockImplementation((_image: string, cb: any) =>
+      cb(Object.assign(new Error('connect ENOENT /var/run/docker.sock'), { code: 'ENOENT' })),
+    );
+    await expect(dumpService().dumpSourceSchema(REF, PASSWORD, 17)).resolves.toEqual({
+      sql: null,
+      reason: 'pulling postgres:17-alpine failed: connect ENOENT /var/run/docker.sock',
+    });
+  });
+
+  it('carries the exit code and the last lines of pg_dump, trimmed and without the password', async () => {
+    const container = containerThat(
+      1,
+      `pg_dump: error: connection to server at "db.${REF}.supabase.co" failed: password "${PASSWORD}" rejected\n` +
+        'x'.repeat(400),
+    );
+    const result = await dumpService().dumpSourceSchema(REF, PASSWORD, 17);
+
+    expect(result.sql).toBeNull();
+    expect(result.reason).toMatch(/^pg_dump exited 1: pg_dump: error: connection to server at .* password "\*\*\*" rejected x+$/);
+    expect(result.reason!.length).toBeLessThanOrEqual('pg_dump exited 1: '.length + 300);
+    expect(result.reason).not.toContain(PASSWORD);
+    expect(container.remove).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('says when the dump file could not be read back from the scratch volume', async () => {
+    containerThat(0);
+    (readFile as jest.Mock).mockRejectedValue(
+      Object.assign(new Error("EACCES: permission denied, open '/pitr-scratch/schema-x.sql'"), { code: 'EACCES' }),
+    );
+    const result = await dumpService().dumpSourceSchema(REF, PASSWORD, 17);
+    expect(result.sql).toBeNull();
+    expect(result.reason).toMatch(
+      /^reading schema-[0-9a-f]{8}\.sql from the scratch volume failed: EACCES: permission denied/,
+    );
+  });
+
+  it('says when no route to the source was ever recorded', async () => {
+    containerThat(0);
+    await expect(dumpService({ route: false }).dumpSourceSchema(REF, PASSWORD, 17)).resolves.toEqual({
+      sql: null,
+      reason: 'no direct route to the source was recorded',
+    });
+    expect(mockDocker.createContainer).not.toHaveBeenCalled();
+  });
+
+  it('the panel line names the reason and stays under 500 characters', () => {
+    const short = SupabaseImportService.schemaNotCopiedWarning('pg_dump exited 1: no pg_hba.conf entry');
+    expect(short).toBe(
+      'The source schema could not be copied (pg_dump exited 1: no pg_hba.conf entry), so tables were rebuilt from column types alone — without indexes, keys, defaults, triggers or row-level security.',
+    );
+    const long = SupabaseImportService.schemaNotCopiedWarning('y'.repeat(900));
+    expect(long.length).toBeLessThanOrEqual(500);
+    expect(long).toMatch(/y+…\), so tables were rebuilt/);
+  });
+});
+
+describe('SupabaseImportService.applySourceSchema', () => {
+  it('hands back the first failures so a schema that applied nothing can say why', async () => {
+    const svc = service();
+    svc.prepareDestinationForSchema = jest.fn(async () => undefined);
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        throw new Error(`type "vector" does not exist in ${sql.slice(0, 12)}`);
+      }),
+      release: jest.fn(),
+    };
+    const pool = { connect: jest.fn(async () => client) };
+    const progress = progressOf();
+
+    const result = await svc.applySourceSchema(
+      pool,
+      'CREATE TABLE a (v vector);\nCREATE TABLE b (v vector);\n',
+      progress,
+    );
+
+    expect(result).toMatchObject({ applied: 0, failed: 2, deferred: [] });
+    expect(result.failures).toHaveLength(2);
+    expect(result.failures[0]).toMatch(/^CREATE TABLE a \(v vector\);… — type "vector" does not exist/);
+    expect(progress.warnings[0]).toMatch(/^2 schema statement\(s\) could not be applied\. First few: /);
+    expect(client.release).toHaveBeenCalled();
   });
 });
 
