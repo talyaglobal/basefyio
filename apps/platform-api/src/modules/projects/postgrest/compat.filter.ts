@@ -7,9 +7,11 @@ import {
   PGRST_STATUS,
   PostgrestErrorBody,
   PostgrestHttpError,
+  parseErrorToPostgrest,
   pgToPostgrest,
   postgrestBody,
 } from './errors';
+import { PostgrestParseError } from './types';
 
 /**
  * Error rendering for the REST data API.
@@ -42,6 +44,7 @@ export class PostgrestCompatFilter implements ExceptionFilter {
   }
 
   private render(exception: unknown, role?: string): { status: number; body: PostgrestErrorBody } {
+    if (exception instanceof PostgrestParseError) exception = parseErrorToPostgrest(exception);
     if (exception instanceof PostgrestHttpError) {
       return { status: exception.getStatus(), body: exception.body };
     }

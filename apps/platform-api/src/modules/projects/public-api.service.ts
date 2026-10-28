@@ -177,7 +177,7 @@ export class PublicApiService {
     opts?: SelectOptions,
   ): Promise<{ data: Record<string, unknown>[]; count: number } | CompatRows> {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, !!opts);
     if (opts) return this.selectCompat(projectId, table, parsed, ctx, opts);
 
     return this.withRls(projectId, ctx, async (client) => {
@@ -279,6 +279,18 @@ export class PublicApiService {
           throw this.toHttp(retryErr, compat);
         }
       }
+      throw this.toHttp(err, compat);
+    }
+  }
+
+  /**
+   * Parse the query string, reporting a malformed one as a 400 in the
+   * caller's dialect rather than letting the parse error escape as a 500.
+   */
+  private parse(query: Record<string, string | string[]>, compat: boolean): ParsedQuery {
+    try {
+      return parseQuery(query);
+    } catch (err) {
       throw this.toHttp(err, compat);
     }
   }
@@ -510,7 +522,7 @@ export class PublicApiService {
     opts: WriteOptions,
   ): Promise<CompatWriteResult> {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, true);
     const rows = Array.isArray(body) ? body : [body];
     const rlsCtx: RlsContext = { ...ctx, compat: true };
 
@@ -583,7 +595,7 @@ export class PublicApiService {
     opts: WriteOptions,
   ): Promise<CompatWriteResult> {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, true);
     const rlsCtx: RlsContext = { ...ctx, compat: true };
 
     return this.withRls(projectId, rlsCtx, async (client) => {
@@ -623,7 +635,7 @@ export class PublicApiService {
     opts: WriteOptions,
   ): Promise<CompatWriteResult> {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, true);
     const rlsCtx: RlsContext = { ...ctx, compat: true };
 
     return this.withRls(projectId, rlsCtx, async (client) => {
@@ -741,7 +753,7 @@ export class PublicApiService {
     ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, false);
 
     return this.withRls(projectId, ctx, async (client) => {
       const setCols = Object.keys(body);
@@ -792,7 +804,7 @@ export class PublicApiService {
     ctx: RlsContext,
   ) {
     this.validateTableName(table);
-    const parsed = parseQuery(query);
+    const parsed = this.parse(query, false);
 
     return this.withRls(projectId, ctx, async (client) => {
       const run = async (force: boolean) => {

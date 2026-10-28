@@ -34,23 +34,38 @@ import { fixtureSchema } from './postgrest/test-fixtures';
  * `{data, count}`, `{count}`, `T[]` and the platform error body.
  */
 
+interface Statement {
+  sql: string;
+  params: unknown[];
+}
+
 /** A scripted database connection: what the next statements return. */
-const db = {
-  rows: [] as Record<string, unknown>[],
-  total: 0,
-  fns: [] as Record<string, unknown>[],
-  fail: null as unknown,
-  calls: [] as { sql: string; params: unknown[] }[],
-  reset() {
-    this.rows = [];
-    this.total = 0;
-    this.fns = [];
-    this.fail = null;
-    this.calls = [];
-  },
+interface ScriptedDb {
+  rows: Record<string, unknown>[];
+  total: number;
+  fns: Record<string, unknown>[];
+  fail: unknown;
+  calls: Statement[];
+  reset(): void;
   /** Statements other than the catalogue lookup, in order. */
+  statements(): Statement[];
+}
+
+const db: ScriptedDb = {
+  rows: [],
+  total: 0,
+  fns: [],
+  fail: null,
+  calls: [],
+  reset() {
+    db.rows = [];
+    db.total = 0;
+    db.fns = [];
+    db.fail = null;
+    db.calls = [];
+  },
   statements() {
-    return this.calls.filter((c) => !/FROM pg_proc/.test(c.sql));
+    return db.calls.filter((c) => !/FROM pg_proc/.test(c.sql));
   },
 };
 
@@ -206,6 +221,12 @@ describe('postgrest-js — reads', () => {
     const res = await postgrest().from('posts').select('id').csv();
     expect(res.status).toBe(406);
     expect(res.error?.code).toBe('PGRST107');
+  });
+
+  it('reports a malformed filter as 400 PGRST100 rather than a 500', async () => {
+    const res = await postgrest().from('posts').select('id').filter('id', 'nope' as any, 1);
+    expect(res.status).toBe(400);
+    expect(res.error).toMatchObject({ code: 'PGRST100', message: expect.stringMatching(/Unknown operator "nope"/) });
   });
 
   it('reports an unknown relation as 404 PGRST205 and an unknown column as 400 PGRST204', async () => {
@@ -428,6 +449,7 @@ describe('supabase-js — the whole client, unchanged', () => {
     db.rows = [{ v: 3 }];
     const called = await supabase.rpc('add', { a: 1, b: 2 });
     expect(called.data).toBe(3);
+    supabase.realtime.disconnect();
   });
 
   it('gets the guard’s refusal in PostgREST’s shape', async () => {
@@ -485,6 +507,12 @@ describe('a caller without the client’s headers keeps the platform contract', 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual([{ add: 3 }]);
     expect(db.statements()[0]).toEqual({ sql: 'SELECT * FROM "add"("a" := $1, "b" := $2)', params: [1, 2] });
+  });
+
+  it('turns a malformed filter into the platform 400, not a 500', async () => {
+    const res = await raw('/posts?id=nope.1');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ statusCode: 400, code: 'PGRST100', message: expect.stringMatching(/Unknown operator/) });
   });
 
   it('gets the platform error body, with the old messages and statuses', async () => {
