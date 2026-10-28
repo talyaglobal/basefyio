@@ -149,10 +149,14 @@ export function buildUser(
   const confirmedAt = rep.emailVerified ? readAttribute(rep, 'email_confirmed_at') ?? createdAt : undefined;
 
   const storedApp = readJsonAttribute(rep, 'app_metadata');
-  const linked = (extra.providers ?? []).map(mapProviderName);
   const storedProviders = Array.isArray(storedApp.providers)
     ? (storedApp.providers as unknown[]).filter((p): p is string => typeof p === 'string')
     : [];
+  // Identities: what Keycloak has linked, and what app_metadata records (an OAuth sign-in
+  // records the provider there even when the federated-identity lookup is unavailable).
+  const linked = Array.from(
+    new Set([...(extra.providers ?? []).map(mapProviderName), ...storedProviders.filter((p) => p !== 'email')]),
+  );
   const providers = Array.from(new Set([...(storedProviders.length ? storedProviders : ['email']), ...linked]));
   const provider = typeof storedApp.provider === 'string' && storedApp.provider ? storedApp.provider : providers[0];
   const app_metadata = { ...storedApp, provider, providers };
