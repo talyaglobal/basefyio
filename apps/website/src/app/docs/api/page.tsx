@@ -55,7 +55,7 @@ export default function ApiDocs() {
         The anon key is public. Server keys have full access and belong on your server only: the service key
         (<code>bf_service_…</code>) and any number of secret keys (<code>bf_secret_…</code>), which you create, name and
         revoke under <strong>Connect → API Keys</strong>. A secret key is shown once, when it is created; the service key
-        can be revealed there until an application first uses it, and rotated at any time. Server keys are accepted only
+        can be revealed there until an application first uses it, and rotated at any time. The anon key can be rotated there too; apps that ship it then need the new one. Server keys are accepted only
         in the <code>apikey</code> header, never in a query string.
       </p>
 

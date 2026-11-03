@@ -357,8 +357,9 @@ datasource db {
     DIRECT_URL: directUrl,
     NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
     NEXT_PUBLIC_BASEFYIO_ANON_KEY: conn.anonKey,
-    // A server key never goes into a copied snippet: paste a secret key from API Keys below.
-    BASEFYIO_SERVICE_ROLE_KEY: '<your-secret-key>',
+    // The real key, so the copied .env works as it is. Only unprefixed variables carry it,
+    // which Vite (VITE_*) and Expo (EXPO_PUBLIC_*) never put into a browser bundle.
+    BASEFYIO_SERVICE_ROLE_KEY: conn.serviceKey,
     PROJECT_ID: projectId,
   } as const;
 
@@ -404,7 +405,21 @@ datasource db {
   const rawJsonContent = JSON.stringify(selectedVars, null, 2);
   const rawEditorContent = rawEditorFormat === 'env' ? rawEnvContent : rawJsonContent;
 
-  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(rawEnvContent, framework);
+  // On screen the secrets are masked; Copy puts the real values on the clipboard.
+  const hideSecrets = (text: string) =>
+    [conn.serviceKey, conn.password]
+      .filter((secret): secret is string => !!secret && secret.length >= 8)
+      .reduce((out, secret) => out.split(secret).join(`${secret.slice(0, 6)}••••••••`), text);
+  const shownEditorContent = hideSecrets(rawEditorContent);
+
+  // The prompt is pasted into a third-party assistant: it never carries the secrets themselves.
+  const promptEnvContent = [conn.serviceKey, conn.password]
+    .filter((secret): secret is string => !!secret && secret.length >= 8)
+    .reduce(
+      (out, secret) => out.split(secret).join(secret === conn.serviceKey ? '<your-secret-key>' : '<db-password>'),
+      rawEnvContent,
+    );
+  const aiQuickConnectPrompt = buildAiQuickConnectPrompt(promptEnvContent, framework);
 
   const passwordValidation =
     nextPassword.length === 0
@@ -592,7 +607,7 @@ datasource db {
                 size="sm"
                 onClick={() => {
                   navigator.clipboard.writeText(rawEditorContent);
-                  toast.success(`Copy ${rawEditorFormat.toUpperCase()}`);
+                  toast.success(`${rawEditorFormat.toUpperCase()} copied with its values — keep it out of version control`);
                 }}
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
@@ -601,7 +616,7 @@ datasource db {
             </div>
             <pre className="max-h-[420px] overflow-auto px-4 py-3">
               <code className="whitespace-pre text-sm text-emerald-400">
-                {rawEditorContent}
+                {shownEditorContent}
               </code>
             </pre>
           </div>
@@ -978,12 +993,16 @@ datasource db {
           <Key className="h-5 w-5" />
           API Keys
         </h2>
-        <CopyBlock
-          label="Anon Key (public, read-only)"
-          value={conn.anonKey}
-          icon={Key}
+        <ApiKeysPanel
+          projectId={projectId}
+          // A rotated key changes the .env block and the snippets above: load them again.
+          onKeysChanged={() => {
+            api.projects
+              .connect(projectId)
+              .then(setConn)
+              .catch((err) => toast.error(err.message));
+          }}
         />
-        <ApiKeysPanel projectId={projectId} />
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm dark:border-red-800 dark:bg-red-950">
           <p className="font-medium text-red-800 dark:text-red-200">
             Keep your service key secret

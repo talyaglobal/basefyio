@@ -24,7 +24,7 @@ async function copy(text: string, what: string) {
  * until an application first uses it, then it stays hidden — rotate it or create a secret key
  * for a new server. Secret keys are shown once, when they are created.
  */
-export function ApiKeysPanel({ projectId }: { projectId: string }) {
+export function ApiKeysPanel({ projectId, onKeysChanged }: { projectId: string; onKeysChanged?: () => void }) {
   const [keys, setKeys] = useState<ProjectApiKeys | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [shownOnce, setShownOnce] = useState<{ title: string; key: string } | null>(null);
@@ -56,6 +56,28 @@ export function ApiKeysPanel({ projectId }: { projectId: string }) {
     }
   }
 
+  async function rotateAnon() {
+    const ok = await confirmDialog({
+      title: 'Rotate the anon key',
+      description:
+        'A new anon key is created and the current one stops working immediately. Every web or mobile app that ships the current key will be refused until it is rebuilt or redeployed with the new one. Server keys are not affected.',
+      confirmText: 'Rotate',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.projects.rotateAnonKey(projectId);
+      toast.success('Anon key rotated — update your apps with the new key');
+      await load();
+      onKeysChanged?.();
+    } catch (err: any) {
+      toast.error(err?.message || 'Rotation failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function rotate() {
     const ok = await confirmDialog({
       title: 'Rotate the service key',
@@ -71,6 +93,7 @@ export function ApiKeysPanel({ projectId }: { projectId: string }) {
       setRevealed(null);
       setShownOnce({ title: 'New service key', key: serviceKey });
       await load();
+      onKeysChanged?.();
     } catch (err: any) {
       toast.error(err?.message || 'Rotation failed');
     } finally {
@@ -116,6 +139,27 @@ export function ApiKeysPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* anon key: public, always shown */}
+      <div className="rounded-md border p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Anon key (public)</p>
+            <p className="text-xs text-muted-foreground">Safe in browsers and apps; row-level security decides what it can read.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => copy(keys.anonKey, 'Anon key')}>
+              <Copy className="mr-1 h-4 w-4" /> Copy
+            </Button>
+            {keys.canManage && (
+              <Button variant="outline" size="sm" onClick={rotateAnon} disabled={busy}>
+                <RotateCcw className="mr-1 h-4 w-4" /> Rotate
+              </Button>
+            )}
+          </div>
+        </div>
+        <code className="block truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">{keys.anonKey}</code>
+      </div>
+
       {/* service_role key */}
       <div className="rounded-md border p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

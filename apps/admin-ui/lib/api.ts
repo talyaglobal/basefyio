@@ -1578,6 +1578,9 @@ export const api = {
     revealServiceKey(projectId: string) {
       return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/reveal`, { method: 'POST' });
     },
+    rotateAnonKey(projectId: string) {
+      return request<{ anonKey: string }>(`/projects/${projectId}/api-keys/anon/rotate`, { method: 'POST' });
+    },
     rotateServiceKey(projectId: string) {
       return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/rotate`, { method: 'POST' });
     },

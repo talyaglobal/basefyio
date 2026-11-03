@@ -8,6 +8,11 @@ export function generateSecretKey(): string {
   return `${SECRET_KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
 }
 
+/** A new anon key, for rotating the project's public key. */
+export function generateAnonKey(): string {
+  return `bf_anon_${randomBytes(32).toString('base64url')}`;
+}
+
 /** A new legacy-format service key, for rotating the project's service_role key. */
 export function generateServiceKey(): string {
   return `bf_service_${randomBytes(32).toString('base64url')}`;

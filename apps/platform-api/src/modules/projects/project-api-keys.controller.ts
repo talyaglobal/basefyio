@@ -26,6 +26,12 @@ export class ProjectApiKeysController {
     return this.keys.rotateServiceKey(projectId, user.sub);
   }
 
+  @Post('anon/rotate')
+  @HttpCode(200)
+  rotateAnon(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
+    return this.keys.rotateAnonKey(projectId, user.sub);
+  }
+
   @Post('secret')
   create(@Param('projectId') projectId: string, @Body() body: { name?: unknown }, @CurrentUser() user: JwtPayload) {
     return this.keys.createSecretKey(projectId, user.sub, body?.name);

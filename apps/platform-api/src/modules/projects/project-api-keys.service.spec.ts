@@ -64,6 +64,23 @@ describe('ProjectApiKeysService', () => {
     expect(project.serviceKeyLastUsedAt).toBeNull();
   });
 
+  it('rotates the anon key: a new public key, the service key untouched', async () => {
+    const { svc, project } = build();
+    const { anonKey: before } = { anonKey: project.anonKey };
+    const service = project.serviceKey;
+    const { anonKey } = await svc.rotateAnonKey('p1', 'u1');
+    expect(anonKey).toMatch(/^bf_anon_[A-Za-z0-9_-]{43}$/);
+    expect(anonKey).not.toBe(before);
+    expect(project.anonKey).toBe(anonKey);
+    expect(project.serviceKey).toBe(service);
+    expect((await svc.list('p1', 'u1')).anonKey).toBe(anonKey);
+  });
+
+  it('a member without the credentials permission cannot rotate the anon key', async () => {
+    const { svc } = build({ role: 'MEMBER' });
+    await expect(svc.rotateAnonKey('p1', 'u1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('creates a secret key: the full value once, only its hash stored', async () => {
     const { svc, keys } = build();
     const created = await svc.createSecretKey('p1', 'u1', '  ci deploy  ');

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { roleAllows } from '../teams/role-permissions';
-import { generateSecretKey, generateServiceKey, hashSecretKey, keyHint, maskKey } from '../../common/utils/secret-keys';
+import { generateAnonKey, generateSecretKey, generateServiceKey, hashSecretKey, keyHint, maskKey } from '../../common/utils/secret-keys';
 
 /** At most this many active secret keys per project. */
 const MAX_ACTIVE_SECRET_KEYS = 20;
@@ -94,6 +94,18 @@ export class ProjectApiKeysService {
     });
     this.logger.log(`Service key rotated for project ${projectId} by ${userId}`);
     return { serviceKey };
+  }
+
+  /**
+   * A new anon key; the old one is refused from the next request. Every app and page that
+   * ships the anon key must be given the new one. Server keys are untouched.
+   */
+  async rotateAnonKey(projectId: string, userId: string): Promise<{ anonKey: string }> {
+    await this.access(projectId, userId, true);
+    const anonKey = generateAnonKey();
+    await this.prisma.project.update({ where: { id: projectId }, data: { anonKey } });
+    this.logger.log(`Anon key rotated for project ${projectId} by ${userId}`);
+    return { anonKey };
   }
 
   async createSecretKey(projectId: string, userId: string, name: unknown): Promise<{ id: string; name: string; key: string; hint: string }> {
