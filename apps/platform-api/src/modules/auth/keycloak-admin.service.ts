@@ -1512,11 +1512,11 @@ export class KeycloakAdminService implements OnModuleInit {
     if (!users.length) {
       users = await this.client.users.find({ realm: realmName, search: email });
     }
-    return (
-      users.find((u) => (u.email || '').trim().toLowerCase() === norm) ||
-      users[0] ||
-      null
-    );
+    // Only the account whose address (or username) is this one. The broad searches above
+    // match substrings, and returning their first hit handed `bob@x.com`'s account to a
+    // request for `ob@x.com` — a magic link or reset code for one user mailed to another.
+    const same = (v?: string) => (v || '').trim().toLowerCase() === norm;
+    return users.find((u) => same(u.email)) || users.find((u) => same(u.username)) || null;
   }
 
   async findUserByEmailInRealm(realm: string, email: string) {
