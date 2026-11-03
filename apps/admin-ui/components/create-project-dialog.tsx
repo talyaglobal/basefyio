@@ -835,7 +835,8 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-md"
+        // The import result carries a six-column reconciliation table; the other steps are forms.
+        className={view === 'result' ? 'sm:max-w-2xl' : 'sm:max-w-md'}
         hideClose={view === 'importing'}
         onInteractOutside={(e) => {
           if (view === 'importing') e.preventDefault();
