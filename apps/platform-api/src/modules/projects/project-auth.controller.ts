@@ -12,6 +12,7 @@ import {
   NestInterceptor,
   Post,
   Put,
+  Query,
   Patch,
   Delete,
   Param,
@@ -187,13 +188,22 @@ export class ProjectAuthController {
     return this.keycloak.getRealmInfo(project.keycloakRealm);
   }
 
+  /** `?search=` (e-mail, username or name), `?first=` and `?max=` (≤ 500, default 100) page the list. */
   @Get('users')
   async listUsers(
     @Param('projectId') projectId: string,
     @CurrentUser() user?: JwtPayload,
+    @Query('search') search?: string,
+    @Query('first') first?: string,
+    @Query('max') max?: string,
   ) {
     const project = await this.projectsService.findOne(projectId, user?.sub);
-    return this.keycloak.listUsers(project.keycloakRealm);
+    const num = (v?: string) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    return this.keycloak.listUsers(project.keycloakRealm, {
+      search: typeof search === 'string' ? search.slice(0, 200) : undefined,
+      first: num(first),
+      max: num(max),
+    });
   }
 
   @Get('users/:userId')

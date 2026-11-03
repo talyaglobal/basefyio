@@ -1570,8 +1570,14 @@ export const api = {
         { method: 'POST' },
       );
     },
-    realmUsers(projectId: string) {
-      return request<RealmUser[]>(`/projects/${projectId}/auth/users`);
+    /** A page of the project's users; `search` matches e-mail, username, first and last name. */
+    realmUsers(projectId: string, opts: { search?: string; first?: number; max?: number } = {}) {
+      const q = new URLSearchParams();
+      if (opts.search) q.set('search', opts.search);
+      if (opts.first) q.set('first', String(opts.first));
+      if (opts.max) q.set('max', String(opts.max));
+      const qs = q.toString();
+      return request<RealmUser[]>(`/projects/${projectId}/auth/users${qs ? `?${qs}` : ''}`);
     },
     createRealmUser(projectId: string, data: { email: string; password: string; firstName?: string; lastName?: string }) {
       return request<{ message: string }>(`/projects/${projectId}/auth/users`, {

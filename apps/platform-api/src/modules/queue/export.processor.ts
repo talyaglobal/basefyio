@@ -436,7 +436,8 @@ export class ExportProcessor extends WorkerHost {
     // it first so a broken realm reference doesn't surface as the admin
     // client's opaque "Network response was not OK".
     const realmInfo = await this.keycloak.getRealmInfo(realmName);
-    const users = await this.keycloak.listUsers(realmName);
+    // Every user, not the first page: a realm with more than 100 users used to export 100.
+    const users = await this.keycloak.listAllUsers(realmName);
     const authConfig = await this.prisma.projectAuthConfig.findUnique({
       where: { projectId },
     });

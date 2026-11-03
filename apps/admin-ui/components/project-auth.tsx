@@ -35,6 +35,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   RotateCcw,
   Server,
   Settings,
@@ -74,7 +75,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
     try {
       const [r, u, c] = await Promise.all([
         api.projects.realmInfo(projectId),
-        api.projects.realmUsers(projectId),
+        api.projects.realmUsers(projectId, { max: USERS_PAGE }),
         api.projects.getAuthConfig(projectId),
       ]);
       setRealm(r);
@@ -252,6 +253,7 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
       {activeTab === 'users' && (
         <UsersTab
           users={users}
+          total={realm?.userCount ?? null}
           projectId={projectId}
           onRefresh={loadAll}
         />
@@ -280,15 +282,70 @@ export function ProjectAuth({ projectId }: ProjectAuthProps) {
 }
 
 /* ────────────────────────────────────────────────────── Users Tab */
+/** Users fetched per request; the sign-in server answers at most this many at a time. */
+const USERS_PAGE = 100;
+
 function UsersTab({
-  users,
+  users: firstPage,
+  total,
   projectId,
   onRefresh,
 }: {
   users: RealmUser[];
+  total: number | null;
   projectId: string;
   onRefresh: () => void;
 }) {
+  // The search runs on the server, over every user of the project — not only the page shown.
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<RealmUser[] | null>(null);
+  const [more, setMore] = useState<RealmUser[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const term = query.trim();
+
+  useEffect(() => {
+    setMore([]);
+    if (!term) {
+      setResults(null);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      api.projects
+        .realmUsers(projectId, { search: term, max: USERS_PAGE })
+        .then((r) => !cancelled && setResults(r))
+        .catch((err: any) => !cancelled && toast.error(err?.message || 'Search failed'))
+        .finally(() => !cancelled && setSearching(false));
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [term, projectId]);
+
+  const base = term ? results ?? [] : firstPage;
+  const users = [...base, ...more];
+  const fullPage = base.length > 0 && (base.length + more.length) % USERS_PAGE === 0;
+  const hasMore = term ? fullPage : fullPage && (total == null || users.length < total);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const next = await api.projects.realmUsers(projectId, {
+        search: term || undefined,
+        first: users.length,
+        max: USERS_PAGE,
+      });
+      setMore((m) => [...m, ...next]);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not load more users');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   const [editingUser, setEditingUser] = useState<RealmUser | null>(null);
   const [resetingUser, setResetingUser] = useState<RealmUser | null>(null);
   const [viewingUser, setViewingUser] = useState<RealmUser | null>(null);
@@ -311,7 +368,7 @@ function UsersTab({
     setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
   }
 
-  if (users.length === 0) {
+  if (firstPage.length === 0 && !term) {
     return (
       <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
         <Users className="mb-3 h-10 w-10 text-muted-foreground/50" />
@@ -325,6 +382,33 @@ function UsersTab({
 
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by e-mail, name or username"
+            aria-label="Search users"
+            className="pl-8"
+          />
+        </div>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {searching
+            ? 'Searching…'
+            : term
+              ? `${users.length}${hasMore ? '+' : ''} matching`
+              : total != null
+                ? `Showing ${users.length} of ${total}`
+                : `${users.length} users`}
+        </span>
+      </div>
+
+      {term && !searching && users.length === 0 ? (
+        <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
+          No users match “{term}”.
+        </div>
+      ) : (
       <div className="rounded-md border overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -404,6 +488,15 @@ function UsersTab({
           </tbody>
         </table>
       </div>
+      )}
+
+      {hasMore && (
+        <div className="mt-3 flex justify-center">
+          <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
+      )}
 
       {viewingUser && (
         <UserDetailDrawer

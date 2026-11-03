@@ -882,9 +882,35 @@ export class KeycloakAdminService implements OnModuleInit {
 
   // ── Realm user operations ──
 
-  async listUsers(realmName: string) {
+  /**
+   * Every user of a realm, page by page. For exports and backups: a single `listUsers`
+   * call answers one page, and the sign-in server's default page is 100.
+   */
+  async listAllUsers(realmName: string) {
+    const PAGE = 500;
+    const all: Awaited<ReturnType<KeycloakAdminService['listUsers']>> = [];
+    for (let first = 0; ; first += PAGE) {
+      const page = await this.listUsers(realmName, { first, max: PAGE });
+      all.push(...page);
+      if (page.length < PAGE) return all;
+    }
+  }
+
+  /**
+   * A page of a realm's users. `search` matches username, e-mail, first and last name
+   * (Keycloak's own search, over every user of the realm). Keycloak answers 100 users when
+   * no `max` is sent, so a realm with more had the rest unreachable; the page is explicit now.
+   */
+  async listUsers(realmName: string, opts: { search?: string; first?: number; max?: number } = {}) {
     await this.ensureAuth();
-    const users = await this.client.users.find({ realm: realmName, briefRepresentation: false });
+    const search = opts.search?.trim();
+    const users = await this.client.users.find({
+      realm: realmName,
+      briefRepresentation: false,
+      first: Math.max(0, Math.floor(opts.first ?? 0)),
+      max: Math.min(500, Math.max(1, Math.floor(opts.max ?? 100))),
+      ...(search ? { search } : {}),
+    });
     return users.map((u) => ({
       id: u.id,
       username: u.username,
