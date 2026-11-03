@@ -238,6 +238,11 @@ services:
       KEYCLOAK_REALM_SMTP: ${KEYCLOAK_REALM_SMTP:-false}
       KEYCLOAK_HEALTH_URL: ${KEYCLOAK_HEALTH_URL:-}
       AI_ENABLED: ${AI_ENABLED:-true}
+      # Supabase-compatible surfaces (REST dialect, storage facade signing).
+      # REST_SUPABASE_COMPAT=off turns the PostgREST dialect off (auto|off|always).
+      REST_SUPABASE_COMPAT: ${REST_SUPABASE_COMPAT:-auto}
+      STORAGE_URL_SIGNING_SECRET: ${STORAGE_URL_SIGNING_SECRET:-}
+      STORAGE_SIGNED_URL_MAX_SECONDS: ${STORAGE_SIGNED_URL_MAX_SECONDS:-}
       # The release this stack runs (scripts/install.sh writes it); reported by /api/health.
       IMAGE_TAG: ${IMAGE_TAG:-}
       APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}

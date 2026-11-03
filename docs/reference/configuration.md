@@ -301,6 +301,9 @@ the provider defaults to `disabled`; start the stack with explicit service names
 | Variable | Default | Dev / prod | Meaning |
 |---|---|---|---|
 | `AI_ENABLED` | `true` | yes / yes | `false` switches off every feature that sends data to a hosted model: the dashboard assistant, project agents, platform and per-project embeddings, SQL statement embedding, retrieval, recommendations and the marketing tools. Every hosted-model key reads as empty and every embedding provider refuses, so nothing reaches OpenAI, Anthropic, Cohere, fal.ai, ElevenLabs or a remote Ollama. |
+| `REST_SUPABASE_COMPAT` | `auto` | yes / yes | Whether `/api/rest/v1` answers PostgREST clients (supabase-js, postgrest-js) in their wire format. `auto` detects them by their headers, `off` gives every caller the basefyio envelope, `always` gives everyone the PostgREST format. |
+| `STORAGE_URL_SIGNING_SECRET` | unset | yes / yes | Key for the signed download and upload URLs of `/api/storage/v1`. Unset, each project signs with a key derived from its service key and a warning is logged. Changing it invalidates every signed URL already handed out. |
+| `STORAGE_SIGNED_URL_MAX_SECONDS` | `31536000` | yes / yes | Longest lifetime a signed storage URL may be given. |
 
 | Variable | Default | Compose (dev / prod) | Purpose |
 |---|---|---|---|
