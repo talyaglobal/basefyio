@@ -1,7 +1,15 @@
-import { isFormBody, isJsonBody, isRawStorageUpload, rewriteSupabasePaths } from './supabase-paths.middleware';
+import * as http from 'http';
+import { AddressInfo } from 'net';
+import {
+  boundRequestArrival,
+  isFormBody,
+  isJsonBody,
+  isRawStorageUpload,
+  rewriteSupabasePaths,
+} from './supabase-paths.middleware';
 
 function run(url: string, method = 'GET') {
-  const req: any = { url, method, headers: {}, socket: { setTimeout: jest.fn() } };
+  const req: any = { url, method, headers: {}, complete: false, destroy: jest.fn(), once: jest.fn() };
   const next = jest.fn();
   rewriteSupabasePaths(req, {}, next);
   expect(next).toHaveBeenCalled();
@@ -39,9 +47,55 @@ describe('rewriteSupabasePaths', () => {
     expect(run('/api/p/proj_123').url).toBe('/api/');
   });
 
-  it('bounds every socket but an upload', () => {
-    expect(run('/api/rest/v1/todos').socket.setTimeout).toHaveBeenCalledWith(120_000);
-    expect(run('/api/storage/v1/object/photos/a.png', 'PUT').socket.setTimeout).not.toHaveBeenCalled();
+  it('bounds the arrival of every request but an upload', () => {
+    expect(run('/api/rest/v1/todos', 'POST').once).toHaveBeenCalled();
+    expect(run('/api/storage/v1/object/photos/a.png', 'PUT').once).not.toHaveBeenCalled();
+  });
+});
+
+describe('boundRequestArrival', () => {
+  async function serve(handler: http.RequestListener) {
+    const server = http.createServer(handler);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    return { server, port: (server.address() as AddressInfo).port };
+  }
+
+  it('never cuts off a response that takes longer than the bound', async () => {
+    const { server, port } = await serve((req, res) => {
+      boundRequestArrival(req as any, res as any, 50);
+      setTimeout(() => res.end('late but whole'), 300); // six times the bound, nothing written meanwhile
+    });
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        http.get({ port, host: '127.0.0.1', path: '/' }, (res) => {
+          let b = '';
+          res.on('data', (c) => (b += c));
+          res.on('end', () => resolve(b));
+        }).on('error', reject);
+      });
+      expect(body).toBe('late but whole');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('drops a request whose body never finishes arriving', async () => {
+    let destroyed = false;
+    const { server, port } = await serve((req, res) => {
+      req.on('close', () => (destroyed = !req.complete));
+      boundRequestArrival(req as any, res as any, 50);
+    });
+    try {
+      await new Promise<void>((resolve) => {
+        const req = http.request({ port, host: '127.0.0.1', method: 'POST', path: '/', headers: { 'content-length': '100' } });
+        req.on('error', () => resolve());
+        req.write('only part of it');
+        setTimeout(resolve, 400);
+      });
+      expect(destroyed).toBe(true);
+    } finally {
+      server.close();
+    }
   });
 });
 

@@ -25,7 +25,14 @@ interface RequestLike {
   url?: string;
   method?: string;
   headers: Record<string, unknown>;
-  socket?: { setTimeout?: (ms: number) => void };
+  /** Set by Node once the whole request (headers and body) has arrived. */
+  complete?: boolean;
+  destroy?: () => void;
+  once?: (event: string, listener: () => void) => unknown;
+}
+
+interface ResponseLike {
+  once?: (event: string, listener: () => void) => unknown;
 }
 
 /**
@@ -60,12 +67,32 @@ export const isFormBody = (req: RequestLike) =>
   !isRawStorageUpload(req) && hasMediaType(req, /^application\/x-www-form-urlencoded$/i);
 
 /**
+ * The bound `server.requestTimeout` used to give every request: it must arrive
+ * in full within REQUEST_TIMEOUT_MS. Only the arrival — the response may take
+ * as long as it needs, as before: progress streams that write only when
+ * something changes, and handlers that work for minutes before answering, must
+ * not be cut off. (A socket inactivity timeout would cut them off.)
+ */
+export function boundRequestArrival(req: RequestLike, res: ResponseLike, ms = REQUEST_TIMEOUT_MS): void {
+  if (req.complete) return;
+  const timer = setTimeout(() => {
+    if (!req.complete) req.destroy?.();
+  }, ms);
+  (timer as { unref?: () => void }).unref?.();
+  const clear = () => clearTimeout(timer);
+  req.once?.('end', clear);
+  req.once?.('close', clear);
+  res.once?.('finish', clear);
+  res.once?.('close', clear);
+}
+
+/**
  * `/auth|rest|storage|realtime/v1/…` → `/api/…`; `/api/p/<projectId>/…` →
  * `/api/…` with the project in `x-bf-project` and `x-project-id`. Also puts the
- * ordinary two-minute bound back on every socket that is not carrying an upload
+ * ordinary two-minute arrival bound back on every request that is not an upload
  * (the server's `requestTimeout` is raised to an upload's worth for everyone).
  */
-export function rewriteSupabasePaths(req: RequestLike, _res: unknown, next: () => void): void {
+export function rewriteSupabasePaths(req: RequestLike, res: ResponseLike, next: () => void): void {
   let url = req.url ?? '';
   if (/^\/(auth|rest|storage|realtime)\/v1(\/|\?|$)/.test(url) || /^\/p\/[^/?]+(\/|\?|$)/.test(url)) {
     url = `/api${url}`;
@@ -77,6 +104,6 @@ export function rewriteSupabasePaths(req: RequestLike, _res: unknown, next: () =
     url = `/api${scoped[2] || '/'}${scoped[3] ?? ''}`;
   }
   req.url = url;
-  if (!isRawStorageUpload(req)) req.socket?.setTimeout?.(REQUEST_TIMEOUT_MS);
+  if (!isRawStorageUpload(req)) boundRequestArrival(req, res ?? {});
   next();
 }

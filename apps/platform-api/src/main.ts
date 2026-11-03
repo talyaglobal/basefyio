@@ -179,8 +179,9 @@ async function bootstrap() {
   // How long a client may take to send a whole request. Node applies one value
   // to every request, and a storage upload of a few hundred megabytes over a
   // slow link takes far longer than the two minutes everything else should. So
-  // the server allows an upload's worth, and every request that is not one has
-  // the old bound put back on its socket as an inactivity timeout below.
+  // the server allows an upload's worth, and every request that is not one gets
+  // the old bound back from rewriteSupabasePaths: it must arrive within two
+  // minutes, while its response may still take as long as it needs.
   server.requestTimeout = STORAGE_REQUEST_TIMEOUT_MS;
 
   console.log(`Platform API running on http://localhost:${port}`);
