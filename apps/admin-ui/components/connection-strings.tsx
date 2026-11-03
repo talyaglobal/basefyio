@@ -17,6 +17,7 @@ import {
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { ApiKeysPanel } from '@/components/api-keys-panel';
 import {
   ChevronDown,
   ChevronRight,
@@ -332,7 +333,7 @@ export function ConnectionStringsView({
 const { data, count } = await res.json();`;
 
   const insertExample = `curl -X POST '${conn.restUrl}/your_table' \\
-  -H 'apikey: ${conn.serviceKey}' \\
+  -H 'apikey: <your-secret-key>' \\
   -H 'Content-Type: application/json' \\
   -H 'Prefer: return=representation' \\
   -d '{"name": "example", "value": 42}'`;
@@ -356,7 +357,8 @@ datasource db {
     DIRECT_URL: directUrl,
     NEXT_PUBLIC_BASEFYIO_URL: restBaseUrl,
     NEXT_PUBLIC_BASEFYIO_ANON_KEY: conn.anonKey,
-    BASEFYIO_SERVICE_ROLE_KEY: conn.serviceKey,
+    // A server key never goes into a copied snippet: paste a secret key from API Keys below.
+    BASEFYIO_SERVICE_ROLE_KEY: '<your-secret-key>',
     PROJECT_ID: projectId,
   } as const;
 
@@ -981,11 +983,7 @@ datasource db {
           value={conn.anonKey}
           icon={Key}
         />
-        <CopyBlock
-          label="Service Key (secret, full access)"
-          value={conn.serviceKey}
-          icon={Key}
-        />
+        <ApiKeysPanel projectId={projectId} />
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm dark:border-red-800 dark:bg-red-950">
           <p className="font-medium text-red-800 dark:text-red-200">
             Keep your service key secret

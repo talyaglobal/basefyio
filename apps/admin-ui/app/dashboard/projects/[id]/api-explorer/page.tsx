@@ -314,12 +314,12 @@ export default function ApiExplorerPage() {
             url={tableUrl}
             description="Insert rows"
             headers={[
-              { key: 'apikey', value: conn.serviceKey, secret: true },
+              { key: 'apikey', value: '<your-secret-key>', secret: false },
               { key: 'Content-Type', value: 'application/json' },
               { key: 'Prefer', value: 'return=representation' },
             ]}
             body={body}
-            curlCommand={`curl -X POST '${tableUrl}' \\\n  -H "apikey: ${conn.serviceKey}" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
+            curlCommand={`curl -X POST '${tableUrl}' \\\n  -H "apikey: <your-secret-key>" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
           />
 
           {/* PATCH */}
@@ -328,13 +328,13 @@ export default function ApiExplorerPage() {
             url={`${tableUrl}?id=eq.1`}
             description="Update rows"
             headers={[
-              { key: 'apikey', value: conn.serviceKey, secret: true },
+              { key: 'apikey', value: '<your-secret-key>', secret: false },
               { key: 'Content-Type', value: 'application/json' },
               { key: 'Prefer', value: 'return=representation' },
             ]}
             body={body}
             queryHint="Requires at least one filter to prevent full-table updates."
-            curlCommand={`curl -X PATCH '${tableUrl}?id=eq.1' \\\n  -H "apikey: ${conn.serviceKey}" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
+            curlCommand={`curl -X PATCH '${tableUrl}?id=eq.1' \\\n  -H "apikey: <your-secret-key>" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
           />
 
           {/* DELETE */}
@@ -343,10 +343,10 @@ export default function ApiExplorerPage() {
             url={`${tableUrl}?id=eq.1`}
             description="Delete rows"
             headers={[
-              { key: 'apikey', value: conn.serviceKey, secret: true },
+              { key: 'apikey', value: '<your-secret-key>', secret: false },
             ]}
             queryHint="Requires at least one filter to prevent full-table deletes."
-            curlCommand={`curl -X DELETE '${tableUrl}?id=eq.1' \\\n  -H "apikey: ${conn.serviceKey}"`}
+            curlCommand={`curl -X DELETE '${tableUrl}?id=eq.1' \\\n  -H "apikey: <your-secret-key>"`}
           />
         </div>
       )}

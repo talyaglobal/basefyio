@@ -50,6 +50,7 @@ import type {
   ProjectListItem,
   RealmInfo,
   RealmUser,
+  ProjectApiKeys,
   RealmUserDetail,
   RealmSession,
   RealmSessionFull,
@@ -1569,6 +1570,25 @@ export const api = {
         `/projects/${projectId}/auth/repair`,
         { method: 'POST' },
       );
+    },
+    /** API keys: the anon key, the service key masked (revealable until first used), secret keys. */
+    apiKeys(projectId: string) {
+      return request<ProjectApiKeys>(`/projects/${projectId}/api-keys`);
+    },
+    revealServiceKey(projectId: string) {
+      return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/reveal`, { method: 'POST' });
+    },
+    rotateServiceKey(projectId: string) {
+      return request<{ serviceKey: string }>(`/projects/${projectId}/api-keys/service/rotate`, { method: 'POST' });
+    },
+    createSecretKey(projectId: string, name: string) {
+      return request<{ id: string; name: string; key: string; hint: string }>(`/projects/${projectId}/api-keys/secret`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+    },
+    revokeSecretKey(projectId: string, keyId: string) {
+      return request<{ revoked: true }>(`/projects/${projectId}/api-keys/secret/${keyId}`, { method: 'DELETE' });
     },
     /** A page of the project's users; `search` matches e-mail, username, first and last name. */
     realmUsers(projectId: string, opts: { search?: string; first?: number; max?: number } = {}) {

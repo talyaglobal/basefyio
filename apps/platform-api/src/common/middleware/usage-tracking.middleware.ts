@@ -2,6 +2,7 @@ import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsageService } from '../../modules/billing/usage.service';
+import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
 
 interface ResolvedOwner {
   teamId: string;
@@ -153,13 +154,21 @@ export class UsageTrackingMiddleware implements NestMiddleware {
     }
 
     try {
-      const project = await this.prisma.project.findFirst({
-        where: {
-          OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
-          status: 'ACTIVE',
-        },
-        select: { id: true, teamId: true },
-      });
+      // A secret key is stored only as its hash; any other key is compared as it is.
+      const project = isSecretKey(apiKey)
+        ? (
+            await this.prisma.projectSecretKey.findFirst({
+              where: { keyHash: hashSecretKey(apiKey), revokedAt: null, project: { status: 'ACTIVE' } },
+              select: { project: { select: { id: true, teamId: true } } },
+            })
+          )?.project ?? null
+        : await this.prisma.project.findFirst({
+            where: {
+              OR: [{ anonKey: apiKey }, { serviceKey: apiKey }],
+              status: 'ACTIVE',
+            },
+            select: { id: true, teamId: true },
+          });
       if (project) {
         const owner = { teamId: project.teamId, projectId: project.id };
         this.setCacheEntry(cacheKey, owner);

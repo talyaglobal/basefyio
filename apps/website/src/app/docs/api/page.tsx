@@ -46,11 +46,18 @@ export default function ApiDocs() {
             <td>Platform JWT from login/signup</td>
           </tr>
           <tr>
-            <td><code>apikey: &lt;anon-key | service-key&gt;</code></td>
+            <td><code>apikey: &lt;anon-key | service-key | secret-key&gt;</code></td>
             <td>Project API key for SDK/public endpoints</td>
           </tr>
         </tbody>
       </table>
+      <p>
+        The anon key is public. Server keys have full access and belong on your server only: the service key
+        (<code>bf_service_…</code>) and any number of secret keys (<code>bf_secret_…</code>), which you create, name and
+        revoke under <strong>Connect → API Keys</strong>. A secret key is shown once, when it is created; the service key
+        can be revealed there until an application first uses it, and rotated at any time. Server keys are accepted only
+        in the <code>apikey</code> header, never in a query string.
+      </p>
 
       {/* ── Public REST API ─────────────────────────── */}
       <h2>Public REST API (Auto-generated)</h2>

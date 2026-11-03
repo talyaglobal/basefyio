@@ -254,6 +254,10 @@ model Project {
   keycloakRealm     String              @map("keycloak_realm")
   anonKey           String              @map("anon_key")
   serviceKey        String              @map("service_key")
+  /// When the service_role key last authenticated a request (updated at most every 5 min).
+  /// The dashboard reveals the key only while this is null: once an application uses it, the
+  /// UI keeps it hidden and offers rotation or a new secret key instead.
+  serviceKeyLastUsedAt DateTime?        @map("service_key_last_used_at")
   teamId            String              @map("team_id")
   createdBy         String?             @map("created_by")
   importSource      String              @default("MANUAL") @map("import_source")
@@ -293,6 +297,7 @@ model Project {
   /// mappers. Off by default; a ROOT turns it on per project
   /// (`PATCH /api/admin/console/projects/:id/supabase-compat`).
   supabaseCompat    Boolean             @default(false) @map("supabase_compat")
+  secretKeys        ProjectSecretKey[]
 
   // Folder
   folderId String? @map("folder_id")
@@ -2348,4 +2353,25 @@ model CapacityBenchmarkRun {
 
   @@index([startedAt(sort: Desc)])
   @@map("capacity_benchmark_runs")
+}
+
+/// Additional server-side keys of a project (`bf_secret_…`), with service_role rights. Only a
+/// SHA-256 of the key is stored: the full value is shown once, when it is created. Several can be
+/// valid at once (rotation without downtime); revoking one takes effect on the next request.
+model ProjectSecretKey {
+  id         String    @id @default(uuid())
+  projectId  String    @map("project_id")
+  name       String
+  keyHash    String    @unique @map("key_hash")
+  /// The first characters and the last four, for recognising a key without revealing it.
+  prefix     String
+  last4      String    @map("last4")
+  createdBy  String?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_secret_keys")
 }

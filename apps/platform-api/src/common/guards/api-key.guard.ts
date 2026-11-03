@@ -19,6 +19,10 @@ import {
   ApiKeyScope,
 } from '../decorators/api-key-scope.decorator';
 import { isSupabaseCompat } from '../../modules/projects/postgrest/compat';
+import { hashSecretKey, isSecretKey } from '../utils/secret-keys';
+
+/** How stale a key's "last used" may get before a request refreshes it. */
+const KEY_USE_RESOLUTION_MS = 5 * 60_000;
 
 export type PgRequestRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -65,10 +69,38 @@ export class ApiKeyGuard implements CanActivate {
     // Status is read rather than filtered on, so a deactivated project can be
     // activated instead of refused. Anything else — deleted, or a legacy
     // frozen row — is still "invalid key", which is all a caller needs to know.
-    const project = await this.prisma.project.findFirst({
-      where: { OR: [{ anonKey: apiKey }, { serviceKey: apiKey }] },
-      select: { id: true, anonKey: true, serviceKey: true, keycloakRealm: true, status: true },
-    });
+    const PROJECT_SELECT = {
+      id: true,
+      anonKey: true,
+      serviceKey: true,
+      serviceKeyLastUsedAt: true,
+      keycloakRealm: true,
+      status: true,
+    } as const;
+    // A secret key (`bf_secret_…`) is looked up by its hash and carries service_role rights;
+    // a revoked one is refused like an unknown key.
+    let secretKey: { id: string; lastUsedAt: Date | null } | null = null;
+    let project: {
+      id: string;
+      anonKey: string;
+      serviceKey: string;
+      serviceKeyLastUsedAt: Date | null;
+      keycloakRealm: string;
+      status: string;
+    } | null;
+    if (isSecretKey(apiKey)) {
+      const row = await this.prisma.projectSecretKey.findUnique({
+        where: { keyHash: hashSecretKey(apiKey) },
+        select: { id: true, lastUsedAt: true, revokedAt: true, project: { select: PROJECT_SELECT } },
+      });
+      project = row && !row.revokedAt ? row.project : null;
+      secretKey = row && !row.revokedAt ? { id: row.id, lastUsedAt: row.lastUsedAt } : null;
+    } else {
+      project = await this.prisma.project.findFirst({
+        where: { OR: [{ anonKey: apiKey }, { serviceKey: apiKey }] },
+        select: PROJECT_SELECT,
+      });
+    }
 
     if (!project || (project.status !== 'ACTIVE' && project.status !== 'PAUSED')) {
       throw new UnauthorizedException('Invalid API key');
@@ -78,7 +110,8 @@ export class ApiKeyGuard implements CanActivate {
       await this.wake(project.id, project.keycloakRealm);
     }
 
-    const isService = project.serviceKey === apiKey;
+    const isService = !!secretKey || project.serviceKey === apiKey;
+    if (isService) this.noteKeyUse(project.id, secretKey, project.serviceKeyLastUsedAt);
 
     // The service key bypasses RLS, so it must never be accepted from a URL.
     if (!headerKey && isService) {
@@ -197,6 +230,25 @@ export class ApiKeyGuard implements CanActivate {
     void this.pgbouncer?.regenerateConfig().catch((err) =>
       this.logger.warn(`Pooler configuration not rewritten after waking ${projectId}: ${err.message}`),
     );
+  }
+
+  /**
+   * Record that a server key was used: the dashboard stops revealing the service key once an
+   * application uses it, and lists when each secret key was last seen. At most one write per key
+   * every five minutes, and never in the request's way.
+   */
+  private noteKeyUse(projectId: string, secretKey: { id: string; lastUsedAt: Date | null } | null, serviceLastUsedAt: Date | null): void {
+    const stale = (at: Date | null) => !at || Date.now() - at.getTime() > KEY_USE_RESOLUTION_MS;
+    try {
+      const write = secretKey
+        ? stale(secretKey.lastUsedAt) &&
+          this.prisma.projectSecretKey.update({ where: { id: secretKey.id }, data: { lastUsedAt: new Date() } })
+        : stale(serviceLastUsedAt) &&
+          this.prisma.project.update({ where: { id: projectId }, data: { serviceKeyLastUsedAt: new Date() } });
+      if (write) void Promise.resolve(write).catch(() => undefined);
+    } catch {
+      // Bookkeeping only: it never decides or delays the request.
+    }
   }
 
   private admit(context: ExecutionContext, request: any, payload: ApiKeyPayload): boolean {

@@ -832,6 +832,13 @@ export interface RealmPolicies {
   };
 }
 
+export interface ProjectApiKeys {
+  anonKey: string;
+  serviceKey: { masked: string; revealable: boolean; lastUsedAt: string | null };
+  secretKeys: Array<{ id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null }>;
+  canManage: boolean;
+}
+
 export interface RealmInfo {
   name: string;
   enabled: boolean;

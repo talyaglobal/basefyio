@@ -693,15 +693,9 @@ export default function EmbeddingsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-24 shrink-0 text-xs text-muted-foreground">service key</span>
-                  <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{project.serviceKey}</code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={() => copyToClipboard(project.serviceKey, 'Service key')}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
+                  <span className="flex-1 truncate text-xs text-muted-foreground">
+                    Use a secret key from <span className="font-medium">Connect → API Keys</span>; server keys are not shown here.
+                  </span>
                 </div>
               </div>
             </div>
@@ -715,7 +709,7 @@ export default function EmbeddingsPage() {
 const res = await fetch('${restUrl}/embeddings', {
   method: 'POST',
   headers: {
-    'apikey': '${project.serviceKey.slice(0, 20)}...',
+    'apikey': '<your-secret-key>',
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({

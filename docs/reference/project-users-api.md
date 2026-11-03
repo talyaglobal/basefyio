@@ -13,7 +13,7 @@ Service key (`apikey`) from your server, or a dashboard session. The anon key is
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
 | GET | `/api/projects/:projectId/auth` | service | realm summary |
-| GET | `/api/projects/:projectId/auth/users` | service | list users |
+| GET | `/api/projects/:projectId/auth/users` | service | list users, 100 per page: `?search=` (e-mail, username, first or last name, over every user), `?first=`, `?max=` (≤ 500) |
 | GET | `/api/projects/:projectId/auth/users/:userId` | service | one user with `providers`, `sessions`, `lastSignIn`, `sessionCount` |
 | POST | `/api/projects/:projectId/auth/users` | service | create — `{ email, password, firstName?, lastName? }` |
 | PATCH | `/api/projects/:projectId/auth/users/:userId` | service | `{ firstName?, lastName?, email?, enabled?, phoneNumber?, phoneVerified? }` |

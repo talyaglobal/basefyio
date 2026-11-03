@@ -12,6 +12,8 @@ import { ProjectPoliciesController } from './project-policies.controller';
 import { ProjectPoliciesService } from './project-policies.service';
 import { ProjectDataService } from './project-data.service';
 import { ProjectAuthController } from './project-auth.controller';
+import { ProjectApiKeysController } from './project-api-keys.controller';
+import { ProjectApiKeysService } from './project-api-keys.service';
 import { ProjectAuthConfigService } from './project-auth-config.service';
 import { ProjectSdkAuthController } from './project-sdk-auth.controller';
 import { ProjectOAuthCallbackController } from './project-oauth-callback.controller';
@@ -68,6 +70,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectDatabaseController,
     ProjectPoliciesController,
     ProjectAuthController,
+    ProjectApiKeysController,
     ProjectSdkAuthController,
     ProjectOAuthCallbackController,
     SupabaseAuthCompatController,
@@ -81,6 +84,7 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     ProjectBranchesController,
   ],
   providers: [
+    ProjectApiKeysService,
     ProjectDatabaseService,
     ProjectProvisioningService,
     ProjectReadonlyRoleService,

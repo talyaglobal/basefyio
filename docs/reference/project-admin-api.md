@@ -143,6 +143,18 @@ that does not exist is 400.
 back to the plan or platform default. Answer: `{ maxDbConnections, planCeiling, effective, source }`.
 The pooler configuration is regenerated right away.
 
+## API keys
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/projects/:projectId/api-keys` | team member | anon key; service key masked, with `revealable` and `lastUsedAt`; secret keys (name, hint, created, last used); `canManage` |
+| POST | `/api/projects/:projectId/api-keys/service/reveal` | team member | the full service key, only until an application first uses it (then 409) |
+| POST | `/api/projects/:projectId/api-keys/service/rotate` | credentials permission | a new service key, returned once; the old one is refused from the next request |
+| POST | `/api/projects/:projectId/api-keys/secret` | credentials permission | `{ name }` → `{ id, name, key, hint }`; the key is returned only here, only its SHA-256 is stored (at most 20 active) |
+| DELETE | `/api/projects/:projectId/api-keys/secret/:keyId` | credentials permission | revoke; refused from the next request |
+
+Secret keys (`bf_secret_…`) have the service key's rights and, like it, are accepted only in the `apikey` header. "Credentials permission" is the team role's `canResetDbPassword` (owners always have it).
+
 ## Tables, rows and foreign keys
 
 | Method | Path | Tier | Purpose |
