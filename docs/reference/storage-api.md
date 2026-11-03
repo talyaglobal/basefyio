@@ -27,6 +27,8 @@ characters, letters, digits and hyphens, not starting or ending with a hyphen (4
 are created from the dashboard (Storage) or from your server — never from a browser, since
 creation needs the service key.
 
+A **public** bucket grants anonymous `GetObject` only: each file is readable at its URL, the bucket is never listed anonymously (listing goes through the API with a key). Files uploaded through the API as `text/html`, `application/xhtml+xml`, `image/svg+xml`, XML or JavaScript are stored with `Content-Disposition: attachment`, so the public storage host serves them as downloads rather than running them. Public URLs encode each path segment (`#`, `?` and spaces stay part of the key).
+
 ## Objects
 
 | Method | Path | Tier | Purpose |

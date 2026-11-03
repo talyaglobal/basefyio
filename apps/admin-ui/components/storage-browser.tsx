@@ -870,7 +870,8 @@ function ObjectBrowser({
         return;
       }
       copyToClipboard(url);
-      toast.success(`Public link copied (${label})`);
+      // A public bucket serves its files, not a listing: the base URL only works with a file path after it.
+      toast.success(`Public base URL copied (${label}). Add a file path to it; bucket contents are not listed publicly.`);
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -972,7 +973,7 @@ function ObjectBrowser({
           <Button
             variant="outline"
             size="sm"
-            title="Copy this bucket's public base URL"
+            title="Copy this bucket's public base URL (append a file path; contents are not listed)"
             onClick={() => handleCopyPublicLink('', 'bucket')}
           >
             <Globe className="mr-1.5 h-3.5 w-3.5" />

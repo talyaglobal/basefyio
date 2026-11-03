@@ -39,7 +39,7 @@ export default function StorageDocs() {
           <tr><td><strong>Bucket</strong></td><td>A top-level container for files. Created public or private.</td></tr>
           <tr><td><strong>Object</strong></td><td>A single file, addressed by its path (e.g. <code>user-123/avatar.png</code>).</td></tr>
           <tr><td><strong>Folder</strong></td><td>A path prefix. There are no real directories — a <code>/</code> in the path groups files. <code>avatars/2026/pic.png</code> lives in the <code>avatars/2026/</code> folder.</td></tr>
-          <tr><td><strong>Public bucket</strong></td><td>Objects are readable by anyone at a permanent URL, no token. Good for assets.</td></tr>
+          <tr><td><strong>Public bucket</strong></td><td>Objects are readable by anyone at a permanent URL, no token. Good for assets. The bucket itself is not listed: only someone with a file's URL can read it. Pages, SVG, XML and scripts are served as downloads, never run in the browser.</td></tr>
           <tr><td><strong>Private bucket</strong></td><td>Objects require your app&apos;s session or a time-limited <em>signed URL</em>.</td></tr>
         </tbody>
       </table>

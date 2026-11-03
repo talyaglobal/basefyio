@@ -270,7 +270,7 @@ describe('createBucket', () => {
     expect(out.name).toBe('MyDocs');
   });
 
-  it('a public bucket gets anonymous GetObject on its objects and ListBucket on itself', async () => {
+  it('a public bucket gets anonymous GetObject on its objects, and no anonymous listing (feedback #9)', async () => {
     const { svc, client } = build();
     client.bucketExists.mockResolvedValue(false);
     await svc.createBucket('p1', undefined, 'docs', true);
@@ -279,8 +279,34 @@ describe('createBucket', () => {
     const statements = JSON.parse(policy).Statement;
     expect(statements).toEqual([
       { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: [`arn:aws:s3:::${BUCKET}/*`] },
-      { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:ListBucket'], Resource: [`arn:aws:s3:::${BUCKET}`] },
     ]);
+  });
+
+  it('closes anonymous listing on existing public buckets and leaves the rest alone', async () => {
+    const { svc, client } = build();
+    const withListing = JSON.stringify({
+      Statement: [
+        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bf-a/*'] },
+        { Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:ListBucket'], Resource: ['arn:aws:s3:::bf-a'] },
+      ],
+    });
+    client.listBuckets = jest.fn().mockResolvedValue([{ name: 'bf-a' }, { name: 'bf-b' }, { name: 'bf-private' }]);
+    const readOnly = JSON.stringify({
+      Statement: [{ Effect: 'Allow', Principal: { AWS: ['*'] }, Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bf-b/*'] }],
+    });
+    client.getBucketPolicy = jest.fn(async (b: string) => (b === 'bf-a' ? withListing : b === 'bf-b' ? readOnly : ''));
+    client.setBucketPolicy.mockClear();
+    await expect(svc.closeAnonymousListings()).resolves.toEqual({ checked: 3, closed: 1 });
+    expect(client.setBucketPolicy).toHaveBeenCalledTimes(1);
+    const [bucket, policy] = client.setBucketPolicy.mock.calls[0];
+    expect(bucket).toBe('bf-a');
+    expect(JSON.parse(policy).Statement.map((s: any) => s.Action[0])).toEqual(['s3:GetObject']);
+  });
+
+  it('encodes each segment of a public URL, so a # or a space stays part of the key', async () => {
+    const { svc } = build();
+    const url = (svc as any).buildPublicUrl(BUCKET, 'reports/q4 #1.pdf');
+    expect(url.endsWith(`/${BUCKET}/reports/q4%20%231.pdf`)).toBe(true);
   });
 });
 

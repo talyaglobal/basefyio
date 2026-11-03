@@ -22,6 +22,7 @@ import { StorageService } from './storage.service';
 import { StorageAccessService } from './storage-access.service';
 import { StorageCaller, isPrivileged, ownerMeta, ownerTag } from './storage-caller';
 import { StorageCatalogService } from './storage-catalog.service';
+import { downloadOnlyHeaders } from './storage-public-safety';
 
 /** S3 and compatible stores require every part but the last to be at least this large. */
 export const MIN_CHUNK_BYTES = 5 * 1024 * 1024;
@@ -182,6 +183,7 @@ export class UploadSessionService {
     const uploadId = await this.storage.beginMultipart(minioBucket, path, {
       'Content-Type': contentType,
       ...ownerMeta(caller),
+      ...downloadOnlyHeaders(contentType),
     });
 
     const row = await this.prisma.storageUploadSession.create({

@@ -20,6 +20,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../billing/quota.service';
 import { StorageCatalogService } from './storage-catalog.service';
+import { downloadOnlyHeaders, withoutAnonymousListing } from './storage-public-safety';
 
 export interface StorageObject {
   name: string;
@@ -109,6 +110,7 @@ export class StorageService {
    */
   async onModuleInit(): Promise<void> {
     this.logger.log(`Storage driver: ${this.caps.describe()}`);
+    this.scheduleListingClosure();
     if (this.caps.driver === 's3') {
       // Not fatal: a wrong credential or region shows up here instead of on
       // the first upload.
@@ -364,10 +366,9 @@ export class StorageService {
   }
 
   /**
-   * Anonymous read policy for a public bucket: GetObject so files open at their
-   * direct URL, AND ListBucket so the bucket/folder base URL returns a listing
-   * instead of AccessDenied. (A public bucket is an explicit choice to expose
-   * its contents.)
+   * Anonymous read policy for a public bucket: GetObject, so each file opens at its
+   * direct URL. Not ListBucket: making a bucket public shares its files, not an
+   * index of every key in it (feedback #9).
    */
   private publicBucketPolicy(minioBucket: string): string {
     return JSON.stringify({
@@ -379,14 +380,43 @@ export class StorageService {
           Action: ['s3:GetObject'],
           Resource: [`arn:aws:s3:::${minioBucket}/*`],
         },
-        {
-          Effect: 'Allow',
-          Principal: { AWS: ['*'] },
-          Action: ['s3:ListBucket'],
-          Resource: [`arn:aws:s3:::${minioBucket}`],
-        },
       ],
     });
+  }
+
+  /**
+   * Public buckets made before the policy above also granted anonymous ListBucket. Remove
+   * that statement and keep everything else, so files stay readable at their URLs.
+   * Idempotent and safe on every replica; a bucket that fails is logged and left as it was.
+   */
+  async closeAnonymousListings(): Promise<{ checked: number; closed: number }> {
+    let checked = 0;
+    let closed = 0;
+    const buckets = await this.client.listBuckets();
+    for (const b of buckets) {
+      checked++;
+      try {
+        const policy = await this.client.getBucketPolicy(b.name).catch(() => '');
+        if (!policy) continue;
+        const next = withoutAnonymousListing(policy);
+        if (next == null) continue;
+        const hasStatements = (JSON.parse(next).Statement ?? []).length > 0;
+        await this.client.setBucketPolicy(b.name, hasStatements ? next : '');
+        closed++;
+      } catch (err: any) {
+        this.logger.warn(`Could not close anonymous listing on bucket ${b.name}: ${err?.message ?? err}`);
+      }
+    }
+    if (closed) this.logger.log(`Anonymous listing closed on ${closed} of ${checked} bucket(s)`);
+    return { checked, closed };
+  }
+
+  /** A minute after boot, off the request path: see closeAnonymousListings. */
+  private scheduleListingClosure(): void {
+    const timer = setTimeout(() => {
+      this.closeAnonymousListings().catch((err) => this.logger.warn(`Listing closure skipped: ${err?.message ?? err}`));
+    }, 60_000);
+    if (typeof (timer as any).unref === 'function') (timer as any).unref();
   }
 
   // ── Object operations ──────────────────────────────────
@@ -456,7 +486,12 @@ export class StorageService {
     const omitPort =
       (this.publicSsl && this.publicPort === 443) || (!this.publicSsl && this.publicPort === 80);
     const host = omitPort ? this.publicEndpoint : `${this.publicEndpoint}:${this.publicPort}`;
-    const clean = (path || '').replace(/^\/+/, '');
+    // Each segment encoded: a key with #, ? or a space is a different URL otherwise (a # cut it short).
+    const clean = (path || '')
+      .replace(/^\/+/, '')
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
     // Virtual-host addressing (AWS without path-style) carries the bucket in the host.
     return this.caps.virtualHost
       ? `${scheme}://${minioBucket}.${host}/${clean}`
@@ -707,6 +742,7 @@ export class StorageService {
 
     await this.client.putObject(minioBucket, objectName, buffer, buffer.length, {
       'Content-Type': contentType,
+      ...downloadOnlyHeaders(contentType),
     });
 
     this.logger.log(`Uploaded "${objectName}" to "${minioBucket}"`);
@@ -766,6 +802,7 @@ export class StorageService {
     await this.client.putObject(minioBucket, objectName, body, declared as number, {
       'Content-Type': contentType,
       ...meta,
+      ...downloadOnlyHeaders(contentType),
     });
 
     const stat = await this.client.statObject(minioBucket, objectName);
