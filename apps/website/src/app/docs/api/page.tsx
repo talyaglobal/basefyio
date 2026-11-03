@@ -98,6 +98,22 @@ Headers:
   apikey: <service-key>
   Prefer: return=representation   # optional`}</code></pre>
 
+      <h3>Call a database function (rpc)</h3>
+      <pre><code>{`POST /api/rest/v1/rpc/:function
+Headers:
+  apikey: <anon-or-service-key>
+  Authorization: Bearer <user-access-token>   # for a signed-in user
+  Content-Type: application/json
+
+Body: { "product_id": 42, "qty": 2 }   # the function's argument names
+
+200 → the function's rows, as an array`}</code></pre>
+      <p>
+        <code>GET /api/rest/v1/rpc/:function?product_id=42&amp;qty=2</code> calls a read-only function with its arguments in the
+        query string; it runs in a read-only transaction, and a function that writes answers 405. A missing function or a
+        missing required argument answers 400; a <code>SECURITY DEFINER</code> function called with only the anon key answers 403.
+      </p>
+
       {/* ── SDK Auth ────────────────────────────────── */}
       <h2>SDK Auth Endpoints</h2>
       <p>

@@ -11,6 +11,12 @@ describe('mapPgError', () => {
     expect(mapPgError({ code: '42501' })).toBeInstanceOf(ForbiddenException);
   });
 
+  it('maps a write inside a read-only call (25006, a GET/HEAD rpc) to 405 with the way out', () => {
+    const err = mapPgError({ code: '25006' }) as any;
+    expect(err.getStatus()).toBe(405);
+    expect(err.message).toMatch(/POST/);
+  });
+
   it('maps unique/foreign-key violations to 409 Conflict', () => {
     expect(mapPgError({ code: '23505' })).toBeInstanceOf(ConflictException);
     expect(mapPgError({ code: '23503' })).toBeInstanceOf(ConflictException);

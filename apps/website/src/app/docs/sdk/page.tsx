@@ -144,6 +144,23 @@ const { data } = await bf.from('posts')
 const { data } = await bf.listTables()
 const { data } = await bf.getColumns('posts')`}</code></pre>
 
+      <h3>Database functions (rpc)</h3>
+      <p>
+        A function in the <code>public</code> schema is callable by name, with its arguments as an object. The
+        result is the function&apos;s rows; a failed call throws, with the API&apos;s message.
+      </p>
+      <pre><code>{`const rows = await bf.rpc('add_to_cart', { product_id: 42, qty: 2 })
+
+try {
+  await bf.rpc('settle_order', { order_id: id })
+} catch (err) {
+  console.error(err.message) // e.g. the function is SECURITY DEFINER and the caller is anonymous
+}`}</code></pre>
+      <p>
+        A <code>SECURITY DEFINER</code> function runs as the database owner, outside row-level security, so it cannot be
+        called with only the anon key: sign the user in, or call it from your server with the service key.
+      </p>
+
       {/* ── Auth ────────────────────────────────────── */}
       <h2>Authentication</h2>
       <p>

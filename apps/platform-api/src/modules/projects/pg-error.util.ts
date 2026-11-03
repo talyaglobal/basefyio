@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   HttpException,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -32,6 +33,11 @@ export function mapPgError(e: any): unknown {
       return new BadRequestException('Invalid input value');
     case '42703': // undefined_column
       return new BadRequestException('Unknown column in request');
+    case '25006': // read_only_sql_transaction — a function called over GET/HEAD tried to write
+      return new HttpException(
+        'This function changes data, so it cannot be called with GET or HEAD; call it with POST',
+        HttpStatus.METHOD_NOT_ALLOWED,
+      );
     case '42P01': // undefined_table
       return new NotFoundException(
         'Table not found. Document (NoSQL) projects expose data at /rest/v1/collections/:name',

@@ -507,7 +507,7 @@ describe('a caller without the client’s headers keeps the platform contract', 
     db.fns = [{ signature: 'add(a integer, b integer)', definer: false, argnames: ['a', 'b'], argmodes: [] }];
     db.rows = [{ add: 3 }];
     const res = await raw('/rpc/add', { method: 'POST', body: JSON.stringify({ a: 1, b: 2 }) });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200); // a call, not a create
     expect(await res.json()).toEqual([{ add: 3 }]);
     expect(db.statements()[0]).toEqual({ sql: 'SELECT * FROM "add"("a" := $1, "b" := $2)', params: [1, 2] });
   });

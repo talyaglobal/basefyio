@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  HttpCode,
   Patch,
   Delete,
   Param,
@@ -85,8 +86,9 @@ export class PublicApiController {
     return single ? r.rows[0] : r.rows;
   }
 
-  /** PostgREST-style RPC: POST body's JSON keys map to named function args. */
+  /** PostgREST-style RPC: POST body's JSON keys map to named function args. A call, not a create: 200. */
   @Post('rpc/:fn')
+  @HttpCode(200)
   async rpc(
     @Param('fn') fn: string,
     @Body() args: Record<string, unknown>,

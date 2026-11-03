@@ -150,7 +150,8 @@ user's token or call it with the service key from your server.
 
 `GET /api/rest/v1/rpc/<fn>?a=1&b=2` calls it with the arguments from the query string (an
 array argument as `{a,b}`); `HEAD` is served the same way. Both run in a read-only
-transaction, so a function that writes must be called with `POST`. Each argument is passed
+transaction, so a function that writes must be called with `POST` (over GET it answers 405).
+A successful `POST` answers 200 with the function's rows. Each argument is passed
 as the type the chosen overload declares, so the overload that runs is always the one
 selected by the argument names.
 
