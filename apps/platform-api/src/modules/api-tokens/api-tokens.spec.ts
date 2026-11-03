@@ -82,3 +82,40 @@ describe('ApiTokensService', () => {
     await expect(svc.verify('bf_pat_x')).rejects.toThrow();
   });
 });
+
+describe('ApiTokensService — revocation is final (feedback #8)', () => {
+  const tokenRow = (status: string) => ({ id: 't1', status });
+
+  it('refuses to roll a revoked token, which used to bring it back to active', async () => {
+    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')) } });
+    const svc = new ApiTokensService(prisma);
+    await expect(svc.roll('u1', 't1')).rejects.toThrow(/revoked/);
+    expect(prisma.platformApiToken.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses to edit a revoked token', async () => {
+    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')) } });
+    await expect(new ApiTokensService(prisma).update('u1', 't1', { name: 'again' })).rejects.toThrow(/revoked/);
+    expect(prisma.platformApiToken.update).not.toHaveBeenCalled();
+  });
+
+  it('still rolls an active token: new secret, status stays active', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 't1', status: 'active' });
+    const prisma = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('active')), update } });
+    const res = await new ApiTokensService(prisma).roll('u1', 't1');
+    expect(res.token).toMatch(/^bf_pat_/);
+    expect(update.mock.calls[0][0].data.status).toBe('active');
+  });
+
+  it('revokes an active token, and removes an already revoked one from the list', async () => {
+    const del = jest.fn().mockResolvedValue({});
+    const active = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('active')), delete: del } });
+    await expect(new ApiTokensService(active).revoke('u1', 't1')).resolves.toEqual({ revoked: true });
+    expect(active.platformApiToken.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'revoked' } });
+    expect(del).not.toHaveBeenCalled();
+
+    const revoked = makePrisma({ platformApiToken: { findFirst: jest.fn().mockResolvedValue(tokenRow('revoked')), delete: del } });
+    await expect(new ApiTokensService(revoked).revoke('u1', 't1')).resolves.toEqual({ removed: true });
+    expect(del).toHaveBeenCalledWith({ where: { id: 't1' } });
+  });
+});

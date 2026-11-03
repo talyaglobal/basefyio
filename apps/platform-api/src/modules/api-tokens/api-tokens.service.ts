@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -95,9 +96,19 @@ export class ApiTokensService {
     });
   }
 
-  private async own(userId: string, id: string) {
-    const t = await this.prisma.platformApiToken.findFirst({ where: { id, userId }, select: { id: true } });
+  private async own(userId: string, id: string): Promise<{ id: string; status: string }> {
+    const t = await this.prisma.platformApiToken.findFirst({ where: { id, userId }, select: { id: true, status: true } });
     if (!t) throw new NotFoundException('Token not found');
+    return t;
+  }
+
+  /** Revocation is final: a revoked token is never edited or given a new secret again. */
+  private async ownActive(userId: string, id: string) {
+    const t = await this.own(userId, id);
+    if (t.status !== 'active') {
+      throw new ConflictException('This token is revoked. Revocation is permanent; create a new token instead.');
+    }
+    return t;
   }
 
   /** Update a token's name / scopes / expiry (never the secret). */
@@ -106,7 +117,7 @@ export class ApiTokensService {
     id: string,
     input: { name?: string; scopes?: string[]; expiresAt?: string | null },
   ) {
-    await this.own(userId, id);
+    await this.ownActive(userId, id);
     const data: { name?: string; scopes?: string[]; expiresAt?: Date | null } = {};
 
     if (input.name !== undefined) {
@@ -141,15 +152,24 @@ export class ApiTokensService {
     });
   }
 
-  async revoke(userId: string, id: string) {
-    await this.own(userId, id);
+  /**
+   * Revoke an active token. A token that is already revoked is removed from the list for good:
+   * it can never be used again either way, so keeping it only clutters the list.
+   */
+  async revoke(userId: string, id: string): Promise<{ revoked: true } | { removed: true }> {
+    const t = await this.own(userId, id);
+    if (t.status !== 'active') {
+      await this.prisma.platformApiToken.delete({ where: { id } });
+      return { removed: true };
+    }
     await this.prisma.platformApiToken.update({ where: { id }, data: { status: 'revoked' } });
     return { revoked: true };
   }
 
   /** Regenerate the secret (invalidates the old one). */
   async roll(userId: string, id: string) {
-    await this.own(userId, id);
+    // Rolling used to set the status back to active, so a revoked token came back to life.
+    await this.ownActive(userId, id);
     const { token, hash, prefix } = generateToken();
     const row = await this.prisma.platformApiToken.update({
       where: { id },

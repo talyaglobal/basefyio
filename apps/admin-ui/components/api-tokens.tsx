@@ -80,16 +80,26 @@ export function ApiTokens() {
   }, [tokens, search, statusFilter]);
 
   const revoke = async (t: ApiToken) => {
-    const ok = await confirmDialog({
-      title: 'Revoke token',
-      description: `Revoke "${t.name}"? Any agent using it will immediately stop working.`,
-      confirmText: 'Revoke',
-      destructive: true,
-    });
+    const isActive = t.status === 'active';
+    const ok = await confirmDialog(
+      isActive
+        ? {
+            title: 'Revoke token',
+            description: `Revoke "${t.name}"? Any agent using it will immediately stop working. Revocation is permanent.`,
+            confirmText: 'Revoke',
+            destructive: true,
+          }
+        : {
+            title: 'Remove token',
+            description: `Remove the revoked token "${t.name}" from the list?`,
+            confirmText: 'Remove',
+            destructive: true,
+          },
+    );
     if (!ok) return;
     try {
       await api.apiTokens.revoke(t.id);
-      toast.success('Token revoked');
+      toast.success(isActive ? 'Token revoked' : 'Token removed');
       load();
     } catch (e: any) {
       toast.error(e?.message || 'Revoke failed');
@@ -172,6 +182,7 @@ export function ApiTokens() {
                 <th className="px-4 py-2.5 font-medium">Permissions</th>
                 <th className="px-4 py-2.5 font-medium whitespace-nowrap">Last used</th>
                 <th className="px-4 py-2.5 font-medium whitespace-nowrap">Created</th>
+                <th className="px-4 py-2.5 font-medium whitespace-nowrap">Expires</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5" />
               </tr>
@@ -179,13 +190,13 @@ export function ApiTokens() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     <Loader2 className="mx-auto h-4 w-4 animate-spin" />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     {tokens.length === 0
                       ? 'No API tokens yet. Create one to let an agent use your account.'
                       : 'No tokens match your filter.'}
@@ -221,19 +232,25 @@ export function ApiTokens() {
                       <td className="px-4 py-3 align-top whitespace-nowrap text-muted-foreground" title={fmtDate(t.createdAt)}>
                         {ago(t.createdAt)}
                       </td>
+                      <td
+                        className={`px-4 py-3 align-top whitespace-nowrap ${t.expiresAt && new Date(t.expiresAt).getTime() <= Date.now() ? 'text-red-600' : 'text-muted-foreground'}`}
+                        title={t.expiresAt ? fmtDate(t.expiresAt) : undefined}
+                      >
+                        {t.expiresAt ? (new Date(t.expiresAt).getTime() <= Date.now() ? 'Expired' : fmtDate(t.expiresAt)) : 'Never'}
+                      </td>
                       <td className="px-4 py-3 align-top">
                         <StatusBadge status={t.status} />
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex items-center justify-end gap-0.5">
-                          <Button size="sm" variant="ghost" onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)} title="Edit">
+                          <Button size="sm" variant="ghost" onClick={() => router.push(`/dashboard/account/api-tokens/${t.id}/edit`)} title="Edit" disabled={t.status !== 'active'}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => roll(t)} title="Roll secret">
+                          <Button size="sm" variant="ghost" onClick={() => roll(t)} title="Roll secret" disabled={t.status !== 'active'}>
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => revoke(t)} title="Revoke" disabled={t.status !== 'active'}>
-                            <Trash2 className={`h-3.5 w-3.5 ${t.status === 'active' ? 'text-red-500' : 'text-muted-foreground/40'}`} />
+                          <Button size="sm" variant="ghost" onClick={() => revoke(t)} title={t.status === 'active' ? 'Revoke' : 'Remove from list'}>
+                            <Trash2 className={`h-3.5 w-3.5 ${t.status === 'active' ? 'text-red-500' : 'text-muted-foreground'}`} />
                           </Button>
                         </div>
                       </td>
