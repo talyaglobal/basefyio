@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RootRoleGuard } from '../../common/guards/root-role.guard';
 import { RootConsoleService } from './root-console.service';
@@ -74,6 +74,21 @@ export class RootConsoleController {
    * Worth reading before switching the sweep on: on a platform where most
    * projects are abandoned experiments, the first run reaches a lot of people.
    */
+  /**
+   * Turn the Supabase-compatible surfaces (`/api/auth/v1`, `/api/storage/v1`, the storage
+   * catalog, the GoTrue claim mappers) on or off for one project. Off for every project
+   * until a ROOT turns it on here.
+   */
+  @Patch('projects/:id/supabase-compat')
+  setSupabaseCompat(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { enabled?: unknown },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (typeof body?.enabled !== 'boolean') throw new BadRequestException('enabled must be true or false');
+    return this.console.setSupabaseCompat(id, body.enabled, user.sub);
+  }
+
   @Get('idle-projects')
   idleProjects() {
     return this.sleep.preview();

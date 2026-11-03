@@ -43,6 +43,12 @@ export interface RlsContext {
    * rather than through {@link mapPgError}'s fixed messages.
    */
   compat?: boolean;
+  /**
+   * Run the request in a read-only transaction. A function called over GET or HEAD
+   * (a link, an image, a prefetch can send one, with the anon key in the query) must
+   * not be able to write.
+   */
+  readOnly?: boolean;
 }
 
 /** How a PostgREST client wants a read answered. */
@@ -397,6 +403,7 @@ export class PublicApiService {
       }
 
       const { call, params } = this.renderRpcCall(fnName, chosen, args ?? {});
+      if (ctx.readOnly) await client.query('SET TRANSACTION READ ONLY');
       if (!compat) {
         const result = await client.query(`SELECT * FROM ${call}`, params);
         return result.rows;
@@ -416,11 +423,16 @@ export class PublicApiService {
       params.push(JSON.stringify(args));
       return { call: `"${fnName}"($1::${chosen.jsonType})`, params };
     }
+    // Each value is cast to the chosen overload's own input type (from the catalog, never
+    // from the request). An untyped parameter lets Postgres pick the overload itself, which
+    // could be a SECURITY DEFINER one other than the overload the anonymous check looked at.
+    const types = chosen.meta.argtypes ?? [];
     const named = chosen.inputs
-      .filter((k) => k in args)
+      .filter((k) => Object.prototype.hasOwnProperty.call(args, k))
       .map((k) => {
         params.push(args[k]);
-        return `"${k}" := $${params.length}`;
+        const type = types[chosen.inputs.indexOf(k)];
+        return `"${k}" := $${params.length}${type ? `::${type}` : ''}`;
       })
       .join(', ');
     return { call: `"${fnName}"(${named})`, params };

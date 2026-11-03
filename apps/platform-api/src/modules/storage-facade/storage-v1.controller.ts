@@ -19,6 +19,7 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
+import { SupabaseCompatGuard } from '../../common/guards/supabase-compat.guard';
 import { AnonKeyAllowed, ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { ContentLengthGuard, Semaphore, resolveMaxConcurrentUploads, resolveMaxUploadBytes } from '../storage/upload-spool';
 import { MAX_FILE_SIZE } from '../storage/storage.controller';
@@ -43,7 +44,7 @@ const uploadSlots = new Semaphore(resolveMaxConcurrentUploads());
  * routes live in StorageV1PublicController, which is registered first.
  */
 @Controller('storage/v1')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, SupabaseCompatGuard)
 @AnonKeyAllowed()
 @SkipThrottle()
 @UseFilters(SupabaseStorageExceptionFilter)

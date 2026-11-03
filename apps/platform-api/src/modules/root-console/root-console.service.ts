@@ -390,6 +390,15 @@ export class RootConsoleService {
     return { generatedAt: new Date().toISOString(), storageMeasuredAt: inventory?.measuredAt ?? null, projects };
   }
 
+  /** The per-project switch of the Supabase-compatible surfaces; see the controller. */
+  async setSupabaseCompat(projectId: string, enabled: boolean, actorId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, slug: true } });
+    if (!project) throw new NotFoundException('Project not found');
+    await this.prisma.project.update({ where: { id: projectId }, data: { supabaseCompat: enabled } });
+    this.logger.log(`Supabase-compatible API ${enabled ? 'enabled' : 'disabled'} for project ${project.slug} by ${actorId}`);
+    return { projectId, slug: project.slug, supabaseCompat: enabled };
+  }
+
   async getProject(projectId: string) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },

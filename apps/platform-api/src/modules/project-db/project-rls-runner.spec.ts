@@ -106,12 +106,12 @@ describe('ProjectRlsRunner.runRlsTransaction', () => {
 });
 
 describe('ProjectRlsRunner pools', () => {
-  it('connects with the project credentials, capped at five connections, and reuses the pool', async () => {
+  it('connects with the project credentials, capped at two connections with a connect timeout, and reuses the pool', async () => {
     const { runner, prisma } = build();
     await runner.runAsOwner('p1', async () => 1);
     await runner.runAsOwner('p1', async () => 2);
     expect(pools).toHaveLength(1);
-    expect(pools[0].opts).toMatchObject({ host: 'db.internal', user: 'kb_user_a', database: 'kb_a', max: 5 });
+    expect(pools[0].opts).toMatchObject({ host: 'db.internal', user: 'kb_user_a', database: 'kb_a', max: 2, connectionTimeoutMillis: 10_000 });
     expect(prisma.project.findFirst).toHaveBeenCalledTimes(1);
     expect(prisma.project.findFirst.mock.calls[0][0].where).toEqual({ id: 'p1', status: 'ACTIVE' });
   });

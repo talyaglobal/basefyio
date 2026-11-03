@@ -50,7 +50,7 @@ jest.setTimeout(120_000);
 const REALM = 'realm-p1';
 const KC_URL = 'http://kc:8080';
 const ISSUER = `${KC_URL}/realms/${REALM}`;
-const PROJECT = { id: 'p1', name: 'Shop', keycloakRealm: REALM, anonKey: 'bf_anon_test', serviceKey: 'bf_service_test', status: 'ACTIVE' };
+const PROJECT = { id: 'p1', name: 'Shop', keycloakRealm: REALM, anonKey: 'bf_anon_test', serviceKey: 'bf_service_test', status: 'ACTIVE', supabaseCompat: true };
 const APP_URL = 'http://app.test/';
 
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -350,6 +350,7 @@ const prisma = {
       if (where?.id) return where.id === PROJECT.id ? PROJECT : null;
       return PROJECT;
     }),
+    findUnique: jest.fn(async ({ where }: any) => (where?.id === PROJECT.id ? { supabaseCompat: PROJECT.supabaseCompat } : null)),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
   projectUserMfa: fakeMfaTable(),
@@ -465,6 +466,18 @@ describe('GoTrue facade with @supabase/supabase-js', () => {
     });
     const claims = JSON.parse(Buffer.from(data.session!.access_token.split('.')[1], 'base64url').toString());
     expect(claims).toMatchObject({ sub: id, role: 'authenticated', aal: 'aal1', app_metadata: { organization_id: 'org-1' } });
+  });
+
+  it('a project without supabaseCompat has no auth/v1: sign-in answers 404', async () => {
+    seed('off@example.com', 'correct horse');
+    PROJECT.supabaseCompat = false;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: 'off@example.com', password: 'correct horse' });
+      expect(data.session).toBeNull();
+      expect(error?.status).toBe(404);
+    } finally {
+      PROJECT.supabaseCompat = true;
+    }
   });
 
   it('a wrong password is invalid_credentials', async () => {

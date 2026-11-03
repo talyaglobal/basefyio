@@ -122,9 +122,9 @@ export class PublicApiController {
       args[k] = Array.isArray(v) ? v[v.length - 1] : v;
     }
     if (!this.compat(req)) {
-      return this.publicApi.rpc(payload.projectId, fn, args, this.buildCtx(payload));
+      return this.publicApi.rpc(payload.projectId, fn, args, { ...this.buildCtx(payload), readOnly: true });
     }
-    return this.rpcCompat(req, res, payload, fn, args, prefer, accept);
+    return this.rpcCompat(req, res, payload, fn, args, prefer, accept, true);
   }
 
   private async rpcCompat(
@@ -135,10 +135,11 @@ export class PublicApiController {
     args: Record<string, unknown>,
     prefer?: string,
     accept?: string,
+    readOnly = false,
   ) {
     this.assertCompatHeaders(req, accept);
     const p = parsePrefer(prefer);
-    const r = await this.publicApi.rpc(payload.projectId, fn, args, this.buildCtx(payload, true), {
+    const r = await this.publicApi.rpc(payload.projectId, fn, args, { ...this.buildCtx(payload, true), readOnly }, {
       compat: true,
       prefer: p,
     });

@@ -406,7 +406,10 @@ describe('postgrest-js — rpc', () => {
     db.rows = [{ v: 3 }];
     const res = await postgrest().rpc('add', { a: 1, b: 2 }, { get: true });
     expect(res.data).toBe(3);
-    expect(db.statements()[0].params).toEqual(['1', '2']);
+    // A GET runs read-only: the transaction is switched before the function is called.
+    const statements = db.statements();
+    expect(statements[0].sql).toBe('SET TRANSACTION READ ONLY');
+    expect(statements[1].params).toEqual(['1', '2']);
   });
 
   it('answers void with 204 and data null', async () => {

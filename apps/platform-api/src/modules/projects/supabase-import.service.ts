@@ -4351,8 +4351,11 @@ export class SupabaseImportService implements OnModuleInit, OnModuleDestroy {
       const failures: string[] = [];
       for (const statement of buildStoragePolicyStatements(source.policies, { castAuthUid })) {
         try {
-          await pool.query(statement.drop);
-          await pool.query(statement.create);
+          // One query string = one implicit transaction: a CREATE that fails rolls the DROP
+          // back, so a policy is replaced or left as it was, never removed (two pool.query
+          // calls could even run on different connections).
+          await pool.query(`${statement.drop};
+${statement.create}`);
           policiesApplied++;
         } catch (err: any) {
           failures.push(`${statement.name}: ${err.message}`);

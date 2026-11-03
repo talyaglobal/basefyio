@@ -1,5 +1,9 @@
 # Supabase-compatible auth (`/api/auth/v1`)
 
+> **Off until enabled for the project.** `/api/auth/v1` serves only projects with the Supabase-compatible
+> switch on; every other project gets 404 from these routes. A platform administrator turns it on with
+> `PATCH /api/admin/console/projects/<projectId>/supabase-compat {"enabled": true}` (ROOT only).
+
 GoTrue — the API behind Supabase Auth — served over a project's own identity realm, so
 `@supabase/supabase-js` and `@supabase/ssr` work against a basefyio project unchanged:
 

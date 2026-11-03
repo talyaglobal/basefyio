@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtOrApiKeyGuard } from '../../common/guards/jwt-or-apikey.guard';
+import { SupabaseCompatGuard } from '../../common/guards/supabase-compat.guard';
 import { ServiceKeyOnly } from '../../common/decorators/api-key-scope.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { StorageService } from '../storage/storage.service';
@@ -11,7 +12,7 @@ import { StorageCatalogBackfillService } from './storage-catalog-backfill.servic
  * catalog from the object store. Service key or a dashboard team member.
  */
 @Controller('projects/:projectId/storage')
-@UseGuards(JwtOrApiKeyGuard)
+@UseGuards(JwtOrApiKeyGuard, SupabaseCompatGuard)
 @ServiceKeyOnly()
 export class StorageCatalogController {
   constructor(

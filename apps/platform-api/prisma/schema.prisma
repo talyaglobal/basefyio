@@ -288,6 +288,11 @@ model Project {
   /// caller's role. Imports from Supabase that copied storage policies are
   /// set to `rls`.
   storageAuthz      String              @default("presets") @map("storage_authz")
+  /// Whether the Supabase-compatible surfaces serve this project: `/api/auth/v1`,
+  /// `/api/storage/v1`, the storage catalog kept in its database, and the GoTrue claim
+  /// mappers. Off by default; a ROOT turns it on per project
+  /// (`PATCH /api/admin/console/projects/:id/supabase-compat`).
+  supabaseCompat    Boolean             @default(false) @map("supabase_compat")
 
   // Folder
   folderId String? @map("folder_id")

@@ -49,6 +49,7 @@ import { isJsonBody, rewriteSupabasePaths } from '../../common/middleware/supaba
 
 const PROJECT = {
   id: 'p1',
+  supabaseCompat: true,
   slug: 'proj',
   storagePrefix: null as string | null,
   teamId: 't1',
@@ -416,6 +417,7 @@ beforeAll(async () => {
         if (where?.id && where.id !== PROJECT.id) return null;
         return { ...PROJECT };
       }),
+      findUnique: jest.fn(async ({ where }: any) => (where?.id === PROJECT.id ? { supabaseCompat: PROJECT.supabaseCompat } : null)),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     projectUsage: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -470,6 +472,7 @@ afterAll(async () => {
 beforeEach(() => {
   PROJECT.storageAuthz = 'presets';
   PROJECT.status = 'ACTIVE';
+  PROJECT.supabaseCompat = true;
   access.resolveMode.mockResolvedValue(null);
   runner.calls.length = 0;
   store.buckets.clear();
@@ -479,6 +482,20 @@ beforeEach(() => {
 });
 
 const text = async (blob: Blob | null) => (blob ? Buffer.from(await blob.arrayBuffer()).toString('utf8') : null);
+
+// ── The per-project switch ────────────────────────────────────────────────────
+
+describe('a project without supabaseCompat', () => {
+  it('has no storage/v1: uploads, downloads and listings answer 404 and nothing reaches the store', async () => {
+    PROJECT.supabaseCompat = false;
+    const up = await user('alice').from('docs').upload('a.txt', new Blob(['x'], { type: 'text/plain' }));
+    expect(up.error).toBeTruthy();
+    expect(String((up.error as any).statusCode ?? (up.error as any).status)).toBe('404');
+    const list = await user('alice').from('docs').list();
+    expect(list.error).toBeTruthy();
+    expect(store.buckets.get('docs')!.objects.size).toBe(0);
+  });
+});
 
 // ── Objects ───────────────────────────────────────────────────────────────────
 

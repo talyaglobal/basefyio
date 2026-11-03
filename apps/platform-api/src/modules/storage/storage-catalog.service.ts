@@ -225,6 +225,9 @@ export class StorageCatalogService {
     what: string,
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T | undefined> {
+    // The catalog belongs to the Supabase-compatible storage surface: a project without
+    // the switch keeps storage exactly as before, with no connection to its database.
+    if (!(await this.runner.supabaseCompatEnabled(projectId).catch(() => false))) return undefined;
     const until = this.missingUntil.get(projectId);
     if (until && until > Date.now()) return undefined;
     if (until) this.missingUntil.delete(projectId);

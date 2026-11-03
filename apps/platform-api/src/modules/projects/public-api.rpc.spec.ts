@@ -141,6 +141,44 @@ describe('PublicApiService.rpc — argument binding', () => {
     await svc.rpc('p1', 'f', { a: 1, b: 'x' }, { role: 'anon' } as any);
     expect(callSql(client)[0]).toBe('SELECT * FROM "f"("a" := $1, "b" := $2)');
   });
+
+  it('casts each argument to the chosen overload, so Postgres cannot pick a SECURITY DEFINER sibling', async () => {
+    // For an untyped value Postgres would prefer f(text), the definer one, over the
+    // invoker f(integer) that the anonymous check looked at.
+    const { svc, client } = serviceWith([
+      { signature: 'f(a integer)', definer: false, argnames: ['a'], argmodes: [], argtypes: ['integer'] },
+      { signature: 'f(a text)', definer: true, argnames: ['a'], argmodes: [], argtypes: ['text'] },
+    ]);
+    await svc.rpc('p1', 'f', { a: '5' }, { role: 'anon' } as any);
+    expect(callSql(client)[0]).toBe('SELECT * FROM "f"("a" := $1::integer)');
+  });
+
+  it('runs a read-only call (GET or HEAD) in a read-only transaction', async () => {
+    const { svc, client } = serviceWith([
+      { signature: 'stats(day date)', definer: false, argnames: ['day'], argmodes: [], argtypes: ['date'] },
+    ]);
+    await svc.rpc('p1', 'stats', { day: '2026-11-03' }, { role: 'anon', readOnly: true } as any);
+    const sqls = client.query.mock.calls.map(([sql]: [string]) => sql);
+    const readOnlyAt = sqls.indexOf('SET TRANSACTION READ ONLY');
+    expect(readOnlyAt).toBeGreaterThan(-1);
+    expect(readOnlyAt).toBeLessThan(sqls.findIndex((s: string) => s.startsWith('SELECT * FROM "stats"')));
+  });
+
+  it('a POST call is not made read-only', async () => {
+    const { svc, client } = serviceWith([{ signature: 'touch()', definer: false, argnames: [], argmodes: [] }]);
+    await svc.rpc('p1', 'touch', {}, { role: 'authenticated' } as any);
+    expect(client.query.mock.calls.map(([sql]: [string]) => sql)).not.toContain('SET TRANSACTION READ ONLY');
+  });
+
+  it('only binds arguments the caller actually sent, not inherited object properties', async () => {
+    const { svc, client } = serviceWith([
+      { signature: 'g(constructor text, x text)', definer: false, argnames: ['constructor', 'x'], argmodes: [], pronargdefaults: 2 },
+    ]);
+    await svc.rpc('p1', 'g', { x: 'y' }, { role: 'anon' } as any);
+    const [sql, params] = callSql(client);
+    expect(sql).toBe('SELECT * FROM "g"("x" := $1)');
+    expect(params).toEqual(['y']);
+  });
 });
 
 /** The compat path: PostgREST's not-found code and result shaping. */

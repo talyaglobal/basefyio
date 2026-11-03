@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseAuthCompatService } from './supabase-auth-compat.service';
 import { GoTrueError, GoTrueExceptionFilter } from './supabase-auth-compat.filter';
+import { SUPABASE_COMPAT_DISABLED } from '../../common/guards/supabase-compat.guard';
 
 /**
  * `GET /api/auth/v1/authorize` — where `signInWithOAuth` sends the browser.
@@ -52,17 +53,19 @@ export class SupabaseAuthOpenController {
       // the only caller here.
       const project = await this.prisma.project.findFirst({
         where: { anonKey: apiKey, status: { in: ['ACTIVE', 'PAUSED'] } },
-        select: { id: true },
+        select: { id: true, supabaseCompat: true },
       });
       if (!project) throw new GoTrueError(401, 'no_api_key', 'Invalid API key');
+      if (!project.supabaseCompat) throw new GoTrueError(404, 'not_found', SUPABASE_COMPAT_DISABLED);
       return project.id;
     }
     if (projectHeader) {
       const project = await this.prisma.project.findFirst({
         where: { id: projectHeader, status: { in: ['ACTIVE', 'PAUSED'] } },
-        select: { id: true },
+        select: { id: true, supabaseCompat: true },
       });
       if (!project) throw new GoTrueError(404, 'not_found', 'Project not found');
+      if (!project.supabaseCompat) throw new GoTrueError(404, 'not_found', SUPABASE_COMPAT_DISABLED);
       return project.id;
     }
     throw new GoTrueError(401, 'no_api_key', 'No API key found in request');

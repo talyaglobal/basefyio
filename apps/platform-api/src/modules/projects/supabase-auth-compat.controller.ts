@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
+import { SupabaseCompatGuard } from '../../common/guards/supabase-compat.guard';
 import {
   AnonKeyAllowed,
   AuthenticatedKeyOnly,
@@ -40,7 +41,7 @@ import { GoTrueError, GoTrueExceptionFilter } from './supabase-auth-compat.filte
  * Spec: docs/specs/supabase-compat-auth.md.
  */
 @Controller('auth/v1')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, SupabaseCompatGuard)
 @UseFilters(GoTrueExceptionFilter)
 export class SupabaseAuthCompatController {
   constructor(private readonly auth: SupabaseAuthCompatService) {}

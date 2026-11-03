@@ -1,12 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { StorageCatalogService } from './storage-catalog.service';
 
-function build() {
+function build(compat = true) {
   const client = {
     query: jest.fn<Promise<{ rows: unknown[] }>, [string, unknown[]?]>(async () => ({ rows: [] })),
   };
   const runner = {
     runAsOwner: jest.fn(async (_p: string, fn: (c: any) => Promise<unknown>) => fn(client)),
+    supabaseCompatEnabled: jest.fn(async () => compat),
   };
   const svc = new StorageCatalogService(runner as any);
   const sql = () => client.query.mock.calls.map(([s]) => s.replace(/\s+/g, ' ').trim());
@@ -113,5 +114,24 @@ describe('StorageCatalogService reads', () => {
     expect(await svc.available('p1')).toBe(true);
     runner.runAsOwner.mockRejectedValueOnce(new Error('down'));
     expect(await svc.available('p1')).toBe(false);
+  });
+});
+
+describe('StorageCatalogService and the per-project switch', () => {
+  it('never touches the project database of a project without supabaseCompat', async () => {
+    const { svc, runner, client } = build(false);
+    await svc.recordUpload('p1', 'photos', 'a.png', { size: 3 }, 'image/png', undefined);
+    await svc.deleteObjects('p1', 'photos', ['a.png']);
+    await svc.setBucketPublic('p1', 'photos', true);
+    expect(runner.supabaseCompatEnabled).toHaveBeenCalledWith('p1');
+    expect(runner.runAsOwner).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it('treats a failed switch lookup as off', async () => {
+    const { svc, runner } = build();
+    runner.supabaseCompatEnabled.mockRejectedValueOnce(new Error('db down'));
+    await svc.deleteBucket('p1', 'photos');
+    expect(runner.runAsOwner).not.toHaveBeenCalled();
   });
 });

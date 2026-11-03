@@ -121,6 +121,23 @@ export class ProjectRlsRunner implements OnModuleDestroy {
     }
   }
 
+  /** `supabaseCompat` per project, for the catalog sync that every storage write calls. */
+  private readonly compatCache = new Map<string, { on: boolean; at: number }>();
+
+  /**
+   * Whether the project has the Supabase-compatible surfaces turned on. Cached for 30 s:
+   * the storage catalog sync asks on every upload, and must cost nothing for the projects
+   * (all of them by default) that have the switch off.
+   */
+  async supabaseCompatEnabled(projectId: string): Promise<boolean> {
+    const hit = this.compatCache.get(projectId);
+    if (hit && Date.now() - hit.at < 30_000) return hit.on;
+    const row = await this.prisma.project.findUnique({ where: { id: projectId }, select: { supabaseCompat: true } });
+    const on = row?.supabaseCompat === true;
+    this.compatCache.set(projectId, { on, at: Date.now() });
+    return on;
+  }
+
   /** A pooled connection to the project database; cached per project. */
   async getPool(projectId: string): Promise<Pool> {
     const cached = this.poolCache.get(projectId);
@@ -144,8 +161,11 @@ export class ProjectRlsRunner implements OnModuleDestroy {
       password: project.dbPassword,
       database: project.dbName,
       statement_timeout: 15_000,
-      max: 5,
+      // Direct connections to a cluster near its connection limit: few per project, and a
+      // caller that cannot get one gives up instead of queueing without bound.
+      max: 2,
       idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
     });
     pool.on('error', (err) => {
       this.logger.warn(`Idle connection to project ${projectId} failed: ${err.message}`);

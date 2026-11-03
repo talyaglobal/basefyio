@@ -38,6 +38,7 @@ import {
   normaliseListOptions,
 } from './storage-list.sql';
 import { StorageSigningService } from './storage-signing.service';
+import { SUPABASE_COMPAT_DISABLED } from '../../common/guards/supabase-compat.guard';
 
 export type StorageAuthzMode = 'presets' | 'rls';
 
@@ -161,9 +162,14 @@ export class StorageFacadeService {
         keycloakRealm: true,
         serviceKey: true,
         storageAuthz: true,
+        supabaseCompat: true,
       },
     });
     if (!row) throw new StorageFacadeError({ statusCode: '404', error: 'not_found', message: 'Project not found' });
+    // Before any wake-up or token check: a project without the switch has no storage/v1.
+    if (!row.supabaseCompat) {
+      throw new StorageFacadeError({ statusCode: '404', error: 'not_found', message: SUPABASE_COMPAT_DISABLED });
+    }
     return { ...row, storageAuthz: row.storageAuthz === 'rls' ? 'rls' : 'presets' };
   }
 

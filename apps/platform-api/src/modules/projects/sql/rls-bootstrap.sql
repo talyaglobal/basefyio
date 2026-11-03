@@ -255,9 +255,14 @@ ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
-GRANT ALL ON storage.buckets, storage.objects TO anon, authenticated, service_role;
+-- The API roles get the statements row-level security applies to. Not ALL: that
+-- includes TRUNCATE, which ignores RLS and would empty the catalog for everyone.
+GRANT SELECT, INSERT, UPDATE, DELETE ON storage.buckets, storage.objects TO anon, authenticated;
+GRANT ALL ON storage.buckets, storage.objects TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA storage
-  GRANT ALL ON TABLES TO anon, authenticated, service_role;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE "%BF_PROJECT_OWNER%" IN SCHEMA storage
+  GRANT ALL ON TABLES TO service_role;
 
 -- Path helpers the Supabase policy idiom relies on:
 --   storage.foldername(name)  every segment but the last, as an array

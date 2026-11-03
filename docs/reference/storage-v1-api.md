@@ -1,5 +1,9 @@
 # Supabase Storage API (`/api/storage/v1`)
 
+> **Off until enabled for the project.** `/api/storage/v1` (and the storage catalog it keeps in the project database) serves only projects with the Supabase-compatible
+> switch on; every other project gets 404 from these routes. A platform administrator turns it on with
+> `PATCH /api/admin/console/projects/<projectId>/supabase-compat {"enabled": true}` (ROOT only).
+
 The Supabase Storage protocol over the platform's object store, so `@supabase/storage-js`
 and supabase-js work unchanged:
 

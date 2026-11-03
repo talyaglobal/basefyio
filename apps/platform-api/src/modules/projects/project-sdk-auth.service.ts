@@ -730,21 +730,24 @@ export class ProjectSdkAuthService {
     password: string,
     retried = false,
     clientIp?: string,
-    opts: { projectId?: string; totp?: string } = {},
+    opts: { projectId?: string; totp?: string; gotrueClaims?: boolean } = {},
   ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string }> {
     const keycloakUrl = this.config.get<string>('keycloak.url');
     const tokenUrl = `${keycloakUrl}/realms/${realmName}/protocol/openid-connect/token`;
 
     // Before the grant, so the very first token already carries auth_time.
     await this.keycloak.ensureRealmClientAuthTimeMapper(realmName, clientId);
-    // Likewise the GoTrue claims (role, aal, app_metadata…); a realm from before the facade
-    // gets its mappers here. Best-effort: a failure costs the claims, never the sign-in.
-    try {
-      await this.keycloak.ensureRealmClientGoTrueMappers(realmName, clientId);
-    } catch (err: any) {
-      this.logger.warn(
-        `Could not ensure GoTrue claim mappers for "${clientId}" in "${realmName}": ${err?.message ?? err}`,
-      );
+    // Likewise the GoTrue claims (role, aal, app_metadata…), but only for the Supabase-compatible
+    // sign-in (`opts.gotrueClaims`, a project with the switch on): every other sign-in leaves the
+    // realm and its tokens as they were. Best-effort: a failure costs the claims, never the sign-in.
+    if (opts.gotrueClaims) {
+      try {
+        await this.keycloak.ensureRealmClientGoTrueMappers(realmName, clientId);
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not ensure GoTrue claim mappers for "${clientId}" in "${realmName}": ${err?.message ?? err}`,
+        );
+      }
     }
 
     const params = new URLSearchParams({

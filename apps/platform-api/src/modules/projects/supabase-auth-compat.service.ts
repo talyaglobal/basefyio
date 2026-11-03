@@ -245,6 +245,7 @@ export class SupabaseAuthCompatService {
       this.sdkAuth.authenticateInRealm(realm, clientId, email, password, false, clientIp, {
         projectId: project.id,
         totp: opts.totp,
+        gotrueClaims: true,
       });
     try {
       return await grant();
