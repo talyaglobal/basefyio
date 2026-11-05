@@ -24,7 +24,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /packages/data-engine /packages/data-engine
 COPY apps/platform-api/ .
 RUN sed -i 's|file:../../packages/data-engine|file:/packages/data-engine|g' package.json
-RUN npm run build
+# The type-check needs ~2.1 GB; V8's default limit on the build host is ~2 GB,
+# so `nest build` ran out of heap (v3.1.4 deploy). Build stage only.
+RUN NODE_OPTIONS=--max-old-space-size=3072 npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
