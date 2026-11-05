@@ -1,37 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
-export interface CreateNotificationInput {
-  type: string;
-  title: string;
-  message: string;
-  href?: string;
-  dedupeKey?: string;
-}
 
 @Injectable()
 export class NotificationsService {
-  private readonly logger = new Logger(NotificationsService.name);
-
   constructor(private readonly prisma: PrismaService) {}
-
-  async create(userId: string, input: CreateNotificationInput) {
-    const { dedupeKey } = input;
-    const find = () =>
-      dedupeKey ? this.prisma.notification.findUnique({ where: { userId_dedupeKey: { userId, dedupeKey } } }) : null;
-    const existing = await find();
-    if (existing) return existing;
-    try {
-      const row = await this.prisma.notification.create({ data: { ...input, userId } });
-      this.logger.log(`Notification ${row.id} (${row.type}) stored for user ${userId}`);
-      return row;
-    } catch (err) {
-      // Two tabs racing on the same dedupeKey: the loser returns the winner's row.
-      const winner = await find();
-      if (winner) return winner;
-      throw err;
-    }
-  }
 
   async list(userId: string, limit = 50, before?: string) {
     const take = Math.min(Math.max(limit, 1), 100);
@@ -62,5 +34,11 @@ export class NotificationsService {
       data: { readAt: new Date() },
     });
     return { updated: count };
+  }
+
+  /** Delete the caller's own notifications; other users' rows are never matched. */
+  async clear(userId: string) {
+    const { count } = await this.prisma.notification.deleteMany({ where: { userId } });
+    return { deleted: count };
   }
 }

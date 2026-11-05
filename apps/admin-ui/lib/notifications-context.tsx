@@ -5,7 +5,6 @@ import { api, type ApiNotification } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
 import { subscribebasefyioRealtime } from '@/lib/basefyio-realtime';
-import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 
 export const BASEFYIO_NOTIFY_EVENT = 'basefyio-notify-event';
 
@@ -37,7 +36,6 @@ type NotificationsContextValue = {
   requestPermission: () => Promise<NotificationPermission | 'unsupported'>;
   setBrowserNotificationsEnabled: (enabled: boolean) => void;
   setFeedbackNotificationsEnabled: (enabled: boolean) => void;
-  addNotification: (payload: NotifyPayload) => void;
   markAllRead: () => void;
   markRead: (id: string) => void;
   clearAll: () => void;
@@ -52,7 +50,6 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   requestPermission: async () => 'unsupported',
   setBrowserNotificationsEnabled: () => {},
   setFeedbackNotificationsEnabled: () => {},
-  addNotification: () => {},
   markAllRead: () => {},
   markRead: () => {},
   clearAll: () => {},
@@ -68,10 +65,6 @@ function fromApi(n: ApiNotification): AppNotification {
     createdAt: new Date(n.createdAt).getTime(),
     read: !!n.readAt,
   };
-}
-
-function uid() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function dispatchbasefyioNotification(payload: NotifyPayload) {
@@ -93,15 +86,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
   const { activeImport, modalShowingImport } = useImportProgress();
   const lastImportNotifiedRef = useRef<string | null>(null);
-
-  // Load the stored list (and so the unread badge) once the user is known.
-  useEffect(() => {
-    if (!currentUserId) return;
-    api.notifications
-      .list()
-      .then((r) => setNotifications(r.items.map(fromApi)))
-      .catch(() => {});
-  }, [currentUserId]);
+  // Ids already shown; null until the first load, so old rows never pop up as browser alerts.
+  const knownIds = useRef<Set<string> | null>(null);
 
   // Local state first, DB in the background; a failed call is retried by the next reload's list.
   const markAllRead = useCallback(() => {
@@ -114,50 +100,52 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     void api.notifications.markRead(id).catch(() => {});
   }, []);
 
-  const showBrowserNotification = useCallback((payload: AppNotification) => {
-    if (
-      browserNotificationsEnabled &&
-      typeof window !== 'undefined' &&
-      'Notification' in window &&
-      Notification.permission === 'granted'
-    ) {
+  const clearAll = useCallback(() => {
+    setNotifications([]);
+    void api.notifications.clear().catch(() => {});
+  }, []);
+
+  const showBrowserNotification = useCallback(
+    (n: AppNotification) => {
+      if (
+        !browserNotificationsEnabled ||
+        typeof window === 'undefined' ||
+        !('Notification' in window) ||
+        Notification.permission !== 'granted'
+      ) {
+        return;
+      }
       try {
-        const browserNotification = new Notification(payload.title, {
-          body: payload.message,
-          tag: `basefyio-${payload.type}-${payload.href ?? ''}`,
+        const browserNotification = new Notification(n.title, {
+          body: n.message,
+          tag: `basefyio-${n.type}-${n.href ?? ''}`,
         });
-        if (payload.href) {
-        }
         // Opening the browser notification is a real read.
         browserNotification.onclick = () => {
-          markRead(payload.id);
+          markRead(n.id);
           window.focus();
-          if (payload.href) window.location.href = payload.href;
+          if (n.href) window.location.href = n.href;
         };
       } catch {
         // Ignore browser notification errors; in-app feed still works.
       }
-    }
-  }, [browserNotificationsEnabled, markRead]);
+    },
+    [browserNotificationsEnabled, markRead],
+  );
 
-  const addNotificationStored = useCallback((payload: NotifyPayload, dedupeKey?: string) => {
-    if (payload.type === 'feedback' && !feedbackNotificationsEnabled) return;
-
-    // Persist first: the server row id is what read-state is tracked by. If the call fails the
-    // entry stays local-only (still shown, not stored).
+  // The API stores every bell notification when it is emitted; the browser only reads the list.
+  const refresh = useCallback(() => {
     api.notifications
-      .create({ ...payload, dedupeKey })
-      .then(fromApi)
-      .catch((): AppNotification => ({ id: uid(), ...payload, createdAt: Date.now(), read: false }))
-      .then((entry) => {
-        setNotifications((prev) => (prev.some((n) => n.id === entry.id) ? prev : [entry, ...prev].slice(0, 50)));
-        showBrowserNotification(entry);
-      });
-  }, [feedbackNotificationsEnabled, showBrowserNotification]);
-
-  const clearAll = useCallback(() => {
-    setNotifications([]);
-  }, []);
+      .list()
+      .then((r) => {
+        const items = r.items.map(fromApi);
+        const known = knownIds.current;
+        knownIds.current = new Set(items.map((n) => n.id));
+        setNotifications(items);
+        if (known) items.filter((n) => !n.read && !known.has(n.id)).forEach(showBrowserNotification);
+      })
+      .catch(() => {});
+  }, [showBrowserNotification]);
 
   const requestPermission = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
@@ -206,170 +194,28 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const onAppNotify = (event: Event) => {
-      const detail = (event as CustomEvent<NotifyPayload>).detail;
-      if (!detail?.title || !detail?.message || !detail?.type) return;
-      // "Incoming only": AI/import notifications are always initiated from the same user session.
-      if (detail.type === 'ai' || detail.type === 'import') return;
-      addNotificationStored(detail);
-    };
-    window.addEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
-    return () => window.removeEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
-  }, [addNotificationStored]);
-
-  useEffect(() => {
     // Keep refs/reads to avoid unused values and maintain compatibility.
     void activeImport;
     void modalShowingImport;
     void lastImportNotifiedRef;
   }, [activeImport, modalShowingImport]);
 
-  // Realtime notifications are the single source of truth now — the legacy
-  // 15-second polling loop that diffed /feedback list + attributed via
-  // /feedback/:id/history has been retired. The SSE payload from
-  // FeedbackService carries `actorName`, `actorUserId`, `commentPreview` and
-  // diff flags, which is everything the polling loop used to look up
-  // out-of-band. Set NEXT_PUBLIC_BASEFYIO_REALTIME_DISABLE=1 to fall back to the
-  // server-side polling state (the subscribe call returns null and no
-  // notifications fire — better than waking up the browser unnecessarily).
+  // Load the stored list (and so the unread badge) once the user is known.
+  useEffect(() => {
+    if (currentUserId) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId]);
+
+  // A realtime push means the API has just stored a row for this user; re-read the list.
   useEffect(() => {
     if (!currentUserId || !feedbackNotificationsEnabled) return;
-
-    const unsubscribe = subscribebasefyioRealtime(
-      `user:${currentUserId}`,
-      (event: RealtimeEventEnvelope) => {
-        // Self-edits never produce a toast; the actor already knows what they did.
-        if (event.actorUserId && event.actorUserId === currentUserId) return;
-
-        // eventId as dedupe key: the same push in two tabs stores one row.
-        const addNotification = (p: NotifyPayload) => addNotificationStored(p, event.eventId);
-
-        const actor =
-          (event.payload && typeof event.payload.actorName === 'string'
-            ? event.payload.actorName
-            : null) || 'Someone';
-
-        if (event.entityType === 'feedback' && event.action === 'created') {
-          const title =
-            typeof event.payload?.title === 'string' ? event.payload.title : 'a new feedback';
-          const actorEmail =
-            typeof event.payload?.actorEmail === 'string' ? event.payload.actorEmail : null;
-          addNotification({
-            type: 'feedback',
-            title: 'New feedback submitted',
-            message: `${actor}${actorEmail ? ` (${actorEmail})` : ''} submitted "${title}".`,
-            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
-          });
-        } else if (event.entityType === 'feedback' && event.action === 'status_changed') {
-          const title =
-            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
-          const to =
-            typeof event.payload?.to === 'string'
-              ? event.payload.to.replace('_', ' ').toLowerCase()
-              : 'updated';
-          addNotification({
-            type: 'feedback',
-            title: 'Feedback status updated',
-            message: `${actor} marked "${title}" as ${to}.`,
-            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
-          });
-        } else if (
-          event.entityType === 'feedback_comment' &&
-          event.action === 'comment_added'
-        ) {
-          const feedbackId = event.payload?.feedbackId;
-          const title =
-            typeof event.payload?.feedbackTitle === 'string'
-              ? event.payload.feedbackTitle
-              : 'a feedback';
-          const preview =
-            typeof event.payload?.commentPreview === 'string'
-              ? event.payload.commentPreview
-              : null;
-          addNotification({
-            type: 'feedback',
-            title: 'New feedback comment',
-            message: preview
-              ? `${actor} on "${title}": ${preview}`
-              : `${actor} commented on "${title}".`,
-            href: feedbackId
-              ? `/dashboard/feedbacks#feedback-${String(feedbackId)}`
-              : '/dashboard/feedbacks',
-          });
-        } else if (event.entityType === 'feedback' && event.action === 'updated') {
-          const title =
-            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
-          addNotification({
-            type: 'feedback',
-            title: 'Feedback updated',
-            message: `${actor} updated "${title}".`,
-            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
-          });
-        } else if (event.entityType === 'feedback' && event.action === 'reporter_notified') {
-          const title =
-            typeof event.payload?.title === 'string' ? event.payload.title : 'your feedback';
-          const summary =
-            typeof event.payload?.summary === 'string' ? event.payload.summary : 'It was updated.';
-          addNotification({
-            type: 'feedback',
-            title: 'Update on your feedback',
-            message: `"${title}": ${summary}`,
-            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
-          });
-        } else if (event.entityType === 'feedback' && event.action === 'deleted') {
-          const title =
-            typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';
-          addNotification({
-            type: 'feedback',
-            title: 'Feedback deleted',
-            message: `${actor} deleted "${title}".`,
-            href: '/dashboard/feedbacks',
-          });
-        } else if (event.entityType === 'project' && event.action === 'created') {
-          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
-          addNotification({
-            type: 'feedback',
-            title: 'New project created',
-            message: `${actor} created "${name}".`,
-            href: `/dashboard/projects/${event.entityId}`,
-          });
-        } else if (event.entityType === 'project' && event.action === 'updated') {
-          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
-          const changes = Array.isArray(event.payload?.changes)
-            ? (event.payload.changes as string[]).join(', ')
-            : null;
-          addNotification({
-            type: 'feedback',
-            title: 'Project updated',
-            message: changes
-              ? `${actor} updated "${name}" (${changes}).`
-              : `${actor} updated "${name}".`,
-            href: `/dashboard/projects/${event.entityId}`,
-          });
-        } else if (event.entityType === 'project' && event.action === 'deleted') {
-          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
-          addNotification({
-            type: 'feedback',
-            title: 'Project deleted',
-            message: `${actor} moved "${name}" to trash.`,
-            href: '/dashboard/projects',
-          });
-        } else if (event.entityType === 'project' && event.action === 'restored') {
-          const name = typeof event.payload?.name === 'string' ? event.payload.name : 'a project';
-          addNotification({
-            type: 'feedback',
-            title: 'Project restored',
-            message: `${actor} restored "${name}".`,
-            href: `/dashboard/projects/${event.entityId}`,
-          });
-        }
-      },
-    );
-
+    const unsubscribe = subscribebasefyioRealtime(`user:${currentUserId}`, (e) => {
+      if (['feedback', 'feedback_comment', 'project'].includes(e.entityType)) refresh();
+    });
     return () => {
       unsubscribe?.();
     };
-  }, [addNotificationStored, currentUserId, feedbackNotificationsEnabled]);
+  }, [currentUserId, feedbackNotificationsEnabled, refresh]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
@@ -384,7 +230,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         requestPermission,
         setBrowserNotificationsEnabled: saveBrowserPreference,
         setFeedbackNotificationsEnabled: saveFeedbackPreference,
-        addNotification: addNotificationStored,
         markAllRead,
         markRead,
         clearAll,

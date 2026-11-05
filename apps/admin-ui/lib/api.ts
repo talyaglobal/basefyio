@@ -2133,8 +2133,8 @@ export const api = {
     list() {
       return request<{ items: ApiNotification[]; unreadCount: number }>('/notifications?limit=50');
     },
-    create(body: { type: string; title: string; message: string; href?: string; dedupeKey?: string }) {
-      return request<ApiNotification>('/notifications', { method: 'POST', body: JSON.stringify(body) });
+    clear() {
+      return request<{ deleted: number }>('/notifications', { method: 'DELETE' });
     },
     markRead(id: string) {
       return request<{ success: boolean }>(`/notifications/${id}/read`, { method: 'PATCH' });
