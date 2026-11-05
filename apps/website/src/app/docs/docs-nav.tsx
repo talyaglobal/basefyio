@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Book, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, KeyRound, HardDrive } from "lucide-react";
+import { Book, Bot, Code, Terminal, Server, Database, Shield, Cloud, Link2, Radio, KeyRound, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { DOCS_NAV_ITEMS } from "./docs-nav-items";
@@ -22,6 +22,7 @@ const ICONS: Record<string, LucideIcon> = {
   terminal: Terminal,
   shield: Shield,
   cloud: Cloud,
+  bot: Bot,
 };
 
 export function DocsNav() {

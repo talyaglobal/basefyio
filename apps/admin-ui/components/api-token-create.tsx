@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck } from 'lucide-react';
+import { MCP_READ_ONLY_SCOPES, McpSetupBlocks, holdsMcpScope } from '@/components/mcp-setup';
+import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck, Bot } from 'lucide-react';
 
 export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const router = useRouter();
@@ -29,6 +30,13 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
         isEdit ? api.apiTokens.list() : Promise.resolve([]),
       ]);
       setGroups(g);
+      // Read straight from the URL rather than useSearchParams, which would
+      // need a Suspense boundary around this statically rendered page.
+      if (!isEdit && new URLSearchParams(window.location.search).get('preset') === 'mcp') {
+        const known = new Set(g.flatMap((x) => x.scopes.map((s) => s.scope)));
+        setScopes(new Set(MCP_READ_ONLY_SCOPES.filter((s) => known.has(s))));
+        setName((n) => n || 'mcp-agent');
+      }
       if (isEdit) {
         const t = existing.find((x) => x.id === tokenId);
         if (!t) {
@@ -84,6 +92,17 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const categoryScopes = (gs: ApiTokenScopeGroup[]) => gs.flatMap(groupScopes);
 
   const allOn = allScopes.length > 0 && allScopes.every((s) => scopes.has(s));
+
+  const mcpPreset = useMemo(
+    () => MCP_READ_ONLY_SCOPES.filter((s) => allScopes.includes(s)),
+    [allScopes],
+  );
+  const mcpPresetOn =
+    mcpPreset.length > 0 && scopes.size === mcpPreset.length && mcpPreset.every((s) => scopes.has(s));
+  const applyMcpPreset = () => {
+    setScopes(new Set(mcpPreset));
+    if (!name.trim()) setName('mcp-agent');
+  };
 
   const save = async () => {
     if (!name.trim()) return toast.error('Name is required');
@@ -155,6 +174,30 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
         </div>
       ) : (
         <div className="space-y-4">
+          {!isEdit && mcpPreset.length > 0 && (
+            <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold">
+                  <Bot className="h-4 w-4 text-primary" /> MCP (read-only)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  For an AI agent on the MCP server: reads teams, projects, tables, rows, storage listings and
+                  auth users, and runs read-only SQL. Nothing that can change data.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={mcpPresetOn ? 'default' : 'outline'}
+                onClick={applyMcpPreset}
+                className="shrink-0"
+              >
+                {mcpPresetOn ? <Check className="mr-1 h-3.5 w-3.5" /> : null}
+                {mcpPresetOn ? 'Preset applied' : 'Use preset'}
+              </Button>
+            </div>
+          )}
+
           {/* Master toggle */}
           <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3">
             <div>
@@ -300,6 +343,7 @@ function SecretReveal({ token, onDone }: { token: CreatedApiToken; onDone: () =>
           </span>
         ))}
       </div>
+      {holdsMcpScope(token.scopes) && <McpSetupBlocks />}
       <Button onClick={onDone}>Done</Button>
     </div>
   );

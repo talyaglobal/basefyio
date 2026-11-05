@@ -116,6 +116,6 @@ import { ProjectBranchesController } from './branches/project-branches.controlle
     BackupVerificationService,
     ProjectBranchService,
   ],
-  exports: [ProjectsService, CollectionService, ProjectDatabaseService, ProjectSleepService],
+  exports: [ProjectsService, ProjectDataService, CollectionService, ProjectDatabaseService, ProjectSleepService],
 })
 export class ProjectsModule {}

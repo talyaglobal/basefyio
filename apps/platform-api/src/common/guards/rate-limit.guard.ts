@@ -23,7 +23,7 @@ export const RateLimit = (maxRequests: number, windowSeconds: number) =>
  * two commands, a crash between INCR and EXPIRE left a counter with no expiry
  * — a client locked out of sign-in until someone noticed.
  */
-const COUNT_HIT = `
+export const COUNT_HIT = `
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return n

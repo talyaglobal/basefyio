@@ -22,6 +22,7 @@ export const DOCS_NAV_ITEMS: DocsNavItem[] = [
   { href: "/docs/api", label: "API Reference", icon: "server", keywords: ["rest", "endpoints", "http", "rpc", "query"] },
   { href: "/docs/sdk", label: "SDK", icon: "code", keywords: ["javascript", "typescript", "client", "bf.from", "auth", "storage"] },
   { href: "/docs/cli", label: "CLI", icon: "terminal", keywords: ["command line", "bf", "basefyio init", "link", "migrate", "login"] },
+  { href: "/docs/mcp", label: "MCP Server", icon: "bot", keywords: ["model context protocol", "ai agent", "llm", "claude", "cursor", "tools", "api token", "bf_pat"] },
   { href: "/docs/security", label: "Security & RLS", icon: "shield", keywords: ["row level security", "policies", "auth", "permissions", "rls", "api keys"] },
   { href: "/docs/self-hosting", label: "Self-Hosting", icon: "cloud", keywords: ["docker", "compose", "deploy", "self host", "on premise"] },
 ];

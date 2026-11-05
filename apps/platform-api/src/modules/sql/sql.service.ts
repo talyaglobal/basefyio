@@ -17,7 +17,7 @@ import {
 import { EmbeddingService } from '../embedding/embedding.service';
 import { ProjectsService } from '../projects/projects.service';
 import { jwtClaimSettings } from '../projects/jwt-claim-settings';
-import { findForbiddenSqlPattern, SqlCallerRole } from './sql-guard';
+import { findForbiddenSqlPattern, findNonReadStatement, SqlCallerRole } from './sql-guard';
 
 /** Postgres "insufficient_privilege" — SET LOCAL ROLE raises this when the
  *  connecting db user was never granted membership in the target role. */
@@ -157,6 +157,12 @@ export class SqlService implements OnModuleDestroy {
        * (the SQL editor) exactly as before.
        */
       rls?: SqlRlsContext;
+      /**
+       * Read-only SQL (the MCP `sql:read` scope): one read statement, sent over
+       * the extended protocol (which carries one statement only), inside a
+       * READ ONLY transaction that is rolled back. Owner access only.
+       */
+      readOnly?: boolean;
     },
   ) {
     const project = await this.prisma.project.findFirst({
@@ -182,6 +188,16 @@ export class SqlService implements OnModuleDestroy {
     // A dashboard team member is the owner in the SQL editor and keeps DDL; a
     // key-authed caller is only as privileged as the role it runs under.
     this.validateQuery(query, opts?.rls ? opts.rls.role : 'owner');
+    const readOnly = opts?.readOnly === true;
+    if (readOnly) {
+      if (opts?.rls) throw new BadRequestException('Read-only SQL runs with owner access only.');
+      const notRead = findNonReadStatement(query);
+      if (notRead) {
+        throw new BadRequestException(
+          `Read-only SQL accepts one SELECT, WITH, VALUES, TABLE or EXPLAIN statement (found ${notRead}).`,
+        );
+      }
+    }
 
     // Bound values are never part of the statement, so `validateQuery` never
     // sees them — which is the point rather than a gap. The guard scans the SQL
@@ -240,26 +256,32 @@ export class SqlService implements OnModuleDestroy {
     try {
       // A dashboard editor runs as owner; an API-key caller runs under its DB
       // role so RLS applies. runWithRole owns the connection either way.
+      // `queryMode` is in pg 8.18 but not in @types/pg.
+      const send = (client: import('pg').PoolClient, text: string) =>
+        readOnly
+          ? client.query({ text, values, queryMode: 'extended' } as import('pg').QueryConfig)
+          : client.query(text, values);
       const { rawResult, countRaw, duration } = await this.runWithRole(
         project,
         projectId,
         opts?.rls,
         async (client) => {
           const t0 = Date.now();
-          const main = await client.query(runQuery, values);
+          const main = await send(client, runQuery);
           const dur = Date.now() - t0;
           let count: QueryResult | null = null;
           if (countSql) {
             try {
               // The count wraps the same statement, so it carries the same
               // placeholders.
-              count = (await client.query(countSql, values)) as QueryResult;
+              count = (await send(client, countSql)) as QueryResult;
             } catch {
               count = null;
             }
           }
           return { rawResult: main, countRaw: count, duration: dur };
         },
+        readOnly,
       );
 
       // node-postgres returns an array of results for a multi-statement query.
@@ -406,15 +428,27 @@ export class SqlService implements OnModuleDestroy {
     projectId: string,
     rls: SqlRlsContext | undefined,
     fn: (client: import('pg').PoolClient) => Promise<T>,
+    readOnly = false,
   ): Promise<T> {
     const pool = this.getPool(project);
 
     if (!rls) {
       const client = await pool.connect();
+      let broken = false;
       try {
-        return await fn(client);
+        if (!readOnly) return await fn(client);
+        // Postgres refuses every write in this transaction, and it is never
+        // committed. A connection whose ROLLBACK failed is destroyed, not reused.
+        await client.query('BEGIN READ ONLY');
+        try {
+          return await fn(client);
+        } finally {
+          await client.query('ROLLBACK').catch(() => {
+            broken = true;
+          });
+        }
       } finally {
-        client.release();
+        client.release(broken);
       }
     }
 

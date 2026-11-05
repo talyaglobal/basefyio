@@ -102,7 +102,16 @@ export const SCOPE_GROUPS: ScopeGroup[] = [
     label: 'SQL',
     category: 'Database',
     description: 'Direct SQL access to the project database',
-    scopes: [{ scope: 'sql:run', description: 'Run SQL against a project database' }],
+    scopes: [
+      {
+        scope: 'sql:read',
+        description: 'Run read-only SQL: one SELECT-style statement in a read-only transaction that is never committed',
+      },
+      {
+        scope: 'sql:run',
+        description: 'Run any SQL as the database owner, including writes and destructive statements such as DROP',
+      },
+    ],
   },
   {
     resource: 'embeddings',

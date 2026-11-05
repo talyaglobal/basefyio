@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import {
   Bell,
   Book,
+  Bot,
   ChevronDown,
   Code,
   Database,
@@ -776,6 +777,7 @@ const DOC_ICONS: Record<string, typeof Book> = {
   terminal: Terminal,
   shield: Shield,
   cloud: Cloud,
+  bot: Bot,
 };
 
 interface DocsLink { label: string; href: string; icon: string; url?: string }
@@ -793,6 +795,7 @@ const FALLBACK_DOCS_LINKS: DocsLink[] = [
   { label: 'API Reference', href: '/docs/api', icon: 'server' },
   { label: 'SDK', href: '/docs/sdk', icon: 'code' },
   { label: 'CLI', href: '/docs/cli', icon: 'terminal' },
+  { label: 'MCP Server', href: '/docs/mcp', icon: 'bot' },
   { label: 'Security & RLS', href: '/docs/security', icon: 'shield' },
   { label: 'Self-Hosting', href: '/docs/self-hosting', icon: 'cloud' },
 ];

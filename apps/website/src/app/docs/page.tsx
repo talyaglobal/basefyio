@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Server, Code, Terminal, Database, Shield, Cloud, Layers, ScrollText, FolderOpen, Globe, Key, Users, CreditCard, Zap, FileJson, Lock, Link2 } from "lucide-react";
+import { Bot, Server, Code, Terminal, Database, Shield, Cloud, Layers, ScrollText, FolderOpen, Globe, Key, Users, CreditCard, Zap, FileJson, Lock, Link2 } from "lucide-react";
 import { withAbsoluteSiteUrls } from "@/lib/absolute-site-metadata";
 import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-url";
 import { docsPath } from "@/lib/public-hosts";
@@ -101,6 +101,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
           { href: "/docs/api", icon: Server, title: "API Reference", desc: "REST endpoints for data, auth, storage, and the data engine" },
           { href: "/docs/sdk", icon: Code, title: "SDK Reference", desc: "JavaScript/TypeScript client with typed query builders" },
           { href: "/docs/cli", icon: Terminal, title: "CLI Reference", desc: "Project management, migrations, type generation" },
+          { href: "/docs/mcp", icon: Bot, title: "MCP Server", desc: "Give an AI agent scoped access to your projects over the Model Context Protocol" },
           { href: "/docs/security", icon: Shield, title: "Security & RLS", desc: "Row-level security, API keys, JWT authentication" },
           { href: "/docs/self-hosting", icon: Cloud, title: "Self-Hosting", desc: "Docker Compose deployment, configuration, and operations" },
         ].map(({ href, icon: Icon, title, desc }) => (

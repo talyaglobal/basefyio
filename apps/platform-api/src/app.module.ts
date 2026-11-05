@@ -26,6 +26,7 @@ import { AdmissionModule } from './modules/admission/admission.module';
 import { MessageBusModule } from './modules/message-bus/message-bus.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { SqlModule } from './modules/sql/sql.module';
+import { McpModule } from './modules/mcp/mcp.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { StorageFacadeModule } from './modules/storage-facade/storage-facade.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
@@ -120,6 +121,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     MessageBusModule,
     ProjectsModule,
     SqlModule,
+    McpModule,
     StorageModule,
     // Supabase-compatible `storage/v1` surface over StorageModule.
     StorageFacadeModule,

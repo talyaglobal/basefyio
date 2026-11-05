@@ -40,8 +40,9 @@ Tokens are scoped as `resource:action`. The catalogue a token can be created wit
 | `projects:read` / `projects:write` | list/inspect · create, rename, deactivate, restore, delete |
 | `settings:read` / `settings:write` | project settings, folders and tags |
 | `data:read` / `data:write` | read rows and documents · insert, update, delete |
-| `schema:write` | create/alter/drop tables, collections and objects |
-| `sql:run` | run SQL against a project database |
+| `schema:read` / `schema:write` | inspect tables, collections and objects · create/alter/drop them |
+| `sql:read` | read-only SQL: one SELECT-style statement in a read-only transaction that is never committed |
+| `sql:run` | any SQL as the database owner, including writes and destructive statements such as DROP |
 | `embeddings:read` / `embeddings:write` | vector search · build and update embedding indexes |
 | `storage:read` / `storage:write` | list/download · upload/delete buckets and objects |
 | `auth:read` / `auth:write` | list realm users/sessions · create/update/reset users, repair the realm |
@@ -80,6 +81,11 @@ this writing the token-enabled surface is:
 `POST /api/projects/backups/offsite/reconcile` sits behind the same guard without a scope; it is
 restricted to platform operators, so a token answers 403 there unless its owner is one.
 The routes are described in [reference/project-admin-api.md](./reference/project-admin-api.md).
+
+The **MCP server** (`POST /api/mcp`) takes tokens only, and its tools need the scopes
+`team:read`, `projects:read`, `schema:read`, `data:read`, `data:write`, `sql:read`, `sql:run`,
+`storage:read` and `auth:read`; see [reference/mcp.md](./reference/mcp.md). Unlike the routes
+above, it also enforces a token's team restriction.
 
 The scope catalogue above is wider than that surface on purpose: scope strings are
 stable and tokens store them verbatim, so a token created today keeps working as

@@ -473,6 +473,32 @@ function firstStatementOutsideAllowlist(symbols: string[]): string | null {
   return null;
 }
 
+/** What the read-only SQL path accepts: exactly one of these statements. */
+const READ_STATEMENTS = new Set(['SELECT', 'WITH', 'VALUES', 'TABLE', 'EXPLAIN']);
+
+/**
+ * Why `query` is not one read statement, or null when it is. The guard half of
+ * read-only SQL; the database half is a READ ONLY transaction that is always
+ * rolled back (SqlService), so a write hidden inside a function still fails.
+ */
+export function findNonReadStatement(query: string): string | null {
+  const symbols = streamsOf(query)[0].symbols;
+  let statements = 0;
+  let atStart = true;
+  for (const s of symbols) {
+    if (s === ';') {
+      atStart = true;
+      continue;
+    }
+    if (!atStart || s === '(') continue;
+    atStart = false;
+    if (++statements > 1) return 'more than one statement';
+    const word = bareName(s);
+    if (!READ_STATEMENTS.has(word)) return word;
+  }
+  return statements === 0 ? 'an empty query' : null;
+}
+
 function checkForbidden(stream: Stream): string | null {
   const { symbols, literal } = stream;
   const joined = symbols.join(' ');

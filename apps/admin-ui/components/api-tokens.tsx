@@ -15,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil, Search } from 'lucide-react';
+import { McpSetupBlocks, holdsMcpScope } from '@/components/mcp-setup';
+import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil, Search, Bot } from 'lucide-react';
 
 function fmtDate(ts?: string | null) {
   return ts ? new Date(ts).toLocaleDateString() : '—';
@@ -133,9 +134,18 @@ export function ApiTokens() {
             Scoped tokens for your agents and scripts to drive your account and projects over the API.
           </p>
         </div>
-        <Button onClick={() => router.push('/dashboard/account/api-tokens/new')}>
-          <Plus className="mr-1 h-4 w-4" /> Create Token
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push('/dashboard/account/api-tokens/new?preset=mcp')}
+            title="Create a read-only token and get the MCP client setup"
+          >
+            <Bot className="mr-1 h-4 w-4" /> Connect an AI agent
+          </Button>
+          <Button onClick={() => router.push('/dashboard/account/api-tokens/new')}>
+            <Plus className="mr-1 h-4 w-4" /> Create Token
+          </Button>
+        </div>
       </div>
 
       {/* Toolbar: search + status filter chips */}
@@ -294,7 +304,7 @@ function SecretModal({ token, onClose }: { token: CreatedApiToken | null; onClos
   };
   return (
     <Dialog open={!!token} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Copy your API token</DialogTitle>
           <DialogDescription className="text-red-600">
@@ -307,6 +317,8 @@ function SecretModal({ token, onClose }: { token: CreatedApiToken | null; onClos
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>
         </div>
+        {/* A rolled secret replaces the old one in every client, so the setup is offered again. */}
+        {token && holdsMcpScope(token.scopes) && <McpSetupBlocks />}
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>

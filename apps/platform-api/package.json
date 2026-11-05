@@ -38,6 +38,7 @@
     "@anthropic-ai/sdk": "^0.124.0",
     "@basefyio/data-engine": "file:../../packages/data-engine",
     "@keycloak/keycloak-admin-client": "^24.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@nestjs/axios": "^3.0.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.0.0",
@@ -82,7 +83,8 @@
     "stripe": "^17.0.0",
     "uuid": "^9.0.0",
     "xlsx": "^0.18.5",
-    "yauzl": "^3.4.0"
+    "yauzl": "^3.4.0",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
