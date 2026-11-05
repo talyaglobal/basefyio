@@ -454,6 +454,12 @@ export default function BillingPage() {
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
 
+  // Banners and signup link here with ?addCard=1: open the card form directly.
+  const addCard = searchParams.get('addCard');
+  useEffect(() => {
+    if (addCard) setShowCardDialog(true);
+  }, [addCard]);
+
   const handleRequestStudentOtp = async () => {
     if (!activeTeamId || !studentEmail.trim()) return;
     setVerifyingStudent(true);

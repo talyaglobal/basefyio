@@ -209,7 +209,7 @@ function SignupForm() {
         router.push('/dashboard/team');
       } else if (selectedPlan !== 'free') {
         toast.info(`You're on the ${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} plan. Add a payment method to keep it active.`);
-        router.push('/dashboard/billing');
+        router.push('/dashboard/billing?addCard=1');
       } else {
         router.push('/dashboard');
       }

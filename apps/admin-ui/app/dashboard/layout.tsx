@@ -514,7 +514,7 @@ export default function DashboardLayout({
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <Link
-                    href="/dashboard/billing"
+                    href="/dashboard/billing?addCard=1"
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors ${
                       billingBanner.type === 'error'
                         ? 'bg-red-600 hover:bg-red-500'
