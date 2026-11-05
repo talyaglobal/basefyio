@@ -51,7 +51,7 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
     setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <div className="space-y-1.5">
+    <div className="min-w-0 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <Button size="sm" variant="outline" onClick={copy} className="h-7 gap-1 px-2 text-xs">
@@ -89,7 +89,7 @@ export function McpSetupBlocks() {
     2,
   );
   return (
-    <div className="space-y-3 rounded-xl border bg-card p-4">
+    <div className="min-w-0 space-y-3 rounded-xl border bg-card p-4">
       <div>
         <p className="flex items-center gap-2 text-sm font-semibold">
           <Bot className="h-4 w-4 text-primary" /> Connect an AI agent (MCP)

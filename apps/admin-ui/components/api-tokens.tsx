@@ -304,7 +304,7 @@ function SecretModal({ token, onClose }: { token: CreatedApiToken | null; onClos
   };
   return (
     <Dialog open={!!token} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-lg grid-cols-[minmax(0,1fr)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Copy your API token</DialogTitle>
           <DialogDescription className="text-red-600">
