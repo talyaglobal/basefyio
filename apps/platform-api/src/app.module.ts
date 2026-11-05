@@ -29,6 +29,7 @@ import { SqlModule } from './modules/sql/sql.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { StorageFacadeModule } from './modules/storage-facade/storage-facade.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PgBouncerModule } from './modules/pgbouncer/pgbouncer.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { TsmartIntegrationModule } from './modules/integrations/tsmart/tsmart-integration.module';
@@ -123,6 +124,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     // Supabase-compatible `storage/v1` surface over StorageModule.
     StorageFacadeModule,
     FeedbackModule,
+    NotificationsModule,
     PgBouncerModule,
     IntegrationsModule,
     TsmartIntegrationModule,

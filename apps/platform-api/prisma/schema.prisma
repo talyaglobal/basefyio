@@ -86,6 +86,7 @@ model User {
   feedbacks        Feedback[]
   feedbackComments FeedbackComment[]
   feedbackEvents   FeedbackEvent[]
+  notifications    Notification[]
 
   @@map("users")
 }
@@ -673,6 +674,24 @@ model Feedback {
   @@index([userId])
   @@index([deletedAt])
   @@map("feedbacks")
+}
+
+/// Bell notifications. dedupeKey (the realtime eventId) makes a push seen by several tabs one row.
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String
+  title     String
+  message   String
+  href      String?
+  dedupeKey String?   @map("dedupe_key")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 model FeedbackEvent {

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api } from '@/lib/api';
+import { api, type ApiNotification } from '@/lib/api';
 import { useImportProgress } from '@/lib/import-progress-context';
 import { getAccessToken } from '@/lib/auth';
 import { subscribebasefyioRealtime } from '@/lib/basefyio-realtime';
@@ -58,6 +58,18 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   clearAll: () => {},
 });
 
+function fromApi(n: ApiNotification): AppNotification {
+  return {
+    id: n.id,
+    type: n.type as AppNotificationType,
+    title: n.title,
+    message: n.message,
+    href: n.href ?? undefined,
+    createdAt: new Date(n.createdAt).getTime(),
+    read: !!n.readAt,
+  };
+}
+
 function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -82,21 +94,27 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { activeImport, modalShowingImport } = useImportProgress();
   const lastImportNotifiedRef = useRef<string | null>(null);
 
-  const addNotification = useCallback((payload: NotifyPayload) => {
-    if (payload.type === 'feedback' && !feedbackNotificationsEnabled) return;
+  // Load the stored list (and so the unread badge) once the user is known.
+  useEffect(() => {
+    if (!currentUserId) return;
+    api.notifications
+      .list()
+      .then((r) => setNotifications(r.items.map(fromApi)))
+      .catch(() => {});
+  }, [currentUserId]);
 
-    const entry: AppNotification = {
-      id: uid(),
-      type: payload.type,
-      title: payload.title,
-      message: payload.message,
-      createdAt: Date.now(),
-      href: payload.href,
-      read: false,
-    };
+  // Local state first, DB in the background; a failed call is retried by the next reload's list.
+  const markAllRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    void api.notifications.markAllRead().catch(() => {});
+  }, []);
 
-    setNotifications((prev) => [entry, ...prev].slice(0, 50));
+  const markRead = useCallback((id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    void api.notifications.markRead(id).catch(() => {});
+  }, []);
 
+  const showBrowserNotification = useCallback((payload: AppNotification) => {
     if (
       browserNotificationsEnabled &&
       typeof window !== 'undefined' &&
@@ -109,24 +127,33 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           tag: `basefyio-${payload.type}-${payload.href ?? ''}`,
         });
         if (payload.href) {
-          browserNotification.onclick = () => {
-            window.focus();
-            window.location.href = payload.href!;
-          };
         }
+        // Opening the browser notification is a real read.
+        browserNotification.onclick = () => {
+          markRead(payload.id);
+          window.focus();
+          if (payload.href) window.location.href = payload.href;
+        };
       } catch {
         // Ignore browser notification errors; in-app feed still works.
       }
     }
-  }, [browserNotificationsEnabled, feedbackNotificationsEnabled]);
+  }, [browserNotificationsEnabled, markRead]);
 
-  const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
+  const addNotificationStored = useCallback((payload: NotifyPayload, dedupeKey?: string) => {
+    if (payload.type === 'feedback' && !feedbackNotificationsEnabled) return;
 
-  const markRead = useCallback((id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  }, []);
+    // Persist first: the server row id is what read-state is tracked by. If the call fails the
+    // entry stays local-only (still shown, not stored).
+    api.notifications
+      .create({ ...payload, dedupeKey })
+      .then(fromApi)
+      .catch((): AppNotification => ({ id: uid(), ...payload, createdAt: Date.now(), read: false }))
+      .then((entry) => {
+        setNotifications((prev) => (prev.some((n) => n.id === entry.id) ? prev : [entry, ...prev].slice(0, 50)));
+        showBrowserNotification(entry);
+      });
+  }, [feedbackNotificationsEnabled, showBrowserNotification]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
@@ -184,11 +211,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (!detail?.title || !detail?.message || !detail?.type) return;
       // "Incoming only": AI/import notifications are always initiated from the same user session.
       if (detail.type === 'ai' || detail.type === 'import') return;
-      addNotification(detail);
+      addNotificationStored(detail);
     };
     window.addEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
     return () => window.removeEventListener(BASEFYIO_NOTIFY_EVENT, onAppNotify as EventListener);
-  }, [addNotification]);
+  }, [addNotificationStored]);
 
   useEffect(() => {
     // Keep refs/reads to avoid unused values and maintain compatibility.
@@ -213,6 +240,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       (event: RealtimeEventEnvelope) => {
         // Self-edits never produce a toast; the actor already knows what they did.
         if (event.actorUserId && event.actorUserId === currentUserId) return;
+
+        // eventId as dedupe key: the same push in two tabs stores one row.
+        const addNotification = (p: NotifyPayload) => addNotificationStored(p, event.eventId);
 
         const actor =
           (event.payload && typeof event.payload.actorName === 'string'
@@ -339,7 +369,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribe?.();
     };
-  }, [addNotification, currentUserId, feedbackNotificationsEnabled]);
+  }, [addNotificationStored, currentUserId, feedbackNotificationsEnabled]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
@@ -354,7 +384,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         requestPermission,
         setBrowserNotificationsEnabled: saveBrowserPreference,
         setFeedbackNotificationsEnabled: saveFeedbackPreference,
-        addNotification,
+        addNotification: addNotificationStored,
         markAllRead,
         markRead,
         clearAll,

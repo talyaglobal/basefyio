@@ -270,6 +270,16 @@ async function request<T>(
   return parseOkJsonBody<T>(res);
 }
 
+export type ApiNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  href: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
 export const api = {
   auth: {
     signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
@@ -2116,6 +2126,21 @@ export const api = {
       return request<{ message: string }>(`/v1/projects/${projectId}/data-query/saved/${id}`, {
         method: 'DELETE',
       });
+    },
+  },
+
+  notifications: {
+    list() {
+      return request<{ items: ApiNotification[]; unreadCount: number }>('/notifications?limit=50');
+    },
+    create(body: { type: string; title: string; message: string; href?: string; dedupeKey?: string }) {
+      return request<ApiNotification>('/notifications', { method: 'POST', body: JSON.stringify(body) });
+    },
+    markRead(id: string) {
+      return request<{ success: boolean }>(`/notifications/${id}/read`, { method: 'PATCH' });
+    },
+    markAllRead() {
+      return request<{ updated: number }>('/notifications/read-all', { method: 'POST' });
     },
   },
 
