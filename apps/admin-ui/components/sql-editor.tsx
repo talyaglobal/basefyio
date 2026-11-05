@@ -49,7 +49,7 @@ function renderResultTable(
             <tr key={i} className="border-b last:border-0">
               {fields.map((field) => (
                 <td key={field.name} className="px-4 py-2 font-mono">
-                  {row[field.name] === null ? 'NULL' : String(row[field.name])}
+                  {row[field.name] === null ? 'NULL' : typeof row[field.name] === 'object' ? JSON.stringify(row[field.name]) : String(row[field.name])}
                 </td>
               ))}
             </tr>
@@ -120,7 +120,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
   const running = runningTabId === activeTabId;
 
   function escapeMarkdownCell(value: unknown): string {
-    const text = value === null || value === undefined ? 'NULL' : String(value);
+    const text = value === null || value === undefined ? 'NULL' : typeof value === 'object' ? JSON.stringify(value) : String(value);
     return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
   }
 

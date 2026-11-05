@@ -1135,7 +1135,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
     if (pkColumns.includes(field)) return;
     const val = data?.rows[rowIdx]?.[field];
     setEditingCell({ rowIdx, field });
-    setEditValue(val === null ? '' : String(val));
+    setEditValue(val === null ? '' : typeof val === "object" ? JSON.stringify(val) : String(val));
   }
 
   async function commitEdit() {
@@ -1152,7 +1152,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
     const oldVal = row[editingCell.field];
     const newVal = editValue === '' ? null : editValue;
-    if (String(oldVal ?? '') === String(newVal ?? '')) {
+    const cmp = (v: unknown) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v ?? ""));
+    if (cmp(oldVal) === cmp(newVal)) {
       setEditingCell(null);
       return;
     }
@@ -1847,7 +1848,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                               {String(row[f.name])}
                                             </Badge>
                                           ) : (
-                                            String(row[f.name])
+                                            typeof row[f.name] === "object" ? JSON.stringify(row[f.name]) : String(row[f.name])
                                           )}
                                         </td>
                                       );

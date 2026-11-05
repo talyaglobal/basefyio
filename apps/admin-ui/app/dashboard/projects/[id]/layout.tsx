@@ -266,7 +266,7 @@ export default function ProjectLayout({
       // No own-actor skip: only the acting tab already reflects the change —
       // the same user's other tabs still need the refetch, and refreshProject
       // is an idempotent GET so the acting tab reloading too is harmless.
-      if (event.action === 'deleted') {
+      if (event.action === 'deleted' && event.entityId === id) {
         toast.error('This project has been deleted');
         router.push('/dashboard/projects');
         return;
