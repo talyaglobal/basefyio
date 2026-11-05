@@ -275,6 +275,17 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
             message: `${actor} updated "${title}".`,
             href: `/dashboard/feedbacks#feedback-${event.entityId}`,
           });
+        } else if (event.entityType === 'feedback' && event.action === 'reporter_notified') {
+          const title =
+            typeof event.payload?.title === 'string' ? event.payload.title : 'your feedback';
+          const summary =
+            typeof event.payload?.summary === 'string' ? event.payload.summary : 'It was updated.';
+          addNotification({
+            type: 'feedback',
+            title: 'Update on your feedback',
+            message: `"${title}": ${summary}`,
+            href: `/dashboard/feedbacks#feedback-${event.entityId}`,
+          });
         } else if (event.entityType === 'feedback' && event.action === 'deleted') {
           const title =
             typeof event.payload?.title === 'string' ? event.payload.title : 'a feedback';

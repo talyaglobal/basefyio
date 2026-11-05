@@ -74,3 +74,31 @@ export function feedbackTemplate(data: FeedbackData): string {
 
   return baseLayout(content);
 }
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Tells the reporter what changed on their feedback item (comment text is shown as written). */
+export function feedbackUpdateTemplate(data: {
+  title: string;
+  lines: string[];
+  comment?: string;
+  link: string;
+}): string {
+  const content = `
+      <div class="body">
+        <h1 class="greeting">Update on your feedback</h1>
+        <div class="info-card">
+          <div class="info-card-title">${escapeHtml(data.title)}</div>
+          ${data.lines.map((l) => `<p class="info-card-value">${escapeHtml(l)}</p>`).join('')}
+        </div>
+        ${data.comment ? `
+        <div class="info-card">
+          <div class="info-card-title">Comment</div>
+          <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0; white-space: pre-wrap;">${escapeHtml(data.comment)}</p>
+        </div>` : ''}
+        <p class="text" style="text-align: center;"><a href="${escapeHtmlAttr(data.link)}">Open your feedback</a></p>
+      </div>`;
+  return baseLayout(content);
+}

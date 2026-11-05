@@ -10,6 +10,7 @@ import { EmailService } from '../email/email.service';
 import { StorageService } from '../storage/storage.service';
 import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
 import { RealtimeEventsService } from '../../common/realtime/realtime-events.service';
+import { FeedbackNotifierService } from './feedback-notifier.service';
 
 export interface FeedbackAttachmentRef {
   url: string;
@@ -49,14 +50,17 @@ export class FeedbackService {
     private readonly emailService: EmailService,
     private readonly storageService: StorageService,
     private readonly realtime: RealtimeEventsService,
+    private readonly notifier: FeedbackNotifierService,
   ) {}
 
-  private async recipientUserIdsForFeedback(feedbackOwnerId: string) {
+  // `quiet`: the reporter gets one coalesced notice from FeedbackNotifierService for other
+  // people's actions, so they are left out here unless they are the actor (their other tabs).
+  private async recipientUserIdsForFeedback(feedbackOwnerId: string, actorUserId: string, quiet = false) {
     const roots = await this.prisma.user.findMany({
       where: { role: UserRole.ROOT, id: { not: feedbackOwnerId } },
       select: { id: true },
     });
-    return [feedbackOwnerId, ...roots.map((r) => r.id)];
+    return [...(quiet && actorUserId !== feedbackOwnerId ? [] : [feedbackOwnerId]), ...roots.map((r) => r.id)];
   }
 
   /**
@@ -263,7 +267,10 @@ export class FeedbackService {
 
     const updated = await this.prisma.feedback.update({
       where: { id },
-      data: { status },
+      data: {
+        status,
+        doneAt: status === FeedbackStatus.DONE ? (feedback.doneAt ?? new Date()) : null,
+      },
     });
     await this.appendEvent({
       feedbackId: id,
@@ -272,7 +279,7 @@ export class FeedbackService {
       detail: `${feedback.status} -> ${status}`,
       metadata: { from: feedback.status, to: status } as unknown as Prisma.InputJsonValue,
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId, true);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
@@ -286,6 +293,10 @@ export class FeedbackService {
         to: status,
         actorName,
       },
+    });
+    this.notifier.notify(updated, userId, {
+      actorName: actorName ?? 'Someone',
+      status: { from: feedback.status, to: status },
     });
     return updated;
   }
@@ -309,7 +320,7 @@ export class FeedbackService {
         descriptionChanged: dto.description !== undefined && dto.description !== (feedback.description || ''),
       } as unknown as Prisma.InputJsonValue,
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId, true);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
@@ -325,6 +336,12 @@ export class FeedbackService {
           dto.description !== undefined && dto.description !== (feedback.description || ''),
       },
     });
+    if (
+      (dto.title !== undefined && dto.title !== feedback.title) ||
+      (dto.description !== undefined && dto.description !== (feedback.description || ''))
+    ) {
+      this.notifier.notify(updated, userId, { actorName: actorName ?? 'Someone', edited: true });
+    }
     return updated;
   }
 
@@ -343,7 +360,7 @@ export class FeedbackService {
       action: 'FEEDBACK_DELETED',
       detail: 'Feedback deleted',
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback',
@@ -412,7 +429,7 @@ export class FeedbackService {
         ? ({ parentCommentId: dto.parentCommentId } as unknown as Prisma.InputJsonValue)
         : undefined,
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId, true);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback_comment',
@@ -428,6 +445,7 @@ export class FeedbackService {
         commentPreview: dto.comment.slice(0, 200),
       },
     });
+    this.notifier.notify(feedback, userId, { actorName: actorName ?? 'Someone', comments: [dto.comment] });
     return created;
   }
 
@@ -459,7 +477,7 @@ export class FeedbackService {
       action: 'COMMENT_EDITED',
       detail: dto.comment.slice(0, 120),
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback_comment',
@@ -500,7 +518,7 @@ export class FeedbackService {
       action: 'COMMENT_DELETED',
       detail: existing.comment.slice(0, 120),
     });
-    const recipients = await this.recipientUserIdsForFeedback(feedback.userId);
+    const recipients = await this.recipientUserIdsForFeedback(feedback.userId, userId);
     const actorName = await this.resolveActorName(userId);
     await this.realtime.publish({
       entityType: 'feedback_comment',

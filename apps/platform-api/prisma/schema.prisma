@@ -663,6 +663,8 @@ model Feedback {
   status      FeedbackStatus    @default(OPEN)
   appVersion  String?           @map("app_version")
   deletedAt   DateTime?         @map("deleted_at")
+  /// Set when status becomes DONE, cleared when it leaves DONE; drives the 3-day auto-close.
+  doneAt      DateTime?         @map("done_at")
   createdAt   DateTime          @default(now()) @map("created_at")
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   comments    FeedbackComment[]

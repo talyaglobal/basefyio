@@ -7,7 +7,7 @@ import { MetricsService } from '../health/metrics.service';
 import { welcomeTemplate } from './templates/welcome.template';
 import { signInTemplate } from './templates/signin.template';
 import { inviteTemplate } from './templates/invite.template';
-import { feedbackTemplate } from './templates/feedback.template';
+import { feedbackTemplate, feedbackUpdateTemplate } from './templates/feedback.template';
 import { passwordResetTemplate } from './templates/password-reset.template';
 import { forgotPasswordTemplate } from './templates/forgot-password.template';
 import { projectVerifyEmailTemplate } from './templates/project-verify-email.template';
@@ -258,6 +258,19 @@ export class EmailService implements OnModuleInit {
       subject: `[Feedback] ${data.title} — by ${data.displayName}`,
       html,
     });
+  }
+
+  async sendFeedbackUpdate(
+    to: string,
+    data: { feedbackId: string; title: string; lines: string[]; comment?: string },
+  ) {
+    const html = feedbackUpdateTemplate({
+      title: data.title,
+      lines: data.lines,
+      comment: data.comment,
+      link: `${this.appUrl}/dashboard/feedbacks#feedback-${data.feedbackId}`,
+    });
+    return this.send({ to, subject: `Update on your feedback: ${data.title}`, html });
   }
 
   async sendPasswordResetLink(

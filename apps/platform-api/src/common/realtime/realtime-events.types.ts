@@ -15,6 +15,7 @@ export type RealtimeAction =
   | 'updated'
   | 'deleted'
   | 'status_changed'
+  | 'reporter_notified'
   | 'comment_added'
   | 'comment_updated'
   | 'comment_deleted'
