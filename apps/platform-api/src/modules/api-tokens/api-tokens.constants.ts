@@ -170,7 +170,7 @@ export const SCOPE_GROUPS: ScopeGroup[] = [
   },
   {
     resource: 'blueprints',
-    label: 'App Builder',
+    label: 'Sheet to App',
     category: 'Realtime & Automation',
     description: 'Blueprints that turn spreadsheets into backends',
     scopes: [

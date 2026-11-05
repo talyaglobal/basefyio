@@ -84,7 +84,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   },
   {
     href: '/dashboard/blueprints',
-    label: 'App Builder',
+    label: 'Sheet to App',
     icon: Sparkles,
     isActive: (p) => p.startsWith('/dashboard/blueprints'),
   },
