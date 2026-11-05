@@ -107,7 +107,7 @@ function fakePrisma() {
 }
 
 const T0 = 1_700_000_000_000; // a fixed instant; codes are derived from it
-const TOKENS = { accessToken: 'at', refreshToken: 'rt', expiresIn: 1800, tokenType: 'Bearer' };
+const TOKENS = { accessToken: 'at', refreshToken: 'refresh-token-plaintext', expiresIn: 1800, tokenType: 'Bearer' };
 
 function build(config: Record<string, unknown> = {}) {
   const redis = new FakeRedis();
@@ -218,7 +218,7 @@ describe('ProjectMfaService — sign-in challenges', () => {
     expect(ch.challengeId).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const key = `mfa_challenge:p1:${ch.challengeId}`;
     expect(ctx.redis.store.get(key)!.startsWith('enc:v1:')).toBe(true);
-    expect(ctx.redis.store.get(key)).not.toContain('rt');
+    expect(ctx.redis.store.get(key)).not.toContain('refresh-token-plaintext');
     expect(ctx.redis.ttl.get(key)).toBe(120);
   });
 
