@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import type { ProjectListItem, TeamMember } from '@/lib/types';
 import { useActiveTeam, useDashboard } from './layout';
 import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import {
@@ -28,6 +29,7 @@ import {
   Database,
   FolderOpen,
   Plus,
+  FileSpreadsheet,
   Search,
   TrendingUp,
   Users,
@@ -320,10 +322,18 @@ export default function DashboardPage() {
             Your team&apos;s activity at a glance.
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)} className="bg-brand-gradient text-white border-0 hover:opacity-90">
-          <Plus className="mr-2 h-4 w-4" />
-          New Project
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
+            <Link href="/dashboard/blueprints">
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Sheet to App
+            </Link>
+          </Button>
+          <Button onClick={() => setDialogOpen(true)} className="bg-brand-gradient text-white border-0 hover:opacity-90">
+            <Plus className="mr-2 h-4 w-4" />
+            New Project
+          </Button>
+        </div>
       </div>
 
       {/* Team selector + search */}

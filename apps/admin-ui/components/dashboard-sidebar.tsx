@@ -15,7 +15,6 @@ import {
   KeyRound,
   LayoutDashboard,
   MessageSquareText,
-  Sparkles,
   UserCircle,
   Users,
 } from 'lucide-react';
@@ -81,12 +80,6 @@ const ALL_NAV_ITEMS: NavItem[] = [
     label: 'API Tokens',
     icon: KeyRound,
     isActive: (p) => p.startsWith('/dashboard/account/api-tokens'),
-  },
-  {
-    href: '/dashboard/blueprints',
-    label: 'Sheet to App',
-    icon: Sparkles,
-    isActive: (p) => p.startsWith('/dashboard/blueprints'),
   },
   {
     href: '/dashboard/feedbacks',

@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Sparkles,
+  FileSpreadsheet,
   Upload,
   Loader2,
   Trash2,
@@ -141,7 +141,7 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Sparkles className="h-5 w-5 text-primary" /> Sheet to App
+            <FileSpreadsheet className="h-5 w-5 text-[#217346]" /> Sheet to App
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Upload an Excel/CSV file and turn it into real database tables for a project.

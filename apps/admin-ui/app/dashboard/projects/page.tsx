@@ -40,6 +40,7 @@ import type { ProjectListItem, ProjectFolder, ProjectTag } from '@/lib/types';
 import { startOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { useActiveTeam } from '../layout';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -58,6 +59,7 @@ import {
   Info,
   Pencil,
   Plus,
+  FileSpreadsheet,
   Power,
   PowerOff,
   RefreshCw,
@@ -1107,6 +1109,11 @@ export default function ProjectsPage() {
               <List className="h-4 w-4" />
             </button>
           </div>
+          <Button asChild size="sm" className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
+            <Link href="/dashboard/blueprints">
+              <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> Sheet to App
+            </Link>
+          </Button>
           <Button onClick={() => setDialogOpen(true)} size="sm" className="bg-brand-gradient text-white border-0 hover:opacity-90">
             <Plus className="mr-1 h-3.5 w-3.5" /> New Project
           </Button>
