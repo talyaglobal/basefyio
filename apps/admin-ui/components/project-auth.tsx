@@ -1475,7 +1475,7 @@ function EmailTab({
   config: ProjectAuthConfig;
   onSaved: (c: ProjectAuthConfig) => void;
 }) {
-  const [provider, setProvider] = useState(config.emailProvider || '');
+  const [provider, setProvider] = useState(config.emailProvider || (config.smtpHost ? 'smtp' : ''));
   const [smtpHost, setSmtpHost] = useState(config.smtpHost || '');
   const [smtpPort, setSmtpPort] = useState(String(config.smtpPort || 587));
   const [smtpUser, setSmtpUser] = useState(config.smtpUser || '');
@@ -1703,9 +1703,9 @@ function EmailTab({
           </div>
         )}
 
-        {provider && (
+        {(provider || config.emailProvider) && (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t">
+            {provider && <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t">
               <div className="space-y-1.5">
                 <Label>Sender Email</Label>
                 <Input placeholder="noreply@yourapp.com" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} />
@@ -1714,11 +1714,15 @@ function EmailTab({
                 <Label>Sender Name</Label>
                 <Input placeholder="My App" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
               </div>
-            </div>
+            </div>}
 
             <Button
               disabled={saving}
               onClick={async () => {
+                if (provider === 'smtp' && (!smtpHost.trim() || !smtpUser.trim() || (!smtpPass && !config.smtpPass))) {
+                  toast.error('SMTP host, username and password are required');
+                  return;
+                }
                 setSaving(true);
                 try {
                   const payload: Record<string, any> = {

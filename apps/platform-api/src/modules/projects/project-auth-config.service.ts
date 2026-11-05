@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ProjectActivityKind,
@@ -53,6 +53,17 @@ export class ProjectAuthConfigService {
     userId?: string,
   ) {
     await this.getOrCreate(projectId);
+
+    if (data.emailProvider === 'smtp') {
+      const cur: Record<string, any> = await this.getRaw(projectId);
+      const has = (k: string) => (k in data ? data[k] : cur[k]);
+      if (!String(has('smtpHost') ?? '').trim() || !String(has('smtpUser') ?? '').trim() || !has('smtpPass')) {
+        throw new BadRequestException('Custom SMTP needs a host, username and password');
+      }
+    } else if (data.emailProvider === null || data.emailProvider === '') {
+      // Back to the platform default: drop the SMTP settings so they are not used as a fallback.
+      data = { ...data, emailProvider: null, smtpHost: null, smtpUser: null, smtpPass: null };
+    }
 
     const updated = await this.prisma.projectAuthConfig.update({
       where: { projectId },
