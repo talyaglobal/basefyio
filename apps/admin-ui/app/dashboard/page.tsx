@@ -189,24 +189,10 @@ export default function DashboardPage() {
       )
         .then((chunks) => {
           setProjects(chunks.flat());
-          // Aggregate members from all teams
-          return Promise.all(
-            teams.map((t) => api.teams.listMembers(t.id).catch(() => [] as TeamMember[])),
-          );
+          // Same scope as the Team page: the active team's members only.
+          return api.teams.listMembers(activeTeamId || teams[0].id).catch(() => [] as TeamMember[]);
         })
-        .then((memberChunks) => {
-          // Deduplicate members by userId
-          const seen = new Set<string>();
-          const unique: TeamMember[] = [];
-          for (const m of memberChunks.flat()) {
-            const key = m.email || m.id;
-            if (!seen.has(key)) {
-              seen.add(key);
-              unique.push(m);
-            }
-          }
-          setMembers(unique);
-        })
+        .then((m) => setMembers(m))
         .catch((err) => toast.error(err.message))
         .finally(() => setLoading(false));
     } else {
@@ -237,7 +223,7 @@ export default function DashboardPage() {
         })
         .finally(() => setLoading(false));
     }
-  }, [viewTeamId, teams, refreshKey]);
+  }, [viewTeamId, activeTeamId, teams, refreshKey]);
 
   // Deactivated + deleted counts for the By Status chart, scoped like the list.
   useEffect(() => {
@@ -245,7 +231,7 @@ export default function DashboardPage() {
     const scope = viewTeamId === 'all' ? '' : viewTeamId;
     api.projects.listDeactivated(scope).then((l) => setDeactivatedCount(l.length)).catch(() => setDeactivatedCount(0));
     api.projects.listDeleted(scope).then((l) => setDeletedCount(l.length)).catch(() => setDeletedCount(0));
-  }, [viewTeamId, teams, refreshKey]);
+  }, [viewTeamId, activeTeamId, teams, refreshKey]);
 
   // Load all team projects for search
   useEffect(() => {
@@ -484,7 +470,7 @@ export default function DashboardPage() {
           icon={Users}
           label="Team Members"
           value={members.length}
-          sub={`${members.filter((m) => m.role === 'OWNER').length} owner`}
+          sub={`${members.filter((m) => m.role === 'OWNER').length} owner · active team`}
           colorIndex={2}
           onClick={() => router.push('/dashboard/team')}
         />
