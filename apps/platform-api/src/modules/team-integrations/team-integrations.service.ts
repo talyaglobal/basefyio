@@ -12,6 +12,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export interface TeamGitHubStatus {
   connected: boolean;
+  /** GitHub rejected the stored token (401/403): reconnect needed. */
+  expired: boolean;
   login?: string;
   avatarUrl?: string;
   oauthConfigured: boolean;
@@ -178,8 +180,28 @@ export class TeamIntegrationsService {
 
   async getGitHubStatus(teamId: string): Promise<TeamGitHubStatus> {
     const team = await this.getTeamOrThrow(teamId);
+    // A stored token GitHub now rejects is "connected" in the database only:
+    // flag it so the UI asks for a reconnect. Network trouble is not proof.
+    let expired = false;
+    if (team.githubOAuthToken) {
+      try {
+        await firstValueFrom(
+          this.http.get('https://api.github.com/user', {
+            headers: {
+              Authorization: `Bearer ${team.githubOAuthToken}`,
+              Accept: 'application/vnd.github+json',
+            },
+            timeout: 5000,
+          }),
+        );
+      } catch (err: any) {
+        const s = err?.response?.status;
+        expired = s === 401 || s === 403;
+      }
+    }
     return {
       connected: !!team.githubOAuthToken,
+      expired,
       login: team.githubOAuthLogin ?? undefined,
       avatarUrl: team.githubOAuthAvatar ?? undefined,
       oauthConfigured: this.getGitHubOAuthConfigured(),

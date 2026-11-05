@@ -76,10 +76,21 @@ export class AiService {
       ...context,
       allProjects: teamProjects,
     };
-    if (
-      safeContext.projectId &&
-      !teamProjects.some((p) => p.id === safeContext.projectId)
-    ) {
+    // The open project counts when the caller is a member of its team, not
+    // only when it sits in their *active* team: otherwise a project opened
+    // from another team lost its context and the model asked to "open" it.
+    const projectAllowed =
+      !safeContext.projectId ||
+      teamProjects.some((p) => p.id === safeContext.projectId) ||
+      !!(await this.prisma.project.findFirst({
+        where: {
+          id: safeContext.projectId,
+          status: { not: 'DELETED' },
+          team: { members: { some: { userId } } },
+        },
+        select: { id: true },
+      }));
+    if (!projectAllowed) {
       delete safeContext.projectId;
       delete safeContext.projectName;
       delete safeContext.tables;
@@ -184,7 +195,8 @@ export class AiService {
 - Explain in one line what each SQL block will do.`,
     };
 
-    let prompt = `You are the basefyio AI assistant. basefyio is a hosted PostgreSQL Backend-as-a-Service (BaaS). Users manage PostgreSQL databases, run SQL, and organize projects.
+    let prompt = `You are the basefyio AI assistant. basefyio is a backend platform: every project gets a dedicated PostgreSQL database with an auto-generated REST API, and users manage projects, run SQL and organize teams from the dashboard.
+When asked what basefyio can do, cover the whole platform, not only PostgreSQL: PostgreSQL databases and SQL editor, document (NoSQL) collections through the data engine, Auth (users, providers, MFA), Storage (S3-compatible buckets), Realtime (change events, presence, broadcast), Flows (trigger-and-action automation), embeddings and AI search, backups and export, integrations (GitHub, Vercel), Supabase import, billing and team roles.
 
 Active mode: ${mode.toUpperCase()}
 ${modeInstructions[mode]}
@@ -206,6 +218,8 @@ General rules:
 
     if (context.tables && context.tables.length > 0) {
       prompt += `\nKnown tables: ${context.tables.join(', ')}`;
+    } else if (context.projectId) {
+      prompt += `\nThe project is already open and its table list came back empty. Say so, and give a query to inspect it (information_schema.tables). Never ask the user to open the project.`;
     }
 
     const pageMap: Record<string, string> = {
@@ -217,7 +231,7 @@ General rules:
       auth: 'Auth settings',
       storage: 'Storage',
       connect: 'Connection / import',
-      logs: 'Project import logs',
+      logs: 'Project logs',
     };
 
     if (context.page) {
@@ -226,7 +240,7 @@ General rules:
 
     if (context.allProjects && context.allProjects.length > 0) {
       prompt += `\n\nProjects in this team: ${context.allProjects.map((p) => p.name).join(', ')}`;
-      prompt += `\nWhen the user asks about a project by name, produce SQL suited to analyzing that project's data. If table names are not loaded yet, still suggest useful PostgreSQL inspection queries and note they can run them after opening the project.`;
+      prompt += `\nWhen the user asks about a project by name, produce SQL suited to analyzing that project's data.${context.projectId ? '' : ' If table names are not loaded yet, still suggest useful PostgreSQL inspection queries and note they can run them after opening the project.'}`;
     }
 
     return prompt;

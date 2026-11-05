@@ -88,6 +88,14 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
     loadStatuses();
   }, [teamId, refreshKey]);
 
+  // /dashboard/team#integrations: the section mounts after the page, so the
+  // browser's own hash scroll misses it.
+  useEffect(() => {
+    if (!loading && window.location.hash === '#integrations') {
+      document.getElementById('integrations')?.scrollIntoView({ block: 'start' });
+    }
+  }, [loading]);
+
   async function handleConnectGitHub() {
     setConnectingGitHub(true);
     try {
@@ -139,7 +147,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
   }
 
   return (
-    <div className="space-y-4">
+    <div id="integrations" className="space-y-4 scroll-mt-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Integrations</h2>
@@ -167,7 +175,9 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">GitHub</span>
-                  {githubStatus?.connected ? (
+                  {githubStatus?.connected && githubStatus.expired ? (
+                    <Badge variant="default" className="text-[10px] h-4 bg-amber-600">Expired</Badge>
+                  ) : githubStatus?.connected ? (
                     <Badge variant="default" className="text-[10px] h-4 bg-emerald-600">Connected</Badge>
                   ) : (
                     <Badge variant="secondary" className="text-[10px] h-4">Not connected</Badge>
@@ -184,7 +194,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
               </div>
             </div>
 
-            {canManage && (githubStatus?.connected ? (
+            {canManage && (githubStatus?.connected && !githubStatus.expired ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -205,7 +215,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
                 {connectingGitHub ? (
                   <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Redirecting...</>
                 ) : (
-                  <><Github className="h-3.5 w-3.5 mr-2" />Connect with GitHub</>
+                  <><Github className="h-3.5 w-3.5 mr-2" />{githubStatus?.expired ? 'Reconnect with GitHub' : 'Connect with GitHub'}</>
                 )}
               </Button>
             ))}

@@ -19,6 +19,7 @@ export interface VercelIntegration {
 
 export interface TeamGitHubStatus {
   connected: boolean;
+  expired?: boolean;
   login?: string;
   avatarUrl?: string;
   oauthConfigured: boolean;

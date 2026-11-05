@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -13,6 +13,7 @@ import {
 import { dispatchbasefyioNotification } from '@/lib/notifications-context';
 import { useActiveTeam } from '@/app/dashboard/layout';
 import { cn } from '@/lib/utils';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Bot,
   CheckCircle2,
@@ -239,6 +240,9 @@ export function AiAssistant() {
   const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[0].id);
   /** Turns already sent to the server, so a sync appends only what is new. */
   const syncedCountRef = useRef<Record<string, number>>({});
+  /** Local conversation id -> the server row created for it. */
+  const serverIdRef = useRef<Record<string, string>>({});
+  const creatingRef = useRef<Set<string>>(new Set());
 
   // Load this person's history from the server. It is keyed to them by their
   // token, not by anything the browser supplies, so another account signing in
@@ -315,12 +319,33 @@ export function AiAssistant() {
     if (!activeTeamId) return;
     const timer = setTimeout(() => {
       for (const s of sessions) {
+        // A conversation opened in the browser (first ever, or created while
+        // offline) has no server row yet; filing turns under its local id is
+        // the 404. Create the row first and remember which id it got.
+        let serverId = serverIdRef.current[s.id];
+        if (!serverId) {
+          if (syncedCountRef.current[s.id] !== undefined) serverId = s.id;
+          else {
+            if (!s.messages.length || creatingRef.current.has(s.id)) continue;
+            creatingRef.current.add(s.id);
+            api.aiChat
+              .createSession(activeTeamId)
+              .then((created) => {
+                serverIdRef.current[s.id] = created.id;
+                syncedCountRef.current[s.id] = 0;
+                setSessions((prev) => [...prev]); // re-run this effect to upload
+              })
+              .catch(() => {})
+              .finally(() => creatingRef.current.delete(s.id));
+            continue;
+          }
+        }
         const already = syncedCountRef.current[s.id] ?? 0;
         if (s.messages.length <= already) continue;
         const pending = s.messages.slice(already).map((m) => ({ role: m.role, content: m.content }));
         syncedCountRef.current[s.id] = s.messages.length;
         api.aiChat
-          .appendMessages(s.id, pending)
+          .appendMessages(serverId, pending)
           .catch(() => {
             // Let the next change retry from where this one left off.
             syncedCountRef.current[s.id] = already;
@@ -332,13 +357,6 @@ export function AiAssistant() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
-  /** Only the latest user turn may use `sticky`; otherwise multiple stickies stack at top-0 and overlap. */
-  const latestUserMessageId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return messages[i].id;
-    }
-    return null;
-  }, [messages]);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
 
@@ -370,10 +388,20 @@ export function AiAssistant() {
   }, [activeTeamId]);
 
   const closeSession = useCallback(
-    (id: string, e: React.MouseEvent) => {
+    async (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      api.aiChat.deleteSession(id).catch(() => {});
+      // Closing a tab deletes the saved conversation: ask before dropping one
+      // that has anything in it.
+      const target = sessions.find((s) => s.id === id);
+      if (target?.messages.length && !(await confirmDialog({
+        title: 'Close this chat',
+        description: 'Closing this tab deletes the conversation and its history.',
+        confirmText: 'Close chat',
+        destructive: true,
+      }))) return;
+      api.aiChat.deleteSession(serverIdRef.current[id] ?? id).catch(() => {});
       delete syncedCountRef.current[id];
+      delete serverIdRef.current[id];
       setSessions((prev) => {
         if (prev.length === 1) return [{ id: genId(), messages: [] }];
         const next = prev.filter((s) => s.id !== id);
@@ -381,7 +409,7 @@ export function AiAssistant() {
         return next;
       });
     },
-    [activeSessionId],
+    [activeSessionId, sessions],
   );
 
   // ── Mode ─────────────────────────────────────────────────────────────────
@@ -755,7 +783,6 @@ export function AiAssistant() {
               <MessageBubble
                 key={msg.id}
                 message={msg}
-                stickUserBubble={msg.role === 'user' && msg.id === latestUserMessageId}
                 canRunSQL={hasProject && msg.mode !== 'agent'}
                 runningSQL={runningSQL}
                 onRunSQL={runSQL}
@@ -923,15 +950,12 @@ const MODE_BADGE: Record<AiMode, string> = {
 
 function MessageBubble({
   message,
-  stickUserBubble,
   canRunSQL,
   runningSQL,
   onRunSQL,
   onResend,
 }: {
   message: Message;
-  /** Only true for the most recent user message — avoids stacked stickies overlapping. */
-  stickUserBubble?: boolean;
   canRunSQL: boolean;
   runningSQL: string | null;
   onRunSQL: (sql: string) => void;
@@ -944,15 +968,10 @@ function MessageBubble({
   const [draft, setDraft] = useState(message.content);
   const isLikelyLong = message.content.length > 120 || message.content.includes('\n');
 
-  // ── User message: optional sticky for latest prompt only (scroll long replies) ──
+  // Not sticky: a pinned prompt sat on top of the reply text while scrolling.
   if (isUser) {
     return (
-      <div
-        className={cn(
-          'w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm',
-          stickUserBubble && 'sticky top-0 z-10',
-        )}
-      >
+      <div className="w-full rounded-xl border border-border/60 bg-card px-3.5 py-2.5 shadow-sm">
         {!editing ? (
           <>
             <p

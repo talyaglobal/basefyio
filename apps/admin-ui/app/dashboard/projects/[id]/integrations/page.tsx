@@ -112,7 +112,9 @@ function GitHubCard({
   const [fetchingRepos, setFetchingRepos] = useState(false);
   const [fetchingBranches, setFetchingBranches] = useState(false);
 
-  const useTeamToken = !!(teamGitHub?.connected);
+  const useTeamToken = !!(teamGitHub?.connected) && !teamGitHub?.expired;
+  const tokenExpired = !!(teamGitHub?.connected && teamGitHub.expired);
+  const [repoError, setRepoError] = useState('');
 
   useEffect(() => {
     loadStatus();
@@ -178,15 +180,15 @@ function GitHubCard({
   async function loadTeamRepos(opts?: { silent?: boolean }) {
     if (!teamGitHub?.connected) return;
     setFetchingRepos(true);
+    setRepoError('');
     try {
       const r = await api.teamIntegrations.listGitHubRepos(teamId);
       setRepos(r);
     } catch (err: any) {
-      // Auto-load (page mount) must not spam a toast — e.g. an expired team
-      // GitHub token. Surface it only on an explicit user action.
-      if (opts?.silent) {
-        console.warn('GitHub repos load failed:', err?.message);
-      } else {
+      // Auto-load (page mount) must not spam a toast; the message stays
+      // visible in the card instead. A toast only on an explicit user action.
+      setRepoError(err?.message || 'Failed to load repositories');
+      if (!opts?.silent) {
         toast.error(err.message || 'Failed to load repositories');
       }
     } finally {
@@ -389,8 +391,12 @@ function GitHubCard({
             <>
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20 px-3 py-2 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                Using team GitHub connection (<strong>{teamGitHub?.login}</strong>)
+                <span>Using team GitHub connection (<strong>{teamGitHub?.login}</strong>)</span>
               </div>
+
+              {repoError && (
+                <p className="text-xs text-red-500">{repoError}</p>
+              )}
 
               {fetchingRepos && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -476,18 +482,22 @@ function GitHubCard({
                 <Github className="h-6 w-6 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm font-medium">GitHub not connected</p>
+                <p className="text-sm font-medium">
+                  {tokenExpired ? 'GitHub connection expired' : 'GitHub not connected'}
+                </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Connect GitHub at the team level to link repositories to this project.
+                  {tokenExpired
+                    ? 'GitHub rejected the team token. Reconnect GitHub at the team level to link repositories.'
+                    : 'Connect GitHub at the team level to link repositories to this project.'}
                 </p>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push('/dashboard/team')}
+                onClick={() => router.push('/dashboard/team#integrations')}
               >
                 <Settings className="h-3.5 w-3.5 mr-1.5" />
-                Go to Team Settings
+                {tokenExpired ? 'Reconnect GitHub' : 'Go to Team Settings'}
               </Button>
             </div>
           )}
@@ -939,9 +949,9 @@ export default function IntegrationsPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-sm font-medium text-muted-foreground">Team connections:</span>
             <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${teamGitHub?.connected ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : 'border-muted-foreground/30 text-muted-foreground'}`}>
+              <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${teamGitHub?.connected && teamGitHub.expired ? 'border-amber-500 text-amber-600 dark:text-amber-400' : teamGitHub?.connected ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : 'border-muted-foreground/30 text-muted-foreground'}`}>
                 <Github className="h-3 w-3" />
-                {teamGitHub?.connected ? teamGitHub.login : 'GitHub not connected'}
+                {teamGitHub?.connected ? (teamGitHub.expired ? `${teamGitHub.login} (expired)` : teamGitHub.login) : 'GitHub not connected'}
               </div>
               <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${teamVercel?.connected ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : 'border-muted-foreground/30 text-muted-foreground'}`}>
                 <VercelLogo className="h-3 w-3" />
@@ -953,7 +963,7 @@ export default function IntegrationsPage() {
             variant="ghost"
             size="sm"
             className="h-7 text-xs shrink-0"
-            onClick={() => router.push('/dashboard/team')}
+            onClick={() => router.push('/dashboard/team#integrations')}
           >
             <Settings className="h-3 w-3 mr-1" />
             Manage
