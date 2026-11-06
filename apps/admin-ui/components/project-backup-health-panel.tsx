@@ -49,11 +49,14 @@ export function ProjectBackupHealthPanel({
   health,
   loading,
   onRefresh,
+  hasBackup,
 }: {
   projectId: string;
   health: BackupHealth | null;
   loading: boolean;
   onRefresh: () => Promise<void> | void;
+  /** A nightly archive exists to verify; without one the run would only report SKIPPED. */
+  hasBackup: boolean;
 }) {
   const [verifying, setVerifying] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -164,7 +167,7 @@ export function ProjectBackupHealthPanel({
               <span className="text-xs text-muted-foreground">never run for this project</span>
             )}
           </div>
-          <Button size="sm" onClick={() => void verifyNow()} disabled={!!running || loading}>
+          <Button size="sm" onClick={() => void verifyNow()} disabled={!!running || loading || !hasBackup} title={hasBackup ? undefined : 'No nightly backup exists yet to verify'}>
             {running ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

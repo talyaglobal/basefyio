@@ -258,7 +258,13 @@ export default function ProjectExportPage() {
 
       <ProjectPitrPanel projectId={id} />
 
-      <ProjectBackupHealthPanel projectId={id} health={health} loading={loadingHealth} onRefresh={loadHealth} />
+      <ProjectBackupHealthPanel
+        projectId={id}
+        health={health}
+        loading={loadingHealth}
+        onRefresh={loadHealth}
+        hasBackup={cloudBackups.some((b) => b.kind !== 'manual')}
+      />
 
       <section className="rounded-xl border bg-card p-6 space-y-4">
         <h2 className="text-base font-semibold">Export options</h2>
@@ -422,7 +428,7 @@ export default function ProjectExportPage() {
       </section>
 
       <Dialog
-        open={exportModalOpen}
+        open={exportModalOpen && (!!selectedExport || queuedExports.length > 0)}
         onOpenChange={(open) => {
           setExportModalOpen(open);
           setModalShowingExport(open);
@@ -526,7 +532,11 @@ export default function ProjectExportPage() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => dismiss(selectedExport.jobId)}
+                        onClick={() => {
+                          dismiss(selectedExport.jobId);
+                          setExportModalOpen(false);
+                          setModalShowingExport(false);
+                        }}
                       >
                         Dismiss
                       </Button>
