@@ -140,11 +140,14 @@ function BucketList({
   useEffect(() => { load(); }, [load]);
   useLiveProjectRefresh(projectId, ['storage.'], load);
 
+  // Bucket names are lowercase letters, digits and hyphens; the form says so instead of fixing silently.
+  const bucketName = newName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
   async function handleCreate() {
-    if (!newName.trim()) return;
+    if (!bucketName) return;
     try {
-      await api.storage.createBucket(projectId, newName.trim(), newPublic);
-      toast.success(`Bucket "${newName.trim()}" created`);
+      await api.storage.createBucket(projectId, bucketName, newPublic);
+      toast.success(`Bucket "${bucketName}" created`);
       setNewName('');
       setNewPublic(false);
       setCreating(false);
@@ -194,10 +197,15 @@ function BucketList({
             <Input
               placeholder="e.g. avatars, uploads, assets"
               value={newName}
-              onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+              onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               autoFocus
             />
+            {bucketName !== newName.trim() && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Names use lowercase letters, digits and hyphens. This bucket will be created as &quot;{bucketName}&quot;.
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm cursor-pointer">
             <input
@@ -208,7 +216,7 @@ function BucketList({
             />
             Public
           </label>
-          <Button size="sm" onClick={handleCreate} disabled={!newName.trim()}>
+          <Button size="sm" onClick={handleCreate} disabled={!bucketName}>
             Create
           </Button>
           <Button size="sm" variant="ghost" onClick={() => { setCreating(false); setNewName(''); }}>
@@ -281,6 +289,7 @@ function BucketList({
                 variant="ghost"
                 size="icon"
                 className="w-10 h-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                aria-label={`Delete bucket ${bucket.name}`}
                 onClick={(e) => handleDelete(e, bucket.name)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -315,7 +324,8 @@ function BucketDetail({
     } catch {}
   }, [projectId, bucketName]);
 
-  useEffect(() => { loadBucketInfo(); }, [loadBucketInfo]);
+  // Uploads and deletes change the counters: read them again whenever the tab changes.
+  useEffect(() => { loadBucketInfo(); }, [loadBucketInfo, tab]);
 
   return (
     <div className="w-full min-w-0 space-y-4">
@@ -423,6 +433,15 @@ function BucketSettings({
 
   async function handleTogglePublic() {
     if (!bucketInfo) return;
+    if (
+      !bucketInfo.public &&
+      !(await confirmDialog({
+        title: `Make "${bucketName}" public?`,
+        description: 'Anyone with a file URL will be able to read every file in this bucket without signing in. Files already in it become readable at once.',
+        confirmText: 'Make public',
+        destructive: true,
+      }))
+    ) return;
     setToggling(true);
     try {
       await api.storage.updateBucket(projectId, bucketName, !bucketInfo.public);
@@ -493,7 +512,7 @@ function BucketSettings({
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-medium">
-                {bucketInfo.public ? 'Public access' : 'Private access'}
+                Public bucket
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {bucketInfo.public
@@ -502,6 +521,10 @@ function BucketSettings({
               </p>
             </div>
             <button
+              type="button"
+              role="switch"
+              aria-checked={bucketInfo.public}
+              aria-label="Public bucket"
               onClick={handleTogglePublic}
               disabled={toggling}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${

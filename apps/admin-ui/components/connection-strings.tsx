@@ -343,6 +343,28 @@ datasource db {
   provider = "postgresql"
   url      = "${conn.poolerUri}"
 }`;
+  const drizzleExample = `// db.ts — postgres-js; the pooler runs in transaction mode, so no prepared statements
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+const client = postgres(process.env.DATABASE_URL!, { prepare: false });
+export const db = drizzle(client);`;
+
+  const typeormExample = `// data-source.ts
+import { DataSource } from 'typeorm';
+
+export const AppDataSource = new DataSource({
+  type: 'postgres',
+  url: process.env.DATABASE_URL,
+  entities: [],
+});`;
+
+  const sqlalchemyExample = `# db.py — psycopg2; DATABASE_URL uses the postgresql:// scheme
+import os
+from sqlalchemy import create_engine
+
+engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
+
   const publicHostname = getHostnameFromUrl(conn.publicBaseUrl);
   const replacementHost =
     conn.host === 'localhost' || conn.host === '127.0.0.1'
@@ -532,7 +554,7 @@ datasource db {
           <div>
             <h2 className="text-lg font-semibold">Raw Editor</h2>
             <p className="text-sm text-muted-foreground">
-              Add, edit, or copy your project variables in ENV or JSON format. In ENV mode each
+              Copy your project variables in ENV or JSON format. In ENV mode each
               line is <code className="rounded bg-muted px-1 py-0.5 text-xs">KEY=value</code> with
               no quotes around values so you can paste straight into{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>.
@@ -795,6 +817,9 @@ datasource db {
           </DialogContent>
         </Dialog>
         <CodeExample label="Prisma" language="prisma" code={prismaExample} />
+        <CodeExample label="Drizzle" language="typescript" code={drizzleExample} />
+        <CodeExample label="TypeORM" language="typescript" code={typeormExample} />
+        <CodeExample label="SQLAlchemy" language="python" code={sqlalchemyExample} />
       </section>
 
       {/* Read-only access */}
@@ -1014,18 +1039,28 @@ datasource db {
         </div>
       </section>
 
-      {/* Internal Direct Connection (for reference) */}
+      {/* Direct connection: only shown when it really is a different endpoint from the pooler */}
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-muted-foreground">
           <Database className="h-5 w-5" />
-          Internal Connection (no pooler)
+          {conn.uri !== conn.poolerUri ? 'Direct connection (no pooler)' : 'Session features'}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          Direct connection without pooler. Only use if you are inside the same
-          network.
-        </p>
-        <CopyBlock label="Direct URI" value={conn.uri} icon={Link2} />
-
+        {conn.uri !== conn.poolerUri ? (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Straight to Postgres, without the pooler. Use it for tools that need a session:
+              migrations, LISTEN/NOTIFY, session-level prepared statements.
+            </p>
+            <CopyBlock label="Direct URI" value={conn.uri} icon={Link2} />
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Every connection to this database goes through the pooler, which runs in transaction mode.
+            A direct, unpooled endpoint is not published, so features that need one session across
+            statements (LISTEN/NOTIFY, session-level prepared statements, advisory locks) are not
+            available. Use Realtime for change notifications and the SQL editor for schema changes.
+          </p>
+        )}
       </section>
       </>
       )}
