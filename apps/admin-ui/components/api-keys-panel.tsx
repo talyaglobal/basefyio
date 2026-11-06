@@ -242,7 +242,7 @@ export function ApiKeysPanel({ projectId, onKeysChanged }: { projectId: string; 
 
       {/* new secret key: name */}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md">
           <DialogTitle>New secret key</DialogTitle>
           <p className="text-sm text-muted-foreground">Name it after where it will be used, e.g. “production server”.</p>
           <Input
@@ -276,7 +276,7 @@ function ShownOnceDialog({ value, onClose }: { value: { title: string; key: stri
   useEffect(() => setCopied(false), [value]);
   return (
     <Dialog open={!!value} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-lg">
         <DialogTitle>{value?.title}</DialogTitle>
         <p className="text-sm text-muted-foreground">
           Copy it now and store it on your server. It will not be shown again.

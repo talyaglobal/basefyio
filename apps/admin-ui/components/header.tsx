@@ -880,6 +880,14 @@ function UserMenu({
   onLogout: () => void;
 }) {
   const router = useRouter();
+  // The profile arrives after the shell; hold the name's place so it does not jump from the email to the full name.
+  // Give up waiting after 2.5 s (profile request failed) and show the login label.
+  const [profileWaitOver, setProfileWaitOver] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setProfileWaitOver(true), 2500);
+    return () => clearTimeout(t);
+  }, []);
+  const profilePending = !profile && !profileWaitOver;
 
   const loginLabel =
     user.email?.trim() ||
@@ -911,9 +919,13 @@ function UserMenu({
             </div>
           )}
         </div>
-        <span className="hidden max-w-[140px] truncate font-medium sm:inline">
-          {displayName}
-        </span>
+        {profilePending ? (
+          <span className="hidden h-4 w-24 animate-pulse rounded bg-muted sm:inline-block" aria-hidden />
+        ) : (
+          <span className="hidden max-w-[140px] truncate font-medium sm:inline">
+            {displayName}
+          </span>
+        )}
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
 

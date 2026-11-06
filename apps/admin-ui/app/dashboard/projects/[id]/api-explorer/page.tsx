@@ -32,6 +32,15 @@ function buildExampleBody(columns: ColumnInfo[]): string {
   return `{\n${pairs.join(',\n')}\n}`;
 }
 
+// Filter values must parse as the column type: ${rowFilter} on a uuid key is a 400.
+function exampleFilterValue(type: string): string {
+  const t = type.toLowerCase();
+  if (t.includes('uuid')) return '00000000-0000-0000-0000-000000000000';
+  if (t.includes('serial') || t.includes('int') || t.includes('numeric')) return '1';
+  if (t === 'boolean') return 'true';
+  return 'value';
+}
+
 function copyText(text: string, label: string) {
   navigator.clipboard.writeText(text);
   toast.success(`${label} copied`);
@@ -64,6 +73,8 @@ function EndpointCard({
   queryHint,
   body,
   curlCommand,
+  fetchCommand,
+  response,
 }: {
   method: string;
   url: string;
@@ -72,6 +83,8 @@ function EndpointCard({
   queryHint?: string;
   body?: string;
   curlCommand: string;
+  fetchCommand?: string;
+  response?: string;
 }) {
   const [open, setOpen] = useState(method === 'GET');
 
@@ -131,8 +144,20 @@ function EndpointCard({
             </div>
           )}
 
+          {response && (
+            <p className="text-xs text-muted-foreground">
+              <strong>Response:</strong> <code className="bg-muted px-1 rounded">{response}</code>
+            </p>
+          )}
+
           {/* Copy curl */}
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {fetchCommand && (
+              <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => copyText(fetchCommand, 'fetch snippet')}>
+                <Copy className="h-3 w-3" />
+                Copy as fetch (JS)
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -220,9 +245,11 @@ export default function ApiExplorerPage() {
       api.projects.connect(projectId),
     ])
       .then(([t, c]) => {
-        setTables(t.filter((tb) => tb.schema === 'public'));
+        // Select from the same list the dropdown shows, or the URLs name a table the dropdown cannot.
+        const pub = t.filter((tb) => tb.schema === 'public');
+        setTables(pub);
         setConn(c);
-        if (t.length > 0) setSelected(t[0].name);
+        if (pub.length > 0) setSelected(pub[0].name);
       })
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
@@ -230,6 +257,7 @@ export default function ApiExplorerPage() {
 
   useEffect(() => {
     if (!selected) return;
+    setColumns([]);
     api.projects.columns(projectId, selected).then(setColumns).catch(() => {});
   }, [projectId, selected]);
 
@@ -248,6 +276,21 @@ export default function ApiExplorerPage() {
   const restUrl = conn.restUrl;
   const tableUrl = `${restUrl}/${selected}`;
   const body = buildExampleBody(columns);
+  const pk = columns.find((c) => c.isPrimary) ?? columns[0];
+  const rowFilter = `?${pk?.name ?? 'id'}=eq.${pk ? exampleFilterValue(pk.type) : '1'}`;
+  const textCol = (columns.find((c) => /char|text/i.test(c.type)) ?? columns[0])?.name;
+  const dateCol = (columns.find((c) => /date|time/i.test(c.type)) ?? columns[0])?.name;
+  const getHint = columns.length
+    ? `?select=${columns.slice(0, 3).map((c) => c.name).join(',')}
+?${textCol}=eq.value
+?order=${dateCol}.desc&limit=20`
+    : undefined;
+  const fetchSnippet = (method: string, path: string, withBody: boolean) =>
+    `await fetch('${tableUrl}${path}', {
+  method: '${method}',
+  headers: { apikey: '${method === 'GET' ? conn.anonKey : '<your-secret-key>'}'${withBody ? ", 'Content-Type': 'application/json'" : ''} },${withBody ? `
+  body: JSON.stringify(${body.replace(/\n\s*/g, ' ')}),` : ''}
+}).then((r) => r.json());`;
 
   return (
     <div className="space-y-6">
@@ -304,7 +347,9 @@ export default function ApiExplorerPage() {
             headers={[
               { key: 'apikey', value: conn.anonKey, secret: true },
             ]}
-            queryHint={`?select=id,name,email\n?status=eq.active\n?order=created_at.desc&limit=20`}
+            queryHint={getHint}
+            response="{ data: [...], count: n }"
+            fetchCommand={fetchSnippet('GET', '?select=*&limit=10', false)}
             curlCommand={`curl '${tableUrl}?select=*&limit=10' \\\n  -H "apikey: ${conn.anonKey}"`}
           />
 
@@ -319,13 +364,15 @@ export default function ApiExplorerPage() {
               { key: 'Prefer', value: 'return=representation' },
             ]}
             body={body}
+            response="[ ...inserted rows ] (rows come back with Prefer: return=representation)"
+            fetchCommand={fetchSnippet('POST', '', true)}
             curlCommand={`curl -X POST '${tableUrl}' \\\n  -H "apikey: <your-secret-key>" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
           />
 
           {/* PATCH */}
           <EndpointCard
             method="PATCH"
-            url={`${tableUrl}?id=eq.1`}
+            url={`${tableUrl}${rowFilter}`}
             description="Update rows"
             headers={[
               { key: 'apikey', value: '<your-secret-key>', secret: false },
@@ -333,23 +380,32 @@ export default function ApiExplorerPage() {
               { key: 'Prefer', value: 'return=representation' },
             ]}
             body={body}
+            response="[ ...updated rows ]"
+            fetchCommand={fetchSnippet('PATCH', rowFilter, true)}
             queryHint="Requires at least one filter to prevent full-table updates."
-            curlCommand={`curl -X PATCH '${tableUrl}?id=eq.1' \\\n  -H "apikey: <your-secret-key>" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
+            curlCommand={`curl -X PATCH '${tableUrl}${rowFilter}' \\\n  -H "apikey: <your-secret-key>" \\\n  -H "Content-Type: application/json" \\\n  -H "Prefer: return=representation" \\\n  -d '${body.replace(/\n/g, '')}'`}
           />
 
           {/* DELETE */}
           <EndpointCard
             method="DELETE"
-            url={`${tableUrl}?id=eq.1`}
+            url={`${tableUrl}${rowFilter}`}
             description="Delete rows"
             headers={[
               { key: 'apikey', value: '<your-secret-key>', secret: false },
             ]}
+            response="[ ...deleted rows ]"
+            fetchCommand={fetchSnippet('DELETE', rowFilter, false)}
             queryHint="Requires at least one filter to prevent full-table deletes."
-            curlCommand={`curl -X DELETE '${tableUrl}?id=eq.1' \\\n  -H "apikey: <your-secret-key>"`}
+            curlCommand={`curl -X DELETE '${tableUrl}${rowFilter}' \\\n  -H "apikey: <your-secret-key>"`}
           />
         </div>
       )}
+
+      <p className="text-xs text-muted-foreground">
+        Document collections are not tables: they live under <code className="bg-muted px-1 rounded">{restUrl}/collections/&lt;name&gt;</code>{' '}
+        (see the collections API reference).
+      </p>
 
       {/* Filter reference */}
       <FilterReference columns={columns} />

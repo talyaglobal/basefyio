@@ -752,7 +752,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)`;
         )}
 
         <Dialog open={showPasswordModal} onOpenChange={setShowPasswordModal}>
-          <DialogContent className="max-w-md">
+          <DialogContent aria-describedby={undefined} className="max-w-md">
             <DialogTitle>Reset Database Password</DialogTitle>
             <p className="text-sm text-muted-foreground">
               Enter your own strong password or generate a secure one.

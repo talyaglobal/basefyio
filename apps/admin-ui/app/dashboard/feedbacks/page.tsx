@@ -923,7 +923,7 @@ export default function FeedbacksPage() {
       )}
 
       <Dialog open={!!preview} onOpenChange={(open) => !open && closePreview()}>
-        <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl p-2 sm:p-3">
+        <DialogContent aria-describedby={undefined} className="max-h-[90vh] w-[95vw] max-w-5xl p-2 sm:p-3">
           <DialogTitle className="sr-only">Attachment preview</DialogTitle>
           {preview?.isVideo ? (
             <video
@@ -944,7 +944,7 @@ export default function FeedbacksPage() {
       </Dialog>
 
       <Dialog open={!!historyFeedbackId} onOpenChange={(open) => !open && setHistoryFeedbackId(null)}>
-        <DialogContent className="max-h-[85vh] w-[95vw] max-w-2xl">
+        <DialogContent aria-describedby={undefined} className="max-h-[85vh] w-[95vw] max-w-2xl">
           <DialogTitle>Feedback activity history</DialogTitle>
           {historyLoading ? (
             <div className="flex items-center justify-center py-10">

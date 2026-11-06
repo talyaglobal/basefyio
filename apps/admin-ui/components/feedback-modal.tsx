@@ -333,7 +333,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {step === 'choose' && (
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>What would you like to share?</DialogTitle>
           </DialogHeader>
@@ -362,7 +362,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
       {/* Attachment preview */}
       <Dialog open={previewIndex !== null} onOpenChange={(next) => { if (!next) setPreviewIndex(null); }}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="truncate">{previewFile?.name || 'Attachment preview'}</DialogTitle>
           </DialogHeader>

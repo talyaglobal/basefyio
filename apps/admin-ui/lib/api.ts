@@ -905,7 +905,7 @@ export const api = {
     dbIndexes(projectId: string) {
       return request<any[]>(`/projects/${projectId}/database/indexes`);
     },
-    dbCreateIndex(projectId: string, data: { table: string; columns: string[]; unique?: boolean; method?: string }) {
+    dbCreateIndex(projectId: string, data: { table: string; columns: string[]; unique?: boolean; method?: string; name?: string }) {
       return request<{ message: string }>(`/projects/${projectId}/database/indexes`, { method: 'POST', body: JSON.stringify(data) });
     },
     dbDropIndex(projectId: string, name: string) {
@@ -914,7 +914,7 @@ export const api = {
     dbTriggers(projectId: string) {
       return request<any[]>(`/projects/${projectId}/database/triggers`);
     },
-    dbCreateTrigger(projectId: string, data: { name: string; table: string; timing: string; events: string[]; functionName: string }) {
+    dbCreateTrigger(projectId: string, data: { name: string; table: string; timing: string; events: string[]; functionName: string; forEach?: 'ROW' | 'STATEMENT' }) {
       return request<{ message: string }>(`/projects/${projectId}/database/triggers`, { method: 'POST', body: JSON.stringify(data) });
     },
     dbToggleTrigger(projectId: string, data: { name: string; table: string; enabled: boolean }) {

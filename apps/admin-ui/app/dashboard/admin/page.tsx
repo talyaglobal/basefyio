@@ -2765,7 +2765,7 @@ export default function ManagementPage() {
           if (!open) setAuditActionPreview(null);
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent aria-describedby={undefined} className="max-w-lg">
           <DialogTitle>Audit Action</DialogTitle>
           <div className="space-y-3">
             {(() => {
@@ -2855,7 +2855,7 @@ export default function ManagementPage() {
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogTitle>Reset User Password</DialogTitle>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">

@@ -33,6 +33,7 @@ import {
   Power,
   Moon,
   ChevronDown,
+  Copy,
 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/create-project-dialog';
 import { ProjectAdvisorSection } from '@/components/project-advisor-section';
@@ -117,6 +118,29 @@ const DELETE_REASONS = [
   { code: 'none', label: 'None of the above' },
 ] as const;
 
+function CopyValueButton({ value, label }: { value: string; label: string }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+      title={`Copy ${label.toLowerCase()}`}
+      aria-label={`Copy ${label.toLowerCase()}`}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          toast.success(`${label} copied`);
+        } catch {
+          toast.error('Could not copy to clipboard');
+        }
+      }}
+    >
+      <Copy className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 export function ProjectDetail({ project }: ProjectDetailProps) {
   const router = useRouter();
   const { refreshProject } = useProject();
@@ -127,6 +151,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   const [githubStatus, setGithubStatus] = useState<GitHubIntegration | null>(null);
   const [vercelStatus, setVercelStatus] = useState<VercelIntegration | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoaded, setTeamsLoaded] = useState(false);
   const [moveTeamOpen, setMoveTeamOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [movingTeam, setMovingTeam] = useState(false);
@@ -190,7 +215,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
   }, [nameEditing]);
 
   useEffect(() => {
-    api.teams.list().then(setTeams).catch(() => {});
+    api.teams.list().then(setTeams).catch(() => {}).finally(() => setTeamsLoaded(true));
   }, []);
 
   async function saveProjectName() {
@@ -401,12 +426,15 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
               Preview branch of {project.previewBranch.parentName ?? 'another project'}
             </Link>
           )}
-          {otherTeams.length > 0 && (
+          {otherTeams.length > 0 ? (
             <Button variant="outline" size="sm" onClick={() => setMoveTeamOpen(true)}>
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               Move to Team
             </Button>
-          )}
+          ) : !teamsLoaded ? (
+            // Hold the button's place until the team list arrives so the header does not shift.
+            <span className="inline-block h-9 w-[8.5rem]" aria-hidden />
+          ) : null}
           {reimportSource === 'supabase' && (
             <Button
               variant="outline"
@@ -461,10 +489,16 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             <Database className="h-4 w-4" />
             Database
           </div>
-          <p className="mt-2 font-mono text-sm">{project.dbName}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {project.dbHost}:{project.dbPort}
-          </p>
+          <div className="mt-2 flex items-center gap-1">
+            <p className="min-w-0 flex-1 truncate font-mono text-sm" title={project.dbName}>{project.dbName}</p>
+            <CopyValueButton value={project.dbName} label="Database name" />
+          </div>
+          <div className="mt-1 flex items-center gap-1">
+            <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {project.dbHost}:{project.dbPort}
+            </p>
+            <CopyValueButton value={`${project.dbHost}:${project.dbPort}`} label="Host" />
+          </div>
         </div>
 
         <div className="rounded-lg border bg-card p-5">
@@ -472,7 +506,10 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             <Shield className="h-4 w-4" />
             Auth Realm
           </div>
-          <p className="mt-2 font-mono text-sm">{project.keycloakRealm}</p>
+          <div className="mt-2 flex items-center gap-1">
+            <p className="min-w-0 flex-1 truncate font-mono text-sm" title={project.keycloakRealm}>{project.keycloakRealm}</p>
+            <CopyValueButton value={project.keycloakRealm} label="Auth realm" />
+          </div>
         </div>
 
         <div className="rounded-lg border bg-card p-5">
@@ -480,9 +517,12 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             <Key className="h-4 w-4" />
             Anon Key
           </div>
-          <p className="mt-2 truncate font-mono text-sm" title={project.anonKey}>
-            {project.anonKey}
-          </p>
+          <div className="mt-2 flex items-center gap-1">
+            <p className="min-w-0 flex-1 truncate font-mono text-sm" title={project.anonKey}>
+              {project.anonKey}
+            </p>
+            <CopyValueButton value={project.anonKey} label="Anon key" />
+          </div>
         </div>
 
         {project.github?.connected && (

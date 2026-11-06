@@ -53,12 +53,15 @@ export default function DatabasePage() {
   const [ixColumns, setIxColumns] = useState('');
   const [ixUnique, setIxUnique] = useState(false);
   const [ixMethod, setIxMethod] = useState('btree');
+  const [ixName, setIxName] = useState('');
   // Create-trigger form
   const [trName, setTrName] = useState('');
   const [trTable, setTrTable] = useState('');
   const [trTiming, setTrTiming] = useState<'BEFORE' | 'AFTER'>('AFTER');
   const [trEvents, setTrEvents] = useState<string[]>(['INSERT']);
   const [trFn, setTrFn] = useState('');
+  const [trForEach, setTrForEach] = useState<'ROW' | 'STATEMENT'>('ROW');
+  const [triggerFns, setTriggerFns] = useState<string[]>([]);
   // Create-function form
   const [fnSql, setFnSql] = useState(FN_TEMPLATE);
 
@@ -89,6 +92,14 @@ export default function DatabasePage() {
   useEffect(() => {
     api.projects.tables(id).then((t) => setTables(t.map((x: any) => x.name))).catch(() => {});
   }, [id]);
+
+  // Offer the project's trigger functions in the create-trigger dialog instead of a free-text name.
+  useEffect(() => {
+    if (!dialogOpen || tab !== 'triggers') return;
+    api.projects.dbFunctions(id)
+      .then((fns) => setTriggerFns(fns.filter((f: any) => f.returns === 'trigger').map((f: any) => f.name as string)))
+      .catch(() => setTriggerFns([]));
+  }, [dialogOpen, tab, id]);
 
   async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
@@ -194,7 +205,7 @@ export default function DatabasePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left">
-                {tab === 'indexes' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Size</th><th className="px-3 py-2">Definition</th><th className="w-12" /></>}
+                {tab === 'indexes' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Size</th><th className="px-3 py-2">Definition</th><th className="sticky right-0 w-12 bg-muted" /></>}
                 {tab === 'triggers' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Table</th><th className="px-3 py-2">Enabled</th><th className="px-3 py-2">Definition</th><th className="w-12" /></>}
                 {tab === 'functions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Args</th><th className="px-3 py-2">Returns</th><th className="px-3 py-2">Lang</th><th className="w-12" /></>}
                 {tab === 'extensions' && <><th className="px-3 py-2">Name</th><th className="px-3 py-2">Version</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Enabled</th></>}
@@ -207,9 +218,9 @@ export default function DatabasePage() {
                     <>
                       <td className="px-3 py-2 font-mono text-xs">{r.name}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.table}</td>
-                      <td className="px-3 py-2 text-xs">{r.size}</td>
-                      <td className="max-w-[480px] truncate px-3 py-2 font-mono text-[11px] text-muted-foreground" title={r.definition}>{r.definition}</td>
-                      <td className="px-2 py-2">
+                      <td className="whitespace-nowrap px-3 py-2 text-xs">{r.size}</td>
+                      <td className="max-w-[320px] truncate px-3 py-2 font-mono text-[11px] text-muted-foreground" title={r.definition}>{r.definition}</td>
+                      <td className="sticky right-0 bg-card px-2 py-2">
                         {!r.isPrimary && (
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                             onClick={async () => {
@@ -270,7 +281,7 @@ export default function DatabasePage() {
                       <td className="px-3 py-2">
                         <button type="button" role="switch" aria-checked={r.enabled} disabled={busy}
                           onClick={async () => {
-                            if (r.enabled && !(await confirmDialog({ title: 'Disable extension', description: `Disable "${r.name}"? Objects depending on it may break.`, destructive: true }))) return;
+                            if (r.enabled && !(await confirmDialog({ title: 'Disable extension', description: `Disable "${r.name}"? Objects depending on it may break.`, confirmText: 'Disable', destructive: true }))) return;
                             void run(() => api.projects.dbSetExtension(id, { name: r.name, enabled: !r.enabled }), `Extension ${r.enabled ? 'disabled' : 'enabled'}`);
                           }}
                           className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${r.enabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
@@ -288,7 +299,7 @@ export default function DatabasePage() {
 
       {/* Create dialogs */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent aria-describedby={undefined} className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {tab === 'indexes' ? 'Create index' : tab === 'triggers' ? 'Create trigger' : 'Create function'}
@@ -303,6 +314,10 @@ export default function DatabasePage() {
                   <option value="">Select table…</option>
                   {tables.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Name (optional)</Label>
+                <Input value={ixName} onChange={(e) => setIxName(e.target.value)} placeholder="idx_table_column" />
               </div>
               <div className="space-y-1.5">
                 <Label>Columns (comma-separated)</Label>
@@ -339,6 +354,10 @@ export default function DatabasePage() {
                   <option value="BEFORE">BEFORE</option>
                   <option value="AFTER">AFTER</option>
                 </select>
+                <select value={trForEach} onChange={(e) => setTrForEach(e.target.value as 'ROW' | 'STATEMENT')} className="h-9 rounded-md border bg-background px-3 text-sm">
+                  <option value="ROW">FOR EACH ROW</option>
+                  <option value="STATEMENT">FOR EACH STATEMENT</option>
+                </select>
                 {['INSERT', 'UPDATE', 'DELETE'].map((ev) => (
                   <label key={ev} className="flex items-center gap-1.5 text-sm">
                     <input type="checkbox" checked={trEvents.includes(ev)}
@@ -348,8 +367,18 @@ export default function DatabasePage() {
                 ))}
               </div>
               <div className="space-y-1.5">
-                <Label>Function to execute (must exist, return trigger)</Label>
-                <Input value={trFn} onChange={(e) => setTrFn(e.target.value)} placeholder="my_trigger_fn" />
+                <Label>Function to execute (must return trigger)</Label>
+                {triggerFns.length > 0 ? (
+                  <select value={trFn} onChange={(e) => setTrFn(e.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                    <option value="">Select function…</option>
+                    {triggerFns.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                ) : (
+                  <>
+                    <Input value={trFn} onChange={(e) => setTrFn(e.target.value)} placeholder="my_trigger_fn" />
+                    <p className="text-xs text-muted-foreground">No trigger functions found yet. Create one on the Functions tab first.</p>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -368,10 +397,10 @@ export default function DatabasePage() {
               if (tab === 'indexes') {
                 const columns = ixColumns.split(',').map((c) => c.trim()).filter(Boolean);
                 if (!ixTable || !columns.length) { toast.error('Table and columns required'); return; }
-                void run(() => api.projects.dbCreateIndex(id, { table: ixTable, columns, unique: ixUnique, method: ixMethod }), 'Index created');
+                void run(() => api.projects.dbCreateIndex(id, { table: ixTable, columns, unique: ixUnique, method: ixMethod, name: ixName.trim() || undefined }), 'Index created');
               } else if (tab === 'triggers') {
                 if (!trName || !trTable || !trFn || !trEvents.length) { toast.error('All fields required'); return; }
-                void run(() => api.projects.dbCreateTrigger(id, { name: trName, table: trTable, timing: trTiming, events: trEvents as any, functionName: trFn }), 'Trigger created');
+                void run(() => api.projects.dbCreateTrigger(id, { name: trName, table: trTable, timing: trTiming, events: trEvents as any, functionName: trFn, forEach: trForEach }), 'Trigger created');
               } else {
                 void run(() => api.projects.dbCreateFunction(id, fnSql), 'Function created');
               }
