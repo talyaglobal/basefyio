@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscape } from '@/lib/keyboard';
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -573,6 +574,8 @@ function UserDetailDrawer({
   }
 
   const sessions = detail?.sessions || [];
+
+  useEscape(onClose);
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex justify-end" role="dialog" aria-modal="true">

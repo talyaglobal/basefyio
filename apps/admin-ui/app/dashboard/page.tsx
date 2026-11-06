@@ -394,6 +394,13 @@ export default function DashboardPage() {
             ref={searchInputRef}
             type="search"
             value={searchQuery}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return;
+              e.preventDefault();
+              setSearchQuery('');
+              setSearchFocused(false);
+              e.currentTarget.blur();
+            }}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => { setTimeout(() => setSearchFocused(false), 150); }}
@@ -405,6 +412,8 @@ export default function DashboardPage() {
               'placeholder:text-muted-foreground/70',
               'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30',
               'transition-shadow duration-150',
+              // our own clear button replaces the browser one
+              '[&::-webkit-search-cancel-button]:hidden',
             )}
           />
           {searchQuery && (

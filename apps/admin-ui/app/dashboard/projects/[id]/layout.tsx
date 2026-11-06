@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useDashboard } from '@/app/dashboard/layout';
+import { NotFoundView } from '@/components/not-found-view';
 import { ContextHelpPanel } from '@/components/context-help-panel';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
@@ -140,6 +141,9 @@ export default function ProjectLayout({
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
+  // missing: 404/403 (gone or no access); error: anything else, worth a retry
+  const [loadFailure, setLoadFailure] = useState<'missing' | 'error' | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const { activeTeamId, setActiveTeamId } = useDashboard();
 
   // The navbar's team selector must always reflect the OPEN project's team —
@@ -317,6 +321,7 @@ export default function ProjectLayout({
     if (!id) return;
     let cancelled = false;
     setProjectLoading(true);
+    setLoadFailure(null);
 
     (async () => {
       try {
@@ -334,17 +339,15 @@ export default function ProjectLayout({
         } catch (recErr) {
           console.error('[ProjectLayout] Recovery also failed:', recErr);
         }
-        if (!cancelled) {
-          toast.error('Failed to load project');
-          router.push('/dashboard/projects');
-        }
+        const status = (err as { status?: number }).status;
+        if (!cancelled) setLoadFailure(status === 404 || status === 403 ? 'missing' : 'error');
       } finally {
         if (!cancelled) setProjectLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [id, router, recoverProjectWithTeamSwitch, offerWake]);
+  }, [id, loadAttempt, recoverProjectWithTeamSwitch, offerWake]);
 
   if (projectLoading) {
     return (
@@ -359,8 +362,19 @@ export default function ProjectLayout({
   if (!project) {
     return (
       <ProjectProvider project={null} loading={false}>
-        <div className="flex h-64 items-center justify-center">
-          <p className="text-muted-foreground">Project not found.</p>
+        <div className="flex min-h-64 items-center justify-center">
+          <NotFoundView
+            code={null}
+            title={loadFailure === 'error' ? 'Could not load the project' : 'Project not found'}
+            description={
+              loadFailure === 'error'
+                ? 'Something went wrong while loading this project. Try again in a moment.'
+                : 'This project does not exist, or you do not have access to it.'
+            }
+            actions={[{ label: 'All projects', href: '/dashboard/projects', icon: 'projects' }]}
+            showBack={false}
+            onRetry={loadFailure === 'error' ? () => setLoadAttempt((n) => n + 1) : undefined}
+          />
         </div>
       </ProjectProvider>
     );
@@ -414,7 +428,7 @@ export default function ProjectLayout({
                     : pathname.startsWith(href);
 
                 return (
-                  <Link
+                  <Link prefetch={false}
                     key={item.label}
                     href={href}
                     className={cn(
@@ -465,7 +479,7 @@ export default function ProjectLayout({
             </div>
 
             <div className="mx-2 mt-2 space-y-0.5">
-              <Link
+              <Link prefetch={false}
                 href={`${basePath}/logs`}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
@@ -524,7 +538,7 @@ export default function ProjectLayout({
                     : pathname.startsWith(href);
 
                 return (
-                  <Link
+                  <Link prefetch={false}
                     key={item.label}
                     href={href}
                     title={navLabel(item)}
@@ -541,7 +555,7 @@ export default function ProjectLayout({
               })}
             </nav>
             <div className="mt-auto flex w-full flex-col items-center gap-2 border-t px-1.5 py-2">
-              <Link
+              <Link prefetch={false}
                 href={`${basePath}/logs`}
                 title="Project logs"
                 className={cn(

@@ -138,7 +138,27 @@ async function parseOkJsonBody<T>(res: Response): Promise<T> {
  *  must resolve into the caller's error path instead of spinning forever. */
 const REQUEST_TIMEOUT_MS = 65_000;
 
-async function request<T>(
+// Identical GETs issued while one is already in flight share that request (several components
+// ask for /auth/profile, /teams, /changelog/latest at once on load). Any write clears the map so
+// a read started after e.g. PUT /teams/active never joins a pre-switch request.
+const inflightGets = new Map<string, Promise<unknown>>();
+
+function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if ((options.method ?? 'GET') !== 'GET' || options.signal || options.body) {
+    inflightGets.clear();
+    return requestOnce<T>(path, options);
+  }
+  const key = `${getAccessToken() ?? ''}|${JSON.stringify(options.headers ?? {})}|${path}`;
+  let pending = inflightGets.get(key) as Promise<T> | undefined;
+  if (!pending) {
+    pending = requestOnce<T>(path, options).finally(() => inflightGets.delete(key));
+    inflightGets.set(key, pending);
+  }
+  // Each caller gets its own copy, so one caller mutating the result cannot affect another.
+  return pending.then((v) => (v === undefined ? v : structuredClone(v)));
+}
+
+async function requestOnce<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {

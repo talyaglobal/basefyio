@@ -49,6 +49,7 @@ import { useDashboard, useOrgNoun, orgPath } from '@/app/dashboard/layout';
 import { OrganizationKindIcon } from '@/components/organization-kind';
 import { useProject } from '@/contexts/project-context';
 import { cn } from '@/lib/utils';
+import { menuArrowKeys, useEscape } from '@/lib/keyboard';
 
 interface HeaderProps {
   user: UserInfo;
@@ -110,6 +111,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [teamSearch, setTeamSearch] = useState('');
   const [projectSearch, setProjectSearch] = useState('');
+
+  const anyMenuOpen = dropdownOpen || projectsMenuOpen || docsMenuOpen || userMenuOpen || mobileMenuOpen;
+  useEscape(() => {
+    setDropdownOpen(false);
+    setProjectsMenuOpen(false);
+    setDocsMenuOpen(false);
+    setUserMenuOpen(false);
+    setMobileMenuOpen(false);
+  }, anyMenuOpen);
 
   useEffect(() => {
     const onGlobalPointerDown = (event: MouseEvent) => {
@@ -243,6 +253,15 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       return name.includes(q) || slug.includes(q);
     });
   }, [menuProjects, projectSearch]);
+
+  // Keep the current section (e.g. /connect) when jumping to another project.
+  function openProject(projectId: string) {
+    const section = currentProjectIdFromPath
+      ? pathname.slice(`/dashboard/projects/${currentProjectIdFromPath}`.length).split('/')[1]
+      : undefined;
+    setProjectsMenuOpen(false);
+    router.push(`/dashboard/projects/${projectId}${section ? `/${section}` : ''}`);
+  }
 
   async function switchTeam(teamId: string) {
     try {
@@ -396,7 +415,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
           {dropdownOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
+              <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card shadow-lg animate-fade-in">
                 <div className="border-b p-2">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -404,6 +423,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       type="text"
                       value={teamSearch}
                       onChange={(e) => setTeamSearch(e.target.value)}
+                      autoFocus
                       placeholder={`Search ${lowers}...`}
                       className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
@@ -578,7 +598,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                 className="fixed inset-0 z-40"
                 onClick={() => setProjectsMenuOpen(false)}
               />
-              <div className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
+              <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[min(24rem,calc(100vh-5rem))] overflow-hidden rounded-lg border bg-card shadow-lg animate-fade-in flex flex-col">
                 <div className="border-b px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
                     {viewTeamId === 'all'
@@ -591,6 +611,10 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       type="text"
                       value={projectSearch}
                       onChange={(e) => setProjectSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && filteredProjects[0]) openProject(filteredProjects[0].id);
+                      }}
+                      autoFocus
                       placeholder="Search projects..."
                       className="h-8 w-full rounded-md border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
@@ -610,10 +634,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
                       <button
                         key={project.id}
                         type="button"
-                        onClick={() => {
-                          setProjectsMenuOpen(false);
-                          router.push(`/dashboard/projects/${project.id}`);
-                        }}
+                        onClick={() => openProject(project.id)}
                         className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-left transition-colors ${
                           project.id === currentProjectIdFromPath
                             ? 'bg-primary/10 font-medium text-primary'
@@ -839,7 +860,7 @@ function DocsMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
+          <div onKeyDown={menuArrowKeys} className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="p-1">
               {docsLinks.map((item) => {
                 const Icon = DOC_ICONS[item.icon] ?? Book;
@@ -932,7 +953,7 @@ function UserMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
+          <div onKeyDown={menuArrowKeys} className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-card shadow-lg animate-fade-in">
             <div className="border-b px-3 py-2.5 flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-border shrink-0">
                 {avatarUrl ? (

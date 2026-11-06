@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscape } from '@/lib/keyboard';
 import React, {
   useCallback,
   useEffect,
@@ -2164,6 +2165,7 @@ function BulkFolderMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useEscape(() => setOpen(false), open);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', h);
@@ -2229,6 +2231,7 @@ function BulkTagMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useEscape(() => setOpen(false), open);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', h);
@@ -2888,6 +2891,7 @@ function Modal({
   /** `md` fits folder/tag color rows without horizontal scroll */
   size?: 'sm' | 'md';
 }) {
+  useEscape(onClose);
   const maxW = size === 'md' ? 'max-w-md' : 'max-w-sm';
   return (
     <>
