@@ -185,8 +185,8 @@ export function AiAssistant() {
   // ── Visibility ──────────────────────────────────────────────────────────
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
-    // Phones start with the panel closed; it opens as an overlay on request.
-    return (localStorage.getItem('basefyio_ai_open') ?? String(window.innerWidth >= 768)) === 'true';
+    // With no saved choice the panel starts open only where it leaves the page room (it docks beside the page from md up).
+    return (localStorage.getItem('basefyio_ai_open') ?? String(window.innerWidth >= 1440)) === 'true';
   });
   const openRef = useRef(open);
   openRef.current = open;

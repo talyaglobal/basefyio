@@ -421,7 +421,7 @@ function UsersTab({
               <th className="px-4 py-2 text-left font-medium">Confirmed</th>
               <th className="px-4 py-2 text-left font-medium">Created</th>
               <th className="px-4 py-2 text-left font-medium">Status</th>
-              <th className="px-4 py-2 text-right font-medium">Actions</th>
+              <th className="sticky right-0 bg-muted px-4 py-2 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -469,7 +469,7 @@ function UsersTab({
                     {u.enabled ? 'Active' : 'Disabled'}
                   </Badge>
                 </td>
-                <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                <td className="sticky right-0 bg-card px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="View details" onClick={() => setViewingUser(u)}>
                       <Eye className="h-4 w-4" />
@@ -760,7 +760,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
                 <th className="px-4 py-2 text-left font-medium">Clients</th>
                 <th className="px-4 py-2 text-left font-medium">Started</th>
                 <th className="px-4 py-2 text-left font-medium">Last access</th>
-                <th className="px-4 py-2 text-right font-medium">Actions</th>
+                <th className="sticky right-0 bg-muted px-4 py-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -772,7 +772,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
                   <td className="px-4 py-2 text-muted-foreground">{(s.clients || []).join(', ') || '—'}</td>
                   <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.start)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{fmtTs(s.lastAccess)}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="sticky right-0 bg-card px-4 py-2 text-right">
                     <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" disabled={busy} onClick={() => revoke(s.id)}>Revoke</Button>
                   </td>
                 </tr>

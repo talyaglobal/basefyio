@@ -26,7 +26,10 @@ import {
   List,
   Radio,
   Cloud,
+  CreditCard,
+  FileSpreadsheet,
   HardDrive,
+  MessageSquareText,
   LogOut,
   MessageSquarePlus,
   Plus,
@@ -714,7 +717,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       {mobileMenuOpen && (
         <>
           <div className="fixed inset-0 z-40 xl:hidden" onClick={() => setMobileMenuOpen(false)} />
-          <div className="absolute right-3 z-50 w-64 rounded-lg border bg-card p-2 shadow-lg xl:hidden" style={{ top: 'var(--header-h, 3.5rem)' }}>
+          <div className="absolute right-3 z-50 w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border bg-card p-2 shadow-lg xl:hidden" style={{ top: 'var(--header-h, 3.5rem)', maxHeight: 'calc(100dvh - var(--header-h, 3.5rem) - 0.75rem)' }}>
             <button
               onClick={() => { setMobileMenuOpen(false); router.push('/dashboard'); }}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
@@ -755,6 +758,21 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               <List className="h-4 w-4" />
               Changelog
             </button>
+            {[
+              { href: orgUi && activeTeam ? orgPath(activeTeam, '/billing') : '/dashboard/billing', label: 'Billing', Icon: CreditCard },
+              { href: '/dashboard/account/api-tokens', label: 'API Tokens', Icon: KeyRound },
+              { href: '/dashboard/blueprints', label: 'Sheet to App', Icon: FileSpreadsheet },
+              { href: '/dashboard/feedbacks', label: 'Feedbacks', Icon: MessageSquareText },
+            ].map(({ href, label, Icon }) => (
+              <button
+                key={href}
+                onClick={() => { setMobileMenuOpen(false); router.push(href); }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
             <a
               href={docsBaseUrl}
               target="_blank"
@@ -774,8 +792,25 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
               Feedback
             </button>
             <div className="my-1 border-t" />
-            <div className="px-3 py-1 text-xs text-muted-foreground">
-              {noun}: {activeTeam?.name || 'Not selected'}
+            {/* The desktop team switcher is hidden below md; this is its mobile twin. */}
+            <div className="px-3 py-1 text-xs text-muted-foreground">{noun}: {headerTeamLabel}</div>
+            <div className="max-h-40 overflow-y-auto">
+              {[{ id: 'all', name: `All ${nouns}` }, ...teams].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (t.id === 'all') setViewTeamId('all');
+                    else { setViewTeamId(t.id); switchTeam(t.id); }
+                  }}
+                  className={cn(
+                    'flex w-full items-center rounded-md px-3 py-1.5 text-left text-sm hover:bg-accent',
+                    viewTeamId === t.id && 'bg-primary/10 font-medium text-primary',
+                  )}
+                >
+                  <span className="truncate">{t.name}</span>
+                </button>
+              ))}
             </div>
             <div className="px-3 py-1 text-xs text-muted-foreground truncate">
               User:{' '}

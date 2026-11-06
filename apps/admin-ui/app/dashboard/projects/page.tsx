@@ -9,7 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { projectStatusLabel } from '@/lib/utils';
+import { cn, projectStatusLabel } from '@/lib/utils';
 import { toast } from 'sonner';
 import { promptDialog } from '@/components/ui/confirm-dialog';
 import {
@@ -297,6 +297,7 @@ export default function ProjectsPage() {
 
   // Deleted projects (trash)
   const [showTrash, setShowTrash] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [deletedProjects, setDeletedProjects] = useState<ProjectListItem[]>([]);
   const [loadingTrash, setLoadingTrash] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -305,6 +306,7 @@ export default function ProjectsPage() {
 
   // Deactivated projects (paused — data kept, never purged)
   const [showDeactivated, setShowDeactivated] = useState(false);
+  useEffect(() => { setMobileNavOpen(false); }, [selectedFolder, showTrash, showDeactivated]);
   const [deactivatedProjects, setDeactivatedProjects] = useState<ProjectListItem[]>([]);
   const [loadingDeactivated, setLoadingDeactivated] = useState(false);
   const [reactivatingId, setReactivatingId] = useState<string | null>(null);
@@ -1011,20 +1013,33 @@ export default function ProjectsPage() {
       onDragEnd={handleDragEnd}
     >
       {/* -m-6 escapes the dashboard layout's p-6 padding */}
-      <div className="-mx-6 -mt-6 -mb-6 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--header-h, 3.5rem))' }}>
+      <div className="-m-3 sm:-m-4 md:-m-6 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--header-h, 3.5rem))' }}>
 
         {/* ── Top bar ──────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-card shrink-0">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b bg-card shrink-0">
           <button
             onClick={() => router.push('/dashboard')}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mr-1"
+            aria-label="Dashboard"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Dashboard
+            <span className="hidden sm:inline">Dashboard</span>
+          </button>
+
+          {/* Folders, tags, Trash and Deactivated: the sidebar is hidden below lg, so this opens it as a panel */}
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen((v) => !v)}
+            aria-label="Folders, tags and Trash"
+            aria-expanded={mobileNavOpen}
+            className="flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-sm hover:bg-accent transition-colors lg:hidden"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Folders</span>
           </button>
 
           {/* Search */}
-          <div className="flex-1 relative">
+          <div className="relative min-w-[8rem] flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               value={searchQuery}
@@ -1101,8 +1116,8 @@ export default function ProjectsPage() {
             </button>
           </div>
           <Button asChild size="sm" className="border-0 bg-[#217346] text-white hover:bg-[#1a5c38] focus-visible:ring-2 focus-visible:ring-[#217346] focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-[#217346] dark:hover:bg-[#2a8c57]">
-            <Link href="/dashboard/blueprints">
-              <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> Sheet to App
+            <Link href="/dashboard/blueprints" aria-label="Sheet to App">
+              <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> <span className="hidden sm:inline">Sheet to App</span>
             </Link>
           </Button>
           <Button onClick={() => setDialogOpen(true)} size="sm" className="bg-brand-gradient text-white border-0 hover:opacity-90">
@@ -1112,7 +1127,7 @@ export default function ProjectsPage() {
 
         {/* ── Bulk selection toolbar ────────────────────────────────────────────── */}
         {selectedProjects.size > 0 && (
-          <div className="flex items-center gap-3 px-4 py-2 border-b bg-primary/5 shrink-0">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b bg-primary/5 shrink-0">
             <input
               type="checkbox"
               checked={selectedProjects.size === filtered.length && filtered.length > 0}
@@ -1202,10 +1217,13 @@ export default function ProjectsPage() {
         )}
 
         {/* ── Body: sidebar + main ─────────────────────────────────────────────── */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="relative flex flex-1 min-h-0 overflow-hidden">
 
           {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-          <aside className="hidden lg:flex w-56 flex-col border-r bg-card shrink-0 overflow-hidden">
+          <aside className={cn(
+            'w-56 flex-col border-r bg-card shrink-0 overflow-hidden',
+            mobileNavOpen ? 'absolute inset-y-0 left-0 z-30 flex shadow-xl lg:static lg:shadow-none' : 'hidden lg:flex',
+          )}>
             {/* Folders header */}
             <div className="flex items-center justify-between px-4 pt-4 pb-1 shrink-0">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</span>
@@ -1308,6 +1326,8 @@ export default function ProjectsPage() {
             </div>
           </aside>
 
+          {mobileNavOpen && <div className="absolute inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setMobileNavOpen(false)} />}
+
           {/* ── Main content ──────────────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto">
             {showTrash ? (
@@ -1345,7 +1365,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {loadingTrash ? (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
                     ))}
@@ -1357,7 +1377,7 @@ export default function ProjectsPage() {
                     <p className="text-xs mt-1">Deleted projects will appear here</p>
                   </div>
                 ) : (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {deletedProjects.map((project) => {
                       const displayName = project.name.replace(/_(\d+_)?deleted$/, '');
                       const canManage = project.canManage !== false;
@@ -1463,7 +1483,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {loadingDeactivated ? (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-32 animate-pulse" />
                     ))}
@@ -1475,7 +1495,7 @@ export default function ProjectsPage() {
                     <p className="text-xs mt-1">Deactivate a project to pause it without deleting anything</p>
                   </div>
                 ) : (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {deactivatedProjects.map((project) => {
                       const canManage = project.canManage !== false;
                       const openProject = () => router.push(`/dashboard/projects/${project.id}`);
@@ -1564,7 +1584,7 @@ export default function ProjectsPage() {
             <div className="p-6">
               {loading ? (
                 viewMode === 'grid' ? (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {Array.from({ length: 6 }).map((_, i) => (
                       <div key={i} className="rounded-xl border bg-card h-48 animate-pulse" />
                     ))}
@@ -1583,7 +1603,7 @@ export default function ProjectsPage() {
                 />
               ) : (
                 viewMode === 'grid' ? (
-                  <div className="basefyio-grid-row-hover grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                     {filtered.map((project) => (
                       <DroppableProjectCard
                         key={project.id}
@@ -2674,7 +2694,7 @@ function DroppableProjectCard({
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <Database className="h-3 w-3" />
-            <span>Size: {formatSize(project.projectSizeBytes)}</span>
+            <span className="whitespace-nowrap">Size: {formatSize(project.projectSizeBytes)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Zap className="h-3 w-3" />
