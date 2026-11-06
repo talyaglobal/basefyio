@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
-import jwksClient, { JwksClient } from 'jwks-rsa';
+import { JwksClient } from 'jwks-rsa';
 import { PgBouncerService } from '../../modules/pgbouncer/pgbouncer.service';
 import { KeycloakAdminService } from '../../modules/auth/keycloak-admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -428,7 +428,7 @@ export class ApiKeyGuard implements CanActivate {
     const base = this.config.get<string>('keycloak.url') || 'http://localhost:8080';
     const jwksUri = `${base.replace(/\/$/, '')}/realms/${encodeURIComponent(realm)}/protocol/openid-connect/certs`;
 
-    const client = jwksClient({
+    const client = new JwksClient({
       jwksUri,
       cache: true,
       cacheMaxAge: 10 * 60 * 1000, // 10 minutes

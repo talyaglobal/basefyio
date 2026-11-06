@@ -14,8 +14,11 @@ import { generateKeyPairSync, randomBytes, randomUUID } from 'crypto';
 // the key filled in once the pair exists.
 const mockKeys = { pem: '' };
 jest.mock('jwks-rsa', () => {
-  const factory = () => ({ getSigningKey: async () => ({ getPublicKey: () => mockKeys.pem }) });
-  return { __esModule: true, default: factory };
+  // The real module exports { JwksClient } (no default export), so the mock must too.
+  class JwksClient {
+    getSigningKey = async () => ({ getPublicKey: () => mockKeys.pem });
+  }
+  return { JwksClient };
 });
 
 process.env.DB_CRED_ENC_KEY = process.env.DB_CRED_ENC_KEY || randomBytes(32).toString('hex');

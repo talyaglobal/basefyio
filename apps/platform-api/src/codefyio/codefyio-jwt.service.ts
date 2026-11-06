@@ -1,7 +1,7 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
-import jwksClient, { JwksClient } from 'jwks-rsa';
+import { JwksClient } from 'jwks-rsa';
 import { AdapterSessionClaims, CodefyioClaims } from './codefyio.types';
 
 const SESSION_AUDIENCE = 'codefyio-adapter';
@@ -104,7 +104,7 @@ export class CodefyioJwtService {
 
   private getJwks(url: string): JwksClient {
     if (!this.jwks) {
-      this.jwks = jwksClient({ jwksUri: url, cache: true, rateLimit: true });
+      this.jwks = new JwksClient({ jwksUri: url, cache: true, rateLimit: true });
     }
     return this.jwks;
   }

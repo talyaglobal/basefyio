@@ -44,7 +44,9 @@ export function uploadInputFrom(
   const declared = Number(req.headers['content-length']);
   const size = Number.isFinite(declared) && declared >= 0 ? declared : undefined;
 
-  if (req.readableEnded || (req as any).complete === true) {
+  // readableEnded, not `complete`: a small body has fully ARRIVED (complete) by the time the
+  // handler runs yet still sits unread in the stream, and must be streamed, not refused.
+  if (req.readableEnded) {
     const raw = (req as any).rawBody;
     if (Buffer.isBuffer(raw)) {
       return { input: { body: raw, size: raw.length, contentType, cacheControl, userMetadata }, cleanup: async () => undefined };

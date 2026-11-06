@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import * as jwt from 'jsonwebtoken';
-import jwksClient, { JwksClient } from 'jwks-rsa';
+import { JwksClient } from 'jwks-rsa';
 
 /**
  * Verifies the access tokens a project's realm issues, and serves that realm's
@@ -128,7 +128,7 @@ export class ProjectJwtVerifier {
   private getJwksClient(realm: string): JwksClient {
     const existing = this.jwksByRealm.get(realm);
     if (existing) return existing;
-    const client = jwksClient({
+    const client = new JwksClient({
       jwksUri: this.jwksUri(realm),
       cache: true,
       cacheMaxAge: ProjectJwtVerifier.JWKS_TTL_MS,
