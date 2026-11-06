@@ -29,6 +29,7 @@ export const ProjectActivityKind = {
   AUTH_CONFIG_UPDATED: 'auth.config_updated',
   TABLE_CREATED: 'table.created',
   TABLE_DROPPED: 'table.dropped',
+  TABLE_RENAMED: 'table.renamed',
   TABLE_ROW_INSERTED: 'table.row_inserted',
   TABLE_ROW_UPDATED: 'table.row_updated',
   TABLE_ROW_DELETED: 'table.row_deleted',
@@ -115,6 +116,7 @@ export class ProjectActivityService {
       const schemaChangingKinds: ProjectActivityKindValue[] = [
         ProjectActivityKind.TABLE_CREATED,
         ProjectActivityKind.TABLE_DROPPED,
+        ProjectActivityKind.TABLE_RENAMED,
         ProjectActivityKind.PROJECT_CREATED,
         ProjectActivityKind.COLLECTION_CREATED,
         ProjectActivityKind.COLLECTION_DROPPED,

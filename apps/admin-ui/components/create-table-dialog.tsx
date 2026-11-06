@@ -24,6 +24,7 @@ interface ColumnDef {
   type: string;
   nullable: boolean;
   isPrimary: boolean;
+  isUnique: boolean;
   defaultValue: string;
 }
 
@@ -40,23 +41,55 @@ interface CreateTableDialogProps {
    * the Data Engine entity builder (the parent closes this dialog).
    */
   onCreateEntity?: () => void;
+  /** Names of the SQL tables that already exist, for the inline duplicate check. */
+  existingTables?: string[];
+}
+
+// Words Postgres reserves: legal as a quoted name, but they break unquoted SQL.
+const RESERVED_WORDS = new Set([
+  'all', 'analyse', 'analyze', 'and', 'any', 'array', 'as', 'asc', 'both', 'case', 'cast', 'check',
+  'collate', 'column', 'constraint', 'create', 'current_date', 'current_time', 'current_timestamp',
+  'current_user', 'default', 'desc', 'distinct', 'do', 'else', 'end', 'except', 'false', 'fetch',
+  'for', 'foreign', 'from', 'grant', 'group', 'having', 'in', 'initially', 'intersect', 'into',
+  'leading', 'limit', 'localtime', 'localtimestamp', 'not', 'null', 'offset', 'on', 'only', 'or',
+  'order', 'placing', 'primary', 'references', 'returning', 'select', 'session_user', 'some',
+  'symmetric', 'table', 'then', 'to', 'trailing', 'true', 'union', 'unique', 'user', 'using',
+  'variadic', 'when', 'where', 'window', 'with',
+]);
+
+/** Inline feedback on a table name while it is typed: a blocking error, or a warning. */
+function tableNameIssue(name: string, existing: string[]): { error?: string; warning?: string } {
+  const n = name.trim();
+  if (!n) return {};
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(n)) {
+    return { error: 'Use letters, digits and underscores only, and do not start with a digit.' };
+  }
+  if (n.length > 63) return { error: 'Postgres names are limited to 63 characters.' };
+  if (existing.some((t) => t.toLowerCase() === n.toLowerCase())) {
+    return { error: `A table named "${n}" already exists.` };
+  }
+  if (RESERVED_WORDS.has(n.toLowerCase())) {
+    return { warning: `"${n}" is a reserved SQL word; you will have to quote it in raw SQL.` };
+  }
+  return {};
 }
 
 let nextId = 1;
 function makeColumn(): ColumnDef {
-  return { id: nextId++, name: '', type: 'text', nullable: true, isPrimary: false, defaultValue: '' };
+  return { id: nextId++, name: '', type: 'text', nullable: true, isPrimary: false, isUnique: false, defaultValue: '' };
 }
 
 function makeIdColumn(): ColumnDef {
-  return { id: nextId++, name: 'id', type: 'uuid', nullable: false, isPrimary: true, defaultValue: 'gen_random_uuid()' };
+  return { id: nextId++, name: 'id', type: 'uuid', nullable: false, isPrimary: true, isUnique: false, defaultValue: 'gen_random_uuid()' };
 }
 
-export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, onCreateEntity }: CreateTableDialogProps) {
+export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, onCreateEntity, existingTables = [] }: CreateTableDialogProps) {
   const [kind, setKind] = useState<'sql' | 'nosql' | 'entity'>('sql');
   const [tableName, setTableName] = useState('');
   const [collectionName, setCollectionName] = useState('');
   const [columns, setColumns] = useState<ColumnDef[]>([makeIdColumn(), { ...makeColumn(), name: 'created_at', type: 'timestamptz', nullable: false, defaultValue: 'now()' }]);
   const [saving, setSaving] = useState(false);
+  const nameIssue = tableNameIssue(tableName, existingTables);
 
   function addColumn() {
     setColumns((prev) => [...prev, makeColumn()]);
@@ -91,10 +124,25 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
       return;
     }
 
+    if (nameIssue.error) {
+      toast.error(nameIssue.error);
+      return;
+    }
+
     const validCols = columns.filter((c) => c.name.trim());
     if (validCols.length === 0) {
       toast.error('At least one column is required');
       return;
+    }
+
+    const seen = new Set<string>();
+    for (const c of validCols) {
+      const key = c.name.trim().toLowerCase();
+      if (seen.has(key)) {
+        toast.error(`Column "${c.name.trim()}" appears twice`);
+        return;
+      }
+      seen.add(key);
     }
 
     setSaving(true);
@@ -106,6 +154,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
           type: c.type,
           nullable: c.nullable,
           isPrimary: c.isPrimary,
+          isUnique: c.isUnique,
           defaultValue: c.defaultValue || undefined,
         })),
       });
@@ -147,7 +196,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create New</DialogTitle>
           <DialogDescription>
@@ -226,7 +275,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
         </div>
 
         {kind === 'sql' ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="ct-name">Table Name</Label>
               <Input
@@ -234,9 +283,12 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                 value={tableName}
                 onChange={(e) => setTableName(e.target.value)}
                 placeholder="users"
-                required
-                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
+                aria-invalid={!!nameIssue.error}
               />
+              {nameIssue.error && <p className="text-xs text-destructive">{nameIssue.error}</p>}
+              {!nameIssue.error && nameIssue.warning && (
+                <p className="text-xs text-amber-600">{nameIssue.warning}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -249,11 +301,12 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
               </div>
 
               {/* Column header */}
-              <div className="grid grid-cols-[1fr_140px_44px_44px_140px_36px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+              <div className="grid grid-cols-[1fr_140px_44px_44px_44px_140px_36px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
                 <span>Name</span>
                 <span>Type</span>
                 <span className="text-center">PK</span>
                 <span className="text-center">Null</span>
+                <span className="text-center">Uniq</span>
                 <span>Default</span>
                 <span />
               </div>
@@ -262,7 +315,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                 {columns.map((col) => (
                   <div
                     key={col.id}
-                    className="grid grid-cols-[1fr_140px_44px_44px_140px_36px] items-center gap-2 rounded-md border bg-card p-1.5 transition-colors duration-200 hover:bg-accent/55 dark:hover:bg-accent/30"
+                    className="grid grid-cols-[1fr_140px_44px_44px_44px_140px_36px] items-center gap-2 rounded-md border bg-card p-1.5 transition-colors duration-200 hover:bg-accent/55 dark:hover:bg-accent/30"
                   >
                     <Input
                       value={col.name}
@@ -301,6 +354,21 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                       title="Nullable"
                     >
                       {col.nullable ? '?' : '!'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateColumn(col.id, 'isUnique', !col.isUnique)}
+                      disabled={col.isPrimary}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md border text-xs font-mono transition-colors mx-auto disabled:opacity-40 ${
+                        col.isUnique && !col.isPrimary
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-600'
+                          : 'text-muted-foreground hover:bg-accent'
+                      }`}
+                      title={col.isPrimary ? 'A primary key is already unique' : 'Unique'}
+                      aria-pressed={col.isUnique}
+                    >
+                      U
                     </button>
 
                     <div className="relative">
@@ -345,7 +413,7 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
             </DialogFooter>
           </form>
         ) : kind === 'nosql' ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="cc-name">Collection Name</Label>
               <Input
@@ -353,8 +421,6 @@ export function CreateTableDialog({ open, onOpenChange, projectId, onCreated, on
                 value={collectionName}
                 onChange={(e) => setCollectionName(e.target.value)}
                 placeholder="e.g. posts, products, events"
-                required
-                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
               />
               <p className="text-xs text-muted-foreground">
                 No columns to define — documents can have any JSON structure.

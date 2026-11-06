@@ -4,6 +4,7 @@ import {
   Post,
   Put,
   Delete,
+  Patch,
   Param,
   Query,
   Body,
@@ -104,7 +105,7 @@ export class ProjectDataController {
     @Param('projectId') projectId: string,
     @Body() body: {
       name: string;
-      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[];
+      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; isUnique?: boolean; defaultValue?: string }[];
     },
     @CurrentUser() user?: JwtPayload,
   ) {
@@ -212,6 +213,22 @@ export class ProjectDataController {
       userId: user?.sub,
       kind: ProjectActivityKind.TABLE_DROPPED,
       title: `Table dropped: ${tableName}`,
+    });
+    return result;
+  }
+
+  @Patch('tables/:tableName')
+  async renameTable(
+    @Param('projectId') projectId: string,
+    @Param('tableName') tableName: string,
+    @Body() body: { name: string },
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const result = await this.dataService.renameTable(projectId, user?.sub, tableName, body?.name ?? '');
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.TABLE_RENAMED,
+      title: `Table renamed: ${tableName} -> ${body?.name}`,
     });
     return result;
   }

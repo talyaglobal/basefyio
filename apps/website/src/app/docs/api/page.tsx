@@ -225,6 +225,7 @@ Response: { id, email, username, emailVerified, ... }`}</code></pre>
         <tbody>
           <tr><td>GET</td><td><code>/projects/:id/tables</code></td><td>List tables</td></tr>
           <tr><td>POST</td><td><code>/projects/:id/tables</code></td><td>Create table</td></tr>
+          <tr><td>PATCH</td><td><code>/projects/:id/tables/:name</code></td><td>Rename table</td></tr>
           <tr><td>DELETE</td><td><code>/projects/:id/tables/:name</code></td><td>Drop table</td></tr>
           <tr><td>GET</td><td><code>/projects/:id/tables/:name/columns</code></td><td>List columns</td></tr>
           <tr><td>POST</td><td><code>/projects/:id/tables/:name/columns</code></td><td>Add column</td></tr>

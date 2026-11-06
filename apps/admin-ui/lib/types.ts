@@ -628,6 +628,8 @@ export interface ColumnInfo {
   nullable: boolean;
   defaultValue: string | null;
   isPrimary: boolean;
+  /** A single-column unique index or constraint (not the primary key). */
+  isUnique?: boolean;
 }
 
 export interface ForeignKeyInfo {

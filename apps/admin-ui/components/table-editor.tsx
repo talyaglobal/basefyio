@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn, formatCount } from '@/lib/utils';
+import { cn, countOf, formatCount } from '@/lib/utils';
 import { CreateTableDialog } from '@/components/create-table-dialog';
 import { ImportDataDialog } from '@/components/import-data-dialog';
 import { DuplicateCleanerDialog } from '@/components/duplicate-cleaner-dialog';
@@ -52,6 +52,7 @@ import {
   Upload as ImportIcon,
   CopyMinus,
   CircleHelp,
+  Download,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -87,6 +88,24 @@ function parseKey(key: string): { kind: DataKind; name: string } {
     }
   }
   return { kind: 'sql', name: key };
+}
+
+/**
+ * Client-side check of a typed cell value so the user hears "not an integer"
+ * before a round trip. Returns an error message, or null when the value is fine
+ * (or the type is one we do not pre-check; the server stays the authority).
+ */
+function cellTypeError(type: string, raw: string): string | null {
+  const v = raw.trim();
+  if (v === '' || v === 'NULL') return null;
+  const t = type.toLowerCase();
+  if (/^(smallint|integer|int|int2|int4|int8|bigint|serial|bigserial|smallserial)$/.test(t)) {
+    return /^[+-]?\d+$/.test(v) ? null : 'must be a whole number';
+  }
+  if (/^(numeric|decimal|real|float4|float8|double precision)/.test(t)) {
+    return Number.isFinite(Number(v)) ? null : 'must be a number';
+  }
+  return null;
 }
 
 // ── Add Column Dialog ──────────────────────────────────────
@@ -125,6 +144,10 @@ function AddColumnDialog({
       toast.error('Column name is required');
       return;
     }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())) {
+      toast.error('Column name: letters, digits and underscores only, not starting with a digit');
+      return;
+    }
     setSaving(true);
     try {
       await api.projects.addColumn(projectId, tableName, {
@@ -154,15 +177,13 @@ function AddColumnDialog({
             Add a new column to <span className="font-mono font-semibold">{tableName}</span>
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div className="space-y-1.5">
             <Label>Name</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="column_name"
-              pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
-              required
             />
           </div>
           <div className="space-y-1.5">
@@ -243,6 +264,7 @@ function ColumnSidePanel({
   const [type, setType] = useState('');
   const [nullable, setNullable] = useState(true);
   const [defaultValue, setDefaultValue] = useState('');
+  const [isUnique, setIsUnique] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -270,6 +292,7 @@ function ColumnSidePanel({
     setType(col.type);
     setNullable(col.nullable);
     setDefaultValue(col.defaultValue ?? '');
+    setIsUnique(!!col.isUnique);
     setConfirmDelete(null);
   }
 
@@ -283,11 +306,18 @@ function ColumnSidePanel({
     setSaving(true);
     try {
       const changes: Record<string, unknown> = {};
-      if (name !== editingCol.name) changes.name = name;
+      if (name !== editingCol.name) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+          toast.error('Column name: letters, digits and underscores only, not starting with a digit');
+          return;
+        }
+        changes.name = name;
+      }
       if (type !== editingCol.type) changes.type = type;
       if (nullable !== editingCol.nullable) changes.nullable = nullable;
       const newDefault = defaultValue || null;
       if (newDefault !== editingCol.defaultValue) changes.defaultValue = newDefault;
+      if (isUnique !== !!editingCol.isUnique) changes.isUnique = isUnique;
 
       if (Object.keys(changes).length === 0) {
         setEditingCol(null);
@@ -295,7 +325,7 @@ function ColumnSidePanel({
       }
 
       await api.projects.editColumn(projectId, tableName, editingCol.name, changes);
-      toast.success(`Column "${editingCol.name}" updated`);
+      toast.success(`Column "${changes.name ?? editingCol.name}" updated`);
       setEditingCol(null);
       onUpdated();
     } catch (err: any) {
@@ -359,7 +389,6 @@ function ColumnSidePanel({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="h-8 text-sm"
-                pattern="^[a-zA-Z_][a-zA-Z0-9_]*$"
               />
             </div>
 
@@ -395,6 +424,17 @@ function ColumnSidePanel({
                 disabled={editingCol.isPrimary}
               />
               Nullable
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isUnique}
+                onChange={(e) => setIsUnique(e.target.checked)}
+                className="rounded"
+                disabled={editingCol.isPrimary}
+              />
+              Unique
             </label>
 
             {editingCol.isPrimary && (
@@ -435,6 +475,9 @@ function ColumnSidePanel({
                     <span className="text-xs text-muted-foreground">{col.type}</span>
                     {col.nullable && (
                       <span className="text-[10px] text-blue-500 font-mono">nullable</span>
+                    )}
+                    {col.isUnique && (
+                      <span className="text-[10px] text-emerald-600 font-mono">unique</span>
                     )}
                     {col.defaultValue && (
                       <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
@@ -681,6 +724,10 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   const [createEntityOpen, setCreateEntityOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [dedupeOpen, setDedupeOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -761,7 +808,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   // they are looking at. Filterable by kind via the chips above the list.
   type SidebarItem = { kind: DataKind; name: string; label: string; count: number | null };
   const sidebarItems: SidebarItem[] = [
-    ...tables.map((t) => ({
+    // A collection is stored as a table in the nosql schema; it is listed once, as a collection.
+    ...tables.filter((t) => t.schema !== 'nosql').map((t) => ({
       kind: 'sql' as const, name: t.name, label: t.name, count: t.rowCount as number | null,
     })),
     ...collections.map((c) => ({
@@ -777,11 +825,15 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       (tableSearchLower.length === 0 || i.label.toLowerCase().includes(tableSearchLower)),
   );
 
+  // Chip counts follow the search box, so they always add up to what the list shows.
+  const searched = sidebarItems.filter(
+    (i) => tableSearchLower.length === 0 || i.label.toLowerCase().includes(tableSearchLower),
+  );
   const KIND_CHIPS: { value: 'all' | DataKind; label: string; count: number }[] = [
-    { value: 'all', label: 'All', count: sidebarItems.length },
-    { value: 'sql', label: 'SQL', count: tables.length },
-    { value: 'nosql', label: 'JSON', count: collections.length },
-    { value: 'entity', label: 'Entities', count: entities.length },
+    { value: 'all', label: 'All', count: searched.length },
+    { value: 'sql', label: 'SQL', count: searched.filter((i) => i.kind === 'sql').length },
+    { value: 'nosql', label: 'JSON', count: searched.filter((i) => i.kind === 'nosql').length },
+    { value: 'entity', label: 'Entities', count: searched.filter((i) => i.kind === 'entity').length },
   ];
 
   /**
@@ -904,7 +956,9 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         (selectedKey && validKey(selectedKey) ? selectedKey : firstAvailable);
 
       if (target) {
-        openItem(target);
+        // Re-selecting the open table would reset its page, filter and sort, and
+        // leave the grid showing one page while the state says another.
+        if (!(target === selectedKey && selected)) openItem(target);
       } else {
         setSelectedKey(null);
         setSelected(null);
@@ -1152,6 +1206,18 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
     const oldVal = row[editingCell.field];
     const newVal = editValue === '' ? null : editValue;
+    const colInfo = columns.find((c) => c.name === editingCell.field);
+    if (colInfo) {
+      const bad = cellTypeError(colInfo.type, editValue);
+      if (bad) {
+        toast.error(`Column "${colInfo.name}" (${colInfo.type}) ${bad}`);
+        return;
+      }
+      if (newVal === null && !colInfo.nullable) {
+        toast.error(`Column "${colInfo.name}" cannot be empty (NOT NULL)`);
+        return;
+      }
+    }
     const cmp = (v: unknown) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v ?? ""));
     if (cmp(oldVal) === cmp(newVal)) {
       setEditingCell(null);
@@ -1191,10 +1257,27 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
   async function commitNewRow() {
     if (!selected) return;
     const payload: Record<string, unknown> = {};
+    const missing: string[] = [];
     for (const col of columns) {
       const val = newRow[col.name];
-      if (val === undefined || val === '') continue;
+      if (val === undefined || val === '') {
+        if (!col.nullable && !col.defaultValue) missing.push(col.name);
+        continue;
+      }
+      const bad = cellTypeError(col.type, val);
+      if (bad) {
+        toast.error(`Column "${col.name}" (${col.type}) ${bad}`);
+        return;
+      }
       payload[col.name] = val === 'NULL' ? null : val;
+    }
+    if (missing.length > 0) {
+      toast.error(`Required (NOT NULL, no default): ${missing.join(', ')}`);
+      return;
+    }
+    if (Object.keys(payload).length === 0) {
+      toast.error('Enter a value for at least one column');
+      return;
     }
 
     try {
@@ -1247,7 +1330,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   async function handleDeleteSelectedRows() {
     if (!selected || !filteredRows || selectedRows.size === 0) return;
-    if (!(await confirmDialog({ title: 'Delete rows', description: `Delete ${selectedRows.size} row(s)?`, destructive: true }))) return;
+    if (!(await confirmDialog({ title: 'Delete rows', description: `Delete ${countOf(selectedRows.size, 'row')}?`, destructive: true }))) return;
 
     let deleted = 0;
     for (const idx of Array.from(selectedRows)) {
@@ -1259,7 +1342,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
       } catch {}
     }
 
-    toast.success(`Deleted ${deleted} row(s)`);
+    toast.success(`Deleted ${countOf(deleted, 'row')}`);
     setSelectedRows(new Set());
     reloadRows();
     loadTables();
@@ -1294,6 +1377,94 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
+  }
+
+  function saveBlob(content: string, type: string, filename: string) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Export every row that matches the current filter and sort (capped), not just the page on screen. */
+  async function exportTable(format: 'csv' | 'json') {
+    if (!selected || exporting) return;
+    const EXPORT_MAX = 100_000;
+    setExporting(true);
+    const toastId = toast.loading(`Exporting ${selected}...`);
+    try {
+      const all: Record<string, unknown>[] = [];
+      let names: string[] = [];
+      for (let p = 1; ; p++) {
+        const res = await api.projects.rows(projectId, selected, p, 1000, schemaFor(selected), appliedFilter, sortBy ?? undefined, sortDir);
+        names = res.fields.map((f) => f.name).filter((n) => n !== '_bf_ctid');
+        all.push(...res.rows);
+        if (p >= res.totalPages || all.length >= EXPORT_MAX) break;
+      }
+      const rows = all.slice(0, EXPORT_MAX).map((r) => Object.fromEntries(names.map((n) => [n, r[n] ?? null])));
+      if (format === 'json') {
+        saveBlob(JSON.stringify(rows, null, 2), 'application/json', `${selected}.json`);
+      } else {
+        const cell = (v: unknown) => {
+          const t = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+          return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+        };
+        const lines = [names.map(cell).join(','), ...rows.map((r) => names.map((n) => cell(r[n])).join(','))];
+        saveBlob('\uFEFF' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8', `${selected}.csv`);
+      }
+      toast.success(
+        all.length > EXPORT_MAX
+          ? `Exported the first ${formatCount(EXPORT_MAX)} rows of ${selected}`
+          : `Exported ${countOf(rows.length, 'row')} from ${selected}`,
+        { id: toastId },
+      );
+    } catch (err: any) {
+      toast.error(err.message, { id: toastId });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleRenameTable() {
+    if (!renameTarget) return;
+    const next = renameValue.trim();
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(next)) {
+      toast.error('Table name: letters, digits and underscores only, not starting with a digit');
+      return;
+    }
+    if (next.length > 63) {
+      toast.error('Table name must be at most 63 characters');
+      return;
+    }
+    if (next !== renameTarget && tables.some((t) => t.name.toLowerCase() === next.toLowerCase())) {
+      toast.error(`A table named "${next}" already exists`);
+      return;
+    }
+    if (next === renameTarget) {
+      setRenameTarget(null);
+      return;
+    }
+    setRenaming(true);
+    try {
+      await api.projects.renameTable(projectId, renameTarget, next);
+      toast.success(`Table "${renameTarget}" renamed to "${next}"`);
+      const oldKey = keyOf('sql', renameTarget);
+      const newKey = keyOf('sql', next);
+      const wasSelected = selectedKey === oldKey;
+      setTables((prev) => prev.map((t) => (t.name === renameTarget ? { ...t, name: next } : t)));
+      setOpenTabs((prev) => prev.map((k) => (k === oldKey ? newKey : k)));
+      if (wasSelected) {
+        setSelectedKey(newKey);
+        void selectTable(next);
+      }
+      setRenameTarget(null);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setRenaming(false);
+    }
   }
 
   function downloadCsvTemplate() {
@@ -1461,7 +1632,16 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                 }}
                               >
                                 <Pencil className="mr-2 h-3.5 w-3.5" />
-                                Edit table
+                                Edit columns
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setRenameTarget(t.name);
+                                  setRenameValue(t.name);
+                                }}
+                              >
+                                <Pencil className="mr-2 h-3.5 w-3.5" />
+                                Rename table
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
@@ -1540,7 +1720,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                     })}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadTables} title="Refresh">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { void loadTables(); void reloadTableData(); }} title="Refresh">
                       <RefreshCw className="h-3.5 w-3.5" />
                     </Button>
                     {selKind === 'sql' && (
@@ -1584,7 +1764,13 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                 </div>
 
                 {selKind === 'nosql' && selName ? (
-                  <CollectionDocumentsPanel projectId={projectId} collectionName={selName} />
+                  <CollectionDocumentsPanel
+                    projectId={projectId}
+                    collectionName={selName}
+                    onTotalChange={(total) =>
+                      setCollections((prev) => prev.map((c) => (c.name === selName ? { ...c, documentCount: total } : c)))
+                    }
+                  />
                 ) : selKind === 'entity' && selName ? (
                   <EntityDocumentsPanel projectId={projectId} entityName={selName} />
                 ) : !selected ? (
@@ -1599,8 +1785,8 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                     <span className="font-mono text-sm font-semibold truncate">{selected}</span>
                     <Badge variant="secondary" className="text-xs shrink-0">
                       {formatCount(data?.total)}
-                      {data?.totalIsApprox ? '+' : ''} rows
-                      {appliedFilter ? ' match' : ''}
+                      {data?.totalIsApprox ? '+' : ''} {data?.total === 1 ? 'row' : 'rows'}
+                      {appliedFilter ? (data?.total === 1 ? ' matches' : ' match') : ''}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1618,6 +1804,18 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                       <Plus className="mr-1.5 h-3.5 w-3.5" />
                       Column
                     </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" disabled={exporting}>
+                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                          Export
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => void exportTable('csv')}>Export as CSV</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void exportTable('json')}>Export as JSON</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       size="sm"
                       variant="outline"
@@ -1651,7 +1849,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                         {/* Bulk action bar */}
                         {selectedRows.size > 0 && (
                           <div className="sticky top-0 z-20 flex items-center gap-3 border-b bg-primary/10 px-4 py-2">
-                            <span className="text-sm font-medium">{selectedRows.size} row(s) selected</span>
+                            <span className="text-sm font-medium">{countOf(selectedRows.size, 'row')} selected</span>
                             <Button size="sm" variant="destructive" onClick={handleDeleteSelectedRows}>
                               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                               Delete selected
@@ -1807,7 +2005,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                       />
                                     </td>
                                     <td className="px-2 py-1.5 text-center text-xs text-muted-foreground tabular-nums">
-                                      {(page - 1) * (data?.limit ?? 50) + actualIdx + 1}
+                                      {((data?.page ?? page) - 1) * (data?.limit ?? 50) + actualIdx + 1}
                                     </td>
                                     {data?.fields?.map((f) => {
                                       const isEditing =
@@ -1909,7 +2107,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                       <div className="flex items-center justify-between border-t px-4 py-2 text-sm text-muted-foreground bg-card">
                         <span>
                           {formatCount(data.total)}
-                          {data.totalIsApprox ? '+' : ''} rows
+                          {data.totalIsApprox ? '+' : ''} {data.total === 1 ? 'row' : 'rows'}
                           {appliedFilter ? ` matching "${appliedFilter}"` : ''} — page{' '}
                           {formatCount(data.page)}/{formatCount(data.totalPages)}
                         </span>
@@ -1971,6 +2169,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
         open={createOpen}
         onOpenChange={setCreateOpen}
         projectId={projectId}
+        existingTables={tables.map((t) => t.name)}
         onCreated={(created) => {
           loadTables();
           if (created) {
@@ -2019,6 +2218,39 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
           }}
         />
       )}
+
+      <Dialog open={renameTarget !== null} onOpenChange={(o) => !o && setRenameTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename table</DialogTitle>
+            <DialogDescription>
+              Rename <span className="font-mono font-semibold">{renameTarget}</span>. Policies, indexes and
+              foreign keys follow the table; queries and API calls that use the old name need updating.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleRenameTable();
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-table">New name</Label>
+              <Input id="rename-table" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={renaming}>
+                {renaming ? 'Renaming...' : 'Rename'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {selected && (
         <AddColumnDialog

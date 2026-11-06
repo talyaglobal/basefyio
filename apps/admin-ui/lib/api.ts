@@ -1311,11 +1311,17 @@ export const api = {
     },
     createTable(projectId: string, data: {
       name: string;
-      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[];
+      columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; isUnique?: boolean; defaultValue?: string }[];
     }) {
       return request<{ message: string; sql: string }>(`/projects/${projectId}/tables`, {
         method: 'POST',
         body: JSON.stringify(data),
+      });
+    },
+    renameTable(projectId: string, tableName: string, name: string) {
+      return request<{ message: string }>(`/projects/${projectId}/tables/${tableName}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
       });
     },
     dropTable(projectId: string, tableName: string) {

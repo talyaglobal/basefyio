@@ -15,6 +15,11 @@ export function formatCount(n: number | null | undefined): string {
   return Number(n).toLocaleString('tr-TR');
 }
 
+/** "1 row", "2 rows": the formatted count followed by the noun, pluralised with 's'. */
+export function countOf(n: number | null | undefined, noun: string): string {
+  return `${formatCount(n)} ${n === 1 ? noun : `${noun}s`}`;
+}
+
 /**
  * Solid-pill colour classes for a project status <Badge>. Active is our teal
  * (green/turquoise) accent; deactivated is neutral gray. Pass to Badge's

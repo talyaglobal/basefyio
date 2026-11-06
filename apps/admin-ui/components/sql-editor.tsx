@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { api } from '@/lib/api';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
+import { countOf } from '@/lib/utils';
 import type { SqlResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Play, Loader2, Trash2, Copy, Check, Plus, X, FileDown } from 'lucide-react';
@@ -33,9 +35,9 @@ function renderResultTable(
     );
   }
   return (
-    <div className="overflow-auto rounded-md border">
+    <div className="max-h-[55vh] overflow-auto rounded-md border">
       <table className="w-full text-sm">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-muted">
           <tr className="border-b bg-muted/50">
             {fields.map((field) => (
               <th key={field.name} className="px-4 py-2 text-left font-medium">
@@ -60,11 +62,40 @@ function renderResultTable(
   );
 }
 
+const DEFAULT_QUERY = 'SELECT NOW();';
+
+/**
+ * Open SQL tabs live in sessionStorage, which belongs to one browser tab. The
+ * localStorage copy only seeds a browser tab that has none yet; it is never
+ * read back after that, so two browser tabs cannot overwrite each other's query.
+ */
+function readSavedTabs(key: string): string | null {
+  for (const store of ['sessionStorage', 'localStorage'] as const) {
+    try {
+      const raw = window[store].getItem(key);
+      if (raw) return raw;
+    } catch {
+      // storage can be blocked; fall through to the next one
+    }
+  }
+  return null;
+}
+
+function writeSavedTabs(key: string, value: string) {
+  for (const store of ['sessionStorage', 'localStorage'] as const) {
+    try {
+      window[store].setItem(key, value);
+    } catch {
+      // best effort: quota or private mode
+    }
+  }
+}
+
 function createTab(index: number): SqlTab {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: `SQL ${index}`,
-    query: 'SELECT NOW();',
+    query: DEFAULT_QUERY,
     result: null,
     error: null,
   };
@@ -81,7 +112,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = readSavedTabs(storageKey);
       if (!raw) {
         const first = createTab(1);
         setTabs([first]);
@@ -106,7 +137,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   useEffect(() => {
     if (!activeTabId || tabs.length === 0) return;
-    localStorage.setItem(storageKey, JSON.stringify({ tabs, activeTabId }));
+    writeSavedTabs(storageKey, JSON.stringify({ tabs, activeTabId }));
   }, [tabs, activeTabId, storageKey]);
 
   const activeTab = useMemo(
@@ -151,7 +182,18 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     setActiveTabId(next.id);
   }
 
-  function closeTab(tabId: string) {
+  async function closeTab(tabId: string) {
+    const tab = tabs.find((t) => t.id === tabId);
+    const q = tab?.query.trim() ?? '';
+    if (tab && (tab.result || (q !== '' && q !== DEFAULT_QUERY))) {
+      const ok = await confirmDialog({
+        title: 'Close tab',
+        description: `Close "${tab.title}"? Its query and result will be lost.`,
+        confirmText: 'Close tab',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
       if (next.length === 0) {
@@ -196,6 +238,11 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
     }
     try {
       const data = await api.sql.execute(projectId, q, { page, limit: 100, countTotal: page === 1 });
+      // Only page 1 counts rows; later pages carry the count forward.
+      if (page > 1 && data.total == null && result?.total != null) {
+        data.total = result.total;
+        data.totalIsApprox = result.totalIsApprox;
+      }
       updateActiveTab((t) => ({ ...t, result: data, executedQuery: q }));
     } catch (err: any) {
       updateActiveTab((t) => ({ ...t, error: err.message }));
@@ -254,12 +301,12 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-md border bg-muted/30 p-1">
         {tabs.map((tab) => (
           <div
             key={tab.id}
             onClick={() => setActiveTabId(tab.id)}
-            className={`inline-flex cursor-pointer items-center gap-2 rounded px-2.5 py-1 text-xs ${
+            className={`inline-flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded px-2.5 py-1 text-xs ${
               tab.id === activeTabId ? 'bg-background font-medium' : 'text-muted-foreground hover:bg-muted'
             }`}
           >
@@ -300,7 +347,7 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                closeTab(tab.id);
+                void closeTab(tab.id);
               }}
               className="rounded p-0.5 hover:bg-muted"
               aria-label={`Close ${tab.title}`}
@@ -379,13 +426,13 @@ export function SqlEditor({ projectId }: SqlEditorProps) {
                   ? `${result.resultSets.length} statements`
                   : result.paginated && (result.total ?? null) !== null
                     ? `${result.total}${result.totalIsApprox ? '+' : ''} total · page ${result.page ?? 1}`
-                    : `${result.rowCount ?? 0} rows${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}
+                    : `${countOf(result.rowCount ?? 0, 'row')}${result.paginated ? ` (page ${result.page ?? 1})` : ''}`}
               </span>
               <span>{result.duration}ms</span>
               {result.paginated && (
                 <div className="flex items-center gap-1">
-                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || (result.page ?? 1) <= 1} onClick={() => goToPage((result.page ?? 1) - 1)}>Prev</Button>
-                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || ((result.rows?.length ?? 0) < (result.limit ?? 100))} onClick={() => goToPage((result.page ?? 1) + 1)}>Next</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || (result.page ?? 1) <= 1} title="Runs the query again for the previous page" onClick={() => goToPage((result.page ?? 1) - 1)}>Prev</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={runningTabId === activeTab?.id || ((result.rows?.length ?? 0) < (result.limit ?? 100))} title="Runs the query again for the next page" onClick={() => goToPage((result.page ?? 1) + 1)}>Next</Button>
                 </div>
               )}
             </div>

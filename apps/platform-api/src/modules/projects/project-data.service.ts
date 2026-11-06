@@ -26,6 +26,7 @@ export interface ColumnInfo {
   nullable: boolean;
   defaultValue: string | null;
   isPrimary: boolean;
+  isUnique?: boolean;
 }
 
 export interface ForeignKeyInfo {
@@ -269,7 +270,16 @@ export class ProjectDataService {
           c.data_type AS type,
           (c.is_nullable = 'YES') AS nullable,
           c.column_default AS "defaultValue",
-          COALESCE(tc.constraint_type = 'PRIMARY KEY', false) AS "isPrimary"
+          COALESCE(tc.constraint_type = 'PRIMARY KEY', false) AS "isPrimary",
+          EXISTS (
+            SELECT 1 FROM pg_index i
+            JOIN pg_class pt ON pt.oid = i.indrelid
+            JOIN pg_namespace pn ON pn.oid = pt.relnamespace
+            JOIN pg_attribute pa ON pa.attrelid = pt.oid AND pa.attnum = i.indkey[0]
+            WHERE pn.nspname = c.table_schema AND pt.relname = c.table_name
+              AND pa.attname = c.column_name
+              AND i.indisunique AND NOT i.indisprimary AND i.indnatts = 1
+          ) AS "isUnique"
         FROM information_schema.columns c
         LEFT JOIN information_schema.key_column_usage kcu
           ON kcu.table_name = c.table_name
@@ -477,7 +487,7 @@ export class ProjectDataService {
     projectId: string,
     ownerId: string | undefined,
     tableName: string,
-    columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; defaultValue?: string }[],
+    columns: { name: string; type: string; nullable: boolean; isPrimary: boolean; isUnique?: boolean; defaultValue?: string }[],
   ) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
       throw new BadRequestException('Invalid table name');
@@ -518,6 +528,7 @@ export class ProjectDataService {
           def += ` DEFAULT '${safe}'`;
         }
       }
+      if (col.isUnique && !col.isPrimary) def += ' UNIQUE';
       return def;
     });
 
@@ -553,6 +564,29 @@ export class ProjectDataService {
     try {
       await client.query(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
       return { message: `Table "${tableName}" dropped` };
+    } finally {
+      client.release();
+      await pool.end();
+    }
+  }
+
+  async renameTable(projectId: string, ownerId: string | undefined, tableName: string, newName: string) {
+    this.validateTableName(tableName);
+    this.validateTableName(newName);
+    if (Buffer.byteLength(newName) > 63) {
+      throw new BadRequestException('Table name must be at most 63 characters');
+    }
+    if (newName === tableName) return { message: `Table "${tableName}" unchanged` };
+
+    const { pool } = await this.getProjectPool(projectId, ownerId);
+    const client = await pool.connect();
+    try {
+      await client.query(`ALTER TABLE "${tableName}" RENAME TO "${newName}"`);
+      return { message: `Table "${tableName}" renamed to "${newName}"` };
+    } catch (err: any) {
+      if (err?.code === '42P07') throw new BadRequestException(`A table named "${newName}" already exists`);
+      if (err?.code === '42P01') throw new BadRequestException(`Table "${tableName}" does not exist`);
+      throw new BadRequestException(`Failed to rename table: ${err.message}`);
     } finally {
       client.release();
       await pool.end();
@@ -1012,6 +1046,26 @@ export class ProjectDataService {
           statements.push(
             `ALTER TABLE "${tableName}" ALTER COLUMN "${columnName}" SET DEFAULT ${defaultExpr}`,
           );
+        }
+      }
+
+      if (changes.isUnique === true) {
+        statements.push(`ALTER TABLE "${tableName}" ADD UNIQUE ("${columnName}")`);
+      } else if (changes.isUnique === false) {
+        const found = await client.query(
+          `SELECT con.conname FROM pg_constraint con
+             JOIN pg_class t ON t.oid = con.conrelid
+             JOIN pg_namespace n ON n.oid = t.relnamespace
+             JOIN pg_attribute a ON a.attrelid = t.oid AND a.attname = $2
+            WHERE con.contype = 'u' AND t.relname = $1 AND n.nspname = ANY (current_schemas(false))
+              AND con.conkey = ARRAY[a.attnum]`,
+          [tableName, columnName],
+        );
+        if (found.rows.length === 0) {
+          throw new Error('this column is unique through a plain index, not a constraint; drop that index under Database > Indexes');
+        }
+        for (const row of found.rows) {
+          statements.push(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${String(row.conname).replace(/"/g, '""')}"`);
         }
       }
 

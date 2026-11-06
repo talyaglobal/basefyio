@@ -210,7 +210,10 @@ export class SqlService implements OnModuleDestroy {
 
     const trimmed = query.replace(/--[^\n]*/g, '').trim();
     const leading = trimmed.toUpperCase();
-    const isSelectShape = leading.startsWith('SELECT') || leading.startsWith('WITH');
+    // A WITH that writes (INSERT/UPDATE/DELETE/MERGE in a CTE) must run once: the
+    // pager re-runs the statement for every page, which would repeat the write.
+    const writesInCte = leading.startsWith('WITH') && /\b(INSERT|UPDATE|DELETE|MERGE)\b/.test(leading);
+    const isSelectShape = (leading.startsWith('SELECT') || leading.startsWith('WITH')) && !writesInCte;
     const page = Math.max(1, opts?.page ?? 1);
     const limit = Math.min(Math.max(1, opts?.limit ?? 100), 1000);
     const offset = (page - 1) * limit;

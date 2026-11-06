@@ -25,6 +25,21 @@ const categoryColors: Record<FieldCategory, string> = {
   'Binary': 'text-rose-500',
 };
 
+/**
+ * Substring ranking instead of cmdk's default fuzzy match: with fuzzy matching
+ * "bool" scattered across the description of Big Serial and ranked it first, so
+ * Enter picked the wrong type. Names beat descriptions; a miss hides the item.
+ */
+function typeFilter(value: string, search: string): number {
+  const q = search.trim().toLowerCase();
+  if (!q) return 1;
+  const [label, pgType, description] = value.toLowerCase().split('|');
+  if (label.startsWith(q)) return 1;
+  if (pgType.startsWith(q)) return 0.9;
+  if (label.includes(q) || pgType.includes(q)) return 0.6;
+  return description.includes(q) ? 0.2 : 0;
+}
+
 export function FieldTypeSelector({ value, onValueChange, className, compact }: FieldTypeSelectorProps) {
   const [open, setOpen] = React.useState(false);
   const selected = getFieldType(value);
@@ -60,7 +75,7 @@ export function FieldTypeSelector({ value, onValueChange, className, compact }: 
           sideOffset={4}
           align="start"
         >
-          <Command className="w-full bg-popover">
+          <Command className="w-full bg-popover" filter={typeFilter}>
             <div className="flex items-center border-b bg-popover px-3">
               <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
               <Command.Input
@@ -118,7 +133,7 @@ function TypeItem({
   const Icon = fieldType.icon;
   return (
     <Command.Item
-      value={`${fieldType.label} ${fieldType.description}`}
+      value={`${fieldType.label}|${fieldType.value}|${fieldType.description}`}
       onSelect={onSelect}
       className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
     >

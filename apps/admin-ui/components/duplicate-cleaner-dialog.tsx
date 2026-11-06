@@ -62,8 +62,10 @@ export function DuplicateCleanerDialog({
     setPreviewCount(null);
     setPreviewCapped(false);
     setColSearch('');
-    const pk = columns.filter((c) => c.isPrimary).map((c) => c.name);
-    setSelectedCols(new Set(pk.length > 0 ? pk : []));
+    // A primary key is unique by definition, so keying on it always previews 0.
+    // Start from "every other column match": rows that differ only by their key.
+    const nonPk = columns.filter((c) => !c.isPrimary).map((c) => c.name);
+    setSelectedCols(new Set(nonPk.length > 0 ? nonPk : columns.map((c) => c.name)));
   }, [open, tableName, columns]);
 
   function toggleCol(name: string) {
@@ -129,7 +131,7 @@ export function DuplicateCleanerDialog({
         schema,
       );
       const n = res.deleted ?? 0;
-      toast.success(n === 0 ? 'No duplicate rows to remove.' : `Removed ${n} duplicate row(s).`);
+      toast.success(n === 0 ? 'No duplicate rows to remove.' : `Removed ${n} duplicate ${n === 1 ? 'row' : 'rows'}.`);
       onCompleted();
       onOpenChange(false);
     } catch (err: any) {
@@ -224,26 +226,26 @@ export function DuplicateCleanerDialog({
               )}
             </div>
           </div>
-          {previewCount !== null ? (
-            <p className="text-sm text-muted-foreground">
-              Preview:{' '}
-              {previewCapped ? (
-                <>
-                  <span className="font-medium text-foreground">More than 100,000</span> duplicate
-                  rows (exact count not computed for very large tables). Removal still runs in
-                  batches.
-                </>
-              ) : (
-                <>
-                  <span className="font-medium text-foreground">
-                    {previewCount.toLocaleString('en-US')}
-                  </span>{' '}
-                  row{previewCount === 1 ? '' : 's'} would be deleted.
-                </>
-              )}
-            </p>
-          ) : null}
         </div>
+        {previewCount !== null ? (
+          <p className="border-t border-border bg-muted/10 px-6 py-3 text-sm text-muted-foreground">
+            Preview:{' '}
+            {previewCapped ? (
+              <>
+                <span className="font-medium text-foreground">More than 100,000</span> duplicate
+                rows (exact count not computed for very large tables). Removal still runs in
+                batches.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  {previewCount.toLocaleString('en-US')}
+                </span>{' '}
+                row{previewCount === 1 ? '' : 's'} would be deleted.
+              </>
+            )}
+          </p>
+        ) : null}
 
         <DialogFooter className="flex flex-col gap-2 border-t border-border bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

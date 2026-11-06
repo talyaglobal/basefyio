@@ -161,9 +161,10 @@ Secret keys (`bf_secret_…`) have the service key's rights and, like it, are ac
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
 | GET | `/api/projects/:projectId/tables` | service | tables with `name`, `schema`, `rowCount` |
-| POST | `/api/projects/:projectId/tables` | service | create a table — `{ name, columns: [{ name, type, nullable, isPrimary, defaultValue? }] }` |
+| POST | `/api/projects/:projectId/tables` | service | create a table — `{ name, columns: [{ name, type, nullable, isPrimary, isUnique?, defaultValue? }] }` |
+| PATCH | `/api/projects/:projectId/tables/:tableName` | service | rename a table — `{ name }` (400 when the name is taken or longer than 63 characters) |
 | DELETE | `/api/projects/:projectId/tables/:tableName` | service | drop a table |
-| GET | `/api/projects/:projectId/tables/:tableName/columns` | service | `?schema=` — column definitions |
+| GET | `/api/projects/:projectId/tables/:tableName/columns` | service | `?schema=` — column definitions (`name`, `type`, `nullable`, `defaultValue`, `isPrimary`, `isUnique`) |
 | POST | `/api/projects/:projectId/tables/:tableName/columns` | service | add a column — `{ name, type, nullable, defaultValue?, isUnique? }` |
 | PUT | `/api/projects/:projectId/tables/:tableName/columns/:columnName` | service | alter a column — `{ name?, type?, nullable?, defaultValue?, isUnique? }` |
 | DELETE | `/api/projects/:projectId/tables/:tableName/columns/:columnName` | service | drop a column |

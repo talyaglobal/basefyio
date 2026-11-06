@@ -139,6 +139,22 @@ describe('SqlService.execute — values travel apart from the statement', () => 
     expect(text).toContain('$1');
   });
 
+  it('runs a data-modifying WITH once instead of re-running it for every page', async () => {
+    const { svc, client } = harness();
+
+    await svc.execute('p1', 'WITH moved AS (DELETE FROM t RETURNING *) SELECT * FROM moved', 'u1', { page: 2 });
+
+    expect(client.query.mock.calls[0][0]).not.toContain('_bf_paged');
+  });
+
+  it('still pages a read-only WITH, even when a column is called updated_at', async () => {
+    const { svc, client } = harness();
+
+    await svc.execute('p1', 'WITH x AS (SELECT updated_at FROM t) SELECT * FROM x', 'u1');
+
+    expect(client.query.mock.calls[0][0]).toContain('_bf_paged');
+  });
+
   it('refuses parameters with a multi-statement script, before touching the database', async () => {
     const { svc, client } = harness();
 

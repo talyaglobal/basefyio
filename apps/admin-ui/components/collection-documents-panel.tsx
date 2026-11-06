@@ -9,7 +9,7 @@ import type { DocumentRecord, DocumentListResult } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cn, formatCount } from '@/lib/utils';
+import { cn, countOf, formatCount } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -199,7 +199,16 @@ function EditDocumentDialog({
 
 // ── Collection Documents Panel ──────────────────────────────
 
-export function CollectionDocumentsPanel({ projectId, collectionName }: { projectId: string; collectionName: string }) {
+export function CollectionDocumentsPanel({
+  projectId,
+  collectionName,
+  onTotalChange,
+}: {
+  projectId: string;
+  collectionName: string;
+  /** Called with the unfiltered document count so the sidebar badge stays current. */
+  onTotalChange?: (total: number) => void;
+}) {
   const [docs, setDocs] = useState<DocumentListResult | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [page, setPage] = useState(0); // offset-based
@@ -283,6 +292,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
         offset: page * LIMIT,
       });
       setDocs(result);
+      if (!appliedFilter) onTotalChange?.(result.total);
       setSelectedDocs(new Set());
     } catch (err: any) {
       toast.error(err.message);
@@ -382,7 +392,7 @@ export function CollectionDocumentsPanel({ projectId, collectionName }: { projec
       {/* Header */}
       <div className="flex items-center justify-between border-b bg-muted/20 px-4 py-1.5">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span>{docs?.total ?? 0} document(s)</span>
+          <span>{countOf(docs?.total ?? 0, 'document')}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>
