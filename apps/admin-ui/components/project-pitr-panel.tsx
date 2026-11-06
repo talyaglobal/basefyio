@@ -16,9 +16,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { History, Loader2, RotateCcw, TriangleAlert } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 function fmt(ts: string | null) {
-  return ts ? new Date(ts).toLocaleString() : '—';
+  return ts ? formatDateTime(ts) : '—';
 }
 
 /** Format an ISO instant for a `datetime-local` input, in the viewer's timezone. */
@@ -80,7 +81,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
       if (res.exact === false) {
         toast.warning(res.message);
       } else {
-        toast.success(`Database recovered to ${new Date(res.restoredTo).toLocaleString()}`);
+        toast.success(`Database recovered to ${formatDateTime(res.restoredTo)}`);
       }
       setConfirmOpen(false);
       setConfirmText('');
@@ -192,7 +193,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
             </DialogTitle>
             <DialogDescription>
               This replaces the current contents of the database with its state at{' '}
-              <strong>{target ? new Date(target).toLocaleString() : '—'}</strong>. Anything written
+              <strong>{target ? formatDateTime(target) : '—'}</strong>. Anything written
               after that moment is lost. Consider exporting a backup first.
             </DialogDescription>
           </DialogHeader>

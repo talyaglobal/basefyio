@@ -47,12 +47,13 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 function fmtTs(ts?: number | null) {
-  return ts ? new Date(ts).toLocaleString() : '—';
+  return ts ? formatDateTime(ts) : '—';
 }
 function fmtDateOnly(ts?: number | null) {
-  return ts ? new Date(ts).toLocaleDateString() : '—';
+  return ts ? formatDate(ts) : '—';
 }
 
 interface ProjectAuthProps {

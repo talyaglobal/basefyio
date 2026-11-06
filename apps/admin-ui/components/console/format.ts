@@ -31,7 +31,7 @@ export function formatCount(n: number | null | undefined): string {
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function timeAgo(iso: string | null | undefined): string {
@@ -45,5 +45,5 @@ export function timeAgo(iso: string | null | undefined): string {
 
 export function monthLabel(isoMonth: string): string {
   const [y, m] = isoMonth.slice(0, 7).split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }

@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useExportProgress } from '@/lib/export-progress-context';
 import { ProjectPitrPanel } from '@/components/project-pitr-panel';
 import { ProjectBackupHealthPanel } from '@/components/project-backup-health-panel';
+import { formatDateTime } from '@/lib/format';
 
 /** Human-readable byte size (small backups would round to "0.00 MB" otherwise). */
 function fmtBytes(bytes: number): string {
@@ -380,7 +381,7 @@ export default function ProjectExportPage() {
                   {copy?.status === 'UPLOADED' && (
                     <span
                       className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                      title={`Copied off-site ${new Date(copy.createdAt).toLocaleString()}${copy.encrypted ? ' (encrypted)' : ''}`}
+                      title={`Copied off-site ${formatDateTime(copy.createdAt)}${copy.encrypted ? ' (encrypted)' : ''}`}
                     >
                       Off-site
                     </span>
@@ -388,7 +389,7 @@ export default function ProjectExportPage() {
                   {verdict?.status === 'PASSED' && (
                     <span
                       className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                      title={`Restored cleanly in a throwaway database ${new Date(verdict.finishedAt ?? verdict.startedAt).toLocaleString()}`}
+                      title={`Restored cleanly in a throwaway database ${formatDateTime(verdict.finishedAt ?? verdict.startedAt)}`}
                     >
                       Verified
                     </span>
@@ -403,7 +404,7 @@ export default function ProjectExportPage() {
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {fmtBytes(b.size)} • {new Date(b.lastModified).toLocaleString()}
+                  {fmtBytes(b.size)} • {formatDateTime(b.lastModified)}
                   {b.kind === 'auto' && ' • daily backup, kept 7 days'}
                 </p>
               </div>

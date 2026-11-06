@@ -41,6 +41,7 @@ import { ProjectImportLogCard } from '@/components/project-import-log-card';
 import { useProject } from '@/contexts/project-context';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
+import { formatDateTime } from '@/lib/format';
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -398,7 +399,7 @@ export function ProjectDetail({ project }: ProjectDetailProps) {
             <p className="mt-1 text-muted-foreground">{project.description}</p>
           )}
           <p className="mt-1 text-xs text-muted-foreground">
-            Created {new Date(project.createdAt).toLocaleString()}
+            Created {formatDateTime(project.createdAt)}
           </p>
         </div>
         <div className="flex items-center gap-2">

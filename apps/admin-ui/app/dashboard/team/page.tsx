@@ -48,6 +48,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { formatDateTime } from '@/lib/format';
 
 function VercelLogo({ className }: { className?: string }) {
   return (
@@ -568,12 +569,12 @@ export default function TeamSettingsPage() {
                     Invite email: {inv.invitedEmail || 'N/A'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Invite date: {new Date(inv.createdAt).toLocaleString('tr-TR')}
+                    Invite date: {formatDateTime(inv.createdAt)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Valid until:{' '}
                     {inv.expiresAt
-                      ? new Date(inv.expiresAt).toLocaleString('tr-TR')
+                      ? formatDateTime(inv.expiresAt)
                       : 'N/A'}
                   </p>
                 </div>

@@ -15,7 +15,7 @@ export function TrendChart({ history }: { history: CapacityHistoryPoint[] }) {
   const [table, setTable] = useState(false);
   const data = history.map((h) => ({
     ts: h.ts,
-    label: new Date(h.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    label: new Date(h.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     capacity: h.maxProjects,
     capacityAllAwake: h.maxProjectsAllAwake,
     projects: h.currentProjects,

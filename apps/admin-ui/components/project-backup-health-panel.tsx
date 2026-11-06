@@ -6,9 +6,10 @@ import { CheckCircle2, CloudOff, CloudUpload, Loader2, ShieldCheck, TriangleAler
 import { api } from '@/lib/api';
 import type { BackupHealth, BackupVerification } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { formatDateTime } from '@/lib/format';
 
 function fmt(ts: string | null | undefined) {
-  return ts ? new Date(ts).toLocaleString() : '—';
+  return ts ? formatDateTime(ts) : '—';
 }
 
 function fmtDuration(ms: number | null | undefined) {

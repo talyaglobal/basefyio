@@ -2,6 +2,7 @@
 
 import type { ProjectActivityItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { formatDateTime } from '@/lib/format';
 
 const KIND_LABELS: Record<string, string> = {
   'supabase_import.completed': 'Supabase import',
@@ -90,7 +91,7 @@ export function ProjectActivityTimeline({
                 className="text-xs text-muted-foreground"
                 dateTime={item.createdAt}
               >
-                {new Date(item.createdAt).toLocaleString()}
+                {formatDateTime(item.createdAt)}
               </time>
               <span className="text-xs text-muted-foreground">
                 by {item.actorName || (item.userId ? item.userId : 'System')}

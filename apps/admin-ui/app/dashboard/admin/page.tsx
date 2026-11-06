@@ -53,6 +53,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
 import { QuickbooksTab } from '@/components/quickbooks-tab';
 import { InfraCostsTab } from '@/components/infra-costs-tab';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
@@ -835,8 +836,8 @@ export default function ManagementPage() {
               {/* Summary + URL inspection badges */}
               <div className="flex flex-wrap gap-2">
                 {sp && [
-                  { label: 'Clicks', value: sp.totals.clicks.toLocaleString(), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20' },
-                  { label: 'Impressions', value: sp.totals.impressions.toLocaleString(), color: 'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20' },
+                  { label: 'Clicks', value: sp.totals.clicks.toLocaleString('en-US'), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20' },
+                  { label: 'Impressions', value: sp.totals.impressions.toLocaleString('en-US'), color: 'from-indigo-500/20 to-indigo-600/10 border-indigo-500/20' },
                   { label: 'Avg CTR', value: `${sp.totals.ctr}%`, color: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20' },
                   { label: 'Avg Position', value: String(sp.totals.avgPosition), color: 'from-amber-500/20 to-amber-600/10 border-amber-500/20' },
                 ].map((c) => (
@@ -1105,7 +1106,7 @@ export default function ManagementPage() {
             const fmtSummary = (k: string, v: number) => {
               if (k === 'bounceRate') return `${Math.round(v * 100)}%`;
               if (k === 'averageSessionDuration') return fmtDuration(v);
-              return v.toLocaleString();
+              return v.toLocaleString('en-US');
             };
             return (
             <div className="space-y-6">
@@ -1211,8 +1212,8 @@ export default function ManagementPage() {
                         {gaData.topPages.map((p) => (
                           <tr key={String(p.dimension)} className="border-b border-border/60 last:border-0">
                             <td className="max-w-[320px] truncate px-3 py-2 font-mono text-xs">{String(p.dimension)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.screenPageViews || 0).toLocaleString()}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.activeUsers || 0).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.screenPageViews || 0).toLocaleString('en-US')}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{Number(p.activeUsers || 0).toLocaleString('en-US')}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{fmtDuration(Number(p.averageSessionDuration || 0))}</td>
                           </tr>
                         ))}
@@ -1312,7 +1313,7 @@ export default function ManagementPage() {
                       { label: 'Open issues', value: distData.github.openIssues },
                     ].map((s) => (
                       <div key={s.label} className="rounded-lg border p-3">
-                        <div className="text-xl font-semibold">{(s.value ?? 0).toLocaleString()}</div>
+                        <div className="text-xl font-semibold">{(s.value ?? 0).toLocaleString('en-US')}</div>
                         <div className="text-xs text-muted-foreground">{s.label}</div>
                       </div>
                     ))}
@@ -1321,7 +1322,7 @@ export default function ManagementPage() {
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       <div className="rounded-lg border p-3">
                         <div className="text-xl font-semibold">
-                          {(distData.github.clones?.count ?? 0).toLocaleString()}
+                          {(distData.github.clones?.count ?? 0).toLocaleString('en-US')}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Clones (14d) · {distData.github.clones?.uniques ?? 0} unique
@@ -1329,7 +1330,7 @@ export default function ManagementPage() {
                       </div>
                       <div className="rounded-lg border p-3">
                         <div className="text-xl font-semibold">
-                          {(distData.github.views?.count ?? 0).toLocaleString()}
+                          {(distData.github.views?.count ?? 0).toLocaleString('en-US')}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Views (14d) · {distData.github.views?.uniques ?? 0} unique
@@ -1378,7 +1379,7 @@ export default function ManagementPage() {
                           ].map((s) => (
                             <div key={s.label}>
                               <div className="text-lg font-semibold">
-                                {(s.value ?? 0).toLocaleString()}
+                                {(s.value ?? 0).toLocaleString('en-US')}
                               </div>
                               <div className="text-xs text-muted-foreground">{s.label}</div>
                             </div>
@@ -1510,7 +1511,7 @@ export default function ManagementPage() {
                               </span>
                               {sub.cancelAtPeriodEnd && <span className="ml-1 text-xs text-amber-400">canceling</span>}
                             </td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground">{sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : '—'}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">{sub.currentPeriodEnd ? formatDate(sub.currentPeriodEnd) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1537,7 +1538,7 @@ export default function ManagementPage() {
                       <tbody>
                         {stripeData.recentCharges.slice(0, 20).map((c: any) => (
                           <tr key={c.id} className="border-b border-border/60 last:border-0">
-                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{new Date(c.created).toLocaleDateString()}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(c.created)}</td>
                             <td className="px-3 py-2 truncate max-w-[180px]">{c.customerName || c.customerEmail || '—'}</td>
                             <td className="px-3 py-2 text-right tabular-nums">
                               {fmt(c.amount)}
@@ -1596,7 +1597,7 @@ export default function ManagementPage() {
                                 {inv.status}
                               </span>
                             </td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{inv.created ? new Date(inv.created).toLocaleDateString() : '—'}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{inv.created ? formatDate(inv.created) : '—'}</td>
                             <td className="px-3 py-2">
                               <div className="flex gap-2">
                                 {inv.hostedUrl && (
@@ -1880,7 +1881,7 @@ export default function ManagementPage() {
                       {row.details || '-'}
                     </td>
                     <td className="px-2 py-2 text-muted-foreground">
-                      {new Date(row.createdAt).toLocaleString()}
+                      {formatDateTime(row.createdAt)}
                     </td>
                   </tr>
                 ))
@@ -2014,7 +2015,7 @@ export default function ManagementPage() {
                     })()}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">
-                    {new Date(u.createdAt).toLocaleDateString()}
+                    {formatDate(u.createdAt)}
                   </td>
                   <td className="px-2 py-2">
                     <select
@@ -2087,7 +2088,7 @@ export default function ManagementPage() {
                         <>
                           <span
                             className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                            title={`Locked after too many failed logins until ${new Date(u.lockedUntil).toLocaleString()}`}
+                            title={`Locked after too many failed logins until ${formatDateTime(u.lockedUntil)}`}
                           >
                             Locked
                           </span>
@@ -2508,12 +2509,12 @@ export default function ManagementPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground" title={t.organizationMigratedAt ? `Migrated ${new Date(t.organizationMigratedAt).toLocaleDateString()}` : 'Not migrated yet'}>
+                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground" title={t.organizationMigratedAt ? `Migrated ${formatDate(t.organizationMigratedAt)}` : 'Not migrated yet'}>
                     {t.publicId ?? '—'}
                     {!t.organizationMigratedAt && <span className="ml-1 text-amber-600">·</span>}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">
-                    {new Date(t.createdAt).toLocaleDateString()}
+                    {formatDate(t.createdAt)}
                   </td>
                   <td className="px-2 py-2">
                     <Button
@@ -2562,7 +2563,7 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Audit Logs</h2>
           <p className="text-xs text-muted-foreground">
-            {auditLoading ? 'Loading...' : `${auditTotal.toLocaleString()} records · Page ${auditPage} of ${auditTotalPages}`}
+            {auditLoading ? 'Loading...' : `${auditTotal.toLocaleString('en-US')} records · Page ${auditPage} of ${auditTotalPages}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2653,7 +2654,7 @@ export default function ManagementPage() {
                 auditLogs.map((log) => (
                   <tr key={log.id} className="border-b last:border-0">
                     <td className="px-2 py-2 text-muted-foreground">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {formatDateTime(log.createdAt)}
                     </td>
                     <td className="px-2 py-2">
                       <span
@@ -2715,7 +2716,7 @@ export default function ManagementPage() {
         {auditTotalPages > 1 && (
           <div className="flex items-center justify-between pt-2">
             <p className="text-xs text-muted-foreground">
-              Showing {((auditPage - 1) * AUDIT_PAGE_SIZE) + 1}–{Math.min(auditPage * AUDIT_PAGE_SIZE, auditTotal)} of {auditTotal.toLocaleString()}
+              Showing {((auditPage - 1) * AUDIT_PAGE_SIZE) + 1}–{Math.min(auditPage * AUDIT_PAGE_SIZE, auditTotal)} of {auditTotal.toLocaleString('en-US')}
             </p>
             <div className="flex items-center gap-1">
               <Button
@@ -2813,7 +2814,7 @@ export default function ManagementPage() {
                           ? `${getDisplayName({ firstName: actor.firstName, lastName: actor.lastName, email: actor.email })}${actor.email ? ` (${actor.email})` : ''}`
                           : log.actorUserId)}
                     </p>
-                    <p><span className="font-medium">When:</span> {new Date(log.createdAt).toLocaleString()}</p>
+                    <p><span className="font-medium">When:</span> {formatDateTime(log.createdAt)}</p>
                     <p><span className="font-medium">Team:</span> {teamName || '-'} {teamId ? `(${teamId})` : ''}</p>
                     <p><span className="font-medium">Project:</span> {projectName || '-'} {projectId ? `(${projectId})` : ''}</p>
                     <p>

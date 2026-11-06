@@ -191,7 +191,7 @@ export function SimulationPanel({ overview, scenarios, onScenariosChange }: { ov
                         </span>
                         <span className="tabular-nums text-muted-foreground">
                           {fmtUnit(r.usage, r.unit)} / {fmtUnit(r.ceiling, r.unit)} · {Math.round(r.utilization * 100)} %
-                          {r.saturatesAt !== null && <> · full at ~{r.saturatesAt.toLocaleString()} projects</>}
+                          {r.saturatesAt !== null && <> · full at ~{r.saturatesAt.toLocaleString('en-US')} projects</>}
                         </span>
                       </div>
                       <CapacityMeter utilization={r.utilization} target={r.target} className="mt-1" label={`${r.label} ${Math.round(r.utilization * 100)} %`} />

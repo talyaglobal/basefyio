@@ -46,7 +46,7 @@ function needsAttention(t: TableReconciliation): boolean {
 const rank: Record<RowKind, number> = { mismatch: 0, uncounted: 1, estimated: 2, match: 3 };
 
 function fmt(n: number | null | undefined): string {
-  return n == null ? '—' : n.toLocaleString();
+  return n == null ? '—' : n.toLocaleString('en-US');
 }
 
 export interface ImportReconciliationTableProps {
@@ -149,9 +149,9 @@ export function ImportReconciliationTable({
                       <span className="inline-flex items-center gap-1 text-amber-800 dark:text-amber-400">
                         <AlertTriangle className="h-3 w-3 shrink-0" />
                         {diff != null && diff > 0
-                          ? `${diff.toLocaleString()} missing`
+                          ? `${diff.toLocaleString('en-US')} missing`
                           : diff != null
-                            ? `${Math.abs(diff).toLocaleString()} extra`
+                            ? `${Math.abs(diff).toLocaleString('en-US')} extra`
                             : 'differs'}
                       </span>
                     )}

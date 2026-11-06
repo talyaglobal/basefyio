@@ -200,7 +200,7 @@ export default function ProjectLogsPage() {
       <section className="rounded-lg border bg-card p-5">
         <h2 className="text-sm font-semibold text-foreground">Activity</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Newest first. {totalActivity.toLocaleString('tr-TR')}{' '}
+          Newest first. {totalActivity.toLocaleString('en-US')}{' '}
           {totalActivity === 1 ? 'event' : 'events'}{' '}recorded. Use the page
           controls below to scroll back through the project&apos;s full history.
         </p>
@@ -214,7 +214,7 @@ export default function ProjectLogsPage() {
           <p className="text-xs text-muted-foreground">
             Showing {pagedActivity.length} of {activity.length} on this page
             {' · '}
-            {totalActivity.toLocaleString('tr-TR')} total
+            {totalActivity.toLocaleString('en-US')} total
           </p>
         </div>
         <div className="relative mt-4">

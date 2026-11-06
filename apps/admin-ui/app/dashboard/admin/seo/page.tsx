@@ -19,6 +19,7 @@ import { getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { SeoAuditResult, Severity } from '@/lib/seo-audit';
+import { formatDateTime } from '@/lib/format';
 
 const SEVERITY_STYLE: Record<Severity, { label: string; chip: string; icon: typeof AlertTriangle }> = {
   high: {
@@ -188,7 +189,7 @@ export default function SeoManagerPage() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-mono text-foreground">{result.siteUrl}</span>
             <span>·</span>
-            <span>checked {new Date(result.checkedAt).toLocaleString()}</span>
+            <span>checked {formatDateTime(result.checkedAt)}</span>
             <span>·</span>
             <span>slowest page {result.pages.slowestMs} ms</span>
           </div>

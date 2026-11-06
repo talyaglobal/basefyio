@@ -80,6 +80,7 @@ import type { Team } from '@/lib/types';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
+import { formatDateTime } from '@/lib/format';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
@@ -152,17 +153,6 @@ interface ProjectsState {
 
 type ProjectsViewMode = 'grid' | 'list';
 const PROJECTS_VIEW_MODE_KEY = 'basefyio_projects_view_mode';
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  return date.toLocaleString('tr-TR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 /** Bytes for sorting; missing or invalid sizes sort last in both directions. */
 function projectSizeSortKey(bytes?: number | null): number {
@@ -1398,17 +1388,16 @@ export default function ProjectsPage() {
                             if (!raw) return 'Deleted';
                             const d = new Date(raw);
                             const deletedMs = d.getTime();
-                            const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-                            const dateStr = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const dateTime = formatDateTime(d);
                             const expiresAt = deletedMs + 24 * 60 * 60 * 1000;
                             const remaining = expiresAt - Date.now();
                             if (remaining <= 0) {
-                              return `Deleted ${dateStr} ${timeStr} · Retention ended — auto-removal within 1 hour (or refresh)`;
+                              return `Deleted ${dateTime} · Retention ended — auto-removal within 1 hour (or refresh)`;
                             }
                             const hours = Math.floor(remaining / 3600000);
                             const mins = Math.floor((remaining % 3600000) / 60000);
                             const rem = hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`;
-                            return `Deleted ${dateStr} ${timeStr} · ${rem} until purge`;
+                            return `Deleted ${dateTime} · ${rem} until purge`;
                           })()}
                         </p>
                         {canManage ? (
@@ -1524,9 +1513,7 @@ export default function ProjectsPage() {
                             const raw = project.deactivatedAt ?? project.updatedAt;
                             if (!raw) return 'Deactivated · data kept, activate any time';
                             const d = new Date(raw);
-                            const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                            return `Deactivated ${dateStr} ${timeStr} · data kept, activate any time`;
+                            return `Deactivated ${formatDateTime(d)} · data kept, activate any time`;
                           })()}
                         </p>
                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>

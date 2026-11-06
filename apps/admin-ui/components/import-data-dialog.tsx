@@ -548,14 +548,14 @@ export function ImportDataDialog(props: ImportDataDialogProps) {
                       return (
                         <>
                           {batchFiles.length} files · {inspect.format.toUpperCase()} · ~
-                          {approxTotalRows.toLocaleString()} rows · {sizeMb} MB
+                          {approxTotalRows.toLocaleString('en-US')} rows · {sizeMb} MB
                         </>
                       );
                     })()
                   : (
                       <>
                         {inspect.filename} · {inspect.format.toUpperCase()} ·{' '}
-                        {inspect.totalRowsApprox.toLocaleString()} rows
+                        {inspect.totalRowsApprox.toLocaleString('en-US')} rows
                       </>
                     )}
               </>
@@ -805,7 +805,7 @@ function ConfigureStep(props: {
               {props.tables.map((t) => (
                 <SelectItem key={`${t.schema}.${t.name}`} value={t.name}>
                   {t.schema}.{t.name}{' '}
-                  <span className="text-muted-foreground">({t.rowCount.toLocaleString()})</span>
+                  <span className="text-muted-foreground">({t.rowCount.toLocaleString('en-US')})</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1079,7 +1079,7 @@ function DoneStep(props: {
             </span>
           </div>
           <div className="text-muted-foreground">Source files</div>
-          <div className="text-right">{props.fileCount.toLocaleString('tr-TR')}</div>
+          <div className="text-right">{props.fileCount.toLocaleString('en-US')}</div>
           <div className="text-muted-foreground">Conflict mode</div>
           <div className="text-right">{conflictModeLabel(props.conflictMode)}</div>
           <div className="text-muted-foreground">Duration</div>
@@ -1088,7 +1088,7 @@ function DoneStep(props: {
             <>
               <div className="text-muted-foreground">Throughput</div>
               <div className="text-right">
-                {throughput.toLocaleString('tr-TR')} rows/sec
+                {throughput.toLocaleString('en-US')} rows/sec
               </div>
             </>
           )}
@@ -1120,7 +1120,7 @@ function DoneStep(props: {
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Inserted vs. read</span>
-            <span>{successRate.toLocaleString('tr-TR')}%</span>
+            <span>{successRate.toLocaleString('en-US')}%</span>
           </div>
           <div className="flex h-2 overflow-hidden rounded-full bg-muted">
             <div
@@ -1152,7 +1152,7 @@ function DoneStep(props: {
             className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
           >
             <Download className="h-4 w-4" />
-            Download error report ({props.rowsBad.toLocaleString('tr-TR')} rows)
+            Download error report ({props.rowsBad.toLocaleString('en-US')} rows)
           </a>
         </div>
       )}
@@ -1192,7 +1192,7 @@ function Stat(props: { label: string; value: number; tone?: 'ok' | 'warn' | 'inf
   return (
     <div className="rounded-md border bg-muted/30 px-3 py-2">
       <div className={`text-base font-semibold ${toneClass}`}>
-        {props.value.toLocaleString('tr-TR')}
+        {props.value.toLocaleString('en-US')}
       </div>
       <div className="text-xs text-muted-foreground">{props.label}</div>
     </div>

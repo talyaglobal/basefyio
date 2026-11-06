@@ -7,6 +7,7 @@ import type { OrganizationProject } from '@/lib/types';
 import { useOrganization } from '@/contexts/organization-context';
 import { cn, projectStatusBadgeClass, projectStatusLabel } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { formatDate } from '@/lib/format';
 
 export default function OrganizationProjectsPage() {
   const { organization } = useOrganization();
@@ -69,7 +70,7 @@ export default function OrganizationProjectsPage() {
                 </span>
               </td>
               <td className="px-4 py-2 text-muted-foreground">{p.databaseType === 'NOSQL' ? 'Document' : 'Relational'}</td>
-              <td className="px-4 py-2 text-muted-foreground">{new Date(p.createdAt).toLocaleDateString()}</td>
+              <td className="px-4 py-2 text-muted-foreground">{formatDate(p.createdAt)}</td>
             </tr>
           ))}
         </tbody>

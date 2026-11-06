@@ -1,0 +1,39 @@
+// One locale for every date and number the UI prints, whatever the browser language is.
+// The interface is English, so dates read "Oct 21, 2026" and numbers "1,000".
+const UI_LOCALE = 'en-US';
+
+type DateInput = string | number | Date | null | undefined;
+
+function toDate(value: DateInput): Date | null {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const dateFmt = new Intl.DateTimeFormat(UI_LOCALE, { year: 'numeric', month: 'short', day: 'numeric' });
+// Times always carry the viewer's time zone ("GMT+3"), so a stored UTC instant is never read as local.
+const dateTimeFmt = new Intl.DateTimeFormat(UI_LOCALE, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZoneName: 'short',
+});
+
+/** "Oct 21, 2026"; "—" for a missing or invalid date. */
+export function formatDate(value: DateInput): string {
+  const d = toDate(value);
+  return d ? dateFmt.format(d) : '—';
+}
+
+/** "Oct 21, 2026, 11:21 PM GMT+3"; "—" for a missing or invalid date. */
+export function formatDateTime(value: DateInput): string {
+  const d = toDate(value);
+  return d ? dateTimeFmt.format(d) : '—';
+}
+
+/** Digits grouped with commas ("1,000"). */
+export function formatNumber(n: number | null | undefined): string {
+  return n == null ? '—' : n.toLocaleString(UI_LOCALE);
+}

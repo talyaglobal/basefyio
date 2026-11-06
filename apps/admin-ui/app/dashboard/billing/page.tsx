@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ProjectCostsPanel } from '@/components/project-costs-panel';
 import type { TeamCostReport } from '@/lib/types';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -108,7 +109,7 @@ function formatBytes(bytesStr: string | number | null): string {
 
 function formatNumber(n: number | null): string {
   if (n === null) return 'Unlimited';
-  return n.toLocaleString();
+  return n.toLocaleString('en-US');
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -715,7 +716,7 @@ export default function BillingPage() {
             </div>
             {subscription?.cancelAtPeriodEnd && subscription.currentPeriodEnd && (
               <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
-                Cancels at end of period: {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                Cancels at end of period: {formatDate(subscription.currentPeriodEnd)}
               </p>
             )}
           </div>
@@ -804,7 +805,7 @@ export default function BillingPage() {
             </DialogDescription>
           </DialogHeader>
           {stripePromise ? (
-            <Elements stripe={stripePromise}>
+            <Elements stripe={stripePromise} options={{ locale: 'en' }}>
               <CardForm
                 teamId={activeTeamId}
                 onSuccess={() => {
@@ -1118,14 +1119,14 @@ export default function BillingPage() {
                       onClick={() => setSelectedInvoice(inv)}
                     >
                       <td className="py-3 pr-4 text-foreground">
-                        {new Date(inv.createdAt).toLocaleString()}
+                        {formatDateTime(inv.createdAt)}
                       </td>
                       <td className="py-3 pr-4 text-primary hover:underline">
                         {inv.stripeInvoiceId || inv.id.slice(0, 8)}
                       </td>
                       <td className="py-3 pr-4 text-muted-foreground">
                         {inv.periodStart && inv.periodEnd
-                          ? `${new Date(inv.periodStart).toLocaleDateString()} - ${new Date(inv.periodEnd).toLocaleDateString()}`
+                          ? `${formatDate(inv.periodStart)} - ${formatDate(inv.periodEnd)}`
                           : 'N/A'}
                       </td>
                       <td className="py-3 pr-4 text-foreground">
@@ -1202,7 +1203,7 @@ export default function BillingPage() {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Date</p>
-                    <p className="font-medium text-foreground">{new Date(selectedInvoice.createdAt).toLocaleString()}</p>
+                    <p className="font-medium text-foreground">{formatDateTime(selectedInvoice.createdAt)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Invoice ID</p>
@@ -1212,7 +1213,7 @@ export default function BillingPage() {
                     <p className="text-muted-foreground">Billing Period</p>
                     <p className="text-foreground">
                       {selectedInvoice.periodStart && selectedInvoice.periodEnd
-                        ? `${new Date(selectedInvoice.periodStart).toLocaleDateString()} - ${new Date(selectedInvoice.periodEnd).toLocaleDateString()}`
+                        ? `${formatDate(selectedInvoice.periodStart)} - ${formatDate(selectedInvoice.periodEnd)}`
                         : 'N/A'}
                     </p>
                   </div>
@@ -1336,7 +1337,7 @@ export default function BillingPage() {
                 )}
                 {upgradePreview.nextPaymentAt && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Next billing date: {new Date(upgradePreview.nextPaymentAt).toLocaleDateString()}
+                    Next billing date: {formatDate(upgradePreview.nextPaymentAt)}
                   </p>
                 )}
               </div>

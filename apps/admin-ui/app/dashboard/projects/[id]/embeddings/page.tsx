@@ -176,7 +176,7 @@ export default function EmbeddingsPage() {
     const res = await api.embeddings.setProvider(project.id, body);
     toast.success(
       res.reembed.queued
-        ? `Provider set to ${res.model}; re-embedding ${res.reembed.total.toLocaleString()} vectors`
+        ? `Provider set to ${res.model}; re-embedding ${res.reembed.total.toLocaleString('en-US')} vectors`
         : `Provider set to ${res.model}`,
     );
     setFormSeeded(false);
@@ -221,7 +221,7 @@ export default function EmbeddingsPage() {
     try {
       const res = await api.embeddings.reembed(project.id);
       toast.success(
-        res.queued ? `Re-embedding ${res.total.toLocaleString()} vectors` : 'Nothing to re-embed',
+        res.queued ? `Re-embedding ${res.total.toLocaleString('en-US')} vectors` : 'Nothing to re-embed',
       );
       await fetchStatus();
     } catch (err: any) {
@@ -307,7 +307,7 @@ export default function EmbeddingsPage() {
             {status.embeddingCount != null && (
               <Badge variant="secondary" className="gap-1.5">
                 <Sparkles className="h-3 w-3" />
-                {status.embeddingCount.toLocaleString()} embeddings
+                {status.embeddingCount.toLocaleString('en-US')} embeddings
               </Badge>
             )}
           </div>
@@ -337,10 +337,10 @@ export default function EmbeddingsPage() {
               )}
               <span>
                 {reembed.status === 'FAILED'
-                  ? `Re-embed failed after ${reembed.done.toLocaleString()} of ${reembed.total.toLocaleString()} vectors`
+                  ? `Re-embed failed after ${reembed.done.toLocaleString('en-US')} of ${reembed.total.toLocaleString('en-US')} vectors`
                   : reembed.status === 'QUEUED'
-                    ? `Re-embed queued (${reembed.total.toLocaleString()} vectors)`
-                    : `Re-embedding ${reembed.done.toLocaleString()} / ${reembed.total.toLocaleString()} vectors with ${reembed.model}`}
+                    ? `Re-embed queued (${reembed.total.toLocaleString('en-US')} vectors)`
+                    : `Re-embedding ${reembed.done.toLocaleString('en-US')} / ${reembed.total.toLocaleString('en-US')} vectors with ${reembed.model}`}
               </span>
             </div>
             {reembed.status === 'FAILED' && (
@@ -463,7 +463,7 @@ export default function EmbeddingsPage() {
         </div>
         {status?.pgvectorEnabled && (status.embeddingCount ?? 0) > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Changing the model re-embeds the {status.embeddingCount?.toLocaleString()} vectors this project
+            Changing the model re-embeds the {status.embeddingCount?.toLocaleString('en-US')} vectors this project
             already holds; you will be asked to confirm.
           </p>
         )}

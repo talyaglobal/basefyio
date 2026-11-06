@@ -34,6 +34,7 @@ import {
   ChevronRight,
   Loader2,
 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 const TRIGGER_TYPES: FlowTriggerType[] = ['manual', 'webhook', 'schedule'];
 const ACTION_TYPES: FlowActionType[] = ['log', 'http.request'];
@@ -229,7 +230,7 @@ function FlowCard({
                     {r.status}
                   </span>
                   <span className="text-muted-foreground">
-                    {new Date(r.createdAt).toLocaleString()}
+                    {formatDateTime(r.createdAt)}
                   </span>
                   {r.error && <span className="max-w-[40%] truncate text-red-500">{r.error}</span>}
                 </div>

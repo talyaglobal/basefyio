@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import type { ConsoleAlertFeed } from '@/lib/console-alert-types';
 import { timeAgo } from '@/components/console/format';
 import { cn } from '@/lib/utils';
+import { formatDateTime } from '@/lib/format';
 
 const POLL_MS = 60_000;
 
@@ -120,12 +121,7 @@ export function ConsoleAlertBar() {
                     <div className="text-sm font-semibold">{a.title}</div>
                     {a.detail && <div className="text-sm text-muted-foreground">{a.detail}</div>}
                     <div className="mt-1 text-xs text-muted-foreground" title={a.occurredAt}>
-                      {new Date(a.occurredAt).toLocaleString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
+                      {formatDateTime(a.occurredAt)}{' '}
                       · {timeAgo(a.occurredAt)} ·{' '}
                       {a.source === 'storage-autopilot' ? 'storage autopilot' : 'platform'}
                     </div>

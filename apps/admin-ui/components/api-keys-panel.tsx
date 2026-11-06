@@ -9,9 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { Check, Copy, Eye, KeyRound, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString() : 'never';
+  return iso ? formatDateTime(iso) : 'never';
 }
 
 async function copy(text: string, what: string) {

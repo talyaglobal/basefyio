@@ -30,6 +30,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 // ── helpers ──────────────────────────────────────────────
 
@@ -62,13 +63,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(d);
 }
 
 function copyToClipboard(text: string, label = 'URL') {

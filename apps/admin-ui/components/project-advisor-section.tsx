@@ -21,6 +21,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn, projectStatusLabel } from '@/lib/utils';
+import { formatDateTime } from '@/lib/format';
 
 type AdvisorCategory = 'SECURITY' | 'PERFORMANCE' | 'DATABASE' | 'AUTH' | 'INTEGRATIONS';
 
@@ -243,7 +244,7 @@ export function ProjectAdvisorSection({
           </p>
           <p className="mt-1.5 text-sm font-medium">
             {importLog?.completedAt
-              ? new Date(importLog.completedAt).toLocaleString()
+              ? formatDateTime(importLog.completedAt)
               : '—'}
           </p>
         </div>
@@ -290,7 +291,7 @@ export function ProjectAdvisorSection({
           </p>
           <p className="mt-1.5 text-sm font-medium">
             {importLog
-              ? `${importLog.database.tables} tables · ${importLog.database.rows.toLocaleString()} rows`
+              ? `${importLog.database.tables} tables · ${importLog.database.rows.toLocaleString('en-US')} rows`
               : '—'}
           </p>
         </div>

@@ -28,6 +28,7 @@ import {
   GitBranch,
   Globe,
   Key,
+  Menu,
   Link2,
   Plug,
   Radio,
@@ -161,6 +162,9 @@ export default function ProjectLayout({
   const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  // Below md the project menu is a drawer, closed until the menu button opens it.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => setMobileNavOpen(false), [pathname]);
   const autoLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const recoverProjectWithTeamSwitch = useCallback(
@@ -219,7 +223,8 @@ export default function ProjectLayout({
 
   const sidebarExpanded =
     sidebarMode === 'open' || (sidebarMode === 'auto' && autoExpanded);
-  const asideWidthPx = sidebarExpanded ? sidebarWidth : SIDEBAR_COLLAPSED_PX;
+  const showExpanded = sidebarExpanded || mobileNavOpen;
+  const asideWidthPx = showExpanded ? sidebarWidth : SIDEBAR_COLLAPSED_PX;
 
   const startResize = useCallback(
     (e: React.MouseEvent) => {
@@ -395,17 +400,22 @@ export default function ProjectLayout({
         isResizing && 'select-none',
       )}
     >
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMobileNavOpen(false)} aria-hidden />
+      )}
       <aside
         className={cn(
-          'h-full shrink-0',
+          'h-full shrink-0 md:w-[var(--aside-w)]',
           'border-r bg-card flex flex-col overflow-hidden',
           'transition-[width] duration-200 ease-out motion-reduce:transition-none',
+          'max-md:fixed max-md:bottom-0 max-md:left-0 max-md:top-[var(--header-h,3.5rem)] max-md:z-40 max-md:h-auto max-md:w-64 max-md:max-w-[85vw] max-md:shadow-xl',
+          !mobileNavOpen && 'max-md:hidden',
         )}
-        style={{ width: asideWidthPx }}
+        style={{ '--aside-w': `${asideWidthPx}px` } as React.CSSProperties}
         onMouseEnter={handleAsideEnter}
         onMouseLeave={handleAsideLeave}
       >
-        {sidebarExpanded ? (
+        {showExpanded ? (
           <>
             <div className="border-b p-4">
               <div className="flex items-center gap-2">
@@ -593,23 +603,40 @@ export default function ProjectLayout({
             aria-label="Resize sidebar"
             onMouseDown={startResize}
             className={cn(
-              'absolute right-0 top-0 z-20 h-full w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0',
+              'absolute right-0 top-0 z-20 h-full w-2 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 max-md:hidden',
               'hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             )}
           />
         )}
       </aside>
 
-      <div className="h-full min-h-0 min-w-0 flex-1 flex relative">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2 md:hidden">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5"
+          aria-label="Open project menu"
+          aria-expanded={mobileNavOpen}
+          onClick={() => setMobileNavOpen(true)}
+        >
+          <Menu className="h-4 w-4" />
+          Menu
+        </Button>
+        <span className="min-w-0 truncate text-sm font-medium">{project.name}</span>
+      </div>
+      <div className="relative flex min-h-0 min-w-0 flex-1">
         <main
           className={cn(
-            'h-full min-h-0 min-w-0 flex-1 p-6',
+            'h-full min-h-0 min-w-0 flex-1 p-3 md:p-6',
             (isLogsRoute || isFullHeightRoute) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
           )}
         >
           {children}
         </main>
         <ContextHelpPanel />
+      </div>
       </div>
     </div>
     </ProjectProvider>

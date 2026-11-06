@@ -21,6 +21,7 @@ import {
   Shield,
   Sparkles,
 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 export interface ProjectImportLogCardProps {
   importLog: ProjectSupabaseImportLog;
@@ -122,7 +123,7 @@ export function ProjectImportLogCard({
           </div>
           {importLog.completedAt && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Completed {new Date(importLog.completedAt).toLocaleString()}
+              Completed {formatDateTime(importLog.completedAt)}
             </p>
           )}
           {importLogFromBrowser && (
@@ -160,7 +161,7 @@ export function ProjectImportLogCard({
       </div>
 
       <p className="shrink-0 text-xs text-muted-foreground">
-        {importLog.database.rows.toLocaleString()} rows copied &middot; {importLog.storage.buckets}{' '}
+        {importLog.database.rows.toLocaleString('en-US')} rows copied &middot; {importLog.storage.buckets}{' '}
         storage bucket(s)
         {importLog.auth.skipped > 0 && (
           <>
@@ -175,7 +176,7 @@ export function ProjectImportLogCard({
           <p className="text-xs font-medium text-muted-foreground">
             Row counts against the source
             {showSync && sync?.completedAt
-              ? ` — last sync, ${new Date(sync.completedAt).toLocaleString()}`
+              ? ` — last sync, ${formatDateTime(sync.completedAt)}`
               : ''}
           </p>
           <ImportReconciliationTable

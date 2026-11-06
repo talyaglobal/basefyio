@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
+import { formatDateTime } from '@/lib/format';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
 
@@ -402,7 +403,7 @@ export default function FeedbacksPage() {
                   <div className="space-y-1 rounded border bg-background p-2">
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span>
-                        <strong>{node.user?.email ?? node.userId}</strong> · {new Date(node.createdAt).toLocaleString()}
+                        <strong>{node.user?.email ?? node.userId}</strong> · {formatDateTime(node.createdAt)}
                         {node.editedAt && <span className="text-muted-foreground"> · edited</span>}
                       </span>
                       <span className="flex items-center">
@@ -641,7 +642,7 @@ export default function FeedbacksPage() {
                         <strong>{fb.email}</strong>
                       </span>
                       <span>·</span>
-                      <span>{new Date(fb.createdAt).toLocaleString()}</span>
+                      <span>{formatDateTime(fb.createdAt)}</span>
                       {isRoot && fb.appVersion && (
                         <>
                           <span>·</span>
@@ -959,7 +960,7 @@ export default function FeedbacksPage() {
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-semibold">{item.user?.email ?? 'Unknown'}</span>
                     <span className="text-muted-foreground">·</span>
-                    <span className="text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</span>
+                    <span className="text-muted-foreground">{formatDateTime(item.createdAt)}</span>
                   </div>
                   <p className="mt-1 text-sm font-medium">{item.action.replaceAll('_', ' ')}</p>
                   {item.detail && <p className="text-xs text-muted-foreground">{item.detail}</p>}

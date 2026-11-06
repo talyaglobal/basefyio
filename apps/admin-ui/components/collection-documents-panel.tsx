@@ -29,6 +29,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 // ── Insert Document Dialog ──────────────────────────────────
 
@@ -478,7 +479,7 @@ export function CollectionDocumentsPanel({
                       <div className="flex items-center gap-2">
                         <code className="text-[10px] text-muted-foreground font-mono">{doc.id}</code>
                         <span className="text-[10px] text-muted-foreground">
-                          {new Date(doc.created_at).toLocaleString()}
+                          {formatDateTime(doc.created_at)}
                         </span>
                       </div>
                       {isExpanded ? (

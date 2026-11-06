@@ -31,6 +31,7 @@ import {
   Table2,
   Database,
 } from 'lucide-react';
+import { formatDate } from '@/lib/format';
 
 const MAX_SAMPLE_ROWS = 200;
 
@@ -184,7 +185,7 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{bp.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {bp.domain ?? 'generic'} · {new Date(bp.createdAt).toLocaleDateString()}
+                  {bp.domain ?? 'generic'} · {formatDate(bp.createdAt)}
                 </div>
               </div>
               <span className={`rounded px-2 py-0.5 text-xs font-medium ${statusVariant(bp.status)}`}>

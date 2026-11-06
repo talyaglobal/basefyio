@@ -27,6 +27,7 @@ import {
   ScrollText,
   Trash2,
 } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 // ── Insert Document Dialog ──────────────────────────────────
 
@@ -373,7 +374,7 @@ export function EntityDocumentsPanel({ projectId, entityName }: { projectId: str
                         </Badge>
                         <span className="text-[10px] text-muted-foreground">v{doc._version}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {new Date(doc._createdAt).toLocaleString()}
+                          {formatDateTime(doc._createdAt)}
                         </span>
                       </div>
                       {isExpanded ? (

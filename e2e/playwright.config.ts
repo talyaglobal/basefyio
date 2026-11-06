@@ -39,7 +39,7 @@ export default defineConfig({
     },
     {
       name: 'authenticated',
-      testMatch: /(routes|critical|screenshots)\.spec\.ts/,
+      testMatch: /(routes|critical|screenshots|responsive)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], storageState: '.auth/state.json' },
     },
   ],

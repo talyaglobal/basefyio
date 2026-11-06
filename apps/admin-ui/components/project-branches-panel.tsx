@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { formatDateTime } from '@/lib/format';
 
 /** Same rule the API enforces (CreatePreviewBranchDto). */
 const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/;
@@ -223,7 +224,7 @@ export function ProjectBranchesPanel({ projectId }: { projectId: string }) {
                       <td className="py-2 pr-3">
                         <SyncChip item={b} />
                       </td>
-                      <td className="py-2 pr-3 whitespace-nowrap text-xs">{new Date(b.createdAt).toLocaleString()}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-xs">{formatDateTime(b.createdAt)}</td>
                       <td className="py-2">
                         <div className="flex justify-end gap-2">
                           <Button

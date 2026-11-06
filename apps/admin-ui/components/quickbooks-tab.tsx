@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { formatDateTime } from '@/lib/format';
 
 function money(cents: number, currency = 'usd') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: (currency || 'usd').toUpperCase() }).format((cents || 0) / 100);
@@ -12,7 +13,7 @@ function dollars(n: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: (currency || 'USD').toUpperCase() }).format(n || 0);
 }
 function fmtDate(d?: string | null) {
-  return d ? new Date(d).toLocaleString() : '—';
+  return d ? formatDateTime(d) : '—';
 }
 
 export function QuickbooksTab() {

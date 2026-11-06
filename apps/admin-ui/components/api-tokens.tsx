@@ -17,9 +17,10 @@ import {
 } from '@/components/ui/dialog';
 import { McpSetupBlocks, holdsMcpScope } from '@/components/mcp-setup';
 import { KeyRound, Plus, Copy, Loader2, RefreshCw, Trash2, Check, Pencil, Search, Bot } from 'lucide-react';
+import { formatDate } from '@/lib/format';
 
 function fmtDate(ts?: string | null) {
-  return ts ? new Date(ts).toLocaleDateString() : '—';
+  return ts ? formatDate(ts) : '—';
 }
 
 /** Compact relative time like "3d ago" / "5m ago"; em dash when never. */

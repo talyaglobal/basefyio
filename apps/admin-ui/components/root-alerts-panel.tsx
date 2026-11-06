@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { formatDateTime } from '@/lib/format';
 
 function severityClass(severity: string) {
   const v = severity.toUpperCase();
@@ -133,7 +134,7 @@ export function RootAlertsPanel({
                     </div>
                   )}
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    {new Date(a.createdAt).toLocaleString()}
+                    {formatDateTime(a.createdAt)}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -196,7 +197,7 @@ export function RootAlertsPanel({
                   <div><span className="text-muted-foreground">Kind:</span> <span className="ml-1">{selectedAlert.kind}</span></div>
                   <div><span className="text-muted-foreground">Severity:</span> <span className="ml-1">{selectedAlert.severity}</span></div>
                   <div><span className="text-muted-foreground">Read:</span> <span className="ml-1">{selectedAlert.isRead ? 'Yes' : 'No'}</span></div>
-                  <div><span className="text-muted-foreground">Created:</span> <span className="ml-1">{new Date(selectedAlert.createdAt).toLocaleString()}</span></div>
+                  <div><span className="text-muted-foreground">Created:</span> <span className="ml-1">{formatDateTime(selectedAlert.createdAt)}</span></div>
                   <div>
                     <span className="text-muted-foreground">Related Audit ID:</span>{' '}
                     <span className="ml-1 font-mono text-xs">
@@ -267,7 +268,7 @@ export function RootAlertsPanel({
                       </div>
                       <div><span className="text-muted-foreground">Result:</span> <span className="ml-1">{selectedAudit.success ? 'SUCCESS' : 'FAIL'}</span></div>
                       <div><span className="text-muted-foreground">Severity:</span> <span className="ml-1">{selectedAudit.severity}</span></div>
-                      <div><span className="text-muted-foreground">Time:</span> <span className="ml-1">{new Date(selectedAudit.createdAt).toLocaleString()}</span></div>
+                      <div><span className="text-muted-foreground">Time:</span> <span className="ml-1">{formatDateTime(selectedAudit.createdAt)}</span></div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

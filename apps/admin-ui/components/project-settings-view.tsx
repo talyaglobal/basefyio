@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, ArrowRightLeft, Check, Loader2, Power, Trash2, TriangleAlert } from 'lucide-react';
+import { formatDateTime } from '@/lib/format';
 
 const settingsFormSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200, 'Name is too long'),
@@ -242,7 +243,7 @@ export function ProjectSettingsView() {
             <dt className="text-muted-foreground">Slug</dt>
             <dd className="font-mono text-xs break-all">{project.slug}</dd>
             <dt className="text-muted-foreground">Created</dt>
-            <dd>{new Date(project.createdAt).toLocaleString()}</dd>
+            <dd>{formatDateTime(project.createdAt)}</dd>
           </dl>
         </section>
 
@@ -466,7 +467,7 @@ function MaxRowsCard({
     setSaving(true);
     try {
       await api.projects.setMaxRowsPerTable(projectId, n);
-      toast.success(`Row limit set to ${n.toLocaleString()} per table`);
+      toast.success(`Row limit set to ${n.toLocaleString('en-US')} per table`);
       onSaved();
     } catch (err: any) {
       // Plan-gated failures come back as a clear "upgrade your plan" message.
@@ -501,7 +502,7 @@ function MaxRowsCard({
           <SelectContent>
             {ROW_LIMIT_OPTIONS.map((n) => (
               <SelectItem key={n} value={String(n)}>
-                {n.toLocaleString()} rows
+                {n.toLocaleString('en-US')} rows
               </SelectItem>
             ))}
           </SelectContent>
