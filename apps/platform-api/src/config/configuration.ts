@@ -294,6 +294,7 @@ export default () => {
 
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
+    publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', // payment probe only
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   },
 

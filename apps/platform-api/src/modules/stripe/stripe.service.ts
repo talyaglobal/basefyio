@@ -43,8 +43,9 @@ export class StripeService implements OnModuleInit {
       try {
         const customer = await this.stripe.customers.retrieve(opts.existingCustomerId);
         if (!customer.deleted) return customer as Stripe.Customer;
-      } catch {
-        // Customer deleted or not found, create a new one
+      } catch (e) {
+        // Only "not found" means create a new one; a network/5xx blip must not mint a duplicate customer.
+        if ((e as { code?: string }).code !== 'resource_missing') throw e;
       }
     }
 
@@ -142,6 +143,51 @@ export class StripeService implements OnModuleInit {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
     this.logger.log(`Default payment method set for customer ${customerId}`);
+  }
+
+  /**
+   * Exercises every link the card form depends on, without charging anyone.
+   * Each check returns undefined when healthy, or a one-line problem.
+   */
+  async probeChannels(publishableKey: string): Promise<Array<{ check: string; problem?: string }>> {
+    this.assertEnabled();
+    const run = async (check: string, fn: () => Promise<string | undefined>) => {
+      try {
+        return { check, problem: await fn() };
+      } catch (e) {
+        return { check, problem: (e as Error).message };
+      }
+    };
+    return Promise.all([
+      run('account', async () => {
+        const acct = await this.stripe.accounts.retrieve();
+        return acct.charges_enabled ? undefined : 'Stripe account has charges disabled';
+      }),
+      run('webhook', async () => {
+        const { data } = await this.stripe.webhookEndpoints.list({ limit: 100 });
+        return data.some((w) => w.status === 'enabled' && w.url.includes('/billing/webhook'))
+          ? undefined
+          : 'no enabled webhook endpoint for /billing/webhook';
+      }),
+      run('card-form', async () => {
+        if (!publishableKey) return 'publishable key is not configured for the probe';
+        // The browser's exact call: it fails when the two keys belong to different accounts or modes.
+        const si = await this.stripe.setupIntents.create({
+          payment_method_types: ['card'],
+          usage: 'off_session',
+          metadata: { probe: 'basefyio' },
+        });
+        try {
+          const res = await fetch(
+            `https://api.stripe.com/v1/setup_intents/${si.id}?client_secret=${encodeURIComponent(si.client_secret ?? '')}`,
+            { headers: { Authorization: `Bearer ${publishableKey}` } },
+          );
+          return res.ok ? undefined : `publishable key cannot read a SetupIntent the secret key created (HTTP ${res.status})`;
+        } finally {
+          await this.stripe.setupIntents.cancel(si.id).catch(() => undefined);
+        }
+      }),
+    ]);
   }
 
   /** Create a SetupIntent for collecting card details */

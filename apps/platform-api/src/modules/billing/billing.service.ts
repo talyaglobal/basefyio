@@ -343,7 +343,8 @@ export class BillingService implements OnModuleInit {
       existingCustomerId: sub?.stripeCustomerId,
     });
 
-    if (sub && !sub.stripeCustomerId) {
+    // Also covers a stored id Stripe no longer knows (test-mode leftover): getOrCreateCustomer replaced it.
+    if (sub && sub.stripeCustomerId !== customer.id) {
       await this.prisma.subscription.update({
         where: { id: sub.id },
         data: { stripeCustomerId: customer.id },
@@ -1023,14 +1024,16 @@ export class BillingService implements OnModuleInit {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!team || !user) throw new NotFoundException('Team or user not found');
 
-    let customerId = sub.stripeCustomerId;
-    if (!customerId) {
-      const customer = await this.stripe.getOrCreateCustomer({
-        teamId,
-        teamName: team.name,
-        email: user.email,
-      });
-      customerId = customer.id;
+    // A stored id Stripe no longer knows (17 teams on 2026-11-06, test-mode leftovers) used to
+    // make this a 500; getOrCreateCustomer replaces it and we persist the new one.
+    const customer = await this.stripe.getOrCreateCustomer({
+      teamId,
+      teamName: team.name,
+      email: user.email,
+      existingCustomerId: sub.stripeCustomerId,
+    });
+    const customerId = customer.id;
+    if (customerId !== sub.stripeCustomerId) {
       await this.prisma.subscription.update({
         where: { id: sub.id },
         data: { stripeCustomerId: customerId },
