@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/platform-api",
-  "version": "3.2.4",
+  "version": "3.2.5",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "prisma": {
