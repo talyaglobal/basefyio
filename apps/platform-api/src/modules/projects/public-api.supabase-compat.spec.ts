@@ -455,6 +455,37 @@ describe('supabase-js — the whole client, unchanged', () => {
     supabase.realtime.disconnect();
   });
 
+  it('rpc() through createClient() keeps the shape of RETURNS TABLE, SETOF and scalar functions', async () => {
+    const supabase = createClient(base, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+    const base_ = { definer: false, argmodes: [] as string[], typtype: 'b', typname: 'text', typrelid: 0 };
+
+    // RETURNS TABLE(role text): objects keyed by the column, not bare values.
+    db.fns = [{ ...base_, signature: 'effective_org_roles(p_org_id uuid)', argnames: ['p_org_id', 'role'], argmodes: ['i', 't'], proretset: true, argtypes: ['uuid'] }];
+    db.rows = [{ role: 'user' }];
+    const table = await supabase.rpc('effective_org_roles', { p_org_id: '11111111-1111-4111-8111-111111111111' });
+    expect(table.error).toBeNull();
+    expect(table.data).toEqual([{ role: 'user' }]);
+
+    // RETURNS TABLE(a int, b text): still objects.
+    db.reset();
+    db.fns = [{ ...base_, signature: 'pairs()', argnames: ['a', 'b'], argmodes: ['t', 't'], proretset: true, typtype: 'p', typname: 'record' }];
+    db.rows = [{ a: 1, b: 'x' }];
+    expect((await supabase.rpc('pairs')).data).toEqual([{ a: 1, b: 'x' }]);
+
+    // RETURNS SETOF text: bare values.
+    db.reset();
+    db.fns = [{ ...base_, signature: 'names()', argnames: [], proretset: true }];
+    db.rows = [{ _r: 'a' }, { _r: 'b' }];
+    expect((await supabase.rpc('names')).data).toEqual(['a', 'b']);
+
+    // RETURNS text: one value.
+    db.reset();
+    db.fns = [{ ...base_, signature: 'who()', argnames: [] }];
+    db.rows = [{ v: 'me' }];
+    expect((await supabase.rpc('who')).data).toBe('me');
+    supabase.realtime.disconnect();
+  });
+
   it('gets the guard’s refusal in PostgREST’s shape', async () => {
     // No apikey at all; the profile header alone marks the caller as a PostgREST client.
     const res = await new PostgrestClient(`${base}/rest/v1`, { schema: 'public' }).from('posts').select('*');

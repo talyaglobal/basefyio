@@ -73,4 +73,13 @@ describe('callShape', () => {
     expect(callShape(fn({ typtype: 'b', typname: 'jsonb', typrelid: '0' }))).toBe('scalar');
     expect(callShape(fn({ typtype: 'e', typname: 'mood' }))).toBe('scalar');
   });
+
+  it('reads RETURNS TABLE as composite even when its one column is a base type', () => {
+    // TABLE(role text): the return type is text, the rows are { role }.
+    expect(callShape(fn({ typtype: 'b', typname: 'text', typrelid: 0, proretset: true, argmodes: ['i', 't'] }))).toBe('composite');
+    expect(callShape(fn({ typtype: 'b', typname: 'text', typrelid: 0, proretset: true, argmodes: ['o'] }))).toBe('composite');
+    // Plain SETOF text and a single OUT value stay scalar.
+    expect(callShape(fn({ typtype: 'b', typname: 'text', typrelid: 0, proretset: true }))).toBe('scalar');
+    expect(callShape(fn({ typtype: 'b', typname: 'text', typrelid: 0, argmodes: ['o'] }))).toBe('scalar');
+  });
 });

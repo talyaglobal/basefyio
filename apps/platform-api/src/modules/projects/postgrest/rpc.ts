@@ -109,8 +109,15 @@ export type CallShape = 'void' | 'scalar' | 'composite';
  * How to read the result: `void` has none; a composite type (a table, a
  * row type, or `record` with OUT parameters) is read as columns; anything
  * else — base types, enums, domains, ranges, json — is one value.
+ *
+ * `RETURNS TABLE(role text)` has the return type of its one column (text), yet its rows
+ * are objects keyed by that column, as PostgREST returns them; so a TABLE function
+ * (`proargmodes` has 't') is composite whatever its type. A set-returning function
+ * with a single OUT parameter is the same. Plain `RETURNS SETOF text` stays scalar.
  */
 export function callShape(meta: FunctionMeta): CallShape {
+  const modes = meta.argmodes ?? [];
+  if (modes.includes('t') || (meta.proretset && modes.includes('o'))) return 'composite';
   if (meta.typname === 'void') return 'void';
   if (meta.typtype === 'c') return 'composite';
   if (meta.typname === 'record') return 'composite';

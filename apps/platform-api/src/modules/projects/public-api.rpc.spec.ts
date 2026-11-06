@@ -236,6 +236,19 @@ describe('PublicApiService.rpc — PostgREST caller', () => {
     await expect(scalars.svc.rpc('p1', 'ids', {}, { role: 'anon' } as any, compat)).resolves.toEqual({ kind: 'array', value: [1, 2], rows: 2 });
   });
 
+  it('keeps the column names of a RETURNS TABLE function, one column or several', async () => {
+    const one = serviceWith(
+      [{ signature: 'effective_org_roles(p_org_id uuid)', definer: false, argnames: ['p_org_id', 'role'], argmodes: ['i', 't'], proretset: true, typtype: 'b', typname: 'text', typrelid: 0 }],
+      [{ role: 'user' }],
+    );
+    await expect(one.svc.rpc('p1', 'effective_org_roles', { p_org_id: 'o1' }, { role: 'authenticated' } as any, compat)).resolves.toEqual({ kind: 'array', value: [{ role: 'user' }], rows: 1 });
+    const two = serviceWith(
+      [{ signature: 'f()', definer: false, argnames: ['a', 'b'], argmodes: ['t', 't'], proretset: true, typtype: 'p', typname: 'record' }],
+      [{ a: 1, b: 'x' }],
+    );
+    await expect(two.svc.rpc('p1', 'f', {}, { role: 'anon' } as any, compat)).resolves.toEqual({ kind: 'array', value: [{ a: 1, b: 'x' }], rows: 1 });
+  });
+
   it('returns nothing for void', async () => {
     const { svc } = serviceWith([{ signature: 'ping()', definer: false, argnames: [], argmodes: [], typtype: 'p', typname: 'void' }], []);
     await expect(svc.rpc('p1', 'ping', {}, { role: 'anon' } as any, compat)).resolves.toEqual({ kind: 'void', value: null, rows: 0 });
