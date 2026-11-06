@@ -422,6 +422,10 @@ services:
       REST_SUPABASE_COMPAT: ${REST_SUPABASE_COMPAT:-auto}
       STORAGE_URL_SIGNING_SECRET: ${STORAGE_URL_SIGNING_SECRET:-}
       STORAGE_SIGNED_URL_MAX_SECONDS: ${STORAGE_SIGNED_URL_MAX_SECONDS:-}
+      # Realtime row-level security: jwt filters subscribers that sent a user token,
+      # all filters anon subscribers too, off disables it. Without this line the
+      # setting could not be reached from .env.production.
+      REALTIME_RLS_FILTER: ${REALTIME_RLS_FILTER:-jwt}
       REDIS_URL: redis://redis:6379
       # Durable state (job queues, the scheduled-job lease, usage counters)
       # goes to the noeviction instance; unset it to keep everything on one.
