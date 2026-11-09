@@ -304,6 +304,8 @@ export default function ProjectsPage() {
   const [permDeleteConfirm, setPermDeleteConfirm] = useState<ProjectListItem | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
 
+  const [sidebarDelete, setSidebarDelete] = useState<{ kind: 'folder' | 'tag'; id: string; name: string; count: number } | null>(null);
+
   // Deactivated projects (paused — data kept, never purged)
   const [showDeactivated, setShowDeactivated] = useState(false);
   useEffect(() => { setMobileNavOpen(false); }, [selectedFolder, showTrash, showDeactivated]);
@@ -497,6 +499,21 @@ export default function ProjectsPage() {
     } catch (err: any) {
       toast.error(err.message);
     }
+  }
+
+  // Leaving the Trash / Deactivated view when a folder row (or All Projects) is picked.
+  function pickFolder(id: string) {
+    setShowTrash(false);
+    setShowDeactivated(false);
+    setSelectedFolder(id);
+  }
+
+  // Folder and tag deletes ask first, with the number of projects they hold.
+  function askDeleteFolder(f: ProjectFolder) {
+    setSidebarDelete({ kind: 'folder', id: f.id, name: f.name, count: projects.filter((p) => p.folderId === f.id).length });
+  }
+  function askDeleteTag(t: ProjectTag) {
+    setSidebarDelete({ kind: 'tag', id: t.id, name: t.name, count: tagProjectCount[t.id] ?? 0 });
   }
 
   async function deleteFolder(id: string) {
@@ -1239,9 +1256,9 @@ export default function ProjectsPage() {
             {/* Scrollable sidebar content */}
             <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
               <AllFolderDrop
-                active={selectedFolder === 'all'}
+                active={selectedFolder === 'all' && !showTrash && !showDeactivated}
                 count={projects.length}
-                onClick={() => setSelectedFolder('all')}
+                onClick={() => pickFolder('all')}
                 dropHighlight={projectDragActive && dropTargetId === 'folder-none'}
               />
               <SortableContext items={folders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
@@ -1249,11 +1266,11 @@ export default function ProjectsPage() {
                   <SortableFolderItem
                     key={folder.id}
                     folder={folder}
-                    active={selectedFolder === folder.id}
+                    active={selectedFolder === folder.id && !showTrash && !showDeactivated}
                     count={projects.filter((p) => p.folderId === folder.id).length}
-                    onClick={() => setSelectedFolder(folder.id)}
+                    onClick={() => pickFolder(folder.id)}
                     onEdit={() => { setFolderModal({ open: true, editing: folder }); setFolderName(folder.name); setFolderColor(folder.color); }}
-                    onDelete={() => deleteFolder(folder.id)}
+                    onDelete={() => askDeleteFolder(folder)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'folder', folder)}
                     dropHighlight={
                       projectDragActive &&
@@ -1288,7 +1305,7 @@ export default function ProjectsPage() {
                       )
                     }
                     onEdit={() => { setTagModal({ open: true, editing: tag }); setTagName(tag.name); setTagColor(tag.color); }}
-                    onDelete={() => deleteTag(tag.id)}
+                    onDelete={() => askDeleteTag(tag)}
                     onContextMenu={(e) => handleSidebarContextMenu(e, 'tag', tag)}
                     dropHighlight={
                       projectDragActive &&
@@ -1739,8 +1756,8 @@ export default function ProjectsPage() {
             setSidebarCtx(null);
           }}
           onDelete={() => {
-            if (sidebarCtx.type === 'folder') deleteFolder((sidebarCtx.item as ProjectFolder).id);
-            else deleteTag((sidebarCtx.item as ProjectTag).id);
+            if (sidebarCtx.type === 'folder') askDeleteFolder(sidebarCtx.item as ProjectFolder);
+            else askDeleteTag(sidebarCtx.item as ProjectTag);
             setSidebarCtx(null);
           }}
           onClose={() => setSidebarCtx(null)}
@@ -1830,6 +1847,32 @@ export default function ProjectsPage() {
               disabled={editSaving || !editName.trim()}
             >
               {editSaving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Folder / tag delete confirm ───────────────────────────────────── */}
+      {sidebarDelete && (
+        <Modal title={sidebarDelete.kind === 'folder' ? 'Delete folder' : 'Delete tag'} onClose={() => setSidebarDelete(null)}>
+          <p className="text-sm font-semibold mb-1">&quot;{sidebarDelete.name}&quot;</p>
+          <p className="text-sm text-muted-foreground mb-4">
+            {sidebarDelete.count > 0
+              ? `${sidebarDelete.count} project${sidebarDelete.count === 1 ? ' is' : 's are'} ${sidebarDelete.kind === 'folder' ? 'in this folder' : 'tagged with this tag'}. The projects are kept; only the ${sidebarDelete.kind} is removed.`
+              : `This ${sidebarDelete.kind} has no projects.`}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setSidebarDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={() => {
+                const d = sidebarDelete;
+                setSidebarDelete(null);
+                void (d.kind === 'folder' ? deleteFolder(d.id) : deleteTag(d.id));
+              }}
+            >
+              Delete {sidebarDelete.kind}
             </Button>
           </div>
         </Modal>

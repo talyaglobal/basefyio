@@ -85,7 +85,7 @@ export function ChangelogPopup() {
   if (!visible || !entry || activeImport) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9998] animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <div className="fixed bottom-4 right-4 z-40 animate-in slide-in-from-bottom-4 fade-in duration-300">
       <Link
         href={`/dashboard/changelog/${entry.slug}`}
         onClick={handleClick}
