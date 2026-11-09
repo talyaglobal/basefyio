@@ -963,6 +963,7 @@ model AuditLog {
   @@index([actorUserId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@index([traceId])
+  @@index([createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 

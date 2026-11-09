@@ -49,8 +49,10 @@ export class ObservabilityController {
     @Query('success') success?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('asOf') asOf?: string,
   ) {
     return this.observability.listAuditLogs({
+      asOf: asOf?.trim() || undefined,
       page: page ? Math.floor(Number(page)) : undefined,
       limit: limit ? Math.floor(Number(limit)) : undefined,
       search: search?.trim() || undefined,

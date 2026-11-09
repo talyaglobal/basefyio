@@ -164,6 +164,8 @@ export default function ManagementPage() {
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditTotalPages, setAuditTotalPages] = useState(1);
   const [auditLoading, setAuditLoading] = useState(false);
+  // Page 1 fixes a cut-off time; later pages reuse it so new log rows do not shift them.
+  const auditAsOfRef = useRef<string | undefined>(undefined);
   const AUDIT_PAGE_SIZE = 50;
   const [projectDeletionReasons, setProjectDeletionReasons] = useState<ProjectDeletionReasonEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,10 +229,20 @@ export default function ManagementPage() {
   const canAccessManagement = isRoot || !!managementPermissions?.canAccessManagement;
   const USERS_PAGE_SIZE = 20;
 
+  const auditRangeInvalid = !!auditDateFrom && !!auditDateTo && auditDateFrom > auditDateTo;
+
   const fetchAuditLogs = useCallback(async (pg: number) => {
+    if (auditRangeInvalid) {
+      setAuditLogs([]);
+      setAuditTotal(0);
+      setAuditTotalPages(1);
+      setAuditPage(1);
+      return;
+    }
     setAuditLoading(true);
     try {
       const result = await api.observability.listAuditLogs({
+        asOf: pg === 1 ? undefined : auditAsOfRef.current,
         page: pg,
         limit: AUDIT_PAGE_SIZE,
         search: auditSearch.trim() || undefined,
@@ -243,12 +255,13 @@ export default function ManagementPage() {
       setAuditTotal(result.total);
       setAuditTotalPages(result.totalPages);
       setAuditPage(result.page);
+      auditAsOfRef.current = result.asOf;
     } catch {
       // keep current state
     } finally {
       setAuditLoading(false);
     }
-  }, [auditSearch, auditSeverityFilter, auditResultFilter, auditDateFrom, auditDateTo]);
+  }, [auditSearch, auditSeverityFilter, auditResultFilter, auditDateFrom, auditDateTo, auditRangeInvalid]);
 
   // Re-fetch when filters change (debounced for search)
   const auditSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2587,7 +2600,7 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Audit Logs</h2>
           <p className="text-xs text-muted-foreground">
-            {auditLoading ? 'Loading...' : `${auditTotal.toLocaleString('en-US')} records · Page ${auditPage} of ${auditTotalPages}`}
+            {`${auditTotal.toLocaleString('en-US')} records · Page ${auditPage} of ${auditTotalPages}`}{auditLoading ? ' · loading…' : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2671,7 +2684,11 @@ export default function ManagementPage() {
               {auditLogs.length === 0 ? (
                 <tr>
                   <td className="px-2 py-6 text-center text-muted-foreground" colSpan={7}>
-                    No matching audit records.
+                    {auditRangeInvalid
+                      ? 'The "From" date is after the "To" date.'
+                      : auditLoading
+                        ? 'Loading…'
+                        : 'No matching audit records.'}
                   </td>
                 </tr>
               ) : (

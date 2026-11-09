@@ -249,7 +249,7 @@ function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClo
   const cost = plan?.teamList.reduce((s, t) => s + t.projectedRawUsd, 0) ?? 0;
   return (
     <Dialog open={!!plan} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden p-0">
+      <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden p-0">
         {plan && (
           <div className="flex max-h-[85vh] flex-col">
             <DialogHeader className="border-b px-6 py-4">
@@ -261,7 +261,7 @@ function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClo
                 {formatUsd(cost)} this month, projected
               </DialogDescription>
             </DialogHeader>
-            <div className="overflow-auto">
+            <div className="min-h-0 overflow-auto">
               <table className="w-full whitespace-nowrap text-sm">
                 <thead className="sticky top-0 border-b bg-muted">
                   <tr>
@@ -298,7 +298,15 @@ function PlanTeamsDialog({ plan, onClose }: { plan: ConsolePlanMix | null; onClo
                       <td className={tdRight}>{t.footprintBytes ? formatBytes(t.footprintBytes) : '—'}</td>
                       <td className={`${tdRight} font-medium`}>{t.projectedRawUsd ? formatUsd(t.projectedRawUsd) : '—'}</td>
                       <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.subscribedAt)}</td>
-                      <td className={`${tdRight} text-muted-foreground`}>{formatDate(t.currentPeriodEnd)}</td>
+                      <td className={`${tdRight} text-muted-foreground`}>
+                        {t.currentPeriodEnd && new Date(t.currentPeriodEnd).getTime() < Date.now() ? (
+                          <span className="text-amber-600" title="The billing period has ended and was not renewed">
+                            Lapsed {formatDate(t.currentPeriodEnd)}
+                          </span>
+                        ) : (
+                          formatDate(t.currentPeriodEnd)
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

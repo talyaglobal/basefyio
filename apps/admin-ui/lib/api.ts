@@ -2850,8 +2850,10 @@ export const api = {
       success?: string;
       dateFrom?: string;
       dateTo?: string;
+      asOf?: string;
     }) {
       const params = new URLSearchParams();
+      if (opts?.asOf) params.set('asOf', opts.asOf);
       if (opts?.page) params.set('page', String(opts.page));
       if (opts?.limit) params.set('limit', String(opts.limit));
       if (opts?.search) params.set('search', opts.search);
@@ -2866,6 +2868,7 @@ export const api = {
         page: number;
         limit: number;
         totalPages: number;
+        asOf: string;
       }>(`/observability/audit-logs${qs ? `?${qs}` : ''}`);
     },
     getAuditLog(id: string) {

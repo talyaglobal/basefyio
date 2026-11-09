@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { escapeLike } from '../../common/utils/escape-like';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { AuditLog, Prisma, User, UserRole } from '@prisma/client';
@@ -317,13 +318,15 @@ export class ObservabilityService {
     success?: string;
     dateFrom?: string;
     dateTo?: string;
+    /** Snapshot cut-off from the first page: rows written since do not shift later pages. */
+    asOf?: string;
   } = {}) {
-    const page = Math.max(opts.page ?? 1, 1);
     const take = Math.min(Math.max(opts.limit ?? 50, 1), ObservabilityService.AUDIT_PAGE_MAX);
-    const skip = (page - 1) * take;
+    const asOfDate = opts.asOf ? new Date(opts.asOf) : new Date();
+    const asOf = Number.isNaN(asOfDate.getTime()) ? new Date() : asOfDate;
 
     const where: Record<string, unknown> = {};
-    const andConditions: Record<string, unknown>[] = [];
+    const andConditions: Record<string, unknown>[] = [{ createdAt: { lte: asOf } }];
 
     // Severity filter
     if (opts.severity && opts.severity !== 'ALL') {
@@ -347,7 +350,7 @@ export class ObservabilityService {
 
     // Search (action, traceId, actorUserId, resourceType, resourceId)
     if (opts.search?.trim()) {
-      const q = opts.search.trim();
+      const q = escapeLike(opts.search.trim());
       andConditions.push({
         OR: [
           { action: { contains: q, mode: 'insensitive' } },
@@ -363,15 +366,20 @@ export class ObservabilityService {
       where.AND = andConditions;
     }
 
-    const [rows, total] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take,
-        skip,
-      }),
-      this.prisma.auditLog.count({ where }),
-    ]);
+    const total = await this.prisma.auditLog.count({ where });
+    const totalPages = Math.ceil(total / take);
+    const page = Math.min(Math.max(opts.page ?? 1, 1), Math.max(totalPages, 1));
+    const skip = (page - 1) * take;
+    // A deep offset walks every skipped row; in the second half read from the oldest end instead.
+    const fromOldest = skip > total / 2;
+    const size = Math.min(take, total - skip);
+    let rows = await this.prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: fromOldest ? 'asc' : 'desc' },
+      take: Math.max(size, 0),
+      skip: fromOldest ? total - skip - size : skip,
+    });
+    if (fromOldest) rows = rows.reverse();
 
     const enriched = await this.attachUserLabelsToAuditLogs(rows);
     return {
@@ -379,7 +387,8 @@ export class ObservabilityService {
       total,
       page,
       limit: take,
-      totalPages: Math.ceil(total / take),
+      totalPages,
+      asOf: asOf.toISOString(),
     };
   }
 

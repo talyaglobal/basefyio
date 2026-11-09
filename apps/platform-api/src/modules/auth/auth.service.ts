@@ -20,6 +20,7 @@ import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
 import { RedisService } from '../redis/redis.service';
 import { getDisplayName } from '../../common/utils/display-name';
+import { escapeLike } from '../../common/utils/escape-like';
 import { OrganizationsCoreService } from '../organizations/organizations-core.service';
 
 type RolePermissionKey =
@@ -162,6 +163,19 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  /** Stamps last_login_at for sign-ins that never pass login() (Google, token refresh); at most once an hour per user. */
+  private touchLastLogin(accessToken: string): void {
+    const sub = this.decodeJwtSubject(accessToken);
+    if (!sub) return;
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    this.prisma.user
+      .updateMany({
+        where: { id: sub, OR: [{ lastLoginAt: null }, { lastLoginAt: { lt: hourAgo } }] },
+        data: { lastLoginAt: new Date() },
+      })
+      .catch(() => {});
   }
 
   private buildLoginFingerprint(meta?: { ipAddress?: string; userAgent?: string }): string {
@@ -1019,6 +1033,7 @@ export class AuthService {
         }),
       );
 
+      this.touchLastLogin(data.access_token);
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -1059,6 +1074,7 @@ export class AuthService {
 
     try {
       const data = await tryRefresh(platformClientId);
+      this.touchLastLogin(data.access_token);
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -1068,6 +1084,7 @@ export class AuthService {
     } catch {
       try {
         const data = await tryRefresh(adminClientId);
+        this.touchLastLogin(data.access_token);
         return {
           accessToken: data.access_token,
           refreshToken: data.refresh_token,
@@ -1556,7 +1573,7 @@ export class AuthService {
     const page = Math.max(1, Math.floor(opts.page));
     const pageSize = Math.min(100, Math.max(1, Math.floor(opts.pageSize)));
     const skip = (page - 1) * pageSize;
-    const rawQ = opts.q?.trim();
+    const rawQ = opts.q?.trim() ? escapeLike(opts.q.trim()) : undefined;
     const where =
       rawQ && rawQ.length > 0
         ? {
