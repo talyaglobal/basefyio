@@ -119,6 +119,8 @@ async function proxy(
       status: upstream.status,
       headers: {
         'content-type': upstreamCt || 'application/json',
+        ...(upstream.headers.get('content-disposition') ? { 'content-disposition': upstream.headers.get('content-disposition')! } : {}),
+        ...(upstream.headers.get('x-export-errors') ? { 'x-export-errors': upstream.headers.get('x-export-errors')! } : {}),
       },
     });
   } catch {

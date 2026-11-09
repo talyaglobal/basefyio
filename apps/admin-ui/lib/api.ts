@@ -302,7 +302,7 @@ export type ApiNotification = {
 
 export const api = {
   auth: {
-    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string; acceptedTerms: true }) {
       return request<{ message: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -2952,6 +2952,22 @@ export const api = {
   },
   /** Root console on admin.<domain> — every call is root-only. */
   console: {
+    /** Every project's end users as a CSV; `errors` counts the projects that could not be read. */
+    async authUsersCsv(): Promise<{ blob: Blob; filename: string; errors: number }> {
+      const token = getAccessToken();
+      const res = await fetch('/api/proxy/admin/console/auth-users?format=csv', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || `Export failed: ${res.status}`);
+      }
+      return {
+        blob: await res.blob(),
+        filename: res.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1] || 'auth-users.csv',
+        errors: Number(res.headers.get('x-export-errors') || 0),
+      };
+    },
     overview() {
       return request<ConsoleOverview>('/admin/console/overview');
     },

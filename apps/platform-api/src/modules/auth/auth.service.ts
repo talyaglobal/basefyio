@@ -14,6 +14,7 @@ import { createHash, randomBytes, randomInt } from 'crypto';
 import * as Minio from 'minio';
 import { PassThrough } from 'stream';
 import { KeycloakAdminService } from './keycloak-admin.service';
+import { TERMS_VERSION } from './dto/signup.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from '../billing/billing.service';
@@ -281,6 +282,7 @@ export class AuthService {
     firstName?: string;
     lastName?: string;
     planName?: string;
+    acceptedTerms?: boolean;
   }) {
     this.ensureStrongPassword(data.password);
     // Reject a genuinely registered email BEFORE sending any OTP. Our DB is the
@@ -332,6 +334,7 @@ export class AuthService {
       firstName?: string;
       lastName?: string;
       planName?: string;
+      acceptedTerms?: boolean;
     };
 
     // Block only if a real (DB-backed) account exists; if it's a Keycloak orphan
@@ -347,7 +350,11 @@ export class AuthService {
     let keycloakId: string;
     try {
       // Keycloak requires a username — use email since it's already unique
-      keycloakId = await this.keycloak.createPlatformUser({ ...data, username: data.email });
+      keycloakId = await this.keycloak.createPlatformUser({
+        ...data,
+        username: data.email,
+        ...(data.acceptedTerms ? { termsAcceptedAt: new Date().toISOString(), termsVersion: TERMS_VERSION } : {}),
+      });
     } catch (err: any) {
       // A 409 means a Keycloak user with this email/username already exists
       // (e.g. an orphan from a prior failed signup) — surface it as a conflict.

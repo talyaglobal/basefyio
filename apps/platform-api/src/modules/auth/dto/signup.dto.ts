@@ -1,4 +1,5 @@
 import {
+  Equals,
   IsEmail,
   IsNotEmpty,
   IsOptional,
@@ -6,6 +7,9 @@ import {
   Matches,
   MinLength,
 } from 'class-validator';
+
+/** Version of the legal texts a sign-up accepts; bump it when the terms change. */
+export const TERMS_VERSION = '2026-11-09';
 
 export class SignupDto {
   @IsEmail()
@@ -33,4 +37,7 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   planName?: string;
+
+  @Equals(true, { message: 'You must accept the Terms of Use, the Privacy Policy and the Data Notice' })
+  acceptedTerms!: true;
 }

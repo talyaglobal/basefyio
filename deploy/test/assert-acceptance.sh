@@ -83,7 +83,7 @@ unset PGPASSWORD
 # from the mail (platform mail over SMTP), confirm it. Confirming signs in,
 # so the token comes from Keycloak 26's admin-cli and must carry sub.
 OWNER=captain@example.test; OWNER_PW='Captain-pass-1!'
-signup_body="$(python3 -c 'import json,sys; print(json.dumps({"email": sys.argv[1], "password": sys.argv[2], "firstName": "Captain", "lastName": "Test"}))' "$OWNER" "$OWNER_PW")"
+signup_body="$(python3 -c 'import json,sys; print(json.dumps({"email": sys.argv[1], "password": sys.argv[2], "firstName": "Captain", "lastName": "Test", "acceptedTerms": True}))' "$OWNER" "$OWNER_PW")"
 curl -sf -X POST "$API/auth/signup" -H 'Content-Type: application/json' -d "$signup_body" >/dev/null || fail "sign-up failed"
 otp=""
 for _ in $(seq 1 30); do
