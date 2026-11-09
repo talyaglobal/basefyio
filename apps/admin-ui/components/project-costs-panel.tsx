@@ -167,6 +167,7 @@ export function ProjectCostsPanel({
               <>
                 Your <span className="text-foreground">{report.plan.displayName}</span> plan is billed at its
                 flat monthly price; this breakdown shows how the usage behind it is distributed across your projects.
+                {report.plan.name === 'free' ? ' The Free plan costs $0, so these amounts are not charged to you.' : ''}
               </>
             ) : null}
           </p>
@@ -259,14 +260,14 @@ export function ProjectCostsPanel({
                 </tbody>
                 <tfoot>
                   <tr className="border-b">
-                    <td className="py-3 pr-3 font-semibold text-foreground">Current costs</td>
+                    <td className="py-3 pr-3 font-semibold text-foreground">Usage value so far</td>
                     <td className="py-3 pr-3 text-right font-semibold tabular-nums text-foreground">
                       {formatUsd(totals.amountUsd)}
                     </td>
                     <td />
                   </tr>
                   <tr>
-                    <td className="py-3 pr-3 font-semibold text-foreground">Projected costs</td>
+                    <td className="py-3 pr-3 font-semibold text-foreground">Projected usage value</td>
                     <td />
                     <td className="py-3 text-right font-semibold tabular-nums text-foreground">
                       {formatUsd(totals.projectedUsd)}

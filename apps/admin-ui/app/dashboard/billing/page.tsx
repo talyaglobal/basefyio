@@ -54,6 +54,8 @@ interface Subscription {
   accountStatus?: 'ACTIVE' | 'FROZEN' | 'CANCELLED';
   nextBillingDate?: string | null;
   retryCount?: number;
+  /** False when the server would answer billing changes with 403 (not the owner). */
+  canManage?: boolean;
 }
 
 interface Usage {
@@ -338,6 +340,27 @@ function CardForm({
 
 // ── Main Page ───────────────────────────────────────────
 
+// Reserved or grouping codes Intl names but nobody lives in.
+const NOT_COUNTRIES = new Set(['ZZ', 'EU', 'EZ', 'UN', 'XA', 'XB', 'QO', 'AC', 'CP', 'DG', 'EA', 'IC', 'TA']);
+
+// Region names from the browser's own data: a code is valid when Intl knows a name for it.
+function countryOptions(current: string): [string, string][] {
+  const names = new Intl.DisplayNames(['en'], { type: 'region' });
+  const list: [string, string][] = [];
+  for (let a = 65; a <= 90; a++) {
+    for (let b = 65; b <= 90; b++) {
+      const code = String.fromCharCode(a, b);
+      let name: string | undefined;
+      try { name = names.of(code); } catch { /* not a region code */ }
+      if (name && name !== code && !NOT_COUNTRIES.has(code)) list.push([code, name]);
+    }
+  }
+  list.sort((x, y) => x[1].localeCompare(y[1]));
+  // An older free-text value stays visible until the owner picks a country.
+  if (current && !list.some(([c]) => c === current)) list.unshift([current, current]);
+  return list;
+}
+
 export default function BillingPage() {
   const { activeTeamId, refreshKey, teams, features, featuresLoaded } = useDashboard();
   const searchParams = useSearchParams();
@@ -464,8 +487,21 @@ export default function BillingPage() {
     if (addCard) setShowCardDialog(true);
   }, [addCard]);
 
+  // Nothing typed for one team may carry over to the next.
+  useEffect(() => {
+    setStudentEmail('');
+    setStudentCode('');
+    setStudentStep('email');
+    setStudentResult(null);
+    setEditingAccount(false);
+  }, [activeTeamId]);
+
   const handleRequestStudentOtp = async () => {
     if (!activeTeamId || !studentEmail.trim()) return;
+    if (!/^[^s@]+@[^s@]+.[^s@]+$/.test(studentEmail.trim())) {
+      setStudentResult({ ok: false, message: 'Enter a valid email address.' });
+      return;
+    }
     setVerifyingStudent(true);
     setStudentResult(null);
     try {
@@ -638,6 +674,7 @@ export default function BillingPage() {
   const isLegacy = currentPlan?.name === 'legacy';
   const isFree = currentPlan?.name === 'free';
   const isPaid = currentPlan && !isLegacy && !isFree;
+  const canManage = subscription?.canManage !== false;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -646,6 +683,11 @@ export default function BillingPage() {
         <h1 className="text-2xl font-bold text-foreground">Billing</h1>
         <ActiveTeamNote noun={features.organizations_ui ? 'Organization' : 'Team'} />
         <p className="text-muted-foreground mt-1">Manage your subscription, usage, and invoices</p>
+        {!canManage && (
+          <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+            You can view billing for this team. Only the team owner can change payment or billing settings.
+          </p>
+        )}
         {availability && availability.monthAvailabilityPct !== null && (
           <p className="mt-2 text-xs text-muted-foreground">
             Platform availability this month:{' '}
@@ -808,14 +850,14 @@ export default function BillingPage() {
                 Expires {paymentMethod.expMonth}/{paymentMethod.expYear}
               </p>
             </div>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={() => setShowCardDialog(true)}>
+            <Button variant="outline" size="sm" className="ml-auto" disabled={!canManage} onClick={() => setShowCardDialog(true)}>
               Update Card
             </Button>
           </div>
         ) : (
           <div className="flex items-center justify-between">
             <p className="text-muted-foreground">No payment method on file</p>
-            <Button onClick={() => setShowCardDialog(true)}>
+            <Button disabled={!canManage} onClick={() => setShowCardDialog(true)}>
               <CreditCard className="w-4 h-4 mr-2" />
               Add Payment Method
             </Button>
@@ -868,14 +910,14 @@ export default function BillingPage() {
       <div className="rounded-xl border bg-card p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-foreground">Billing Details</h2>
-          {!editingAccount && billingAccount && (
+          {canManage && !editingAccount && billingAccount && (
             <Button variant="outline" size="sm" onClick={() => setEditingAccount(true)}>
               Edit
             </Button>
           )}
         </div>
 
-        {editingAccount || !billingAccount ? (
+        {canManage && (editingAccount || !billingAccount) ? (
           <form onSubmit={handleSaveBillingAccount} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -942,7 +984,12 @@ export default function BillingPage() {
               </div>
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">Country</label>
-                <input type="text" value={accountForm.country} onChange={(e) => setAccountForm({ ...accountForm, country: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" placeholder="US" />
+                <select value={accountForm.country} onChange={(e) => setAccountForm({ ...accountForm, country: e.target.value })} className="w-full px-3 py-2 bg-background border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                  <option value="">Select a country</option>
+                  {countryOptions(accountForm.country).map(([code, name]) => (
+                    <option key={code} value={code}>{name}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="flex gap-3">
@@ -958,19 +1005,20 @@ export default function BillingPage() {
           </form>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            {billingAccount.companyName && (
+            {!billingAccount && <p className="text-muted-foreground">No billing details on file.</p>}
+            {billingAccount?.companyName && (
               <div><span className="text-muted-foreground">Company:</span> <span className="ml-1 text-foreground">{billingAccount.companyName}</span></div>
             )}
-            {billingAccount.billingEmail && (
+            {billingAccount?.billingEmail && (
               <div><span className="text-muted-foreground">Email:</span> <span className="ml-1 text-foreground">{billingAccount.billingEmail}</span></div>
             )}
-            {billingAccount.taxId && (
+            {billingAccount?.taxId && (
               <div><span className="text-muted-foreground">Tax ID:</span> <span className="ml-1 text-foreground">{billingAccount.taxId}</span></div>
             )}
-            {billingAccount.phone && (
+            {billingAccount?.phone && (
               <div><span className="text-muted-foreground">Phone:</span> <span className="ml-1 text-foreground">{billingAccount.phone}</span></div>
             )}
-            {(billingAccount.addressLine1 || billingAccount.city) && (
+            {(billingAccount?.addressLine1 || billingAccount?.city) && (
               <div className="md:col-span-2">
                 <span className="text-muted-foreground">Address:</span>
                 <span className="ml-1 text-foreground">
@@ -1087,9 +1135,10 @@ export default function BillingPage() {
                   onChange={(e) => setStudentEmail(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleRequestStudentOtp(); }}
                   placeholder="your.name@university.edu"
-                  className="h-9 flex-1 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  disabled={!canManage}
+                  className="h-9 flex-1 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
                 />
-                <Button onClick={handleRequestStudentOtp} disabled={verifyingStudent || !studentEmail.trim()}>
+                <Button onClick={handleRequestStudentOtp} disabled={!canManage || verifyingStudent || !studentEmail.trim()}>
                   {verifyingStudent ? 'Sending…' : 'Send code'}
                 </Button>
               </div>

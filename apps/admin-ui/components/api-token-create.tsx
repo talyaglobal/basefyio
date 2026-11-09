@@ -12,6 +12,10 @@ import { Switch } from '@/components/ui/switch';
 import { MCP_READ_ONLY_SCOPES, McpSetupBlocks, holdsMcpScope } from '@/components/mcp-setup';
 import { ArrowLeft, KeyRound, Loader2, Copy, Check, ShieldCheck, Bot } from 'lucide-react';
 
+// One id for every message on this form, so a new one replaces the old instead of piling up over the buttons.
+const FORM_TOAST = 'api-token-form';
+const tomorrow = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
 export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
   const router = useRouter();
   const isEdit = !!tokenId;
@@ -104,9 +108,18 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
     if (!name.trim()) setName('mcp-agent');
   };
 
+  // A scope or name fix answers the earlier complaint; the toast must not outlive it.
+  useEffect(() => {
+    toast.dismiss(FORM_TOAST);
+  }, [scopes, name, expiresAt]);
+
   const save = async () => {
-    if (!name.trim()) return toast.error('Name is required');
-    if (scopes.size === 0) return toast.error('Enable at least one scope');
+    toast.dismiss(FORM_TOAST);
+    if (!name.trim()) return toast.error('Name is required', { id: FORM_TOAST });
+    if (scopes.size === 0) return toast.error('Enable at least one scope', { id: FORM_TOAST });
+    if (expiresAt && expiresAt < tomorrow()) {
+      return toast.error('Choose an expiry date in the future, or leave it empty.', { id: FORM_TOAST });
+    }
     setSaving(true);
     try {
       if (isEdit && tokenId) {
@@ -126,7 +139,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
         setCreated(res);
       }
     } catch (e: any) {
-      toast.error(e?.message || (isEdit ? 'Update failed' : 'Create failed'));
+      toast.error(e?.message || (isEdit ? 'Update failed' : 'Create failed'), { id: FORM_TOAST });
     } finally {
       setSaving(false);
     }
@@ -282,6 +295,7 @@ export function ApiTokenCreate({ tokenId }: { tokenId?: string } = {}) {
             <Input
               id="token-exp"
               type="date"
+              min={tomorrow()}
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
               className="max-w-[220px]"

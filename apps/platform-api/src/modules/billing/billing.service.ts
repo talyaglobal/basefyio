@@ -962,7 +962,10 @@ export class BillingService implements OnModuleInit {
   /** Get subscription with membership check */
   async getTeamSubscriptionForUser(teamId: string, userId: string) {
     await this.assertCanViewBilling(teamId, userId);
-    return this.getTeamSubscription(teamId);
+    const sub = await this.getTeamSubscription(teamId);
+    // The UI shows billing forms read-only for callers the server would answer with 403.
+    const canManage = await this.assertTeamOwner(teamId, userId).then(() => true, () => false);
+    return sub ? { ...sub, canManage } : sub;
   }
 
   /** Assert caller is team member (public wrapper) */
