@@ -380,6 +380,7 @@ export default function BillingPage() {
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [pendingUpgradePlan, setPendingUpgradePlan] = useState<Plan | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [upgradeTargetPlan, setUpgradeTargetPlan] = useState<Plan | null>(null);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
@@ -535,8 +536,15 @@ export default function BillingPage() {
     }
   };
 
-  const handleOpenUpgradeDialog = async (plan: Plan) => {
+  const handleOpenUpgradeDialog = async (plan: Plan, cardJustAdded = false) => {
     if (!activeTeamId) return;
+    // An upgrade charges the card on file: without one, collect the card first and come back.
+    if (!paymentMethod && !cardJustAdded) {
+      setPendingUpgradePlan(plan);
+      setShowCardDialog(true);
+      toast.info('Add a payment method first. Your upgrade continues right after.');
+      return;
+    }
     setUpgradeTargetPlan(plan);
     setShowUpgradeDialog(true);
     setLoadingUpgradePreview(true);
@@ -798,7 +806,13 @@ export default function BillingPage() {
       </div>
 
       {/* Card Dialog */}
-      <Dialog open={showCardDialog} onOpenChange={setShowCardDialog}>
+      <Dialog
+        open={showCardDialog}
+        onOpenChange={(open) => {
+          setShowCardDialog(open);
+          if (!open) setPendingUpgradePlan(null);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{paymentMethod ? 'Update Payment Method' : 'Add Payment Method'}</DialogTitle>
@@ -813,8 +827,14 @@ export default function BillingPage() {
                 onSuccess={() => {
                   setShowCardDialog(false);
                   loadData();
+                  const plan = pendingUpgradePlan;
+                  setPendingUpgradePlan(null);
+                  if (plan) handleOpenUpgradeDialog(plan, true);
                 }}
-                onCancel={() => setShowCardDialog(false)}
+                onCancel={() => {
+                  setShowCardDialog(false);
+                  setPendingUpgradePlan(null);
+                }}
                 autoRetryOnSuccess={subscription?.accountStatus === 'FROZEN'}
               />
             </Elements>
@@ -960,7 +980,10 @@ export default function BillingPage() {
       )}
 
       {/* Project costs */}
-      <ProjectCostsPanel report={projectCosts} />
+      <ProjectCostsPanel
+        report={projectCosts}
+        teamUsage={usage ? { apiRequests: usage.apiRequestsMonth, bandwidthBytes: parseInt(usage.bandwidthMonth || '0', 10) } : null}
+      />
 
       {/* Plans */}
       {!isLegacy && (

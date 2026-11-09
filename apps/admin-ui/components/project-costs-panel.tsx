@@ -18,6 +18,19 @@ function formatRate(n: number, unit: string): string {
   return `$${n.toFixed(digits)}${unit}`;
 }
 
+function formatMeteredBytes(bytes: number): string {
+  const mb = bytes / 1024 ** 2;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+}
+
+type SortKey = 'cost' | 'projected' | 'name';
+
+function sortProjects(projects: CustomerProjectCost[], by: SortKey): CustomerProjectCost[] {
+  const list = [...projects];
+  if (by === 'name') return list.sort((a, b) => a.name.localeCompare(b.name));
+  return list.sort((a, b) => (by === 'cost' ? b.amountUsd - a.amountUsd : b.projectedUsd - a.projectedUsd));
+}
+
 function formatPeriodDay(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
@@ -87,8 +100,16 @@ function ProjectRow({
  * Billing. Figures are at standard usage rates; the plan is still billed at
  * its flat price, so this is where the usage behind that price goes.
  */
-export function ProjectCostsPanel({ report }: { report: TeamCostReport | null }) {
+export function ProjectCostsPanel({
+  report,
+  teamUsage,
+}: {
+  report: TeamCostReport | null;
+  /** The team-wide Usage figures, to explain any difference from the project rows. */
+  teamUsage?: { apiRequests: number; bandwidthBytes: number } | null;
+}) {
   const [expanded, setExpanded] = useState<Set<string> | null>(null);
+  const [sortBy, setSortBy] = useState<SortKey>('cost');
   const [showRates, setShowRates] = useState(false);
 
   // Expand everything for small teams; big teams start collapsed so the table stays scannable.
@@ -109,6 +130,9 @@ export function ProjectCostsPanel({ report }: { report: TeamCostReport | null })
 
   const { period, projects, totals, rates } = report;
   const progress = Math.round(period.elapsedFraction * 100);
+  // Usage counts every call made for the team; project rows only those tied to a live project.
+  const otherRequests = teamUsage ? Math.max(0, teamUsage.apiRequests - report.metered.apiRequests) : 0;
+  const otherBytes = teamUsage ? Math.max(0, teamUsage.bandwidthBytes - report.metered.bandwidthBytes) : 0;
 
   return (
     <div className="rounded-xl border bg-card p-6">
@@ -202,6 +226,19 @@ export function ProjectCostsPanel({ report }: { report: TeamCostReport | null })
             <p className="text-sm text-muted-foreground">No active projects in this billing period.</p>
           ) : (
             <div className="overflow-x-auto">
+              <div className="mb-3 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                <label htmlFor="project-costs-sort">Sort by</label>
+                <select
+                  id="project-costs-sort"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortKey)}
+                  className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                >
+                  <option value="cost">Highest cost so far</option>
+                  <option value="projected">Highest projected</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground border-b">
@@ -211,7 +248,7 @@ export function ProjectCostsPanel({ report }: { report: TeamCostReport | null })
                   </tr>
                 </thead>
                 <tbody>
-                  {projects.map((p) => (
+                  {sortProjects(projects, sortBy).map((p) => (
                     <ProjectRow
                       key={p.projectId}
                       project={p}
@@ -237,6 +274,19 @@ export function ProjectCostsPanel({ report }: { report: TeamCostReport | null })
                   </tr>
                 </tfoot>
               </table>
+              {(otherRequests > 0 || otherBytes > 0) && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  The Usage card counts every call made for your team in this period. This table prices only
+                  what is tied to your current projects, so{' '}
+                  {[
+                    otherRequests > 0 ? `${otherRequests.toLocaleString('en-US')} requests` : null,
+                    otherBytes > 0 ? `${formatMeteredBytes(otherBytes)} of traffic` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' and ')}{' '}
+                  are not listed here (account-level calls and projects that have been deactivated or deleted).
+                </p>
+              )}
             </div>
           )}
         </div>

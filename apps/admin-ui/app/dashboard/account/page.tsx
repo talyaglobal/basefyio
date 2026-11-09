@@ -132,6 +132,24 @@ export default function AccountPage() {
   const signOnMethod = profile?.signOnMethod ?? authProvider;
   const isExternalAuth = signOnMethod !== 'local';
   const canEditIdentity = !isExternalAuth || forcePasswordChange;
+  const providerLabel =
+    ({ google: 'Google', github: 'GitHub' } as Record<string, string>)[signOnMethod] ?? signOnMethod;
+  // Both flags exist on the profile; the sign-in email setting is one choice of three.
+  const signInMode: 'never' | 'newDevice' | 'every' = notifySignIn
+    ? 'every'
+    : notifySignInNewDevice
+      ? 'newDevice'
+      : 'never';
+  const setSignInMode = (mode: 'never' | 'newDevice' | 'every') => {
+    setNotifySignIn(mode === 'every');
+    setNotifySignInNewDevice(mode === 'newDevice');
+  };
+  const permissionLabel: Record<typeof browserPermission, string> = {
+    default: 'Not asked yet',
+    granted: 'Allowed',
+    denied: 'Blocked in your browser settings',
+    unsupported: 'Not supported on this device',
+  };
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
@@ -249,7 +267,7 @@ export default function AccountPage() {
 
   const handleChangePassword = async () => {
     if (isExternalAuth) {
-      toast.error(`This account must use ${signOnMethod} sign-in. Password change is disabled.`);
+      toast.error(`This account signs in with ${providerLabel}. Password change is disabled.`);
       return;
     }
     if (newPassword.length < 8) {
@@ -372,9 +390,9 @@ export default function AccountPage() {
           />
         </div>
         {isExternalAuth && !canEditIdentity && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
             <span>
-              This account uses {authProvider} sign-in. Email and password are locked. You can still update first and last name.
+              This account signs in with {providerLabel}. Email and password are managed there. You can still update your first and last name.
             </span>
           </div>
         )}
@@ -506,49 +524,31 @@ export default function AccountPage() {
         </p>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-md border px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Email on every sign-in</p>
-              <p className="text-xs text-muted-foreground">
-                Send an email every time your account signs in.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setNotifySignIn(!notifySignIn)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                notifySignIn ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  notifySignIn ? 'translate-x-[22px]' : 'translate-x-[2px]'
-                } mt-[2px]`}
-              />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border px-4 py-3">
-            <div className="pr-4">
-              <p className="text-sm font-medium">Email only for new device/browser</p>
-              <p className="text-xs text-muted-foreground">
-                Send email only when sign-in fingerprint changes (new device or browser).
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setNotifySignInNewDevice(!notifySignInNewDevice)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                notifySignInNewDevice ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  notifySignInNewDevice ? 'translate-x-[22px]' : 'translate-x-[2px]'
-                } mt-[2px]`}
-              />
-            </button>
-          </div>
+          <fieldset className="space-y-2 rounded-md border px-4 py-3">
+            <legend className="px-1 text-sm font-medium">Sign-in emails</legend>
+            {(
+              [
+                ['never', 'Never', 'Do not email me when my account signs in.'],
+                ['newDevice', 'New device or browser only', 'Email me only when the sign-in comes from a device or browser I have not used before.'],
+                ['every', 'Every sign-in', 'Email me each time my account signs in.'],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <label key={value} className="flex cursor-pointer items-start gap-3 py-1">
+                <input
+                  type="radio"
+                  name="sign-in-emails"
+                  value={value}
+                  checked={signInMode === value}
+                  onChange={() => setSignInMode(value)}
+                  className="mt-1 h-4 w-4 accent-primary"
+                />
+                <span>
+                  <span className="block text-sm font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
 
           <div className="flex items-center justify-between rounded-md border px-4 py-3">
             <div>
@@ -571,59 +571,78 @@ export default function AccountPage() {
               />
             </button>
           </div>
-
-          <div className="space-y-3 rounded-md border px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="pr-4">
-                <p className="flex items-center gap-1.5 text-sm font-medium">
-                  <BellRing className="h-3.5 w-3.5" />
-                  Browser notifications
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Show in-browser notifications for account security events.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleToggleBrowserPush()}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                  notifyBrowserPush ? 'bg-primary' : 'bg-muted'
-                }`}
-                disabled={browserPermission === 'unsupported'}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    notifyBrowserPush ? 'translate-x-[22px]' : 'translate-x-[2px]'
-                  } mt-[2px]`}
-                />
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Laptop className="h-3.5 w-3.5" />
-                Permission: {browserPermission}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => void handleSendBrowserTest()}
-                disabled={browserPermission === 'unsupported'}
-              >
-                Send test
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
-            {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Save preferences
-          </Button>
         </div>
       </div>
+
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <BellRing className="h-4 w-4" />
+          Browser notifications
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="pr-4">
+              <p className="text-sm font-medium">Show security alerts in this browser</p>
+              <p className="text-xs text-muted-foreground">
+                Show in-browser notifications for account security events.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={notifyBrowserPush}
+              aria-label="Browser notifications"
+              onClick={() => void handleToggleBrowserPush()}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                notifyBrowserPush ? 'bg-primary' : 'bg-muted'
+              }`}
+              disabled={browserPermission === 'unsupported'}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  notifyBrowserPush ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                } mt-[2px]`}
+              />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <Laptop className="h-3.5 w-3.5" />
+              Browser permission: {permissionLabel[browserPermission]}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => void handleSendBrowserTest()}
+              disabled={browserPermission === 'unsupported'}
+            >
+              Send test
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={handleSaveNotifications} disabled={!hasNotifChanges || savingNotifs} size="sm">
+          {savingNotifs ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+          Save notification preferences
+        </Button>
+      </div>
+
+      {isExternalAuth && !forcePasswordChange && (
+        <div className="rounded-lg border bg-card p-6 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <KeyRound className="h-4 w-4" />
+            Sign-in and security
+          </div>
+          <p className="text-sm text-muted-foreground">
+            You sign in with {providerLabel}, so your password, two-step verification and active sessions are
+            managed in your {providerLabel} account.
+          </p>
+        </div>
+      )}
 
       {!isExternalAuth && (
       <div className="rounded-lg border bg-card p-6 space-y-4">

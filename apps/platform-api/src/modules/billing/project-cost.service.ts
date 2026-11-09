@@ -82,6 +82,8 @@ export interface TeamCostReport {
   plan: { name: string; displayName: string; priceMonthlyUsd: number } | null;
   projects: CustomerProjectCost[];
   totals: { amountUsd: number; projectedUsd: number };
+  /** What the listed projects metered this period, to set against the team-wide Usage figures. */
+  metered: { apiRequests: number; bandwidthBytes: number };
   rates: CustomerRates;
   /** True when at least one project has never had its file storage measured. */
   storagePending: boolean;
@@ -196,7 +198,7 @@ export class ProjectCostService {
     const reports = inputs
       .map((i) => priceProject(cfg, period, i, now))
       .sort((a, b) => b.pricedUsd - a.pricedUsd);
-    const totals = sumProjectCosts(reports);
+    const projectViews = reports.map(toCustomerView);
 
     return {
       currency: 'usd',
@@ -205,8 +207,16 @@ export class ProjectCostService {
       plan: sub
         ? { name: sub.plan.name, displayName: sub.plan.displayName, priceMonthlyUsd: sub.plan.priceMonthly / 100 }
         : null,
-      projects: reports.map(toCustomerView),
-      totals: { amountUsd: totals.pricedUsd, projectedUsd: totals.projectedPricedUsd },
+      projects: projectViews,
+      // Sum of the cents shown on the rows, so the footer always adds up.
+      totals: {
+        amountUsd: round2(projectViews.reduce((s, p) => s + p.amountUsd, 0)),
+        projectedUsd: round2(projectViews.reduce((s, p) => s + p.projectedUsd, 0)),
+      },
+      metered: {
+        apiRequests: inputs.reduce((s, i) => s + i.apiRequests, 0),
+        bandwidthBytes: inputs.reduce((s, i) => s + i.bandwidthBytes, 0),
+      },
       rates: customerRates(cfg),
       storagePending: rows.some((r) => !r.usage?.storageCalculatedAt),
     };
@@ -377,7 +387,17 @@ export class ProjectCostService {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** A project's amount is whole cents, so the team total can be the sum of the rows. */
 function toCustomerView(r: ProjectCostReport): CustomerProjectCost {
+  const lines = r.lines.map((l) => ({
+    key: l.key,
+    label: l.label,
+    quantity: l.quantity,
+    unit: l.unit,
+    detail: l.detail,
+    amountUsd: l.pricedUsd,
+    projectedUsd: l.projectedPricedUsd,
+  }));
   return {
     projectId: r.projectId,
     name: r.name,
@@ -385,17 +405,9 @@ function toCustomerView(r: ProjectCostReport): CustomerProjectCost {
     status: r.status,
     computeTier: r.computeTier,
     activeHours: r.activeHours,
-    lines: r.lines.map((l) => ({
-      key: l.key,
-      label: l.label,
-      quantity: l.quantity,
-      unit: l.unit,
-      detail: l.detail,
-      amountUsd: l.pricedUsd,
-      projectedUsd: l.projectedPricedUsd,
-    })),
-    amountUsd: r.pricedUsd,
-    projectedUsd: r.projectedPricedUsd,
+    lines,
+    amountUsd: round2(r.pricedUsd),
+    projectedUsd: round2(r.projectedPricedUsd),
   };
 }
 

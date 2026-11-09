@@ -1794,6 +1794,8 @@ export interface TeamCostReport {
   plan: { name: string; displayName: string; priceMonthlyUsd: number } | null;
   projects: CustomerProjectCost[];
   totals: { amountUsd: number; projectedUsd: number };
+  /** What the listed projects metered this period. */
+  metered: { apiRequests: number; bandwidthBytes: number };
   rates: CustomerRates;
   storagePending: boolean;
 }
