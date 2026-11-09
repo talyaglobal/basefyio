@@ -135,6 +135,10 @@ export default function AccountPage() {
 
   const handleSaveProfile = async () => {
     if (!hasProfileChanges) return;
+    if (!firstName.trim() && profile?.firstName) {
+      toast.error('First name is required');
+      return;
+    }
     setSaving(true);
     try {
       const updates: Record<string, string | boolean> = {};
@@ -377,12 +381,13 @@ export default function AccountPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="account-first">First name</Label>
+            <Label htmlFor="account-first">First name <span className="text-destructive" aria-hidden>*</span></Label>
             <Input
               id="account-first"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="First name"
+              required
               autoComplete="given-name"
               maxLength={100}
             />

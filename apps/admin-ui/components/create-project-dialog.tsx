@@ -39,6 +39,7 @@ import {
   type ImportJobProgressEvent,
   type ProjectListItem,
 } from '@/lib/types';
+import { useDashboard } from '@/app/dashboard/layout';
 import { saveProjectSupabaseImportLog } from '@/lib/import-log-storage';
 import { DatabaseAdvisor } from '@/components/database-advisor';
 import { ImportReconciliationTable } from '@/components/import-reconciliation-table';
@@ -162,7 +163,27 @@ export function CreateProjectDialog({
   reimportMode = 'full',
 }: CreateProjectDialogProps) {
   const router = useRouter();
+  const { teams } = useDashboard();
   const [view, setView] = useState<DialogView>('db-type');
+  // Where the project lands: the active team unless the person picks another here.
+  const [targetTeamId, setTargetTeamId] = useState(teamId);
+  useEffect(() => { if (open) setTargetTeamId(teamId); }, [open, teamId]);
+  const teamPicker = !reimportTarget && teams.length > 1 ? (
+    <div className="space-y-2">
+      <Label htmlFor="project-team">Team</Label>
+      <select
+        id="project-team"
+        value={targetTeamId}
+        onChange={(e) => { setTargetTeamId(e.target.value); setZipExistingProjectId(''); }}
+        className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+      >
+        {teams.map((t) => (
+          <option key={t.id} value={t.id}>{t.name}</option>
+        ))}
+      </select>
+      <p className="text-xs text-muted-foreground">The project is created in this team and its members get access.</p>
+    </div>
+  ) : null;
 
   const [databaseType, setDatabaseType] = useState<ProjectDatabaseType | null>(null);
   const [name, setName] = useState('');
@@ -187,6 +208,22 @@ export function CreateProjectDialog({
     }
   }, [supabaseUrl]);
   const [validated, setValidated] = useState(false);
+  const urlInvalid = useMemo(() => {
+    const v = supabaseUrl.trim();
+    if (!v) return false;
+    try {
+      return !/^https?:$/.test(new URL(v).protocol);
+    } catch {
+      return true;
+    }
+  }, [supabaseUrl]);
+  const validateHint = !supabaseUrl.trim()
+    ? 'Enter the Supabase project URL to validate.'
+    : urlInvalid
+      ? 'Fix the project URL to validate.'
+      : !serviceRoleKey.trim()
+        ? 'Paste the service_role key to validate.'
+        : '';
   const [tableCount, setTableCount] = useState(0);
   const [importSteps, setImportSteps] = useState<ImportStep[]>([]);
   const [importPercent, setImportPercent] = useState(0);
@@ -525,7 +562,7 @@ export function CreateProjectDialog({
       const project = await api.projects.create({
         name,
         description: description || undefined,
-        teamId,
+        teamId: targetTeamId,
         databaseType: databaseType ?? 'RELATIONAL',
       });
       toast.success(`Project "${project.name}" created`);
@@ -621,7 +658,7 @@ export function CreateProjectDialog({
         serviceRoleKey,
         ...(databasePassword.trim() ? { databasePassword: databasePassword.trim() } : {}),
         name: reimportTarget?.projectName ?? importName,
-        teamId,
+        teamId: targetTeamId,
         ...(reimportTarget
           ? { existingProjectId: reimportTarget.projectId }
           : {}),
@@ -768,7 +805,7 @@ export function CreateProjectDialog({
     try {
       const result = await api.projects.importFromExportZip({
         file: zipFile,
-        teamId,
+        teamId: targetTeamId,
         nameMode: zipNameMode,
         newProjectName: zipNameMode === 'new' ? zipNewName.trim() : undefined,
         existingProjectId:
@@ -796,17 +833,14 @@ export function CreateProjectDialog({
   useEffect(() => {
     if (!open || (view !== 'import' && view !== 'import-zip')) return;
     api.projects
-      .list(teamId)
+      .list(targetTeamId)
       .then((items) => {
         setTeamProjects(items);
-        if (!zipExistingProjectId && items.length > 0) {
-          setZipExistingProjectId(items[0].id);
-        }
       })
       .catch(() => {
         setTeamProjects([]);
       });
-  }, [open, view, teamId, zipExistingProjectId]);
+  }, [open, view, targetTeamId]);
 
   function handleResultDone() {
     const targetId = importProjectId || activeImport?.projectId || null;
@@ -1052,7 +1086,12 @@ export function CreateProjectDialog({
                   minLength={2}
                   maxLength={64}
                 />
+                <p className="text-xs text-muted-foreground">
+                  2–64 characters. The project URL identifier is generated from the name (lowercase letters, numbers and hyphens).
+                </p>
               </div>
+
+              {teamPicker}
 
               <div className="space-y-2">
                 <Label htmlFor="project-desc">Description (optional)</Label>
@@ -1195,6 +1234,7 @@ export function CreateProjectDialog({
             )}
 
             <form onSubmit={handleImport} className="space-y-4">
+              {teamPicker}
               <div className="space-y-2">
                 <Label htmlFor="supabase-url">Supabase Project URL</Label>
                 <Input
@@ -1208,7 +1248,14 @@ export function CreateProjectDialog({
                   placeholder="https://xyzproject.supabase.co"
                   required
                   type="url"
+                  aria-invalid={urlInvalid}
+                  aria-describedby={urlInvalid ? 'supabase-url-error' : undefined}
                 />
+                {urlInvalid && (
+                  <p id="supabase-url-error" className="text-xs text-red-600 dark:text-red-400">
+                    Enter the full project URL, for example https://xyzproject.supabase.co
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1259,7 +1306,8 @@ export function CreateProjectDialog({
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!supabaseUrl.trim() || !serviceRoleKey.trim() || validating}
+                    disabled={!!validateHint || validating}
+                    title={validateHint || undefined}
                     onClick={handleValidateSupabase}
                     className="h-7 text-xs shrink-0"
                   >
@@ -1272,6 +1320,9 @@ export function CreateProjectDialog({
                     )}
                   </Button>
                 </div>
+                {validateHint && !validating && (
+                  <p className="text-xs text-muted-foreground">{validateHint}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1359,6 +1410,7 @@ export function CreateProjectDialog({
                   type="submit"
                   disabled={
                     !supabaseUrl.trim() ||
+                    urlInvalid ||
                     !serviceRoleKey.trim() ||
                     !(reimportTarget?.projectName ?? importName).trim()
                   }
@@ -1422,6 +1474,8 @@ export function CreateProjectDialog({
                 </p>
               </div>
 
+              {teamPicker}
+
               {!reimportTarget && (
               <div className="space-y-2">
                 <p className="text-xs font-medium">Import target</p>
@@ -1449,10 +1503,14 @@ export function CreateProjectDialog({
                     onChange={(e) => setZipExistingProjectId(e.target.value)}
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                     required
+                    aria-label="Project to override"
                   >
                     {teamProjects.length === 0 ? (
-                      <option value="">No projects found in active team</option>
+                      <option value="">No projects found in this team</option>
                     ) : (
+                      <option value="">Select the project to overwrite…</option>
+                    )}
+                    {teamProjects.length > 0 && (
                       teamProjects.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}

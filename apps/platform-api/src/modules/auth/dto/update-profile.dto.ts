@@ -1,9 +1,10 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
+  @Matches(/\S/,{ message: 'First name is required' })
   firstName?: string;
 
   @IsOptional()

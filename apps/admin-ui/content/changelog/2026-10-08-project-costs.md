@@ -17,7 +17,8 @@ billing period, what every project's usage adds up to:
   accruing compute.
 - **Database and file storage** — per GB-month, prorated to the time the
   project existed inside the period.
-- **Egress and API requests** — metered per GB and per million requests.
+- **Egress and API requests** — egress is metered per GB; API requests are
+  counted per million but currently included in compute (the rate is zero).
 
 Each project expands into its line items, and the footer shows **current**
 and **projected** costs for the period, with a progress bar for the days left.

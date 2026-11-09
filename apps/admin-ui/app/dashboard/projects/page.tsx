@@ -58,6 +58,7 @@ import {
   GitBranch,
   GripVertical,
   Info,
+  MoreHorizontal,
   Pencil,
   Plus,
   FileSpreadsheet,
@@ -235,6 +236,8 @@ export default function ProjectsPage() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   // Folder modal
+  // Render in pages so a team with hundreds of projects does not mount them all at once.
+  const [shownCount, setShownCount] = useState(60);
   const [folderModal, setFolderModal] = useState<{ open: boolean; editing?: ProjectFolder }>({ open: false });
   const [folderName, setFolderName]   = useState('');
   const [folderColor, setFolderColor] = useState(COLORS[0]);
@@ -475,6 +478,8 @@ export default function ProjectsPage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
+  useEffect(() => { setShownCount(60); }, [selectedFolder, selectedTags, searchQuery, statusFilter, thisMonthOnly, sortBy, createdByMe]);
+
   // ── Navigate to project (saves state first) ──────────────────────────────────
   function openProject(projectId: string) {
     saveProjectsState({ selectedFolder, selectedTags, searchQuery, statusFilter, thisMonthOnly, sortBy });
@@ -483,7 +488,8 @@ export default function ProjectsPage() {
 
   // ── Folder CRUD ───────────────────────────────────────────────────────────────
   async function saveFolder() {
-    if (!activeTeamId || !folderName.trim()) return;
+    if (!folderName.trim()) { toast.error('Enter a folder name.'); return; }
+    if (!activeTeamId) return;
     try {
       if (folderModal.editing) {
         const updated = await api.folders.update(folderModal.editing.id, { name: folderName, color: folderColor });
@@ -529,7 +535,7 @@ export default function ProjectsPage() {
 
   // ── Tag CRUD ──────────────────────────────────────────────────────────────────
   async function saveTag() {
-    if (!tagName.trim()) return;
+    if (!tagName.trim()) { toast.error('Enter a tag name.'); return; }
     try {
       if (tagModal.editing) {
         const updated = await api.tags.update(tagModal.editing.id, { name: tagName, color: tagColor });
@@ -1061,9 +1067,21 @@ export default function ProjectsPage() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape' && searchQuery) { e.stopPropagation(); setSearchQuery(''); } }}
               placeholder="Search projects…"
-              className="w-full rounded-lg border bg-background pl-9 pr-4 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
+              aria-label="Search projects"
+              className="w-full rounded-lg border bg-background pl-9 pr-8 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Created by me filter */}
@@ -1109,7 +1127,7 @@ export default function ProjectsPage() {
             )}
           </div>
 
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={loadAll}>
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={loadAll} aria-label="Refresh projects">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <div className="inline-flex items-center rounded-lg border bg-background p-0.5">
@@ -1225,7 +1243,7 @@ export default function ProjectsPage() {
               ) : null;
             })}
             <button
-              onClick={() => { setStatusFilter(null); setThisMonthOnly(false); setSelectedTags([]); }}
+              onClick={() => { setStatusFilter(null); setThisMonthOnly(false); setSelectedTags([]); setSelectedFolder('all'); }}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
             >
               Clear all
@@ -1621,7 +1639,7 @@ export default function ProjectsPage() {
               ) : (
                 viewMode === 'grid' ? (
                   <div className="basefyio-grid-row-hover grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
-                    {filtered.map((project) => (
+                    {filtered.slice(0, shownCount).map((project) => (
                       <DroppableProjectCard
                         key={project.id}
                         project={project}
@@ -1639,7 +1657,7 @@ export default function ProjectsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {filtered.map((project) => (
+                    {filtered.slice(0, shownCount).map((project) => (
                       <ProjectListRow
                         key={project.id}
                         project={project}
@@ -1651,6 +1669,13 @@ export default function ProjectsPage() {
                     ))}
                   </div>
                 )
+              )}
+              {!loading && filtered.length > shownCount && (
+                <div className="mt-4 flex justify-center">
+                  <Button variant="outline" size="sm" onClick={() => setShownCount((n) => n + 60)}>
+                    Show {Math.min(60, filtered.length - shownCount)} more ({filtered.length - shownCount} left)
+                  </Button>
+                </div>
               )}
             </div>
             </>
@@ -2199,6 +2224,18 @@ function ProjectListRow({
       <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
         {projectStatusLabel(project.status).toUpperCase()}
       </span>
+      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+        {project.databaseType === 'NOSQL' ? 'NoSQL' : 'PostgreSQL'}
+      </span>
+      <button
+        type="button"
+        aria-label={`Actions for ${project.name}`}
+        title="More actions"
+        onClick={(e) => { e.stopPropagation(); onContextMenu(e); }}
+        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -2483,13 +2520,13 @@ function SortableFolderItem({
         <GripVertical className={`h-3 w-3 ${drop ? 'text-primary/40' : 'text-muted-foreground/30'}`} />
       </span>
       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: folder.color }} />
-      <span className="flex-1 truncate">{folder.name}</span>
+      <span className="flex-1 truncate" title={folder.name}>{folder.name}</span>
       <span className={`text-xs tabular-nums ${drop ? 'text-primary/80' : 'text-muted-foreground'}`}>{count}</span>
       <span className="hidden group-hover:flex items-center gap-0.5">
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="rounded p-0.5 hover:bg-muted">
+        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} aria-label={`Edit folder ${folder.name}`} className="rounded p-0.5 hover:bg-muted">
           <Pencil className="h-3 w-3 text-muted-foreground" />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="rounded p-0.5 hover:bg-destructive/10">
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} aria-label={`Delete folder ${folder.name}`} className="rounded p-0.5 hover:bg-destructive/10">
           <Trash2 className="h-3 w-3 text-muted-foreground" />
         </button>
       </span>
@@ -2672,6 +2709,17 @@ function DroppableProjectCard({
             </span>
           )}
         </div>
+        <span className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={`Actions for ${project.name}`}
+          title="More actions"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onContextMenu(e); }}
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
         {/* Checkbox – always visible, click to select */}
         <span
           onClick={(e) => { e.stopPropagation(); onSelect(); }}
@@ -2682,6 +2730,7 @@ function DroppableProjectCard({
           }`}
         >
           {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+        </span>
         </span>
       </div>
 
@@ -2949,7 +2998,7 @@ function Modal({
       <div className={`fixed left-1/2 top-1/2 z-[51] -translate-x-1/2 -translate-y-1/2 w-full ${maxW} rounded-xl border bg-card p-5 shadow-xl`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-base">{title}</h2>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent transition-colors">
+          <button onClick={onClose} aria-label="Close" className="rounded-md p-1 hover:bg-accent transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>

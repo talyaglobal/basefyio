@@ -23,6 +23,8 @@ const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
         <button
           type="button"
           tabIndex={-1}
+          aria-label={visible ? 'Hide value' : 'Show value'}
+          aria-pressed={visible}
           onClick={() => setVisible((v) => !v)}
           className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
         >

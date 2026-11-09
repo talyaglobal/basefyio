@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { AlertTriangle, ArrowLeft, Lightbulb, Loader2, Paperclip, X, Camera } from 'lucide-react';
 
 type ModalStep = 'choose' | 'issue' | 'idea';
@@ -37,7 +38,19 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [appVersion, setAppVersion] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [pageUrl, setPageUrl] = useState('');
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  // Closing (Esc, outside click, Cancel) must not silently drop a typed draft.
+  async function requestOpenChange(next: boolean) {
+    if (!next && description.trim() && !loading && !(await confirmDialog({
+      title: 'Discard your feedback?',
+      description: 'What you typed has not been sent yet.',
+      confirmText: 'Discard',
+      destructive: true,
+    }))) return;
+    onOpenChange(next);
+  }
 
   useEffect(() => {
     fetch('/api/changelog/latest')
@@ -47,6 +60,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   }, []);
 
   useEffect(() => {
+    if (open) setPageUrl(window.location.href);
     if (!open) {
       setStep('choose');
       setFiles([]);
@@ -159,9 +173,11 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       toast.success('Screenshot captured!');
     } catch (err: any) {
       // User cancelled the screen picker or API not available
-      if (err?.name !== 'NotAllowedError') {
-        toast.error('Failed to capture screenshot');
-      }
+      toast.error(
+        err?.name === 'NotAllowedError'
+          ? 'Screen capture was blocked or cancelled. Allow screen sharing for this site, or use Add image or video instead.'
+          : 'Failed to capture screenshot',
+      );
     } finally {
       setTakingScreenshot(false);
     }
@@ -182,7 +198,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       const titleLine = description.trim().split('\n')[0].slice(0, 120);
 
       await api.feedback.create({
-        url: currentUrl,
+        url: pageUrl.trim() || currentUrl,
         title: titleLine,
         description: description.trim(),
         type: feedbackType,
@@ -214,7 +230,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       <DialogContent className="sm:max-w-2xl max-h-[min(90dvh,720px)] flex flex-col overflow-hidden">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <button onClick={() => setStep('choose')} className="rounded p-1 hover:bg-accent">
+            <button onClick={() => setStep('choose')} aria-label="Back" className="rounded p-1 hover:bg-accent">
               <ArrowLeft className="h-4 w-4" />
             </button>
             <DialogTitle>{formTitle}</DialogTitle>
@@ -230,7 +246,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="space-y-2 shrink-0">
               <Label className="text-xs text-muted-foreground">Page</Label>
-              <Input value={currentUrl} disabled className="text-xs opacity-70" />
+              <Input value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} maxLength={2000} className="text-xs" />
             </div>
 
             <div className="space-y-2 shrink-0">
@@ -318,7 +334,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           </div>
 
           <DialogFooter className="shrink-0 border-t pt-3 mt-3 gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => requestOpenChange(false)} disabled={loading}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !description.trim()}>
@@ -331,7 +347,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       {step === 'choose' && (
         <DialogContent aria-describedby={undefined} className="sm:max-w-sm">
           <DialogHeader>

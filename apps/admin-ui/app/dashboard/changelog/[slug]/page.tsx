@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getChangelogEntry, listChangelogEntries, renderMarkdown, KIND_BADGE_CLASS, KIND_LABEL } from '@/lib/changelog';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 export const dynamic = 'force-static';
 export const revalidate = 60;
@@ -30,6 +30,10 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const { slug } = await params;
   const entry = getChangelogEntry(slug);
   if (!entry) notFound();
+  const all = listChangelogEntries();
+  const idx = all.findIndex((e) => e.slug === slug);
+  const newer = idx > 0 ? all[idx - 1] : null;
+  const older = idx >= 0 && idx < all.length - 1 ? all[idx + 1] : null;
 
   return (
     <div className="mx-auto w-full max-w-2xl py-8 sm:py-12">
@@ -67,6 +71,23 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
         className="changelog-prose mt-8"
         dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.body) }}
       />
+
+      {(newer || older) && (
+        <nav aria-label="Release notes" className="mt-12 flex items-start justify-between gap-4 border-t border-border pt-6 text-sm">
+          {older ? (
+            <Link href={`/dashboard/changelog/${older.slug}`} className="group flex max-w-[48%] flex-col gap-1 text-muted-foreground hover:text-foreground">
+              <span className="inline-flex items-center gap-1.5"><ArrowLeft className="h-3.5 w-3.5" />Older</span>
+              <span className="font-medium text-foreground">{older.title}</span>
+            </Link>
+          ) : <span />}
+          {newer ? (
+            <Link href={`/dashboard/changelog/${newer.slug}`} className="group flex max-w-[48%] flex-col items-end gap-1 text-right text-muted-foreground hover:text-foreground">
+              <span className="inline-flex items-center gap-1.5">Newer<ArrowRight className="h-3.5 w-3.5" /></span>
+              <span className="font-medium text-foreground">{newer.title}</span>
+            </Link>
+          ) : <span />}
+        </nav>
+      )}
     </div>
   );
 }

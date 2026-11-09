@@ -98,11 +98,11 @@ export function NotificationsBell() {
         )}
         <DropdownMenuSeparator />
         <div className="flex items-center justify-end gap-1 p-1">
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllRead}>
+          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllRead} disabled={unreadCount === 0}>
             <CheckCheck className="mr-1 h-3.5 w-3.5" />
             Mark all read
           </Button>
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={clearAll}>
+          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={clearAll} disabled={notifications.length === 0}>
             <Trash2 className="mr-1 h-3.5 w-3.5" />
             Clear
           </Button>

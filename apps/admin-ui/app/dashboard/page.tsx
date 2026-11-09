@@ -34,6 +34,7 @@ import {
   TrendingUp,
   Users,
   Activity,
+  UserCog,
   Calendar,
   CheckCircle2,
   PauseCircle,
@@ -91,34 +92,30 @@ function StatCard({
   value,
   sub,
   colorIndex = 0,
-  onClick,
+  href,
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   sub?: string;
   colorIndex?: number;
-  onClick?: () => void;
+  href: string;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left rounded-xl border bg-gradient-to-br ${STAT_COLORS[colorIndex % STAT_COLORS.length]} p-5 backdrop-blur-sm transition-all ${
-        onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]' : ''
-      }`}
+    <Link
+      href={href}
+      className={`block w-full text-left rounded-xl border bg-gradient-to-br ${STAT_COLORS[colorIndex % STAT_COLORS.length]} p-5 backdrop-blur-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]`}
     >
       {/* Icon + Label row */}
       <div className="flex items-center gap-2.5 mb-3">
         <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground leading-tight">{label}</span>
-        {onClick && (
-          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0" />
-        )}
+        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 ml-auto shrink-0" />
       </div>
       {/* Value */}
       <p className="text-3xl font-bold tabular-nums tracking-tight">{value}</p>
       {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-    </button>
+    </Link>
   );
 }
 
@@ -290,7 +287,7 @@ export default function DashboardPage() {
   const monthlyData = buildMonthlyData(projects, 6);
   const totalThisMonth = monthlyData[monthlyData.length - 1].count;
   const totalLastMonth = monthlyData[monthlyData.length - 2].count;
-  const trendUp = totalThisMonth >= totalLastMonth;
+  const ownerCount = members.filter((m) => m.role === 'OWNER').length;
 
   const statusData = buildStatusData(projects, deactivatedCount, deletedCount);
 
@@ -475,7 +472,7 @@ export default function DashboardPage() {
           value={projects.length}
           sub={`${activeCount} active`}
           colorIndex={0}
-          onClick={() => router.push('/dashboard/projects')}
+          href="/dashboard/projects"
         />
         <StatCard
           icon={CheckCircle2}
@@ -483,23 +480,31 @@ export default function DashboardPage() {
           value={activeCount}
           sub={projects.length > 0 ? `${Math.round((activeCount / projects.length) * 100)}% of total` : undefined}
           colorIndex={1}
-          onClick={() => router.push('/dashboard/projects?status=ACTIVE')}
+          href="/dashboard/projects?status=ACTIVE"
         />
         <StatCard
           icon={Users}
           label="Team Members"
           value={members.length}
-          sub={`${members.filter((m) => m.role === 'OWNER').length} owner · active team`}
+          sub={`${ownerCount} ${ownerCount === 1 ? 'owner' : 'owners'} · active team`}
           colorIndex={2}
-          onClick={() => router.push('/dashboard/team')}
+          href="/dashboard/team"
         />
         <StatCard
           icon={Calendar}
           label="Created This Month"
           value={thisMonth}
-          sub={trendUp ? '↑ more than last month' : totalLastMonth > 0 ? '↓ less than last month' : 'No projects last month'}
+          sub={
+            totalThisMonth > totalLastMonth
+              ? '↑ more than last month'
+              : totalThisMonth < totalLastMonth
+                ? '↓ less than last month'
+                : totalLastMonth > 0
+                  ? 'Same as last month'
+                  : 'No projects last month'
+          }
           colorIndex={3}
-          onClick={() => router.push('/dashboard/projects?filter=this-month')}
+          href="/dashboard/projects?filter=this-month"
         />
       </div>
 
@@ -632,9 +637,9 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {recentProjects.map((p) => (
-                <button
+                <Link
                   key={p.id}
-                  onClick={() => router.push(`/dashboard/projects/${p.id}`)}
+                  href={`/dashboard/projects/${p.id}`}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent group"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-gradient shadow-sm">
@@ -653,7 +658,7 @@ export default function DashboardPage() {
                     {projectStatusLabel(p.status).toUpperCase()}
                   </Badge>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                </Link>
               ))}
             </div>
           )}
@@ -677,8 +682,8 @@ export default function DashboardPage() {
               New Project
             </button>
 
-            <button
-              onClick={() => router.push('/dashboard/projects')}
+            <Link
+              href="/dashboard/projects"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
@@ -686,10 +691,10 @@ export default function DashboardPage() {
               </div>
               All Projects
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
-            </button>
+            </Link>
 
-            <button
-              onClick={() => router.push('/dashboard/team')}
+            <Link
+              href="/dashboard/team"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
@@ -697,18 +702,18 @@ export default function DashboardPage() {
               </div>
               Team Settings
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
-            </button>
+            </Link>
 
-            <button
-              onClick={() => router.push('/dashboard/account')}
+            <Link
+              href="/dashboard/account"
               className="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                <Activity className="h-4 w-4 text-muted-foreground" />
+                <UserCog className="h-4 w-4 text-muted-foreground" />
               </div>
               Account Settings
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
-            </button>
+            </Link>
           </div>
         </div>
       </div>

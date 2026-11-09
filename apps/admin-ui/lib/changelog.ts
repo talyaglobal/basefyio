@@ -162,8 +162,9 @@ export function renderMarkdown(md: string): string {
     // Unordered list
     if (/^[-*]\s+/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^[-*]\s+/, ''));
+      while (i < lines.length && (/^[-*]\s+/.test(lines[i]) || (items.length && /^\s+\S/.test(lines[i])))) {
+        if (/^[-*]\s+/.test(lines[i])) items.push(lines[i].replace(/^[-*]\s+/, ''));
+        else items[items.length - 1] += ' ' + lines[i].trim(); // indented continuation of the item above
         i++;
       }
       html.push('<ul>' + items.map((item) => `<li>${inlineMarkdown(item)}</li>`).join('') + '</ul>');
@@ -173,8 +174,9 @@ export function renderMarkdown(md: string): string {
     // Ordered list
     if (/^\d+\.\s+/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\.\s+/, ''));
+      while (i < lines.length && (/^\d+\.\s+/.test(lines[i]) || (items.length && /^\s+\S/.test(lines[i])))) {
+        if (/^\d+\.\s+/.test(lines[i])) items.push(lines[i].replace(/^\d+\.\s+/, ''));
+        else items[items.length - 1] += ' ' + lines[i].trim();
         i++;
       }
       html.push('<ol>' + items.map((item) => `<li>${inlineMarkdown(item)}</li>`).join('') + '</ol>');
@@ -188,7 +190,8 @@ export function renderMarkdown(md: string): string {
       i++;
     }
     if (paraLines.length) {
-      html.push(`<p>${paraLines.map(inlineMarkdown).join('<br>')}</p>`);
+      // a soft line break is a space, so **bold** may span two source lines
+      html.push(`<p>${inlineMarkdown(paraLines.join(' '))}</p>`);
     }
   }
 

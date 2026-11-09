@@ -327,7 +327,7 @@ export function Header({ user, activeTeamId, onTeamChange, refreshKey = 0, profi
       <div className="flex h-14 items-center gap-2 px-3 sm:px-4 md:px-6">
       {/* ── Left: logo + nav ─────────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href="/dashboard" aria-label="basefyio dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-md">
             <Database className="h-4 w-4" />
           </div>

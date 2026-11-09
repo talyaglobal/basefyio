@@ -102,6 +102,20 @@ export function useInviteCount() {
   return useContext(DashboardContext).inviteCount;
 }
 
+// Tab and history titles per dashboard section (the pages are client components, so no per-page metadata).
+const SECTION_TITLES: Record<string, string> = {
+  '/dashboard': 'Overview',
+  '/dashboard/projects': 'Projects',
+  '/dashboard/team': 'Team',
+  '/dashboard/billing': 'Billing',
+  '/dashboard/account': 'Account',
+  '/dashboard/profile': 'Profile',
+  '/dashboard/feedbacks': 'Feedback',
+  '/dashboard/changelog': "What's new",
+  '/dashboard/blueprints': 'Blueprints',
+  '/dashboard/admin': 'Admin',
+};
+
 export default function DashboardLayout({
   children,
 }: {
@@ -142,6 +156,11 @@ export default function DashboardLayout({
   const isProjectDetailRoute =
     pathname.startsWith('/dashboard/projects/') &&
     pathname !== '/dashboard/projects';
+
+  useEffect(() => {
+    const section = Object.keys(SECTION_TITLES).filter((k) => pathname === k || pathname.startsWith(k + '/')).sort((a, b) => b.length - a.length)[0];
+    if (section && !pathname.startsWith('/dashboard/changelog/')) document.title = `${SECTION_TITLES[section]} | basefyio`;
+  }, [pathname]);
 
   useEffect(() => {
     const forcePasswordChange = Cookies.get('basefyio_force_password_change') === '1';
@@ -486,6 +505,7 @@ export default function DashboardLayout({
   return (
     <DashboardContext.Provider value={contextValue}>
       <div className="flex h-screen flex-col overflow-hidden">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg focus:ring-2 focus:ring-ring">Skip to content</a>
         <Header user={user} activeTeamId={activeTeamId} onTeamChange={handleHeaderTeamChange} refreshKey={refreshKey} profile={profile} />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <DashboardSidebar
@@ -494,8 +514,8 @@ export default function DashboardLayout({
             isRoot={profile?.role === 'ROOT'}
             onTeamChange={handleHeaderTeamChange}
           />
-          <main className={cn(
-            'flex min-h-0 min-w-0 flex-1 flex-col',
+          <main id="main-content" tabIndex={-1} className={cn(
+            'flex min-h-0 min-w-0 flex-1 flex-col focus:outline-none',
             isProjectDetailRoute ? 'overflow-hidden' : 'overflow-y-auto',
           )}>
             {billingBanner && !bannerDismissed && !pathname.includes('/billing') && (

@@ -733,7 +733,11 @@ export function AiAssistant() {
               >
                 <span className="max-w-[100px] truncate">{title}</span>
                 <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Close chat ${title}`}
                   onClick={(e) => closeSession(session.id, e)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') closeSession(session.id, e as unknown as React.MouseEvent); }}
                   className={`ml-0.5 rounded p-0.5 transition-colors ${
                     active
                       ? 'hover:bg-muted text-muted-foreground'
@@ -880,6 +884,7 @@ export function AiAssistant() {
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim() || loading || contextLoading}
+                  aria-label="Send message"
                   className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
                 >
                   <Send className="h-3.5 w-3.5" />
