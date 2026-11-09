@@ -302,7 +302,7 @@ export type ApiNotification = {
 
 export const api = {
   auth: {
-    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string }) {
+    signup(data: { email: string; password: string; firstName?: string; lastName?: string; planName?: string; acceptedTerms: true }) {
       return request<{ message: string }>('/auth/signup', {
         method: 'POST',
         body: JSON.stringify(data),

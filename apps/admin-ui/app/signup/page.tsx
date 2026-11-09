@@ -40,6 +40,8 @@ export default function SignupPage() {
   );
 }
 
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com').replace(/\/+$/, '');
+
 type SignupPlan = {
   name: string;
   label: string;
@@ -85,6 +87,7 @@ function SignupForm() {
     firstName: '',
     lastName: '',
   });
+  const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [providers, setProviders] = useState<string[]>(['github']);
@@ -177,9 +180,10 @@ function SignupForm() {
   // Step 1: send OTP to email
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!accepted) return;
     setLoading(true);
     try {
-      await api.auth.signup({ ...form, planName: selectedPlan });
+      await api.auth.signup({ ...form, planName: selectedPlan, acceptedTerms: true });
       setStep('otp');
       setResendCooldown(60);
       toast.success('Verification code sent to your email');
@@ -232,6 +236,7 @@ function SignupForm() {
   }
 
   async function handleOAuthSignup(provider: string) {
+    if (!accepted) return;
     setOauthLoading(provider);
     try {
       const { url } = await api.auth.getOAuthRedirect(provider, window.location.origin + '/signup');
@@ -342,6 +347,24 @@ function SignupForm() {
               </div>
             </div>
 
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={accepted}
+                onChange={(e) => setAccepted(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span>
+                I have read and accept the{' '}
+                <a href={`${SITE_URL}/terms`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Terms of Use</a>,
+                {' '}the{' '}
+                <a href={`${SITE_URL}/privacy`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Privacy Policy</a>{' '}
+                and the{' '}
+                <a href={`${SITE_URL}/kvkk`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">Data Notice (KVKK)</a>,
+                {' '}including that my account data may be used for promotional communications.
+              </span>
+            </label>
+
             {providers.length > 0 && (
               <div className="space-y-2">
                 {providers.includes('google') && (
@@ -349,7 +372,7 @@ function SignupForm() {
                     type="button"
                     variant="outline"
                     className="w-full"
-                    disabled={!!oauthLoading}
+                    disabled={!!oauthLoading || !accepted}
                     onClick={() => handleOAuthSignup('google')}
                   >
                     {oauthLoading === 'google' ? (
@@ -365,7 +388,7 @@ function SignupForm() {
                     type="button"
                     variant="outline"
                     className="w-full"
-                    disabled={!!oauthLoading}
+                    disabled={!!oauthLoading || !accepted}
                     onClick={() => handleOAuthSignup('github')}
                   >
                     {oauthLoading === 'github' ? (
@@ -456,7 +479,7 @@ function SignupForm() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading || plansLoading}>
+              <Button type="submit" className="w-full" disabled={loading || plansLoading || !accepted}>
                 {loading ? 'Sending code...' : 'Sign up'}
               </Button>
             </form>

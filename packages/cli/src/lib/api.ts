@@ -234,6 +234,7 @@ export class ApiClient {
     password: string;
     firstName?: string;
     lastName?: string;
+    acceptedTerms: true;
   }) {
     const { data } = await this.client.post('/api/auth/signup', userData);
     return data;

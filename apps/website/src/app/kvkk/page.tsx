@@ -5,7 +5,7 @@ import { buildMetadata } from "@/lib/seo/metadata";
 const TITLE = "KVKK Aydınlatma Metni";
 const DESCRIPTION =
   "6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında basefyio tarafından işlenen kişisel verilere ilişkin aydınlatma metni.";
-const UPDATED = "26 Haziran 2026";
+const UPDATED = "9 Kasım 2026";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({ path: "/kvkk", title: TITLE, description: DESCRIPTION });
@@ -84,6 +84,17 @@ export default function KvkkPage() {
             Bu aydınlatma metni zaman zaman güncellenebilir; önemli değişiklikler yukarıdaki
             &quot;Son güncelleme&quot; tarihine yansıtılır.
           </p>
+
+          <h2>Marketing communications</h2>
+          <p>
+            <strong>Data controller:</strong> Talya Smart, <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>.
+          </p>
+          <ul>
+            <li><strong>Purpose:</strong> sending promotional communications about basefyio and about related products and services operated by the same company, using your name and email address.</li>
+            <li><strong>Legal basis (KVKK Art. 5):</strong> your explicit consent, given when you create your account, and, where the law permits, our legitimate interest in informing our customers. Opting out does not affect service, security, or account notices.</li>
+            <li><strong>Recipients:</strong> your data is not sold. It is shared only with the service providers that deliver our email (processing on our behalf) and with authorised public bodies where the law requires it (KVKK Art. 8 and 9).</li>
+            <li><strong>Your rights under KVKK Art. 11:</strong> you may learn whether your data is processed, request information, learn the purpose, request correction or deletion, object to the processing, and claim compensation for damage. You can withdraw your consent and opt out of promotional messages at any time through the unsubscribe option in a message or by writing to <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>.</li>
+          </ul>
 
           <p className="text-xs italic">
             Bu metin şeffaflık amacıyla sunulmuştur ve hukuki incelemeyle güncellenebilir.

@@ -5,7 +5,7 @@ import { buildMetadata } from "@/lib/seo/metadata";
 const TITLE = "Terms of Service";
 const DESCRIPTION =
   "The terms that govern your use of basefyio — accounts, acceptable use, billing, liability, and termination.";
-const UPDATED = "June 26, 2026";
+const UPDATED = "November 9, 2026";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({ path: "/terms", title: TITLE, description: DESCRIPTION });
@@ -86,6 +86,17 @@ export default function TermsPage() {
           <h2>9. Contact</h2>
           <p>
             Questions: <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>.
+          </p>
+
+          <h2>Marketing communications</h2>
+          <p>
+            By creating an account you agree that Talya Smart may use your account data
+            (name and email address) to send you promotional communications about basefyio
+            and about related products and services operated by the same company. You can
+            opt out at any time by using the unsubscribe option in a message or by writing
+            to <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>. Opting out
+            does not affect service, security, billing, or account notices, which we continue
+            to send.
           </p>
 
           <p className="text-xs italic">

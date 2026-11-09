@@ -2004,8 +2004,11 @@ export class KeycloakAdminService implements OnModuleInit {
     firstName?: string;
     lastName?: string;
     username?: string; // kept for callers that pass email as username; ignored
+    termsAcceptedAt?: string;
+    termsVersion?: string;
   }): Promise<string> {
     await this.ensureAuth();
+    if (data.termsAcceptedAt) await this.ensureUnmanagedAttributes('master');
 
     const { id } = await this.client.users.create({
       realm: 'master',
@@ -2018,6 +2021,9 @@ export class KeycloakAdminService implements OnModuleInit {
       lastName: data.lastName?.trim() || data.email.split('@')[0] || 'user',
       enabled: true,
       emailVerified: true,
+      ...(data.termsAcceptedAt
+        ? { attributes: { termsAcceptedAt: [data.termsAcceptedAt], termsVersion: [data.termsVersion ?? ''] } }
+        : {}),
       credentials: [
         { type: 'password', value: data.password, temporary: false },
       ],

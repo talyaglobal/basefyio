@@ -5,7 +5,7 @@ import { buildMetadata } from "@/lib/seo/metadata";
 const TITLE = "Privacy Policy";
 const DESCRIPTION =
   "How basefyio collects, uses, stores, and protects personal data, and the rights you have over your information.";
-const UPDATED = "June 26, 2026";
+const UPDATED = "November 9, 2026";
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildMetadata({ path: "/privacy", title: TITLE, description: DESCRIPTION });
@@ -98,6 +98,19 @@ export default function PrivacyPage() {
           <h2>11. Contact</h2>
           <p>
             Questions or requests: <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>.
+          </p>
+
+          <h2>Marketing communications</h2>
+          <p>
+            We may use your account data (name and email address) to send you promotional
+            communications about basefyio and about related products and services operated by
+            the same company, Talya Smart. We do this on the basis of the consent you give when
+            you create your account and, where the law permits, our legitimate interest in
+            informing our customers about our services. We do not sell your data for this
+            purpose. You can opt out at any time by using the unsubscribe option in a message or
+            by writing to <a href="mailto:support@talyasmart.com">support@talyasmart.com</a>;
+            withdrawing consent does not affect the lawfulness of earlier processing, and we
+            will keep sending service, security, and account notices.
           </p>
 
           <p className="text-xs italic">
