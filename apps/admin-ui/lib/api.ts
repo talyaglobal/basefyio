@@ -762,6 +762,9 @@ export const api = {
         method: 'DELETE',
       });
     },
+    leave(teamId: string) {
+      return request<{ message: string }>(`/teams/${teamId}/leave`, { method: 'POST' });
+    },
     updateMemberRole(teamId: string, userId: string, role: 'ADMIN' | 'MEMBER') {
       return request<{ message: string }>(`/teams/${teamId}/members/${userId}/role`, {
         method: 'PATCH',

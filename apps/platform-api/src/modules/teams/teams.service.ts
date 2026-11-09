@@ -391,13 +391,29 @@ export class TeamsService {
   async listTeamInvites(teamId: string, userId: string) {
     await this.assertMember(teamId, userId);
 
-    const invites = await this.prisma.teamInvite.findMany({
-      where: { teamId, status: 'PENDING' },
-      include: {
-        invitedUser: { select: { id: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [rows, members] = await Promise.all([
+      this.prisma.teamInvite.findMany({
+        where: { teamId, status: 'PENDING' },
+        include: {
+          invitedUser: { select: { id: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.teamMember.findMany({
+        where: { teamId },
+        select: { userId: true, user: { select: { email: true } } },
+      }),
+    ]);
+
+    // An email invite stays PENDING when the person signs up another way; once
+    // they are a member it is not pending any more, so it is not listed.
+    const memberIds = new Set(members.map((m) => m.userId));
+    const memberEmails = new Set(members.map((m) => m.user?.email?.toLowerCase()).filter(Boolean));
+    const invites = rows.filter(
+      (inv) =>
+        !(inv.invitedUserId && memberIds.has(inv.invitedUserId)) &&
+        !(inv.invitedEmail && memberEmails.has(inv.invitedEmail.toLowerCase())),
+    );
 
     return invites.map((inv) => ({
       ...inv,
@@ -545,6 +561,27 @@ export class TeamsService {
     });
 
     return { message: 'Member removed' };
+  }
+
+  async leaveTeam(teamId: string, userId: string) {
+    const member = await this.assertMember(teamId, userId);
+    if (member.role === 'OWNER') {
+      throw new ForbiddenException('Transfer ownership before leaving this team');
+    }
+
+    await this.prisma.teamMember.deleteMany({ where: { teamId, userId } });
+    this.usageService.decrementMemberCount(teamId).catch(() => {});
+    await this.realtime.publish({
+      entityType: 'team_member',
+      action: 'member_removed',
+      entityId: `${teamId}:${userId}`,
+      actorUserId: userId,
+      teamId,
+      userIds: [...(await this.teamUserIds(teamId)), userId],
+      payload: { targetUserId: userId },
+    });
+
+    return { message: 'You left the team' };
   }
 
   async transferOwnership(teamId: string, currentOwnerId: string, newOwnerId: string) {

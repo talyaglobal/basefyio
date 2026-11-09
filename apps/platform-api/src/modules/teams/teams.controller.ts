@@ -289,6 +289,11 @@ export class TeamsController {
     }
   }
 
+  @Post(':id/leave')
+  async leaveTeam(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.teamsService.leaveTeam(id, user.sub);
+  }
+
   @Post(':id/transfer-ownership')
   async transferOwnership(
     @Req() req: RequestWithTraceId,

@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { getDisplayName } from '@/lib/display-name';
 import type { TeamMember, TeamInvite, PendingInvite, TeamGitHubStatus, TeamVercelStatus, ProjectListItem } from '@/lib/types';
 import { useActiveTeam, useOrgNoun, orgPath } from '../layout';
+import { ActiveTeamNote } from '@/components/active-team-note';
 import { parseJwt, getAccessToken } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -156,7 +157,7 @@ function TeamIntegrationsSection({ teamId, canManage, refreshKey }: { teamId: st
             Connect GitHub and Vercel at the team level. Projects can then use these connections without individual tokens.
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={loadStatuses} disabled={loading}>
+        <Button variant="outline" size="icon" onClick={loadStatuses} disabled={loading} aria-label="Refresh integrations" title="Refresh integrations">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
@@ -419,6 +420,29 @@ export default function TeamSettingsPage() {
     }
   }
 
+  function cancelEditName() {
+    setTeamName(allTeams.find((t) => t.id === activeTeamId)?.name ?? teamName);
+    setEditingName(false);
+  }
+
+  async function handleLeaveTeam() {
+    if (!activeTeamId) return;
+    if (!(await confirmDialog({ title: `Leave ${lower}`, description: `Leave this ${lower}? You lose access to its projects until someone invites you again.`, confirmText: 'Leave', destructive: true }))) return;
+    try {
+      await api.teams.leave(activeTeamId);
+      const teams = await api.teams.list();
+      if (teams[0]) {
+        await api.teams.setActive(teams[0].id);
+        setActiveTeamId(teams[0].id);
+      }
+      refreshTeams();
+      toast.success(`You left the ${lower}`);
+      router.push('/dashboard/projects');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to leave');
+    }
+  }
+
   async function handleSaveTeamName() {
     if (!activeTeamId || !teamName.trim()) return;
     setSavingName(true);
@@ -605,9 +629,12 @@ export default function TeamSettingsPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">{orgUi ? 'Members & roles' : 'Team Settings'}</h1>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{orgUi ? 'Members & roles' : 'Team Settings'}</h1>
+          <ActiveTeamNote noun={noun} />
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={loadAll}>
+          <Button variant="outline" size="icon" onClick={loadAll} aria-label="Refresh" title="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
           {hasPermission('canInviteMembers') && (
@@ -625,7 +652,7 @@ export default function TeamSettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold">{noun} Name</h2>
-              <p className="text-xs text-muted-foreground">Only the {lower} owner can change this.</p>
+              <p className="text-xs text-muted-foreground">Only the {lower} owner, or roles allowed to rename it below, can change this.</p>
             </div>
             {!editingName && (
               <Button
@@ -646,7 +673,7 @@ export default function TeamSettingsPage() {
                 onChange={(e) => setTeamName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveTeamName();
-                  if (e.key === 'Escape') setEditingName(false);
+                  if (e.key === 'Escape') cancelEditName();
                 }}
                 maxLength={60}
                 autoFocus
@@ -656,6 +683,8 @@ export default function TeamSettingsPage() {
                 size="sm"
                 onClick={handleSaveTeamName}
                 disabled={savingName || !teamName.trim()}
+                aria-label="Save name"
+                title="Save name"
               >
                 {savingName ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -666,8 +695,10 @@ export default function TeamSettingsPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setEditingName(false)}
+                onClick={cancelEditName}
                 disabled={savingName}
+                aria-label="Cancel editing"
+                title="Cancel editing"
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
@@ -853,6 +884,7 @@ export default function TeamSettingsPage() {
                             size="sm"
                             className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
                             title="Transfer ownership to this member"
+                            aria-label="Transfer ownership to this member"
                             onClick={() => setTransferTarget(m)}
                           >
                             <Crown className="h-3.5 w-3.5" />
@@ -865,6 +897,8 @@ export default function TeamSettingsPage() {
                             size="icon"
                             className="h-8 w-8 text-destructive/60 hover:text-destructive"
                             onClick={() => handleRemove(m.id, displayName)}
+                            aria-label={`Remove ${displayName}`}
+                            title={`Remove ${displayName}`}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -900,6 +934,7 @@ export default function TeamSettingsPage() {
                       <p className="text-xs text-muted-foreground">Invite sent</p>
                     </div>
 
+                    {hasPermission('canInviteMembers') && (
                     <div className="flex items-center gap-1">
                       <Button
                         variant="outline"
@@ -922,15 +957,23 @@ export default function TeamSettingsPage() {
                         className="h-8 w-8 shrink-0 text-destructive/60 hover:text-destructive"
                         onClick={() => handleCancelInvite(inv.id)}
                         title="Cancel invite"
+                        aria-label="Cancel invite"
                       >
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
+          {currentUserRole && !currentUserIsOwner && (
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <p className="text-xs text-muted-foreground">Leave this {lower}. An owner can invite you again.</p>
+              <Button variant="outline" size="sm" onClick={handleLeaveTeam}>Leave {lower}</Button>
+            </div>
+          )}
         </>
       )}
 
@@ -1170,9 +1213,11 @@ function InviteDialog({
 }) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!emailOk) return;
     setSaving(true);
     try {
       await api.teams.sendInvite(teamId, value.trim());
@@ -1199,20 +1244,25 @@ function InviteDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="inv-user">Username or Email</Label>
+            <Label htmlFor="inv-user">Email</Label>
             <Input
               id="inv-user"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="user@example.com"
+              type="email"
               required
+              aria-invalid={value.trim() !== '' && !emailOk}
             />
+            {value.trim() !== '' && !emailOk && (
+              <p className="text-xs text-destructive">Enter a valid email address.</p>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !value.trim()}>
+            <Button type="submit" disabled={saving || !emailOk}>
               {saving ? 'Sending...' : 'Send Invite'}
             </Button>
           </DialogFooter>

@@ -86,3 +86,41 @@ describe('TeamsService.create', () => {
     expect(prisma.team.create.mock.calls[0][0].data.slug).toMatch(/^acme-[a-z0-9]{4}$/);
   });
 });
+
+describe('TeamsService.listTeamInvites / leaveTeam', () => {
+  function makeService(memberRole: string, invites: unknown[] = []) {
+    const prisma = {
+      teamMember: {
+        findUnique: jest.fn().mockResolvedValue({ role: memberRole }),
+        findMany: jest.fn().mockResolvedValue([{ userId: 'u-boran', user: { email: 'Boran@Example.com' } }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      teamInvite: { findMany: jest.fn().mockResolvedValue(invites) },
+    };
+    const usage = { decrementMemberCount: jest.fn().mockResolvedValue(undefined) };
+    const realtime = { publish: jest.fn().mockResolvedValue(undefined) };
+    const service = new TeamsService(prisma as any, {} as any, {} as any, usage as any, {} as any, realtime as any, {} as any);
+    return { service, prisma };
+  }
+
+  it('does not list an invite whose person is already a member', async () => {
+    const { service } = makeService('OWNER', [
+      { id: 'i1', invitedUserId: null, invitedEmail: 'boran@example.com', invitedUser: null },
+      { id: 'i2', invitedUserId: 'u-boran', invitedEmail: null, invitedUser: { id: 'u-boran', email: 'boran@example.com' } },
+      { id: 'i3', invitedUserId: null, invitedEmail: 'new@example.com', invitedUser: null },
+    ]);
+    const list = await service.listTeamInvites('t1', 'u1');
+    expect(list.map((i: any) => i.id)).toEqual(['i3']);
+    expect(list[0].invitedUser).toEqual({ id: null, email: 'new@example.com' });
+  });
+
+  it('lets a member leave, but not the owner', async () => {
+    const member = makeService('MEMBER');
+    await expect(member.service.leaveTeam('t1', 'u2')).resolves.toEqual({ message: 'You left the team' });
+    expect(member.prisma.teamMember.deleteMany).toHaveBeenCalledWith({ where: { teamId: 't1', userId: 'u2' } });
+
+    const owner = makeService('OWNER');
+    await expect(owner.service.leaveTeam('t1', 'u1')).rejects.toThrow('Transfer ownership');
+    expect(owner.prisma.teamMember.deleteMany).not.toHaveBeenCalled();
+  });
+});

@@ -8,6 +8,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDashboard, orgPath } from '../layout';
+import { ActiveTeamNote } from '@/components/active-team-note';
 import {
   Dialog,
   DialogContent,
@@ -617,6 +618,7 @@ export default function BillingPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Billing</h1>
+        <ActiveTeamNote noun={features.organizations_ui ? 'Organization' : 'Team'} />
         <p className="text-muted-foreground mt-1">Manage your subscription, usage, and invoices</p>
         {availability && availability.monthAvailabilityPct !== null && (
           <p className="mt-2 text-xs text-muted-foreground">
