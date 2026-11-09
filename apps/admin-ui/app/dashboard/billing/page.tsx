@@ -316,7 +316,7 @@ function CardForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="rounded-lg border bg-background p-4">
-        <CardElement options={{ style: cardStyle }} />
+        <CardElement options={{ style: cardStyle, hidePostalCode: true }} />
       </div>
       {error && (
         <div className="flex items-center gap-2 text-sm text-destructive">
@@ -379,6 +379,7 @@ export default function BillingPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [payingInvoice, setPayingInvoice] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [pendingUpgradePlan, setPendingUpgradePlan] = useState<Plan | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
@@ -501,6 +502,23 @@ export default function BillingPage() {
       setVerifyingStudent(false);
     }
   };
+
+  // Pay an unpaid invoice with the card on file; with no card, ask for one first.
+  async function payInvoiceNow() {
+    if (!activeTeamId) return;
+    if (!paymentMethod) { setShowCardDialog(true); return; }
+    setPayingInvoice(true);
+    try {
+      const result = await api.billing.retryPayment(activeTeamId);
+      if (result.success) toast.success('Payment successful');
+      else toast.error(result.message || 'Payment failed. Please check your card.');
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Payment failed');
+    } finally {
+      setPayingInvoice(false);
+    }
+  }
 
   async function downloadInvoicePdf(inv: Invoice, kind: 'invoice' | 'receipt' = 'invoice') {
     if (!activeTeamId) return;
@@ -1118,7 +1136,7 @@ export default function BillingPage() {
         <h2 className="text-lg font-semibold text-foreground mb-4">Invoices</h2>
         {invoices.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No invoices yet. Once billing events occur, paid/unpaid invoice records will appear here.
+            No invoices yet. An invoice appears here each time your plan is charged, marked Paid or Unpaid, with a Pay now button on anything unpaid. The Project costs table above is a running estimate, not an invoice.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1171,7 +1189,12 @@ export default function BillingPage() {
                         </span>
                       </td>
                       <td className="py-3">
-                        <div className="flex gap-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                          {outstanding > 0 && ['open', 'unpaid', 'payment_failed'].includes((inv.status || '').toLowerCase()) && (
+                            <Button size="sm" disabled={payingInvoice} onClick={payInvoiceNow}>
+                              {payingInvoice ? 'Paying…' : 'Pay now'}
+                            </Button>
+                          )}
                           <button
                             type="button"
                             className="text-primary hover:underline"

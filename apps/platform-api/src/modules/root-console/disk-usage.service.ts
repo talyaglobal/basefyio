@@ -274,7 +274,7 @@ export class DiskUsageService {
         key: 'project_databases',
         label: 'Project databases',
         bytes: databases?.liveProjects ?? null,
-        hint: 'Active and paused projects, pg_database_size',
+        hint: 'Active and deactivated projects, pg_database_size',
         measuredAt: databases ? now : null,
       },
       {
@@ -291,7 +291,7 @@ export class DiskUsageService {
         hint: databases?.platformNames.length ? databases.platformNames.join(', ') : 'Control plane and auth',
         measuredAt: databases ? now : null,
       },
-      fileItem('project_files', 'Project files', files?.project, 'buckets of active and paused projects'),
+      fileItem('project_files', 'Project files', files?.project, 'buckets of active and deactivated projects'),
       fileItem(
         'backups',
         'Backups',

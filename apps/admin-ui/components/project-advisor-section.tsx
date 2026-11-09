@@ -91,9 +91,9 @@ export function buildAdvisorItems(
 
   if (project.status === 'PAUSED') {
     items.push({
-      id: 'state-paused',
+      id: 'state-deactivated',
       category: 'PERFORMANCE',
-      title: 'Project is paused',
+      title: 'Project is deactivated',
       body: 'Database and API access may be limited until the project is active again.',
     });
   }

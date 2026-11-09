@@ -2687,7 +2687,7 @@ function DroppableProjectCard({
         <div className="flex flex-wrap items-center gap-1.5">
           <span className={`status-badge ${STATUS_COLORS[project.status] ?? 'status-pending'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[project.status] ?? 'bg-gray-400'}`} />
-            {project.status.charAt(0) + project.status.slice(1).toLowerCase()}
+            {projectStatusLabel(project.status)}
           </span>
           <span
             className={`status-badge ${
