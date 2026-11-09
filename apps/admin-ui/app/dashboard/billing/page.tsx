@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CreditCard, Check, AlertTriangle } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
@@ -380,6 +380,8 @@ export default function BillingPage() {
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [payingInvoice, setPayingInvoice] = useState(false);
+  const [paypalEnabled, setPaypalEnabled] = useState(false);
+  const paypalHandled = useRef(false);
   const [resuming, setResuming] = useState(false);
   const [pendingUpgradePlan, setPendingUpgradePlan] = useState<Plan | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
@@ -438,6 +440,35 @@ export default function BillingPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    api.billing.paypalConfig().then((c) => setPaypalEnabled(c.enabled)).catch(() => {});
+  }, []);
+
+  // PayPal sends the customer back with ?paypal=return&token=<order id>: capture, report, clean the URL.
+  useEffect(() => {
+    const flow = searchParams.get('paypal');
+    if (!flow || !activeTeamId || !featuresLoaded || paypalHandled.current) return;
+    const team = teams.find((t) => t.id === activeTeamId);
+    // The old address forwards to the organization page with this query string; handle it there.
+    if (features.organizations_ui && team?.publicId && pathname === '/dashboard/billing') return;
+    paypalHandled.current = true;
+    const orderId = searchParams.get('token');
+    const clean = () => router.replace(pathname);
+    if (flow !== 'return' || !orderId) {
+      toast.info('PayPal payment cancelled. You have not been charged.');
+      clean();
+      return;
+    }
+    api.billing
+      .capturePayPal(activeTeamId, orderId)
+      .then((r) => (r.success ? toast.success('Payment successful') : toast.error(r.message || 'PayPal payment failed')))
+      .catch((err: any) => toast.error(err.message || 'PayPal payment failed'))
+      .finally(() => {
+        loadData();
+        clean();
+      });
+  }, [searchParams, activeTeamId, featuresLoaded, features.organizations_ui, teams, pathname, router, loadData]);
 
   useEffect(() => {
     if (billingAccount) {
@@ -502,6 +533,18 @@ export default function BillingPage() {
       setVerifyingStudent(false);
     }
   };
+
+  async function payInvoiceWithPayPal(invoiceId: string) {
+    if (!activeTeamId) return;
+    setPayingInvoice(true);
+    try {
+      const { approvalUrl } = await api.billing.createPayPalOrder(activeTeamId, invoiceId);
+      window.location.href = approvalUrl;
+    } catch (err: any) {
+      toast.error(err.message || 'Could not start the PayPal payment');
+      setPayingInvoice(false);
+    }
+  }
 
   // Pay an unpaid invoice with the card on file; with no card, ask for one first.
   async function payInvoiceNow() {
@@ -1193,6 +1236,11 @@ export default function BillingPage() {
                           {outstanding > 0 && ['open', 'unpaid', 'payment_failed'].includes((inv.status || '').toLowerCase()) && (
                             <Button size="sm" disabled={payingInvoice} onClick={payInvoiceNow}>
                               {payingInvoice ? 'Paying…' : 'Pay now'}
+                            </Button>
+                          )}
+                          {paypalEnabled && outstanding > 0 && ['open', 'unpaid', 'payment_failed'].includes((inv.status || '').toLowerCase()) && (
+                            <Button size="sm" variant="outline" disabled={payingInvoice} onClick={() => payInvoiceWithPayPal(inv.id)}>
+                              Pay with PayPal
                             </Button>
                           )}
                           <button

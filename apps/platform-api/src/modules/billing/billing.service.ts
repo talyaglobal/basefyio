@@ -14,6 +14,7 @@ import { RealtimeEventsService } from '../../common/realtime/realtime-events.ser
 import { RedisService } from '../redis/redis.service';
 import { EmailService } from '../email/email.service';
 import { QuickbooksService } from '../quickbooks/quickbooks.service';
+import { PayPalService } from './paypal.service';
 import { ACADEMIC_DOMAINS } from './academic-domains';
 import { DEFAULT_PLANS } from './default-plans';
 import { grantedByRole, requireRolePermission } from '../teams/role-permissions';
@@ -42,6 +43,7 @@ export class BillingService implements OnModuleInit {
     private readonly redis: RedisService,
     private readonly email: EmailService,
     private readonly quickbooks: QuickbooksService,
+    private readonly paypal: PayPalService,
   ) {}
 
   /** Fire-and-forget: push a paid sale to QuickBooks as a Sales Receipt. */
@@ -1819,6 +1821,93 @@ export class BillingService implements OnModuleInit {
       this.logger.error(`Retry payment failed for team ${teamId}: ${err.message}`);
       throw new BadRequestException(`Payment failed: ${err.message}`);
     }
+  }
+
+  private static readonly UNPAID = ['open', 'unpaid', 'payment_failed'];
+
+  /** The invoice must be the team's, still unpaid, and collectable here (not a Stripe-hosted invoice). */
+  private payableInvoiceError(inv: any, teamId: string): string | null {
+    if (!inv || inv.teamId !== teamId) return 'Invoice not found for this team';
+    if (!BillingService.UNPAID.includes((inv.status || '').toLowerCase())) return 'Invoice is not payable';
+    if (inv.amountDue - inv.amountPaid <= 0) return 'Invoice has nothing outstanding';
+    // shortcut: a Stripe invoice (in_...) is re-synced from Stripe and would undo a PayPal payment; allow when Stripe invoices stop being synced.
+    if (inv.stripeInvoiceId?.startsWith('in_')) return 'This invoice is collected through Stripe and cannot be paid with PayPal';
+    return null;
+  }
+
+  async createPayPalOrder(teamId: string, userId: string, invoiceId: string) {
+    await this.assertTeamOwner(teamId, userId);
+    if (!this.paypal.isEnabled()) throw new BadRequestException('PayPal is not available');
+    const inv = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    const err = this.payableInvoiceError(inv, teamId);
+    if (err) throw new BadRequestException(err);
+    const base = (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    try {
+      return await this.paypal.createOrder({
+        invoiceId: inv!.id,
+        amountCents: inv!.amountDue - inv!.amountPaid,
+        currency: inv!.currency,
+        returnUrl: `${base}/dashboard/billing?paypal=return`,
+        cancelUrl: `${base}/dashboard/billing?paypal=cancel`,
+      });
+    } catch (e: any) {
+      this.logger.error(`PayPal order failed for invoice ${invoiceId}: ${e.message}`);
+      throw new BadRequestException('Could not start the PayPal payment. Please try again.');
+    }
+  }
+
+  /** Verify the approved order against the invoice, capture it, then settle the invoice (idempotent). */
+  async capturePayPalOrder(teamId: string, userId: string, orderId: string): Promise<{ message: string; success: boolean }> {
+    await this.assertTeamOwner(teamId, userId);
+    if (!this.paypal.isEnabled()) throw new BadRequestException('PayPal is not available');
+    let order;
+    try {
+      order = await this.paypal.getOrder(orderId);
+    } catch {
+      throw new BadRequestException('PayPal order not found');
+    }
+    const unit = order.purchase_units?.[0];
+    const inv = unit?.custom_id ? await this.prisma.invoice.findUnique({ where: { id: unit.custom_id } }) : null;
+    if (!inv || inv.teamId !== teamId) throw new BadRequestException('This PayPal order does not belong to this team');
+    if (inv.status === 'paid') return { message: 'Invoice already paid', success: true };
+
+    const err = this.payableInvoiceError(inv, teamId);
+    if (err) throw new BadRequestException(err);
+    const outstanding = inv.amountDue - inv.amountPaid;
+    if (
+      unit?.amount?.value !== PayPalService.formatAmount(outstanding) ||
+      (unit?.amount?.currency_code || '').toUpperCase() !== inv.currency.toUpperCase()
+    ) {
+      throw new BadRequestException('The invoice amount changed since the PayPal order was created. Please pay again.');
+    }
+
+    let status = order.status;
+    if (status === 'APPROVED') {
+      try {
+        status = (await this.paypal.captureOrder(orderId)).status;
+      } catch (e: any) {
+        this.logger.error(`PayPal capture failed for order ${orderId}: ${e.message}`);
+        throw new BadRequestException('PayPal could not complete the payment');
+      }
+    }
+    // COMPLETED before our capture = an earlier attempt captured it and then failed to settle; settle now.
+    if (status !== 'COMPLETED') throw new BadRequestException(`PayPal payment not completed (${status})`);
+
+    const settled = await this.prisma.invoice.updateMany({
+      where: { id: inv.id, status: { in: BillingService.UNPAID } },
+      data: { status: 'paid', amountPaid: inv.amountDue },
+    });
+    if (settled.count === 0) return { message: 'Invoice already paid', success: true };
+    this.recordQbSale(inv.id);
+
+    // As a successful Stripe retry does: lift the freeze and clear the failure counters.
+    await this.prisma.team.updateMany({ where: { id: teamId, accountStatus: 'FROZEN' }, data: { accountStatus: 'ACTIVE' } });
+    await this.prisma.subscription.updateMany({
+      where: { teamId, OR: [{ status: 'PAST_DUE' }, { firstFailureAt: { not: null } }] },
+      data: { status: 'ACTIVE', retryCount: 0, lastRetryDate: null, firstFailureAt: null },
+    });
+    this.logger.log(`Invoice ${inv.id} paid with PayPal for team ${teamId}`);
+    return { message: 'Payment successful', success: true };
   }
 
   /**

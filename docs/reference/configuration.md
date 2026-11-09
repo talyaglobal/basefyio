@@ -276,6 +276,9 @@ Details: [REALTIME_API.md](../REALTIME_API.md).
 |---|---|---|---|
 | `STRIPE_SECRET_KEY` | empty | yes / yes | Stripe API key. Without it the Stripe client is not created ("billing features disabled" at start-up) and checkout, portal and payment calls fail; plans and usage still read from the database. |
 | `STRIPE_WEBHOOK_SECRET` | empty | yes / yes | Verifies Stripe webhook signatures. |
+| `PAYPAL_CLIENT_ID` | empty | yes / yes | PayPal REST app client id. With the secret it adds "Pay with PayPal" next to "Pay now" on unpaid invoices; either one empty switches PayPal off. |
+| `PAYPAL_CLIENT_SECRET` | empty | yes / yes | PayPal REST app secret; server side only. |
+| `PAYPAL_MODE` | live | yes / yes | `sandbox` uses the PayPal sandbox; anything else uses live. |
 | `SHEERID_API_KEY` / `SHEERID_PROGRAM_ID` | unset | no / no | Student-plan eligibility through SheerID; without both, eligibility falls back to an academic e-mail domain check. |
 
 The dashboard's Stripe publishable key is a build argument of the UI image — see [Admin UI](#admin-ui).

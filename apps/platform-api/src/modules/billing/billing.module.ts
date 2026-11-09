@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
+import { PayPalService } from './paypal.service';
 import { UsageService } from './usage.service';
 import { QuotaService } from './quota.service';
 import { ProjectCostService } from './project-cost.service';
@@ -23,6 +24,7 @@ import { QuickbooksModule } from '../quickbooks/quickbooks.module';
   controllers: [BillingController],
   providers: [
     BillingService,
+    PayPalService,
     UsageService,
     QuotaService,
     ProjectCostService,

@@ -22,6 +22,7 @@ import { RequireManagementPermission } from '../../common/decorators/management-
 import { BillingService } from './billing.service';
 import { UsageService } from './usage.service';
 import { ProjectCostService } from './project-cost.service';
+import { PayPalService } from './paypal.service';
 import { StripeService } from '../stripe/stripe.service';
 import { ObservabilityService } from '../observability/observability.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -45,6 +46,7 @@ export class BillingController {
     private readonly observability: ObservabilityService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly paypal: PayPalService,
   ) {}
 
   @Get('plans')
@@ -271,6 +273,24 @@ export class BillingController {
     @Body() body: { teamId: string; paymentMethodId?: string },
   ) {
     return this.billing.retryPayment(body.teamId, req.user.sub, body.paymentMethodId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('paypal/config')
+  paypalConfig() {
+    return { enabled: this.paypal.isEnabled() };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('invoices/:invoiceId/paypal-order')
+  async createPayPalOrder(@Req() req: any, @Param('invoiceId') invoiceId: string, @Body() body: { teamId: string }) {
+    return this.billing.createPayPalOrder(body.teamId, req.user.sub, invoiceId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('paypal/capture')
+  async capturePayPal(@Req() req: any, @Body() body: { teamId: string; orderId: string }) {
+    return this.billing.capturePayPalOrder(body.teamId, req.user.sub, body.orderId);
   }
 
   @UseGuards(JwtAuthGuard, ManagementPermissionGuard)
