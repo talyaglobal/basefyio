@@ -2,7 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 
 function makeService() {
-  const service = new BillingService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const service = new BillingService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   jest.spyOn(service, 'assertCanViewBilling').mockResolvedValue(undefined);
   jest.spyOn(service, 'getTeamSubscription').mockResolvedValue({ plan: { name: 'free' } });
   return service;
