@@ -128,24 +128,6 @@ export default function ConsoleProjectsPage() {
     URL.revokeObjectURL(a.href);
   }
 
-  const [exportingUsers, setExportingUsers] = useState(false);
-  async function exportAuthUsers() {
-    setExportingUsers(true);
-    try {
-      const { blob, filename, errors } = await api.console.authUsersCsv();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      if (errors > 0) toast.warning(`${errors} project(s) could not be read and are missing from the file`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Export failed');
-    } finally {
-      setExportingUsers(false);
-    }
-  }
-
   return (
     <>
       <PageHeader
@@ -160,10 +142,6 @@ export default function ConsoleProjectsPage() {
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows.length}>
               <Download className="mr-2 h-3.5 w-3.5" />
               CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportAuthUsers} disabled={exportingUsers}>
-              <Download className="mr-2 h-3.5 w-3.5" />
-              {exportingUsers ? 'Exporting...' : 'Export auth users (CSV)'}
             </Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
               <RefreshCw className={cn('mr-2 h-3.5 w-3.5', loading && 'animate-spin')} />

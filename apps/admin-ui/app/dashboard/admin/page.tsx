@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   BarChart3,
   Copy,
+  Download,
   Github,
   KeyRound,
   Loader2,
@@ -133,6 +134,23 @@ export default function ManagementPage() {
   const [users, setUsers] = useState<ManagementUser[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersSearchInput, setUsersSearchInput] = useState('');
+  const [exportingUsers, setExportingUsers] = useState(false);
+  async function exportAuthUsers() {
+    setExportingUsers(true);
+    try {
+      const { blob, filename, errors } = await api.console.authUsersCsv();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      if (errors > 0) toast.warning(`${errors} project(s) could not be read and are missing from the file`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Export failed');
+    } finally {
+      setExportingUsers(false);
+    }
+  }
   const [usersSearchQ, setUsersSearchQ] = useState('');
   const [teams, setTeams] = useState<ManagementTeam[]>([]);
   const [teamKindFilter, setTeamKindFilter] = useState<string>('all');
@@ -1896,6 +1914,12 @@ export default function ManagementPage() {
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-base font-semibold">Users</h2>
+          {isRoot && (
+            <Button variant="outline" size="sm" onClick={exportAuthUsers} disabled={exportingUsers}>
+              <Download className="mr-2 h-3.5 w-3.5" />
+              {exportingUsers ? 'Exporting...' : 'Export project auth users (CSV)'}
+            </Button>
+          )}
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
