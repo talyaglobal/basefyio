@@ -37,6 +37,7 @@ function build(opts: { seen?: boolean; handlerThrows?: boolean } = {}) {
     unused,
     unused,
     redis as any,
+    unused,
   );
   // Passthrough response: the handler sets the status and returns the body.
   const res = () => {

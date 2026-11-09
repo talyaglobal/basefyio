@@ -2669,6 +2669,21 @@ export const api = {
         body: JSON.stringify({ teamId, paymentMethodId }),
       });
     },
+    paypalConfig() {
+      return request<{ enabled: boolean }>('/billing/paypal/config');
+    },
+    createPayPalOrder(teamId: string, invoiceId: string) {
+      return request<{ orderId: string; approvalUrl: string }>(`/billing/invoices/${invoiceId}/paypal-order`, {
+        method: 'POST',
+        body: JSON.stringify({ teamId }),
+      });
+    },
+    capturePayPal(teamId: string, orderId: string) {
+      return request<{ message: string; success: boolean }>('/billing/paypal/capture', {
+        method: 'POST',
+        body: JSON.stringify({ teamId, orderId }),
+      });
+    },
     quickbooksStatus() {
       return request<{
         configured: boolean; connected: boolean; companyName: string | null;

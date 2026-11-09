@@ -9,7 +9,7 @@ function makeService(planCount: number) {
     },
   };
   const stripe = { isEnabled: () => false };
-  const service = new BillingService(prisma as any, stripe as any, {} as any, {} as any, {} as any, {} as any);
+  const service = new BillingService(prisma as any, stripe as any, {} as any, {} as any, {} as any, {} as any, {} as any);
   return { service, prisma };
 }
 
