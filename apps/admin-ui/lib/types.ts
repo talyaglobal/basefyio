@@ -1559,6 +1559,7 @@ export interface DataModelTable {
 
 export interface DataModel {
   tables: DataModelTable[];
+  relations?: Array<{ fromTable: string; fromColumn: string; toTable: string; toColumn: string }>;
   warnings?: string[];
 }
 
@@ -1598,6 +1599,8 @@ export interface BlueprintDetail extends BlueprintSummary {
   dataModel: DataModel;
   businessModel: { domain: string; actors: string[]; objects: string[]; kpis: string[] } | null;
   applicationModel: ApplicationModel | null;
+  /** The shape of the tables as last created or migrated; set once tables exist. */
+  generatedDataModel?: DataModel | null;
   versions?: ApplicationVersion[];
 }
 
@@ -1607,6 +1610,11 @@ export interface BlueprintGenerateResult {
   created: number;
   skipped: number;
   tables: Array<{ table: string; created: boolean; reason?: string }>;
+  /** Rows imported per created table. */
+  rows: Record<string, number>;
+  /** The model has changes the existing tables do not have yet: plan a migration. */
+  pendingChanges: boolean;
+  notes: string[];
 }
 
 // ── Schema migrations ────────────────────────────────────────────────────────

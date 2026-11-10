@@ -24,8 +24,18 @@ export interface DataModelTable {
   columns: InferredColumn[];
 }
 
+/** A detected link: `fromTable.fromColumn` holds values of `toTable.toColumn`. */
+export interface DataModelRelation {
+  fromTable: string;
+  fromColumn: string;
+  toTable: string;
+  toColumn: string;
+}
+
 export interface DataModel {
   tables: DataModelTable[];
+  /** Foreign keys found by column name (orders.customer_id -> customers.customer_id). */
+  relations?: DataModelRelation[];
   /** Notes for the user, e.g. a source column renamed because it collides with a system column. */
   warnings?: string[];
 }

@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollectionService } from '../projects/collection.service';
-import { InferredType } from '../data-import/lib/type-inferrer';
+import { InferredType, castValue, detectValueFormat, sanitizeColumnName } from '../data-import/lib/type-inferrer';
 import {
   RESERVED_COLUMNS,
   buildApplicationModel,
@@ -18,7 +18,9 @@ import {
 import {
   AnalyzeBlueprintInput,
   ApplicationModel,
+  BlueprintSheet,
   DataModel,
+  DataModelTable,
   UpdateBlueprintInput,
 } from './blueprint.types';
 
@@ -78,8 +80,53 @@ export function sanitizeDataModel(input: unknown): DataModel {
     });
     return { name: tname, label: String(t.label || tname), columns };
   });
+  // A link survives only while both of its columns still exist under the same names.
+  const hasColumn = (table: string, column: string) =>
+    tables.some((t) => t.name === table && t.columns.some((c) => c.name === column));
+  const relations = ((input as DataModel).relations ?? [])
+    .map((r) => ({
+      fromTable: String(r?.fromTable),
+      fromColumn: String(r?.fromColumn),
+      toTable: String(r?.toTable),
+      toColumn: String(r?.toColumn),
+    }))
+    .filter((r) => hasColumn(r.fromTable, r.fromColumn) && hasColumn(r.toTable, r.toColumn));
   const warnings = (input as DataModel).warnings;
-  return Array.isArray(warnings) ? { tables, warnings: warnings.map(String) } : { tables };
+  return {
+    tables,
+    ...(relations.length ? { relations } : {}),
+    ...(Array.isArray(warnings) ? { warnings: warnings.map(String) } : {}),
+  };
+}
+
+/** The sheet a table came from (by its label, or by the name the sheet would get). */
+function sheetFor(table: DataModelTable, sheets: BlueprintSheet[]): BlueprintSheet | undefined {
+  return sheets.find((s) => s.name === table.label || sanitizeColumnName(s.name, 0) === table.name);
+}
+
+/** Cast the sheet's rows to the table's columns; rows that do not fit are counted, not inserted. */
+export function rowsForTable(table: DataModelTable, sheet: BlueprintSheet) {
+  const format = detectValueFormat(sheet.rows ?? []);
+  const cols = table.columns
+    .map((c) => ({ c, idx: (sheet.headers ?? []).indexOf(c.originalName) }))
+    .filter((x) => x.idx >= 0);
+  const rows: unknown[][] = [];
+  let skipped = 0;
+  for (const raw of sheet.rows ?? []) {
+    const out: unknown[] = [];
+    let ok = true;
+    for (const { c, idx } of cols) {
+      const v = castValue(raw[idx], c.type, c.nullable, format);
+      if (!v.ok) {
+        ok = false;
+        break;
+      }
+      out.push(v.value);
+    }
+    if (ok) rows.push(out);
+    else skipped++;
+  }
+  return { columns: cols.map((x) => x.c.name), rows, skipped };
 }
 
 /**
@@ -234,7 +281,12 @@ export class BlueprintService {
    * approved data model. Idempotent per table (skips ones that already exist).
    * The created tables appear in the project's existing Data/Tables views.
    */
-  async generate(id: string, projectId: string | undefined, userId?: string) {
+  async generate(
+    id: string,
+    projectId: string | undefined,
+    userId?: string,
+    sheets?: BlueprintSheet[],
+  ) {
     const blueprint = await this.get(id, userId);
     const targetProjectId = projectId || blueprint.projectId || undefined;
     if (!targetProjectId) {
@@ -269,19 +321,62 @@ export class BlueprintService {
         );
         results.push({ table: table.name, ...res });
       }
+      // Fill only the tables created just now and link them; an existing table is never touched.
+      const createdNames = new Set(results.filter((r) => r.created).map((r) => r.table));
+      const notes: string[] = [];
+      const toFill: Array<{ name: string; columns: string[]; rows: unknown[][] }> = [];
+      if (Array.isArray(sheets) && sheets.length > 0) {
+        for (const t of dataModel.tables.filter((x) => createdNames.has(x.name))) {
+          const sheet = sheetFor(t, sheets);
+          if (!sheet) {
+            notes.push(`${t.name}: no sheet named "${t.label}" in the uploaded file, so no rows were imported`);
+            continue;
+          }
+          const { columns, rows, skipped } = rowsForTable(t, sheet);
+          if (skipped) notes.push(`${t.name}: ${skipped} row(s) did not fit the column types and were skipped`);
+          toFill.push({ name: t.name, columns, rows });
+        }
+      }
+      const links = (dataModel.relations ?? []).filter(
+        (r) => createdNames.has(r.fromTable) && createdNames.has(r.toTable),
+      );
+      let rowCounts: Record<string, number> = {};
+      if (toFill.length > 0 || links.length > 0) {
+        const filled = await this.collections.populateGeneratedTables(targetProjectId, toFill, links, userId);
+        rowCounts = filled.inserted;
+        notes.push(...filled.notes);
+      }
+      if (createdNames.size > 0) {
+        notes.push(
+          'Row-level security is on and only the service key has a policy: add policies before reading these tables with the anon or user key.',
+        );
+      }
+
+      // The snapshot moves forward only for what was really created. A table that already
+      // existed keeps its last generated shape, so "Plan changes" still sees the difference.
+      const previous = (blueprint.generatedDataModel as unknown as DataModel | null)?.tables ?? [];
+      const prior = new Map(previous.map((t) => [t.name, t]));
+      const snapshotTables = dataModel.tables.map((t) =>
+        createdNames.has(t.name) ? t : (prior.get(t.name) ?? t),
+      );
+      for (const t of previous) if (!dataModel.tables.some((x) => x.name === t.name)) snapshotTables.push(t);
+      const pendingChanges = JSON.stringify(snapshotTables) !== JSON.stringify(dataModel.tables);
       await this.prisma.blueprint.update({
         where: { id: blueprint.id },
         data: {
           status: 'GENERATED',
-          generatedDataModel: dataModel as unknown as Prisma.InputJsonValue,
+          generatedDataModel: { ...dataModel, tables: snapshotTables } as unknown as Prisma.InputJsonValue,
         },
       });
       return {
         status: 'GENERATED',
         projectId: targetProjectId,
         tables: results,
-        created: results.filter((r) => r.created).length,
-        skipped: results.filter((r) => !r.created).length,
+        created: createdNames.size,
+        skipped: results.length - createdNames.size,
+        rows: rowCounts,
+        pendingChanges,
+        notes,
       };
     } catch (e) {
       await this.prisma.blueprint.update({

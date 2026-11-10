@@ -2089,10 +2089,10 @@ export const api = {
         body: JSON.stringify({ applicationModel }),
       });
     },
-    generate(id: string, projectId?: string) {
+    generate(id: string, projectId?: string, sheets?: BlueprintSheet[]) {
       return request<BlueprintGenerateResult>(`/blueprints/${id}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, sheets }),
       });
     },
     resync(id: string, sheets: BlueprintSheet[], name?: string) {

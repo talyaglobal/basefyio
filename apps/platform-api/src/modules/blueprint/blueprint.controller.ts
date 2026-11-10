@@ -58,10 +58,10 @@ export class BlueprintController {
   @Post(':id/generate')
   generate(
     @Param('id') id: string,
-    @Body() body: { projectId?: string },
+    @Body() body: { projectId?: string; sheets?: AnalyzeBlueprintInput['sheets'] },
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.blueprint.generate(id, body?.projectId, user?.sub);
+    return this.blueprint.generate(id, body?.projectId, user?.sub, body?.sheets);
   }
 
   @Post(':id/resync')

@@ -61,4 +61,28 @@ describe('blueprint-builder', () => {
     expect(app.navigation.length).toBe(dm.tables.length);
     expect(app.tables).toEqual(dm.tables.map((t) => t.name));
   });
+
+  it('links orders.customer_id to the customers table that has the same column', () => {
+    const dm = buildDataModel({
+      teamId: 't',
+      sheets: [
+        { name: 'customers', headers: ['customer_id', 'name'], rows: [[1, 'Acme'], [2, 'Bolt']] },
+        { name: 'orders', headers: ['order_id', 'customer_id'], rows: [[10, 1], [11, 2]] },
+      ],
+    });
+    expect(dm.relations).toEqual([
+      { fromTable: 'orders', fromColumn: 'customer_id', toTable: 'customers', toColumn: 'customer_id' },
+    ]);
+  });
+
+  it('adds no link when no table matches the column prefix', () => {
+    const dm = buildDataModel({
+      teamId: 't',
+      sheets: [
+        { name: 'products', headers: ['sku', 'name'], rows: [['a', 'x']] },
+        { name: 'orders', headers: ['order_id', 'customer_id'], rows: [[10, 1]] },
+      ],
+    });
+    expect(dm.relations).toBeUndefined();
+  });
 });

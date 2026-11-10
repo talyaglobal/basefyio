@@ -281,6 +281,10 @@ export function BlueprintDetailView({
   const [plan, setPlan] = useState<MigrationRun | null>(null);
   const resyncRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<DataModel | null>(null);
+  const [importData, setImportData] = useState(false);
+  const [dataSheets, setDataSheets] = useState<BlueprintSheet[] | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
+  const dataRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -316,6 +320,19 @@ export function BlueprintDetailView({
       toast.error(e?.message || 'Failed to sync');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onDataFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const sheets = await parseSheets(file);
+      if (sheets.length === 0) toast.error('No usable sheets found');
+      else setDataSheets(sheets);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to read the file');
     }
   };
 
@@ -408,14 +425,21 @@ export function BlueprintDetailView({
     }
     const ok = await confirmDialog({
       title: 'Generate tables',
-      description: `Create ${bp?.dataModel.tables.length ?? 0} table(s) in the selected project's database? Existing tables with the same name are skipped.`,
+      description: `Create ${bp?.dataModel.tables.length ?? 0} table(s) in the selected project's database${importData ? ' and import the rows of the chosen file' : ''}? Existing tables with the same name are left as they are; use "Plan changes" to change those.`,
       confirmText: 'Generate',
     });
     if (!ok) return;
     setBusy(true);
     try {
-      const res = await api.blueprints.generate(bp!.id, targetProject);
-      toast.success(`Generated: ${res.created} created, ${res.skipped} skipped`);
+      const res = await api.blueprints.generate(bp!.id, targetProject, importData ? (dataSheets ?? undefined) : undefined);
+      const rowCount = Object.values(res.rows ?? {}).reduce((n, c) => n + c, 0);
+      toast.success(
+        `Generated: ${res.created} created, ${res.skipped} skipped${rowCount ? `, ${rowCount} row(s) imported` : ''}`,
+      );
+      if (res.pendingChanges) {
+        toast.info('The model differs from the existing tables. Use "Plan changes" under Schema migrations to apply it.');
+      }
+      setNotes(res.notes ?? []);
       await load();
     } catch (e: any) {
       toast.error(e?.message || 'Failed to generate');
@@ -518,6 +542,11 @@ export function BlueprintDetailView({
             ))}
           </div>
         )}
+        {!draft && bp.dataModel.relations && bp.dataModel.relations.length > 0 && (
+          <div className="rounded-lg border bg-card p-3 text-xs text-muted-foreground">
+            Links found: {bp.dataModel.relations.map((r) => `${r.fromTable}.${r.fromColumn} → ${r.toTable}.${r.toColumn}`).join(', ')}
+          </div>
+        )}
         {draft
           ? draft.tables.map((t, ti) => (
               <div key={ti} className="space-y-2 rounded-lg border bg-card p-4">
@@ -605,17 +634,37 @@ export function BlueprintDetailView({
               placeholder="Select target project"
               searchPlaceholder="Search projects…"
             />
-            <Button onClick={generate} disabled={busy || !targetProject}>
+            <Button onClick={generate} disabled={busy || !targetProject || (importData && !dataSheets)}>
               {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               <Database className="mr-1 h-4 w-4" />
-              {bp.status === 'GENERATED' ? 'Re-generate' : 'Generate tables'}
+              {bp.generatedDataModel ? 'Re-generate' : 'Generate tables'}
             </Button>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input type="checkbox" checked={importData} onChange={(e) => setImportData(e.target.checked)} />
+              Import the rows too
+            </label>
+            {importData && (
+              <>
+                <input ref={dataRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onDataFile} />
+                <Button variant="outline" size="sm" onClick={() => dataRef.current?.click()} disabled={busy}>
+                  <Upload className="mr-1 h-3.5 w-3.5" /> {dataSheets ? `${dataSheets.length} sheet(s) ready` : 'Choose the file'}
+                </Button>
+              </>
+            )}
           </>
         )}
       </div>
 
-      {/* Migrations — available once the blueprint has been generated */}
-      {bp.status === 'GENERATED' && (
+      {notes.length > 0 && (
+        <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+          {notes.map((n, i) => (
+            <div key={i}>{n}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Migrations — available once tables exist, also after "Sync from Excel" set the status back to APPROVED */}
+      {(bp.status === 'GENERATED' || (bp.status === 'APPROVED' && bp.generatedDataModel)) && (
         <div className="space-y-3 rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium">Schema migrations</h2>

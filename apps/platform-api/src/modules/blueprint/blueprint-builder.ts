@@ -10,6 +10,7 @@ import {
   BlueprintDomain,
   BusinessModel,
   DataModel,
+  DataModelRelation,
   DataModelTable,
 } from './blueprint.types';
 
@@ -59,7 +60,35 @@ export function buildDataModel(input: AnalyzeBlueprintInput): DataModel {
     }
     tables.push({ name: tableName, label: sheet.name, columns });
   }
-  return warnings.length ? { tables, warnings } : { tables };
+  const relations = detectRelations(tables);
+  return {
+    tables,
+    ...(relations.length ? { relations } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+/**
+ * Find "<x>_id" columns that point at another table of the same sheet file:
+ * the table is called x, xs or xes (or xies for x…y) and has a column of the same
+ * name and type. Name-based only; whether the data really fits is checked when
+ * the constraint is added.
+ */
+export function detectRelations(tables: DataModelTable[]): DataModelRelation[] {
+  const relations: DataModelRelation[] = [];
+  for (const from of tables) {
+    for (const col of from.columns) {
+      if (!col.name.endsWith('_id') || col.name === '_id') continue;
+      const stem = col.name.slice(0, -3);
+      const names = new Set([stem, `${stem}s`, `${stem}es`, stem.replace(/y$/, 'ies')]);
+      const to = tables.find((t) => t !== from && names.has(t.name));
+      const target = to?.columns.find((c) => c.name === col.name && c.type === col.type);
+      if (to && target) {
+        relations.push({ fromTable: from.name, fromColumn: col.name, toTable: to.name, toColumn: col.name });
+      }
+    }
+  }
+  return relations;
 }
 
 export function detectDomain(dataModel: DataModel): BlueprintDomain {
