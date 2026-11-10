@@ -174,7 +174,7 @@ export function CreateProjectDialog({
       <select
         id="project-team"
         value={targetTeamId}
-        onChange={(e) => { setTargetTeamId(e.target.value); setZipExistingProjectId(''); }}
+        onChange={(e) => { setTargetTeamId(e.target.value); setZipExistingProjectId(''); setZipConfirmName(''); }}
         className="h-9 w-full rounded-md border bg-background px-2 text-sm"
       >
         {teams.map((t) => (
@@ -253,7 +253,11 @@ export function CreateProjectDialog({
   const [zipNameMode, setZipNameMode] = useState<'existing' | 'new'>('existing');
   const [zipNewName, setZipNewName] = useState('');
   const [zipExistingProjectId, setZipExistingProjectId] = useState('');
+  const [zipConfirmName, setZipConfirmName] = useState('');
   const [teamProjects, setTeamProjects] = useState<ProjectListItem[]>([]);
+  const zipOverrideTargetName =
+    teamProjects.find((p) => p.id === zipExistingProjectId)?.name ??
+    (reimportTarget?.projectId === zipExistingProjectId ? reimportTarget.projectName : '');
   const [zipImporting, setZipImporting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -478,6 +482,7 @@ export function CreateProjectDialog({
     setZipNameMode('existing');
     setZipNewName('');
     setZipExistingProjectId('');
+    setZipConfirmName('');
     setTeamProjects([]);
     setZipImporting(false);
     setLoading(false);
@@ -795,6 +800,10 @@ export function CreateProjectDialog({
       toast.error('Please select a project to override.');
       return;
     }
+    if (zipImportMode === 'override' && zipConfirmName.trim() !== zipOverrideTargetName) {
+      toast.error('Type the project name to confirm the override.');
+      return;
+    }
 
     if (zipImportMode === 'duplicate' && zipNameMode === 'new' && !zipNewName.trim()) {
       toast.error('Please enter a new project name.');
@@ -810,11 +819,12 @@ export function CreateProjectDialog({
         newProjectName: zipNameMode === 'new' ? zipNewName.trim() : undefined,
         existingProjectId:
           zipImportMode === 'override' ? zipExistingProjectId : undefined,
+        confirmProjectName: zipImportMode === 'override' ? zipConfirmName.trim() : undefined,
       });
 
       if (result.warnings.length > 0) {
         toast.warning(
-          `ZIP import completed with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}.`,
+          `ZIP import completed with ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}: ${result.warnings[0]}`,
         );
       } else {
         toast.success(`Project "${result.project.name}" imported from ZIP.`);
@@ -1522,6 +1532,23 @@ export function CreateProjectDialog({
               </div>
               )}
 
+              {zipImportMode === 'override' && zipOverrideTargetName && (
+                <div className="space-y-2 rounded-md border border-destructive/40 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    This replaces the data in{' '}
+                    <span className="font-semibold text-foreground">{zipOverrideTargetName}</span>.
+                    Type its name to confirm.
+                  </p>
+                  <Input
+                    value={zipConfirmName}
+                    onChange={(e) => setZipConfirmName(e.target.value)}
+                    placeholder={zipOverrideTargetName}
+                    aria-label="Type the project name to confirm"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
+
               {!reimportTarget && zipImportMode === 'duplicate' && (
               <div className="space-y-2">
                 <p className="text-xs font-medium">Project name confirmation</p>
@@ -1556,7 +1583,15 @@ export function CreateProjectDialog({
               </div>
               )}
 
-              <Button type="submit" disabled={!zipFile || zipImporting} className="w-full">
+              <Button
+                type="submit"
+                disabled={
+                  !zipFile ||
+                  zipImporting ||
+                  (zipImportMode === 'override' && zipConfirmName.trim() !== zipOverrideTargetName)
+                }
+                className="w-full"
+              >
                 {zipImporting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

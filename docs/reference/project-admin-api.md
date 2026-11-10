@@ -331,7 +331,11 @@ finish `pending` tables.
 
 `POST /api/projects/import-export-zip` takes `multipart/form-data` with the archive in the field
 `file` and the fields `teamId`, `nameMode` (`existing` keeps the exported name, `new` uses
-`newProjectName`) and optional `existingProjectId` to overwrite a project instead of creating one.
+`newProjectName`) and optional `existingProjectId` to overwrite a project instead of creating one. Overwriting also
+requires `confirmProjectName`, the exact name of the target project; without it the request is
+refused with 400 and nothing is written. An archive that holds none of `manifest.json`,
+`project.json` or `database/dump.sql`, and a file that is not a ZIP, are refused with 400 before any
+project is created.
 It restores the database dump, the auth users and the storage objects found in the archive and
 answers `{ project: { id, name, slug }, importedName, appliedName, warnings }`. The upload is held in
 memory; for large projects prefer restoring a stored backup (below).

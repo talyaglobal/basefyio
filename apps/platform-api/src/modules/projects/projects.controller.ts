@@ -91,6 +91,7 @@ export class ProjectsController {
       nameMode?: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      confirmProjectName?: string;
     },
     @UploadedFile() file: Express.Multer.File,
   ) {

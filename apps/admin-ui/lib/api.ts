@@ -1021,6 +1021,7 @@ export const api = {
       nameMode: 'existing' | 'new';
       newProjectName?: string;
       existingProjectId?: string;
+      confirmProjectName?: string;
     }) {
       const token = getAccessToken();
       const form = new FormData();
@@ -1032,6 +1033,7 @@ export const api = {
       }
       if (data.existingProjectId?.trim()) {
         form.append('existingProjectId', data.existingProjectId.trim());
+        form.append('confirmProjectName', data.confirmProjectName ?? '');
       }
 
       const res = await fetch('/api/proxy/projects/import-export-zip', {

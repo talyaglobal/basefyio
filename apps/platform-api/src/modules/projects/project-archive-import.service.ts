@@ -19,6 +19,12 @@ const execFileAsync = promisify(execFile);
 
 type ZipImportMode = 'existing' | 'new';
 
+// An export always carries at least one of these; a ZIP with none would
+// otherwise create an empty project (or leave the target untouched) and report success.
+const EXPORT_MARKERS = ['manifest.json', 'project.json', 'database/dump.sql'];
+const NOT_AN_EXPORT =
+  'This ZIP is not a basefyio project export: it has no manifest.json, project.json or database/dump.sql.';
+
 @Injectable()
 export class ProjectArchiveImportService {
   constructor(
@@ -35,10 +41,21 @@ export class ProjectArchiveImportService {
       nameMode?: ZipImportMode;
       newProjectName?: string;
       existingProjectId?: string;
+      confirmProjectName?: string;
     },
   ) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('ZIP file is required');
+    }
+    // Overriding writes into a live project: the caller must type its exact name.
+    const existingId = body.existingProjectId?.trim();
+    if (existingId) {
+      const target = await this.projectsService.getProjectForSupabaseImport(existingId, userId);
+      if (body.confirmProjectName?.trim() !== target.name) {
+        throw new BadRequestException(
+          'Type the exact project name to confirm overriding it with this ZIP.',
+        );
+      }
     }
     return this.importArchiveBuffer(file.buffer, userId, body);
   }
@@ -65,8 +82,17 @@ export class ProjectArchiveImportService {
     await mkdir(extractDir, { recursive: true });
 
     try {
-      const zip = new AdmZip(zipBuffer);
+      let zip: AdmZip;
+      try {
+        zip = new AdmZip(zipBuffer);
+      } catch {
+        throw new BadRequestException('The uploaded file is not a valid ZIP archive.');
+      }
       zip.extractAllTo(extractDir, true);
+
+      if (!EXPORT_MARKERS.some((m) => existsSync(join(extractDir, m)))) {
+        throw new BadRequestException(NOT_AN_EXPORT);
+      }
 
       const metadataPath = join(extractDir, 'project.json');
       let exportedName = 'Imported Project';
