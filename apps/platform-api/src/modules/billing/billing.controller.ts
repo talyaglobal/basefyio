@@ -460,14 +460,10 @@ export class BillingController {
   async deleteManagementPlan(
     @Req() req: RequestWithTraceId,
     @Param('planName') planName: string,
-    @Query('replacementPlanName') replacementPlanName?: string,
   ) {
     const startedAt = Date.now();
     try {
-      const result = await this.billing.deleteManagementPlan(
-        planName,
-        replacementPlanName || 'free',
-      );
+      const result = await this.billing.deleteManagementPlan(planName);
       await this.observability.captureRootAction({
         traceId: req.traceId || 'unknown',
         actorUserId: (req as any).user?.sub || 'unknown',

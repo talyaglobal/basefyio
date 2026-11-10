@@ -2769,10 +2769,9 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    deleteManagementPlan(planName: string, replacementPlanName = 'free') {
-      const qs = `?replacementPlanName=${encodeURIComponent(replacementPlanName)}`;
-      return request<{ deletedPlan: string; replacementPlan: string; migratedSubscriptions: number }>(
-        `/billing/management/plans/${encodeURIComponent(planName)}${qs}`,
+    deleteManagementPlan(planName: string) {
+      return request<{ deletedPlan: string }>(
+        `/billing/management/plans/${encodeURIComponent(planName)}`,
         { method: 'DELETE' },
       );
     },

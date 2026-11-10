@@ -127,6 +127,39 @@ function planToDraft(p: ManagementPlan): PlanDraft {
   };
 }
 
+const ADMIN_TABS = [
+  'users',
+  'plans',
+  'teams',
+  'rootAlerts',
+  'audit',
+  'permissions',
+  'deletionReasons',
+  'searchConsole',
+  'analytics',
+  'stripe',
+  'quickbooks',
+  'emailReports',
+  'infraCosts',
+] as const;
+type AdminTab = (typeof ADMIN_TABS)[number];
+
+function tabFromSearch(search: string): AdminTab {
+  const t = new URLSearchParams(search).get('tab');
+  return ADMIN_TABS.find((x) => x === t) ?? 'users';
+}
+
+const ROLE_PERMISSION_COLUMNS = [
+  ['canAccessManagement', 'Admin Access'],
+  ['canManageUsers', 'Manage Users'],
+  ['canManageTeams', 'Manage Teams'],
+  ['canManagePlans', 'Manage Plans'],
+  ['canManageUserPackages', 'Manage User Packages'],
+  ['canModerateFeedback', 'Moderate Feedback'],
+  ['canViewAuditLogs', 'View Audit Logs'],
+  ['canViewRootAlerts', 'View Root Alerts'],
+] as const;
+
 export default function ManagementPage() {
   const router = useRouter();
   const { profile } = useDashboard();
@@ -207,21 +240,10 @@ export default function ManagementPage() {
   const [distData, setDistData] = useState<ManagementDistributionStats | null>(null);
   const [stripeData, setStripeData] = useState<any>(null);
   const [emailReportsConfig, setEmailReportsConfig] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<
-    | 'users'
-    | 'plans'
-    | 'teams'
-    | 'rootAlerts'
-    | 'audit'
-    | 'permissions'
-    | 'deletionReasons'
-    | 'searchConsole'
-    | 'analytics'
-    | 'stripe'
-    | 'quickbooks'
-    | 'emailReports'
-    | 'infraCosts'
-  >('users');
+  // The tab lives in ?tab= so a reload, a back button or a shared link lands on the same tab.
+  const [activeTab, setActiveTab] = useState<AdminTab>(() =>
+    typeof window === 'undefined' ? 'users' : tabFromSearch(window.location.search),
+  );
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
 
@@ -316,21 +338,7 @@ export default function ManagementPage() {
     }
   }
 
-  async function loadTabData(
-    tab:
-      | 'plans'
-      | 'teams'
-      | 'rootAlerts'
-      | 'audit'
-      | 'permissions'
-      | 'deletionReasons'
-      | 'searchConsole'
-      | 'analytics'
-      | 'stripe'
-      | 'quickbooks'
-      | 'emailReports'
-      | 'infraCosts',
-    force = false,
+  async function loadTabData(tab: Exclude<AdminTab, 'users'>, force = false,
   ) {
     if (!managementPermissions && !isRoot) return;
     if (!force && loadedTabs.has(tab)) return;
@@ -517,7 +525,9 @@ export default function ManagementPage() {
   }, [profile, router]);
 
   useEffect(() => {
-    if (!managementPermissions && !isRoot) return;
+    // Wait for the permission call: ROOT would otherwise start the users fetch once now and again
+    // when the permissions arrive and change loadUsersTab.
+    if (loading || (!managementPermissions && !isRoot)) return;
     if (activeTab === 'users') {
       if (managementPermissions?.canManageUsers || isRoot) {
         void loadUsersTab();
@@ -525,7 +535,14 @@ export default function ManagementPage() {
       return;
     }
     void loadTabData(activeTab);
-  }, [activeTab, managementPermissions, isRoot, usersPage, usersSearchQ, loadUsersTab]);
+  }, [loading, activeTab, managementPermissions, isRoot, usersPage, usersSearchQ, loadUsersTab]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (activeTab === 'users') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', activeTab);
+    window.history.replaceState(null, '', url);
+  }, [activeTab]);
 
   useEffect(() => {
     if (usersPage > usersTotalPages) setUsersPage(usersTotalPages);
@@ -616,12 +633,17 @@ export default function ManagementPage() {
 
   return (
     <div className="relative mx-auto max-w-6xl space-y-6" style={{ minHeight: '50vh' }}>
-      {tabLoading && (
+      {tabLoading && !loadedTabs.has(activeTab) && (
         <div className="fixed inset-0 top-14 z-30 flex items-center justify-center bg-background/80 backdrop-blur-md">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">Loading...</p>
           </div>
+        </div>
+      )}
+      {tabLoading && loadedTabs.has(activeTab) && (
+        <div className="fixed right-6 top-20 z-30 flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Refreshing…
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -656,10 +678,12 @@ export default function ManagementPage() {
         </Button>
       </div>
 
-      <div className="inline-flex rounded-lg border bg-muted p-1">
+      <div role="tablist" aria-label="Admin sections" className="inline-flex flex-wrap rounded-lg border bg-muted p-1">
         {(managementPermissions?.canManageUsers || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'users'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'users'
               ? 'bg-background text-foreground shadow-sm'
@@ -673,6 +697,8 @@ export default function ManagementPage() {
         {isRoot && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'permissions'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'permissions'
               ? 'bg-background text-foreground shadow-sm'
@@ -686,6 +712,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canManagePlans || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'plans'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'plans'
               ? 'bg-background text-foreground shadow-sm'
@@ -699,6 +727,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canManageTeams || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'teams'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'teams'
               ? 'bg-background text-foreground shadow-sm'
@@ -712,6 +742,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canViewAuditLogs || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'deletionReasons'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'deletionReasons'
               ? 'bg-background text-foreground shadow-sm'
@@ -725,6 +757,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canViewRootAlerts || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'rootAlerts'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'rootAlerts'
               ? 'bg-background text-foreground shadow-sm'
@@ -738,6 +772,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canViewAuditLogs || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'audit'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'audit'
               ? 'bg-background text-foreground shadow-sm'
@@ -751,6 +787,8 @@ export default function ManagementPage() {
         {canAccessManagement && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'searchConsole'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'searchConsole'
               ? 'bg-background text-foreground shadow-sm'
@@ -764,6 +802,8 @@ export default function ManagementPage() {
         {canAccessManagement && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'analytics'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'analytics'
               ? 'bg-background text-foreground shadow-sm'
@@ -777,6 +817,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canManagePlans || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'stripe'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'stripe'
               ? 'bg-background text-foreground shadow-sm'
@@ -790,6 +832,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canManagePlans || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'infraCosts'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'infraCosts'
               ? 'bg-background text-foreground shadow-sm'
@@ -803,6 +847,8 @@ export default function ManagementPage() {
         {isRoot && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'quickbooks'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'quickbooks'
               ? 'bg-background text-foreground shadow-sm'
@@ -816,6 +862,8 @@ export default function ManagementPage() {
         {(managementPermissions?.canManagePlans || isRoot) && (
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === 'emailReports'}
           className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
             activeTab === 'emailReports'
               ? 'bg-background text-foreground shadow-sm'
@@ -1786,21 +1834,17 @@ export default function ManagementPage() {
           <h2 className="text-base font-semibold">Role Permission Matrix</h2>
           <p className="text-sm text-muted-foreground">
             Root user can configure what USER and ADMIN can do. ROOT permissions stay fixed.
+            Each change is saved the moment you tick the box.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1160px] text-left text-sm">
+          <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
                 <th className="px-2 py-2">Role</th>
-                <th className="px-2 py-2">Admin Access</th>
-                <th className="px-2 py-2">Manage Users</th>
-                <th className="px-2 py-2">Manage Teams</th>
-                <th className="px-2 py-2">Manage Plans</th>
-                <th className="px-2 py-2">Manage User Packages</th>
-                <th className="px-2 py-2">Moderate Feedback</th>
-                <th className="px-2 py-2">View Audit Logs</th>
-                <th className="px-2 py-2">View Root Alerts</th>
+                {ROLE_PERMISSION_COLUMNS.map(([key, label]) => (
+                  <th key={key} className="px-2 py-2 align-bottom font-medium">{label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -1831,21 +1875,11 @@ export default function ManagementPage() {
                 return (
                   <tr key={row.role} className="border-b last:border-0">
                     <td className="px-2 py-2 font-semibold">{row.role}</td>
-                    {(
-                      [
-                        'canAccessManagement',
-                        'canManageUsers',
-                        'canManageTeams',
-                        'canManagePlans',
-                        'canManageUserPackages',
-                        'canModerateFeedback',
-                        'canViewAuditLogs',
-                        'canViewRootAlerts',
-                      ] as const
-                    ).map((permissionKey) => (
+                    {ROLE_PERMISSION_COLUMNS.map(([permissionKey, label]) => (
                       <td key={permissionKey} className="px-2 py-2">
                         <input
                           type="checkbox"
+                          aria-label={`${row.role}: ${label}`}
                           checked={row[permissionKey]}
                           disabled={isRootRow || isSaving}
                           onChange={(e) => {
@@ -2193,7 +2227,12 @@ export default function ManagementPage() {
       {activeTab === 'plans' && (managementPermissions?.canManagePlans || isRoot) && (
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Pricing Plans</h2>
+          <div>
+            <h2 className="text-base font-semibold">Pricing Plans</h2>
+            <p className="text-sm text-muted-foreground">
+              Edit the rows, then press Save Changes. A limit left empty means unlimited.
+            </p>
+          </div>
           <Button onClick={handleSavePlanChanges} disabled={savingAllPlans || !!savingPlanName}>
             {savingAllPlans ? 'Saving...' : 'Save Changes'}
           </Button>
@@ -2245,6 +2284,7 @@ export default function ManagementPage() {
                   <td className="px-2 py-2">
                     <Input
                       value={d.displayName}
+                      aria-label={`${p.displayName}: Display name`}
                       className="h-8 w-40"
                       onChange={(e) =>
                         setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, displayName: e.target.value } }))
@@ -2256,6 +2296,7 @@ export default function ManagementPage() {
                     <Input
                       type="number"
                       value={d.priceMonthlyDollars}
+                      aria-label={`${p.displayName}: Monthly price (USD)`}
                       className="h-8 w-24"
                       onChange={(e) =>
                         setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, priceMonthlyDollars: e.target.value } }))
@@ -2267,8 +2308,9 @@ export default function ManagementPage() {
                     <Input
                       type="number"
                       value={d.maxProjects}
+                      aria-label={`${p.displayName}: Projects`}
                       placeholder="Unlimited"
-                      className="h-8 w-24"
+                      className="h-8 w-28"
                       onChange={(e) =>
                         setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxProjects: e.target.value } }))
                       }
@@ -2280,14 +2322,16 @@ export default function ManagementPage() {
                       <Input
                         type="number"
                         value={d.maxStorageValue}
+                      aria-label={`${p.displayName}: Storage`}
                         placeholder="Unlimited"
-                        className="h-8 w-24"
+                        className="h-8 w-28"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxStorageValue: e.target.value } }))
                         }
                       />
                       <select
                         value={d.maxStorageUnit}
+                      aria-label={`${p.displayName}: Storage unit`}
                         className="h-8 rounded-md border bg-background px-2 text-xs"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxStorageUnit: e.target.value as ByteUnit } }))
@@ -2302,14 +2346,16 @@ export default function ManagementPage() {
                       <Input
                         type="number"
                         value={d.maxDbValue}
+                      aria-label={`${p.displayName}: DB size`}
                         placeholder="Unlimited"
-                        className="h-8 w-24"
+                        className="h-8 w-28"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxDbValue: e.target.value } }))
                         }
                       />
                       <select
                         value={d.maxDbUnit}
+                      aria-label={`${p.displayName}: DB size unit`}
                         className="h-8 rounded-md border bg-background px-2 text-xs"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxDbUnit: e.target.value as ByteUnit } }))
@@ -2323,8 +2369,9 @@ export default function ManagementPage() {
                     <Input
                       type="number"
                       value={d.maxTeamMembers}
+                      aria-label={`${p.displayName}: Team members`}
                       placeholder="Unlimited"
-                      className="h-8 w-24"
+                      className="h-8 w-28"
                       onChange={(e) =>
                         setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxTeamMembers: e.target.value } }))
                       }
@@ -2335,6 +2382,7 @@ export default function ManagementPage() {
                     <Input
                       type="number"
                       value={d.maxApiRequests}
+                      aria-label={`${p.displayName}: API requests per month`}
                       placeholder="Unlimited"
                       className="h-8 w-28"
                       onChange={(e) =>
@@ -2348,14 +2396,16 @@ export default function ManagementPage() {
                       <Input
                         type="number"
                         value={d.maxBandwidthValue}
+                      aria-label={`${p.displayName}: Bandwidth`}
                         placeholder="Unlimited"
-                        className="h-8 w-24"
+                        className="h-8 w-28"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxBandwidthValue: e.target.value } }))
                         }
                       />
                       <select
                         value={d.maxBandwidthUnit}
+                      aria-label={`${p.displayName}: Bandwidth unit`}
                         className="h-8 rounded-md border bg-background px-2 text-xs"
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, maxBandwidthUnit: e.target.value as ByteUnit } }))
@@ -2370,6 +2420,7 @@ export default function ManagementPage() {
                       <input
                         type="checkbox"
                         checked={d.isPublic}
+                        aria-label={`${p.displayName}: Public`}
                         onChange={(e) =>
                           setPlanDrafts((prev) => ({ ...prev, [p.id]: { ...d, isPublic: e.target.checked } }))
                         }
@@ -2383,21 +2434,24 @@ export default function ManagementPage() {
                       size="sm"
                       variant="outline"
                       className="text-red-600 hover:text-red-700"
-                      disabled={p.name === 'free'}
+                      disabled={p.name === 'free' || (p.subscriptionCount ?? 0) > 0}
+                      title={
+                        (p.subscriptionCount ?? 0) > 0
+                          ? `${p.subscriptionCount} team(s) are on this plan; move them to another plan first.`
+                          : undefined
+                      }
                       onClick={async () => {
                         if (p.name === 'free') return;
                         const ok = await confirmDialog({
                           title: 'Delete plan',
-                          description: `Delete "${p.displayName}" plan? Existing subscriptions will be moved to Free.`,
+                          description: `Delete "${p.displayName}" plan? This cannot be undone.`,
                           confirmText: 'Delete plan',
                           destructive: true,
                         });
                         if (!ok) return;
                         try {
-                          const res = await api.billing.deleteManagementPlan(p.name, 'free');
-                          toast.success(
-                            `${res.deletedPlan} deleted, ${res.migratedSubscriptions} subscription(s) moved to ${res.replacementPlan}.`,
-                          );
+                          const res = await api.billing.deleteManagementPlan(p.name);
+                          toast.success(`${res.deletedPlan} deleted.`);
                           await loadTabData('plans', true);
                         } catch (err: any) {
                           toast.error(err.message || 'Failed to delete plan');

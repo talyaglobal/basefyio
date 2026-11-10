@@ -147,7 +147,7 @@ export default function ConsoleStoragePage() {
                     <td className={td}>
                       {b.project ? (
                         <div className="flex items-center gap-2">
-                          <Link href={`/console/projects/${b.project.id}`} className="hover:underline">
+                          <Link href={`/console/projects/${b.project.id}`} prefetch={false} className="hover:underline">
                             {b.project.name}
                           </Link>
                           {b.project.status !== 'ACTIVE' && <StatusBadge status={b.project.status} />}

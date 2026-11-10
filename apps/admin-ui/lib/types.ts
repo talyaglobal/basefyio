@@ -462,6 +462,8 @@ export interface ManagementPlan {
   maxBandwidthBytes: string | number | null;
   maxMau: number | null;
   isPublic: boolean;
+  /** Teams currently on this plan; a plan with teams cannot be deleted. */
+  subscriptionCount?: number;
 }
 
 export interface ManagementUserPackage {

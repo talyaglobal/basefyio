@@ -204,7 +204,8 @@ export default function ConsoleProjectsPage() {
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
                     <td className={td}>
                       <div className="flex items-center gap-2">
-                        <Link href={`/console/projects/${p.id}`} className="font-medium hover:underline">
+                        {/* No prefetch: one RSC request per visible row (177 on one scroll) is what floods the API. */}
+                        <Link href={`/console/projects/${p.id}`} prefetch={false} className="max-w-[16rem] truncate font-medium hover:underline">
                           {p.name}
                         </Link>
                         {p.status !== 'ACTIVE' && <StatusBadge status={p.status} />}
@@ -214,8 +215,8 @@ export default function ConsoleProjectsPage() {
                       </div>
                     </td>
                     <td className={td}>
-                      <div>{p.team.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.owner?.email ?? '—'}</div>
+                      <div className="max-w-[14rem] truncate">{p.team.name}</div>
+                      <div className="max-w-[14rem] truncate text-xs text-muted-foreground">{p.owner?.email ?? '—'}</div>
                     </td>
                     <td className={td}>
                       {p.plan ? (

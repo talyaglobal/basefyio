@@ -2077,8 +2077,13 @@ export class BillingService implements OnModuleInit {
     }
   }
 
+  /** Plans with the number of teams on each, so the console can tell which plans are safe to delete. */
   async listManagementPlans() {
-    return this.getAllPlans();
+    const plans = await this.prisma.plan.findMany({
+      orderBy: { priceMonthly: 'asc' },
+      include: { _count: { select: { subscriptions: true } } },
+    });
+    return plans.map(({ _count, ...plan }) => ({ ...plan, subscriptionCount: _count.subscriptions }));
   }
 
   async updateManagementPlan(
@@ -2161,41 +2166,20 @@ export class BillingService implements OnModuleInit {
     return updated;
   }
 
-  async deleteManagementPlan(planName: string, replacementPlanName = 'free') {
+  /** A plan with teams on it is never deleted: that would silently move paying teams to another plan. */
+  async deleteManagementPlan(planName: string) {
     const plan = await this.getPlanByName(planName);
     if (plan.name === 'free') {
       throw new BadRequestException('Free plan cannot be deleted');
     }
-    const replacement = await this.getPlanByName(replacementPlanName);
-    if (replacement.id === plan.id) {
-      throw new BadRequestException('Replacement plan must be different');
+    const teams = await this.prisma.subscription.count({ where: { planId: plan.id } });
+    if (teams > 0) {
+      throw new BadRequestException(
+        `Plan "${plan.name}" is used by ${teams} team(s). Move them to another plan first.`,
+      );
     }
-    const subs = await this.prisma.subscription.findMany({
-      where: { planId: plan.id },
-      select: { id: true, stripeSubscriptionId: true },
-    });
-    if (this.stripe.isEnabled() && replacement.stripePriceId) {
-      for (const s of subs) {
-        if (!s.stripeSubscriptionId) continue;
-        try {
-          await this.stripe.changeSubscriptionPlan(s.stripeSubscriptionId, replacement.stripePriceId);
-        } catch (err: any) {
-          this.logger.warn(
-            `Failed to migrate stripe subscription ${s.id} while deleting plan ${plan.name}: ${err.message}`,
-          );
-        }
-      }
-    }
-    await this.prisma.subscription.updateMany({
-      where: { planId: plan.id },
-      data: { planId: replacement.id },
-    });
     await this.prisma.plan.delete({ where: { id: plan.id } });
-    return {
-      deletedPlan: plan.name,
-      replacementPlan: replacement.name,
-      migratedSubscriptions: subs.length,
-    };
+    return { deletedPlan: plan.name };
   }
 
   async createManagementPlan(data: {

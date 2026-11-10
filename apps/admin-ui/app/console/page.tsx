@@ -353,7 +353,7 @@ function TopProjects({
             {rows.map((p) => (
               <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
                 <td className={td}>
-                  <Link href={`/console/projects/${p.id}`} className="font-medium hover:underline">
+                  <Link href={`/console/projects/${p.id}`} prefetch={false} className="font-medium hover:underline">
                     {p.name}
                   </Link>
                   <div className="text-xs text-muted-foreground">{p.teamName}</div>

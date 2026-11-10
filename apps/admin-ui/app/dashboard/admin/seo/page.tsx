@@ -132,7 +132,7 @@ export default function SeoManagerPage() {
             Audits the live site the way a crawler sees it — no Search Console or paid research
             account required. For click and impression data, see{' '}
             <Link
-              href="/console/manage"
+              href="/console/manage?tab=searchConsole"
               className="underline underline-offset-2 hover:text-foreground"
             >
               Users &amp; billing → Search Console
