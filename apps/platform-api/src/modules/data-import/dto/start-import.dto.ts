@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsObject,
   IsOptional,
@@ -7,6 +8,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IMPORT_ENCODINGS } from '../lib/text-decoding';
 
 /**
  * One row of the column-map: which source column flows to which destination
@@ -44,6 +46,31 @@ export class ColumnMappingDto {
   nullable?: boolean;
 }
 
+/**
+ * How text values are read: the file's decimal separator and date order
+ * (Turkish files write 1.234,56 and 31.12.1999), and what an empty or padded
+ * text cell becomes. Detected by /inspect; the wizard lets the user override.
+ */
+export class ValueFormatDto {
+  @IsOptional()
+  @IsIn(['.', ','])
+  decimalSeparator?: '.' | ',';
+
+  @IsOptional()
+  @IsIn(['DMY', 'MDY'])
+  dateOrder?: 'DMY' | 'MDY';
+
+  /** Text columns: an empty cell becomes NULL (default) or an empty string. */
+  @IsOptional()
+  @IsBoolean()
+  emptyAsNull?: boolean;
+
+  /** Text columns: strip surrounding spaces (default) or keep them. */
+  @IsOptional()
+  @IsBoolean()
+  trimText?: boolean;
+}
+
 export class StartImportDto {
   /** MinIO object key returned by /inspect for the FIRST file. The worker
    *  fetches the file by this key — no second upload. */
@@ -63,9 +90,21 @@ export class StartImportDto {
   @IsString()
   filename!: string;
 
-  /** csv or xlsx. */
-  @IsIn(['csv', 'xlsx'])
-  format!: 'csv' | 'xlsx';
+  /** csv, xlsx or json. */
+  @IsIn(['csv', 'xlsx', 'json'])
+  format!: 'csv' | 'xlsx' | 'json';
+
+  /** Character set of CSV/JSON files. Omitted or 'auto' detects it per file. */
+  @IsOptional()
+  @IsIn([...IMPORT_ENCODINGS, 'auto'])
+  encoding?: (typeof IMPORT_ENCODINGS)[number] | 'auto';
+
+  /** Number/date conventions and text rules applied while casting cells. */
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ValueFormatDto)
+  valueFormat?: ValueFormatDto;
 
   /** When false, the worker treats row 0 as data and matches the synthetic
    *  column_1..N names emitted by /inspect with firstRowIsHeader=false. */
@@ -109,8 +148,18 @@ export class StartImportDto {
 export class InspectImportResultDto {
   sourceKey!: string;
   filename!: string;
-  format!: 'csv' | 'xlsx';
+  format!: 'csv' | 'xlsx' | 'json';
   totalRowsApprox!: number;
+  /** True when every row was parsed, so totalRowsApprox is an exact count. */
+  totalRowsExact!: boolean;
+  /** Character set the text was read with (CSV/JSON only). */
+  encoding?: string;
+  /** True when that character set was detected rather than chosen. */
+  encodingDetected?: boolean;
+  /** Decimal separator and date order detected from the sample. */
+  detectedFormat!: { decimalSeparator: '.' | ','; dateOrder: 'DMY' | 'MDY' };
+  /** Plain-language notes for the wizard (encoding guesses, empty files, …). */
+  warnings!: string[];
   headers!: string[];
   /** Inferred columns with sample values for the UI. */
   inferredColumns!: Array<{

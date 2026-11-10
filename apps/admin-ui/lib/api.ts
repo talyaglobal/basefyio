@@ -71,6 +71,7 @@ import type {
   DataImportProgress,
   DataImportResult,
   DataImportJobStatus,
+  DataImportEncoding,
   DataQueryCapabilities,
   DataQueryResult,
   SavedDataQueryItem,
@@ -288,6 +289,75 @@ async function requestOnce<T>(
   }
 
   return parseOkJsonBody<T>(res);
+}
+
+/**
+ * Trade the refresh token for a new access token after a 401. Same rules as
+ * request(): a rejected refresh (400/401) clears the session and goes to
+ * /login; a transient failure returns null and logs nobody out.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+  let refreshRes: Response;
+  try {
+    refreshRes = await fetch('/api/proxy/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    return null;
+  }
+  if (refreshRes.ok) {
+    const tokens: AuthTokens = await parseOkJsonBody<AuthTokens>(refreshRes);
+    setTokens(tokens);
+    return tokens.accessToken;
+  }
+  if (refreshRes.status === 400 || refreshRes.status === 401) {
+    clearTokens();
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign('/login');
+    }
+    throw new Error('Session expired');
+  }
+  return null;
+}
+
+/**
+ * fetch() with the access token in the Authorization header, refreshing once
+ * on 401. For streams, downloads and uploads that cannot go through
+ * request() — and so that tokens never have to travel in a URL.
+ */
+export async function authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const send = (token: string | null | undefined) =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...((init.headers as Record<string, string> | undefined) ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  const res = await send(getAccessToken());
+  if (res.status !== 401) return res;
+  const fresh = await refreshAccessToken();
+  return fresh ? send(fresh) : res;
+}
+
+/** Error from a failed proxy response, using the server's message when there is one. */
+export async function responseError(res: Response, fallback: string): Promise<Error & { status?: number }> {
+  const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+  const message = Array.isArray(body.message) ? body.message.join(' ') : body.message;
+  const err = new Error(message || `${fallback}: ${res.status}`) as Error & { status?: number };
+  err.status = res.status;
+  return err;
+}
+
+/** Filename from a Content-Disposition header. */
+function dispositionFilename(res: Response, fallback: string): string {
+  const cd = res.headers.get('content-disposition') || '';
+  const match = cd.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
 }
 
 export type ApiNotification = {
@@ -1758,12 +1828,12 @@ export const api = {
     },
 
     /**
-     * Generic CSV/XLSX → table import. Wizard flow:
+     * Generic CSV/XLSX/JSON → table import. Wizard flow:
      *   1. inspectDataImport(file)      — upload + preview + auto-detect schema
      *   2. startDataImport(plan)        — kicks off the background job
      *   3. streamDataImportEvents()     — SSE progress (preferred) OR
      *      getDataImportStatus()        — poll
-     *   4. downloadDataImportErrors()   — URL for bad-rows CSV after completion
+     *   4. fetchDataImportErrors()      — bad-rows CSV after completion
      */
     /**
      * Request a presigned PUT URL for direct-to-MinIO upload. Use this for
@@ -1782,7 +1852,12 @@ export const api = {
      */
     inspectStagedDataImport(
       projectId: string,
-      args: { sourceKey: string; filename: string; firstRowIsHeader?: boolean },
+      args: {
+        sourceKey: string;
+        filename: string;
+        firstRowIsHeader?: boolean;
+        encoding?: DataImportEncoding | 'auto';
+      },
     ) {
       return request<DataImportInspectResult>(
         `/projects/${projectId}/data-imports/inspect-staged`,
@@ -1792,22 +1867,19 @@ export const api = {
     async inspectDataImport(
       projectId: string,
       file: File,
-      opts: { firstRowIsHeader?: boolean } = {},
+      opts: { firstRowIsHeader?: boolean; encoding?: DataImportEncoding | 'auto' } = {},
     ): Promise<DataImportInspectResult> {
-      const token = getAccessToken();
       const fd = new FormData();
       fd.append('file', file);
-      const qs =
-        opts.firstRowIsHeader === false ? '?firstRowIsHeader=false' : '';
-      const res = await fetch(`/api/proxy/projects/${projectId}/data-imports/inspect${qs}`, {
+      const params = new URLSearchParams();
+      if (opts.firstRowIsHeader === false) params.set('firstRowIsHeader', 'false');
+      if (opts.encoding && opts.encoding !== 'auto') params.set('encoding', opts.encoding);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const res = await authorizedFetch(`/api/proxy/projects/${projectId}/data-imports/inspect${qs}`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { message?: string }).message || `Import inspect failed: ${res.status}`);
-      }
+      if (!res.ok) throw await responseError(res, 'Import inspect failed');
       return res.json();
     },
     startDataImport(projectId: string, plan: DataImportPlan) {
@@ -1821,6 +1893,12 @@ export const api = {
         `/projects/${projectId}/data-imports/jobs/${jobId}/status`,
       );
     },
+    /**
+     * Live progress for an import job. Read with fetch() so the access token
+     * goes in the Authorization header — an EventSource can only carry it in
+     * the URL, where it ends up in proxy and server logs. If the stream drops
+     * before the job finishes, it falls back to polling the status endpoint.
+     */
     streamDataImportEvents(
       projectId: string,
       jobId: string,
@@ -1829,32 +1907,101 @@ export const api = {
         onCompleted: (data: DataImportResult) => void;
         onFailed: (error: string) => void;
         onState?: (state: string) => void;
-        onError?: (event: Event) => void;
+        onError?: (error: unknown) => void;
       },
-    ): EventSource {
-      const token = getAccessToken();
-      const url = `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url);
-      es.addEventListener('state', (e) => {
-        try { callbacks.onState?.(JSON.parse((e as MessageEvent).data).state); } catch {}
-      });
-      es.addEventListener('progress', (e) => {
-        try { callbacks.onProgress(JSON.parse((e as MessageEvent).data)); } catch {}
-      });
-      es.addEventListener('completed', (e) => {
-        try { callbacks.onCompleted(JSON.parse((e as MessageEvent).data)); } catch {
-          callbacks.onFailed('Import completed, response parse failed');
+    ): { close: () => void } {
+      const controller = new AbortController();
+      let closed = false;
+      let finished = false;
+      const handle = (event: string, raw: string) => {
+        let data: any;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          return;
         }
-        es.close();
-      });
-      es.addEventListener('failed', (e) => {
-        try { callbacks.onFailed(JSON.parse((e as MessageEvent).data).error || 'Import failed'); } catch {
-          callbacks.onFailed('Import failed');
+        if (event === 'state') callbacks.onState?.(data?.state);
+        else if (event === 'progress') callbacks.onProgress(data);
+        else if (event === 'completed') {
+          finished = true;
+          controller.abort();
+          callbacks.onCompleted(data);
+        } else if (event === 'failed') {
+          finished = true;
+          controller.abort();
+          callbacks.onFailed(data?.error || 'Import failed');
         }
-        es.close();
-      });
-      es.onerror = (e) => callbacks.onError?.(e);
-      return es;
+      };
+
+      const poll = async () => {
+        while (!closed && !finished) {
+          try {
+            const status = await api.projects.getDataImportStatus(projectId, jobId);
+            if (closed || finished) return;
+            callbacks.onState?.(status.state);
+            if (status.progress && typeof status.progress === 'object') {
+              callbacks.onProgress(status.progress as DataImportProgress);
+            }
+            if (status.state === 'completed') {
+              finished = true;
+              callbacks.onCompleted((status.result ?? {}) as DataImportResult);
+              return;
+            }
+            if (status.state === 'failed') {
+              finished = true;
+              callbacks.onFailed(status.failedReason || 'Import failed');
+              return;
+            }
+          } catch (err) {
+            callbacks.onError?.(err);
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      };
+
+      void (async () => {
+        try {
+          const res = await authorizedFetch(
+            `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/events`,
+            { headers: { Accept: 'text/event-stream' }, signal: controller.signal },
+          );
+          if (!res.ok || !res.body) throw await responseError(res, 'Progress stream failed');
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          while (!closed && !finished) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let sep = buffer.indexOf('\n\n');
+            while (sep >= 0) {
+              const frame = buffer.slice(0, sep);
+              buffer = buffer.slice(sep + 2);
+              let event = 'message';
+              const data: string[] = [];
+              for (const line of frame.split('\n')) {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+              }
+              if (data.length) handle(event, data.join('\n'));
+              sep = buffer.indexOf('\n\n');
+            }
+          }
+        } catch (err: any) {
+          if (closed || finished || err?.name === 'AbortError') return;
+          callbacks.onError?.(err);
+        }
+        // The stream ended without a final event (proxy timeout, network
+        // blip): keep following the job by polling.
+        if (!closed && !finished) await poll();
+      })();
+
+      return {
+        close: () => {
+          closed = true;
+          controller.abort();
+        },
+      };
     },
     cancelDataImport(projectId: string, jobId: string) {
       return request<{ ok: boolean }>(
@@ -1862,9 +2009,17 @@ export const api = {
         { method: 'POST' },
       );
     },
-    /** URL for the bad-rows CSV; hand it to <a download>. */
+    /** Proxy URL of the bad-rows CSV. It needs the Authorization header — download it with fetchDataImportErrors. */
     downloadDataImportErrors(projectId: string, jobId: string): string {
       return `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`;
+    },
+    /** Download the bad-rows CSV of a finished import (row number, reason, raw row). */
+    async fetchDataImportErrors(projectId: string, jobId: string): Promise<{ blob: Blob; filename: string }> {
+      const res = await authorizedFetch(
+        `/api/proxy/projects/${projectId}/data-imports/jobs/${jobId}/errors`,
+      );
+      if (!res.ok) throw await responseError(res, 'Error report download failed');
+      return { blob: await res.blob(), filename: dispositionFilename(res, `import-${jobId}-errors.csv`) };
     },
   },
 

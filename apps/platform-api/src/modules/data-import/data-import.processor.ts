@@ -11,7 +11,8 @@ import {
 } from '../projects/project-activity.service';
 import { DATA_IMPORT_QUEUE } from '../queue/queue.module';
 import { streamRows, type FileFormat, WORKER_CHUNK_ROWS } from './lib/file-parser';
-import { castValue, type InferredType } from './lib/type-inferrer';
+import { castValue, type InferredType, type ValueFormat } from './lib/type-inferrer';
+import type { ImportEncoding } from './lib/text-decoding';
 
 const STAGING_BUCKET = 'bf-platform-data-imports';
 
@@ -19,7 +20,29 @@ const STAGING_BUCKET = 'bf-platform-data-imports';
  *  caps memory: bad rows are buffered in-process and uploaded at the end. */
 const MAX_BAD_ROWS_CAPTURED = 5_000;
 
-interface JobData {
+/** How many failed rows travel with the job result so the wizard can list them. */
+const BAD_ROWS_SAMPLE = 20;
+
+/**
+ * SQLSTATE classes where one row is plausibly to blame, so the batch is
+ * retried row by row instead of failing the import:
+ *   * 21 (cardinality_violation) — the same key twice in one ON CONFLICT DO
+ *     UPDATE batch ("cannot affect row a second time").
+ *   * 22 (data_exception) — invalid syntax for type, out of range, …
+ *   * 23 (integrity_constraint_violation) — NOT NULL, FK, UNIQUE, CHECK.
+ * Other classes (connection loss, undefined column, permission denied) reflect
+ * a broken plan, not a bad row, and still fail the job.
+ */
+const ROW_LOCAL_SQLSTATE_CLASSES = ['21', '22', '23'];
+
+export function isRowLocalError(sqlState: unknown): boolean {
+  return (
+    typeof sqlState === 'string' &&
+    ROW_LOCAL_SQLSTATE_CLASSES.some((cls) => sqlState.startsWith(cls))
+  );
+}
+
+export interface JobData {
   projectId: string;
   userId?: string;
   sourceKey: string;
@@ -28,6 +51,10 @@ interface JobData {
   filename: string;
   format: FileFormat;
   firstRowIsHeader?: boolean;
+  /** Character set of text files; absent or 'auto' detects it per file. */
+  encoding?: ImportEncoding | 'auto';
+  /** Decimal separator, date order, empty-cell and trim rules for casting. */
+  valueFormat?: Partial<ValueFormat>;
   targetMode: 'existing' | 'new';
   tableName: string;
   schemaName?: string;
@@ -37,13 +64,28 @@ interface JobData {
   _cancelled?: boolean;
 }
 
-interface JobResult {
+export interface JobResult {
   rowsRead: number;
+  /** Rows written as new rows. */
   rowsInserted: number;
+  /** Rows that replaced an existing row (update mode). */
+  rowsUpdated: number;
   rowsSkippedConflict: number;
+  /** Every row that failed validation or insert, even beyond the report cap. */
   rowsBad: number;
   errorKey?: string;
   durationMs: number;
+  /** The first failed rows, so the wizard can show them without a download. */
+  badRowsSample: Array<{ file: number; row: number; reason: string }>;
+  /** Plain-language notes (no data rows, report cut short, …). */
+  warnings: string[];
+}
+
+interface BadRow {
+  file: number;
+  row: number;
+  reason: string;
+  raw: unknown[];
 }
 
 @Processor(DATA_IMPORT_QUEUE, { concurrency: 1, lockDuration: 5 * 60_000 })
@@ -96,9 +138,20 @@ export class DataImportProcessor extends WorkerHost {
 
     let rowsRead = 0;
     let rowsInserted = 0;
+    let rowsUpdated = 0;
     let rowsSkippedConflict = 0;
-    const badRows: Array<{ row: number; reason: string; raw: unknown[] }> = [];
+    let rowsBad = 0;
+    const badRows: BadRow[] = [];
+    const recordBad = (row: BadRow) => {
+      rowsBad++;
+      if (badRows.length < MAX_BAD_ROWS_CAPTURED) badRows.push(row);
+    };
     let resolvedSchema = data.schemaName || 'public';
+    /** Set once this job has created the target table; a failure then removes it. */
+    let createdTable = false;
+    // Update mode reports inserted and updated rows separately via RETURNING;
+    // flipped off if the target cannot return xmax (e.g. a foreign table).
+    const insertState = { countUpdates: data.conflictMode === 'update' };
 
     try {
       // Resolve schema (existing) or create the table (new).
@@ -106,7 +159,15 @@ export class DataImportProcessor extends WorkerHost {
       try {
         if (data.targetMode === 'new') {
           resolvedSchema = data.schemaName || 'public';
-          await this.createTargetTable(client, resolvedSchema, data.tableName, data.columns);
+          await this.createTargetTable(
+            client,
+            resolvedSchema,
+            data.tableName,
+            data.columns,
+            data.conflictMode,
+            data.conflictColumns || [],
+          );
+          createdTable = true;
         } else {
           resolvedSchema = await this.resolveSchema(client, data.tableName, data.schemaName);
         }
@@ -139,12 +200,15 @@ export class DataImportProcessor extends WorkerHost {
       for (let fileIdx = 0; fileIdx < totalFiles; fileIdx++) {
         const sourceKey = allSources[fileIdx];
         const fileLabel = `${fileIdx + 1}/${totalFiles}`;
+        /** Data-row number inside this file (the header is not counted). */
+        let fileRow = 0;
 
         await job.updateProgress({
           step: 'parse',
           detail: `Streaming file ${fileLabel}`,
           rowsRead,
           rowsInserted,
+          rowsUpdated,
           fileIndex: fileIdx + 1,
           totalFiles,
           percent: Math.min(95, Math.round(((fileIdx) / totalFiles) * 90) + 5),
@@ -179,104 +243,88 @@ export class DataImportProcessor extends WorkerHost {
         headers.forEach((h, i) => headerIdx.set(h, i));
 
         const goodRows: unknown[][] = [];
+        const goodRowNumbers: number[] = [];
         for (let i = 0; i < chunk.length; i++) {
           const raw = chunk[i];
           rowsRead++;
+          fileRow++;
           const values: unknown[] = [];
           let badReason: string | null = null;
 
           for (const m of data.columns) {
             const srcIdx = headerIdx.get(m.source);
             const cell = srcIdx !== undefined ? raw[srcIdx] : undefined;
-            const r = castValue(cell, m.type, m.nullable ?? true);
+            const r = castValue(cell, m.type, m.nullable ?? true, data.valueFormat);
             if (!r.ok) {
-              badReason = `${m.source}/${m.target} (${m.type}): ${r.reason}`;
+              badReason = `${m.source} → ${m.target} (${m.type}): ${r.reason}`;
               break;
             }
             values.push(r.value);
           }
 
           if (badReason) {
-            if (badRows.length < MAX_BAD_ROWS_CAPTURED) {
-              badRows.push({ row: rowsRead, reason: badReason, raw: raw as unknown[] });
-            }
+            recordBad({ file: fileIdx + 1, row: fileRow, reason: badReason, raw: raw as unknown[] });
             continue;
           }
           goodRows.push(values);
+          goodRowNumbers.push(fileRow);
         }
 
         if (goodRows.length > 0) {
           // The fast path: one parameterized INSERT for the whole chunk. When
-          // Postgres rejects the batch the entire transaction is rolled back
-          // and we lose all 500 rows. Catch that here and fall back to a
-          // per-row retry so a single offending row is isolated as a bad-row
-          // instead of killing the import.
-          //
-          // We fall back for any error class where a single row is plausibly
-          // to blame:
-          //   * class 22 (data_exception) — invalid syntax for type, out of
-          //     range, division by zero, … Typically one cell that doesn't fit
-          //     the column's type.
-          //   * class 23 (integrity_constraint_violation) — NOT NULL, FK,
-          //     UNIQUE we didn't pre-empt via ON CONFLICT, CHECK.
-          // Other categories (connection loss, undefined column, permission
-          // denied — class 08/42/2…) still propagate; they reflect a broken
-          // plan, not a single bad row.
+          // Postgres rejects the batch the entire statement is rolled back,
+          // so a row-local error falls back to inserting row by row: the
+          // offending rows are isolated as bad rows instead of killing the
+          // import. See ROW_LOCAL_SQLSTATE_CLASSES for which errors qualify.
           let inserted = 0;
-          let attemptedFallback = false;
+          let updated = 0;
+          let failedInBatch = 0;
           try {
-            inserted = await this.insertBatch(pool, insertSql, data.columns.length, goodRows);
+            const r = await this.insertBatch(pool, insertSql, data.columns.length, goodRows, insertState);
+            inserted = r.inserted;
+            updated = r.updated;
           } catch (err: any) {
             const sqlState: string | undefined = err?.code;
-            const isRowLocal =
-              typeof sqlState === 'string' &&
-              (sqlState.startsWith('22') || sqlState.startsWith('23'));
-            if (!isRowLocal) throw err;
-            attemptedFallback = true;
+            if (!isRowLocalError(sqlState)) throw err;
             this.logger.warn(
               `Batch insert failed with SQLSTATE ${sqlState} (${err.message}). ` +
                 `Retrying ${goodRows.length} rows individually to isolate the bad row(s).`,
             );
 
-            // The row indices in `goodRows` are NOT the same as `rowsRead` —
-            // `rowsRead` was incremented for ALL chunk rows, including those
-            // we filtered out as bad earlier. We approximate the source row
-            // number for the report as (rowsRead - goodRows.length + i + 1).
-            const batchStartRowNumber = rowsRead - goodRows.length + 1;
             for (let i = 0; i < goodRows.length; i++) {
               const single = goodRows[i];
               try {
-                const ins = await this.insertBatch(pool, insertSql, data.columns.length, [single]);
-                inserted += ins;
+                const r = await this.insertBatch(pool, insertSql, data.columns.length, [single], insertState);
+                inserted += r.inserted;
+                updated += r.updated;
               } catch (rowErr: any) {
-                if (badRows.length < MAX_BAD_ROWS_CAPTURED) {
-                  badRows.push({
-                    row: batchStartRowNumber + i,
-                    reason: `DB ${rowErr?.code ?? '?'}: ${rowErr?.message ?? 'insert failed'}`,
-                    raw: single,
-                  });
-                }
+                failedInBatch++;
+                recordBad({
+                  file: fileIdx + 1,
+                  row: goodRowNumbers[i],
+                  reason: `Database rejected the row (${rowErr?.code ?? '?'}): ${rowErr?.message ?? 'insert failed'}`,
+                  raw: single,
+                });
               }
             }
           }
           rowsInserted += inserted;
-          // Anything we tried to insert but didn't end up in the table must
-          // have been a conflict (in skip mode) or an updated row (we count it
-          // as inserted for update mode). The difference is meaningful only
-          // for skip mode.
+          rowsUpdated += updated;
+          // In skip mode, whatever was sent but neither written nor rejected
+          // collided with an existing row. Only this batch's failures count.
           if (data.conflictMode === 'skip') {
-            const accountedFor = inserted + (attemptedFallback ? badRows.length : 0);
-            rowsSkippedConflict += Math.max(0, goodRows.length - accountedFor);
+            rowsSkippedConflict += Math.max(0, goodRows.length - inserted - failedInBatch);
           }
         }
 
         await job.updateProgress({
           step: 'insert',
-          detail: `File ${fileLabel}: processed ${rowsRead.toLocaleString()} rows`,
+          detail: `File ${fileLabel}: processed ${rowsRead.toLocaleString('en-US')} rows`,
           rowsRead,
           rowsInserted,
+          rowsUpdated,
           rowsSkipped: rowsSkippedConflict,
-          rowsBad: badRows.length,
+          rowsBad,
           fileIndex: fileIdx + 1,
           totalFiles,
           percent: Math.min(
@@ -285,7 +333,7 @@ export class DataImportProcessor extends WorkerHost {
               Math.floor((rowsRead / Math.max(rowsRead + 1, 100)) * (90 / totalFiles)),
           ),
         });
-      }, { firstRowIsHeader: data.firstRowIsHeader ?? true });
+      }, { firstRowIsHeader: data.firstRowIsHeader ?? true, encoding: data.encoding ?? 'auto' });
       } // end per-file loop
 
       // Refresh table statistics so the admin-ui sidebar (which reads
@@ -317,14 +365,27 @@ export class DataImportProcessor extends WorkerHost {
         errorKey = await this.uploadErrorReport(job, data, badRows);
       }
 
+      const warnings: string[] = [];
+      if (rowsRead === 0) {
+        warnings.push('No data rows were found in the file, so nothing was imported.');
+      }
+      if (rowsBad > badRows.length) {
+        warnings.push(
+          `${rowsBad.toLocaleString('en-US')} rows failed; the error report lists the first ${badRows.length.toLocaleString('en-US')}.`,
+        );
+      }
+
       const durationMs = Date.now() - started;
       const result: JobResult = {
         rowsRead,
         rowsInserted,
+        rowsUpdated,
         rowsSkippedConflict,
-        rowsBad: badRows.length,
+        rowsBad,
         errorKey,
         durationMs,
+        badRowsSample: badRows.slice(0, BAD_ROWS_SAMPLE).map(({ file, row, reason }) => ({ file, row, reason })),
+        warnings,
       };
 
       // Best-effort cleanup of every staged source file. Failures are
@@ -341,21 +402,62 @@ export class DataImportProcessor extends WorkerHost {
               ? ProjectActivityKind.TABLE_CREATED
               : ProjectActivityKind.TABLE_ROW_INSERTED,
           title: `Data import: ${data.filename}`,
-          detail: `${result.rowsInserted.toLocaleString()} rows into "${resolvedSchema}"."${data.tableName}" — ${badRows.length} bad rows.`,
+          detail:
+            `${rowsInserted.toLocaleString('en-US')} rows inserted` +
+            (rowsUpdated ? `, ${rowsUpdated.toLocaleString('en-US')} updated` : '') +
+            ` into "${resolvedSchema}"."${data.tableName}" — ${rowsBad.toLocaleString('en-US')} bad rows.`,
         })
         .catch(() => undefined);
 
       await job.updateProgress({
         step: 'done',
-        detail: `Inserted ${rowsInserted.toLocaleString()} rows`,
+        detail:
+          `Inserted ${rowsInserted.toLocaleString('en-US')} rows` +
+          (rowsUpdated ? `, updated ${rowsUpdated.toLocaleString('en-US')}` : ''),
         rowsRead,
         rowsInserted,
+        rowsUpdated,
         rowsSkipped: rowsSkippedConflict,
-        rowsBad: badRows.length,
+        rowsBad,
         percent: 100,
       });
 
       return result;
+    } catch (err: any) {
+      // A new table that the import could not fill is removed again — leaving
+      // it behind made every retry fail with "Table already exists".
+      let message: string = err?.message || 'Import failed';
+      if (createdTable) {
+        try {
+          const dropClient = await pool.connect();
+          try {
+            await dropClient.query(
+              `DROP TABLE IF EXISTS ${quoteIdent(resolvedSchema)}.${quoteIdent(data.tableName)}`,
+            );
+          } finally {
+            dropClient.release();
+          }
+          message += ' The new table was removed, so you can fix the problem and import again with the same name.';
+        } catch (dropErr: any) {
+          this.logger.warn(
+            `Could not remove "${resolvedSchema}"."${data.tableName}" after a failed import: ${dropErr?.message}`,
+          );
+        }
+      }
+      await this.activity
+        .append(data.projectId, {
+          userId: data.userId,
+          kind: ProjectActivityKind.DATA_IMPORT_FAILED,
+          title: `Data import failed: ${data.filename}`,
+          detail: message.slice(0, 500),
+        })
+        .catch(() => undefined);
+      if (message !== err?.message) {
+        const wrapped = new Error(message);
+        (wrapped as any).code = err?.code;
+        throw wrapped;
+      }
+      throw err;
     } finally {
       await pool.end();
     }
@@ -419,6 +521,8 @@ export class DataImportProcessor extends WorkerHost {
     schema: string,
     tableName: string,
     columns: JobData['columns'],
+    conflictMode: JobData['conflictMode'],
+    conflictColumns: string[],
   ): Promise<void> {
     // Defensive: refuse to clobber an existing table. The wizard should have
     // already disallowed this on the frontend, but a stale state could slip
@@ -432,18 +536,7 @@ export class DataImportProcessor extends WorkerHost {
         `Table "${schema}"."${tableName}" already exists. Pick "existing" mode or choose a new name.`,
       );
     }
-
-    const colDefs = columns.map((c) => {
-      const ident = quoteIdent(c.target);
-      const pgType = pgTypeFor(c.type);
-      const nullable = c.nullable === false ? ' NOT NULL' : '';
-      return `${ident} ${pgType}${nullable}`;
-    });
-    // Always add an `id` SERIAL primary key — matches Table Editor's "New
-    // Table" defaults and keeps inserts independent of source data.
-    colDefs.unshift(`"id" SERIAL PRIMARY KEY`);
-    const sql = `CREATE TABLE ${quoteIdent(schema)}.${quoteIdent(tableName)} (\n  ${colDefs.join(',\n  ')}\n)`;
-    await client.query(sql);
+    await client.query(buildCreateTableSQL(schema, tableName, columns, conflictMode, conflictColumns));
   }
 
   private buildInsertSQL(
@@ -466,9 +559,13 @@ export class DataImportProcessor extends WorkerHost {
           : (() => {
               const updates = columns
                 .filter((c) => !conflictColumns.includes(c.target))
-                .map((c) => `${quoteIdent(c.target)} = EXCLUDED.${quoteIdent(c.target)}`)
-                .join(', ');
-              return ` ON CONFLICT (${conflictColumns.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates}`;
+                .map((c) => `${quoteIdent(c.target)} = EXCLUDED.${quoteIdent(c.target)}`);
+              // Every mapped column is part of the key: nothing to update,
+              // so an existing row is left as it is.
+              if (updates.length === 0) {
+                return ` ON CONFLICT (${conflictColumns.map(quoteIdent).join(', ')}) DO NOTHING`;
+              }
+              return ` ON CONFLICT (${conflictColumns.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates.join(', ')}`;
             })();
     return `INSERT INTO ${target} (${cols}) VALUES :PLACEHOLDERS:${conflictClause}`;
   }
@@ -478,7 +575,8 @@ export class DataImportProcessor extends WorkerHost {
     template: string,
     columnCount: number,
     rows: unknown[][],
-  ): Promise<number> {
+    state: { countUpdates: boolean },
+  ): Promise<{ inserted: number; updated: number }> {
     const placeholders = rows
       .map((_, rowIdx) => {
         const params: string[] = [];
@@ -494,8 +592,22 @@ export class DataImportProcessor extends WorkerHost {
 
     const client = await pool.connect();
     try {
+      if (state.countUpdates) {
+        try {
+          // xmax is 0 on a freshly inserted row and set on one that ON
+          // CONFLICT DO UPDATE rewrote — the standard way to tell them apart.
+          const r = await client.query(`${sql} RETURNING (xmax = 0) AS inserted`, flatParams);
+          const inserted = r.rows.filter((row: { inserted: boolean }) => row.inserted === true).length;
+          return { inserted, updated: r.rows.length - inserted };
+        } catch (err: any) {
+          // 42703 undefined column / 0A000 not supported: this target has no
+          // xmax (e.g. a foreign table). Count everything as written.
+          if (err?.code !== '42703' && err?.code !== '0A000') throw err;
+          state.countUpdates = false;
+        }
+      }
       const r = await client.query(sql, flatParams);
-      return r.rowCount ?? 0;
+      return { inserted: r.rowCount ?? 0, updated: 0 };
     } finally {
       client.release();
     }
@@ -504,15 +616,19 @@ export class DataImportProcessor extends WorkerHost {
   private async uploadErrorReport(
     job: Job<JobData, JobResult>,
     data: JobData,
-    badRows: Array<{ row: number; reason: string; raw: unknown[] }>,
+    badRows: BadRow[],
   ): Promise<string> {
+    const multiFile = (data.additionalSourceKeys?.length ?? 0) > 0;
     const lines: string[] = [];
-    lines.push('source_row,reason,raw_row');
+    lines.push(multiFile ? 'file,source_row,reason,raw_row' : 'source_row,reason,raw_row');
     for (const br of badRows) {
       const raw = csvCell(JSON.stringify(br.raw));
-      lines.push(`${br.row},${csvCell(br.reason)},${raw}`);
+      lines.push(
+        `${multiFile ? `${br.file},` : ''}${br.row},${csvCell(br.reason)},${raw}`,
+      );
     }
-    const body = Buffer.from(lines.join('\n'), 'utf-8');
+    // UTF-8 with a BOM so Excel shows Turkish characters correctly.
+    const body = Buffer.from(`\ufeff${lines.join('\n')}`, 'utf-8');
     const key = `${data.projectId}/${job.id}/errors.csv`;
     await this.minio.putObject(STAGING_BUCKET, key, body, body.length, {
       'Content-Type': 'text/csv; charset=utf-8',
@@ -521,7 +637,44 @@ export class DataImportProcessor extends WorkerHost {
   }
 }
 
-function quoteIdent(name: string): string {
+/**
+ * CREATE TABLE for "Create new" imports.
+ *
+ *   * A mapped column named `id` becomes the primary key. Otherwise a serial
+ *     `id` is added — adding it as well used to fail with "column id
+ *     specified more than once".
+ *   * Skip/update need a unique index matching the conflict columns, so the
+ *     new table gets a UNIQUE constraint on them (unless they are the key).
+ *   * NOT NULL only where the plan asks for it.
+ */
+export function buildCreateTableSQL(
+  schema: string,
+  tableName: string,
+  columns: JobData['columns'],
+  conflictMode: JobData['conflictMode'],
+  conflictColumns: string[],
+): string {
+  const mappedId = columns.some((c) => c.target === 'id');
+  const colDefs = columns.map((c) => {
+    const ident = quoteIdent(c.target);
+    const pgType = pgTypeFor(c.type);
+    if (mappedId && c.target === 'id') return `${ident} ${pgType} PRIMARY KEY`;
+    const nullable = c.nullable === false ? ' NOT NULL' : '';
+    return `${ident} ${pgType}${nullable}`;
+  });
+  if (!mappedId) {
+    // Matches Table Editor's "New Table" defaults and keeps inserts
+    // independent of source data.
+    colDefs.unshift(`"id" SERIAL PRIMARY KEY`);
+  }
+  const keyIsPrimary = conflictColumns.length === 1 && conflictColumns[0] === 'id';
+  if ((conflictMode === 'skip' || conflictMode === 'update') && conflictColumns.length > 0 && !keyIsPrimary) {
+    colDefs.push(`UNIQUE (${conflictColumns.map(quoteIdent).join(', ')})`);
+  }
+  return `CREATE TABLE ${quoteIdent(schema)}.${quoteIdent(tableName)} (\n  ${colDefs.join(',\n  ')}\n)`;
+}
+
+export function quoteIdent(name: string): string {
   // Defense in depth — caller is expected to have sanitized, but we still
   // refuse identifiers that don't look like Postgres-safe names.
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {

@@ -1367,6 +1367,25 @@ export type DataImportColumnType =
   | 'jsonb'
   | 'text';
 
+/** Character sets the importer reads; 'auto' detects (Windows-1254 when not UTF-8). */
+export type DataImportEncoding =
+  | 'utf-8'
+  | 'utf-16le'
+  | 'utf-16be'
+  | 'windows-1254'
+  | 'windows-1252'
+  | 'iso-8859-9';
+
+/** How text values are read: decimal separator, day/month order, empty cells and spaces. */
+export interface DataImportValueFormat {
+  decimalSeparator?: '.' | ',';
+  dateOrder?: 'DMY' | 'MDY';
+  /** Text columns: an empty cell becomes NULL (true, default) or an empty string. */
+  emptyAsNull?: boolean;
+  /** Text columns: strip surrounding spaces (true, default) or keep them. */
+  trimText?: boolean;
+}
+
 export interface DataImportInferredColumn {
   name: string;
   originalName: string;
@@ -1378,8 +1397,18 @@ export interface DataImportInferredColumn {
 export interface DataImportInspectResult {
   sourceKey: string;
   filename: string;
-  format: 'csv' | 'xlsx';
+  format: 'csv' | 'xlsx' | 'json';
   totalRowsApprox: number;
+  /** True when every row was parsed, so totalRowsApprox is exact. */
+  totalRowsExact?: boolean;
+  /** Character set the text was read with (CSV/JSON only). */
+  encoding?: DataImportEncoding;
+  /** True when that character set was detected rather than chosen. */
+  encodingDetected?: boolean;
+  /** Decimal separator and date order detected from the sample. */
+  detectedFormat?: { decimalSeparator: '.' | ','; dateOrder: 'DMY' | 'MDY' };
+  /** Plain-language notes: encoding guesses, files without data rows, … */
+  warnings?: string[];
   headers: string[];
   inferredColumns: DataImportInferredColumn[];
   sampleRows: unknown[][];
@@ -1402,8 +1431,10 @@ export interface DataImportPlan {
    *  wizard session. All files share the schema from `sourceKey`. */
   additionalSourceKeys?: string[];
   filename: string;
-  format: 'csv' | 'xlsx';
+  format: 'csv' | 'xlsx' | 'json';
   firstRowIsHeader?: boolean;
+  encoding?: DataImportEncoding | 'auto';
+  valueFormat?: DataImportValueFormat;
   targetMode: 'existing' | 'new';
   tableName: string;
   schemaName?: string;
@@ -1417,6 +1448,7 @@ export interface DataImportProgress {
   detail: string;
   rowsRead?: number;
   rowsInserted?: number;
+  rowsUpdated?: number;
   rowsSkipped?: number;
   rowsBad?: number;
   percent?: number;
@@ -1425,10 +1457,15 @@ export interface DataImportProgress {
 export interface DataImportResult {
   rowsRead: number;
   rowsInserted: number;
+  /** Existing rows replaced in update mode. */
+  rowsUpdated?: number;
   rowsSkippedConflict: number;
   rowsBad: number;
   errorKey?: string;
   durationMs: number;
+  /** The first failed rows (file index, data-row number, reason). */
+  badRowsSample?: Array<{ file: number; row: number; reason: string }>;
+  warnings?: string[];
 }
 
 export interface DataImportJobStatus {

@@ -278,6 +278,10 @@ are refused with 500.
 | POST | `/api/projects/import-supabase/jobs/:jobId/cancel` | session | stop the job; a newly created project is removed, a re-import target is kept |
 | POST | `/api/projects/:id/import-supabase/repair-keys` | session | add the source's primary keys to imported tables that lack one |
 | POST | `/api/projects/import-export-zip` | session | create or overwrite a project from a basefyio export archive (multipart) |
+| POST | `/api/projects/:id/data-imports/inspect` | session | upload a CSV, XLSX or JSON file → preview and an inferred column plan |
+| POST | `/api/projects/:id/data-imports/jobs` | session | start the import into a new or existing table (plan body) |
+| GET | `/api/projects/:id/data-imports/jobs/:jobId/status`, `/events` | session | job state, or the same as an event stream; send the access token in the `Authorization` header |
+| GET | `/api/projects/:id/data-imports/jobs/:jobId/errors` | session | CSV of the rejected rows: row number, reason, raw row |
 
 ### Supabase import
 
@@ -339,6 +343,14 @@ project is created.
 It restores the database dump, the auth users and the storage objects found in the archive and
 answers `{ project: { id, name, slug }, importedName, appliedName, warnings }`. The upload is held in
 memory; for large projects prefer restoring a stored backup (below).
+
+### Data import (CSV, XLSX, JSON)
+
+The job answers `{ rowsRead, rowsInserted, rowsUpdated, rowsSkippedConflict, rowsBad, errorKey }`; a row that cannot be
+read or does not fit its column type is counted in `rowsBad` and listed in the `/errors` CSV with the reason. The dashboard
+shows this summary when the job ends. When a new table is created with the conflict mode Skip or Update, the chosen conflict
+columns become a `UNIQUE` constraint; if the import fails, the half-created table is dropped. The job routes check that the job
+belongs to the project and that the caller is a member of it.
 
 ## Export, backups and point-in-time recovery
 

@@ -6,18 +6,23 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import * as Minio from 'minio';
 import { randomBytes } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DATA_IMPORT_QUEUE } from '../queue/queue.module';
 import {
   detectFormat,
   samplePreview,
   DEFAULT_PREVIEW_ROWS,
+  ImportFileError,
+  MAX_JSON_BYTES,
   type FileFormat,
+  type ParsePreview,
 } from './lib/file-parser';
-import { inferSchema } from './lib/type-inferrer';
+import { detectValueFormat, inferSchema } from './lib/type-inferrer';
+import type { ImportEncoding } from './lib/text-decoding';
 import type {
   StartImportDto,
   InspectImportResultDto,
@@ -34,6 +39,110 @@ import {
  * cancellation/completion cleanup).
  */
 const STAGING_BUCKET = 'bf-platform-data-imports';
+
+const UNSUPPORTED_TYPE = 'Use .csv, .tsv, .txt, .xlsx or .json.';
+
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+type InspectEncoding = ImportEncoding | 'auto';
+
+export interface TableShape {
+  schema: string;
+  columns: Set<string>;
+  /** Column sets of the primary key and every plain unique index. */
+  uniqueSets: string[][];
+}
+
+/**
+ * Check an import plan against the target before any job runs, so a mapping
+ * mistake is a clear 400 in the wizard instead of a job that dies halfway with
+ * a raw Postgres error ("column … does not exist", "no unique or exclusion
+ * constraint matching the ON CONFLICT specification"). Pure — the caller
+ * supplies the table shape (or null when the table does not exist).
+ */
+export function validateImportPlan(
+  dto: Pick<StartImportDto, 'targetMode' | 'tableName' | 'conflictMode' | 'conflictColumns' | 'columns'>,
+  table: TableShape | null,
+): string[] {
+  const errors: string[] = [];
+  if (!IDENT_RE.test(dto.tableName ?? '')) {
+    errors.push(
+      `"${dto.tableName}" is not a valid table name. Use letters, digits and underscores, starting with a letter or underscore.`,
+    );
+  }
+
+  const seen = new Map<string, string>();
+  for (const c of dto.columns) {
+    if (!IDENT_RE.test(c.target ?? '')) {
+      errors.push(
+        `Target column "${c.target}" (from "${c.source}") is not a valid column name. Use letters, digits and underscores, starting with a letter or underscore.`,
+      );
+      continue;
+    }
+    const prev = seen.get(c.target);
+    if (prev !== undefined) {
+      errors.push(
+        `"${prev}" and "${c.source}" are both mapped to column "${c.target}". Each column can take only one source column.`,
+      );
+    }
+    seen.set(c.target, c.source);
+  }
+
+  const conflict = dto.conflictColumns ?? [];
+  const needsKey = dto.conflictMode === 'skip' || dto.conflictMode === 'update';
+
+  if (dto.targetMode === 'new') {
+    if (table) {
+      errors.push(
+        `Table "${table.schema}"."${dto.tableName}" already exists. Choose "Existing table", or another name.`,
+      );
+    }
+    if (needsKey) {
+      for (const c of conflict) {
+        if (!seen.has(c)) {
+          errors.push(`Conflict column "${c}" is not one of the imported columns.`);
+        }
+      }
+    }
+    return errors;
+  }
+
+  if (!table) {
+    errors.push(`Table "${dto.tableName}" was not found. Pick an existing table, or choose "Create new".`);
+    return errors;
+  }
+
+  const unknown = dto.columns
+    .map((c) => c.target)
+    .filter((t) => IDENT_RE.test(t ?? '') && !table.columns.has(t));
+  if (unknown.length > 0) {
+    errors.push(
+      `Column${unknown.length === 1 ? '' : 's'} ${unknown.map((u) => `"${u}"`).join(', ')} ` +
+        `${unknown.length === 1 ? 'does' : 'do'} not exist in "${table.schema}"."${dto.tableName}". ` +
+        'Map those source columns to an existing column, or leave them out.',
+    );
+  }
+
+  if (needsKey && conflict.length > 0) {
+    const wanted = [...new Set(conflict)].sort().join('\u0000');
+    const covered = table.uniqueSets.some((set) => [...set].sort().join('\u0000') === wanted);
+    if (!covered) {
+      errors.push(
+        `"${dto.conflictMode === 'skip' ? 'Skip' : 'Update'}" needs a primary key or unique constraint on exactly ` +
+          `(${conflict.join(', ')}) in "${table.schema}"."${dto.tableName}". ` +
+          'Pick the primary key as the conflict column, or choose "Fail on conflict".',
+      );
+    }
+    const unmapped = conflict.filter((c) => !seen.has(c));
+    if (unmapped.length > 0) {
+      errors.push(
+        `Conflict column${unmapped.length === 1 ? '' : 's'} ${unmapped.map((u) => `"${u}"`).join(', ')} ` +
+          `must also be imported, so rows can be matched.`,
+      );
+    }
+  }
+  return errors;
+}
 
 @Injectable()
 export class DataImportService {
@@ -92,9 +201,7 @@ export class DataImportService {
 
     const format = detectFormat(filename);
     if (!format) {
-      throw new BadRequestException(
-        `Unsupported file type: ${filename}. Use .csv, .tsv, or .xlsx.`,
-      );
+      throw new BadRequestException(`Unsupported file type: ${filename}. ${UNSUPPORTED_TYPE}`);
     }
 
     await this.ensureStagingBucket();
@@ -121,6 +228,7 @@ export class DataImportService {
     sourceKey: string,
     filename: string,
     firstRowIsHeader: boolean = true,
+    encoding: InspectEncoding = 'auto',
   ): Promise<InspectImportResultDto> {
     await this.assertProjectAccess(projectId, userId);
 
@@ -132,9 +240,7 @@ export class DataImportService {
 
     const format = detectFormat(filename);
     if (!format) {
-      throw new BadRequestException(
-        `Unsupported file type: ${filename}. Use .csv, .tsv, or .xlsx.`,
-      );
+      throw new BadRequestException(`Unsupported file type: ${filename}. ${UNSUPPORTED_TYPE}`);
     }
 
     // Verify the object actually exists and capture its true size for the
@@ -148,37 +254,32 @@ export class DataImportService {
         'Staged file not found. Did the presigned upload complete?',
       );
     }
+    if (format === 'json' && totalSize > MAX_JSON_BYTES) {
+      throw new BadRequestException(
+        `JSON files are limited to ${Math.round(MAX_JSON_BYTES / 1024 / 1024)} MB. Split the file, or convert it to CSV for larger imports.`,
+      );
+    }
 
     // CSV: range-fetch the first 16 MB — enough for 1000 preview rows on
-    // any reasonable schema. XLSX: needs the whole workbook to be parsed
-    // (zipped) so we fetch the full object even when large. The worker only
-    // does this on /inspect, not on every chunk, so the cost is bounded.
+    // any reasonable schema. XLSX and JSON need the whole object to be parsed
+    // (zipped / one document) so we fetch it in full. The worker only does
+    // this on /inspect, not on every chunk, so the cost is bounded.
     const previewSlice = format === 'csv' ? 16 * 1024 * 1024 : totalSize;
     const buffer = await this.fetchObjectRange(sourceKey, 0, previewSlice);
+    const truncated = format === 'csv' && totalSize > previewSlice;
 
-    const preview = samplePreview(buffer, format, DEFAULT_PREVIEW_ROWS, firstRowIsHeader);
-    if (preview.headers.length === 0) {
-      throw new BadRequestException('File has no header row');
-    }
-    const inferred = inferSchema(preview.headers, preview.rows);
-
+    const preview = this.parsePreview(buffer, format, firstRowIsHeader, {
+      encoding,
+      truncated,
+    });
     const existingTables = await this.listExistingTables(projectId);
 
-    return {
-      sourceKey,
-      filename,
-      format,
+    return this.toInspectResult(sourceKey, filename, format, preview, firstRowIsHeader, existingTables, {
       // Approximate based on object size when only the slice was read.
-      totalRowsApprox:
-        format === 'csv' && totalSize > previewSlice
-          ? Math.round(preview.totalRowsApprox * (totalSize / previewSlice))
-          : preview.totalRowsApprox,
-      headers: preview.headers,
-      inferredColumns: inferred,
-      sampleRows: preview.rows.slice(0, 25),
-      existingTables,
-      firstRowIsHeader,
-    };
+      totalRowsApprox: truncated
+        ? Math.round(preview.totalRowsApprox * (totalSize / previewSlice))
+        : preview.totalRowsApprox,
+    });
   }
 
   private async fetchObjectRange(
@@ -216,14 +317,14 @@ export class DataImportService {
      * for CSVs that come out of legacy exports with no header line.
      */
     firstRowIsHeader: boolean = true,
+    /** Character set for CSV/JSON; 'auto' detects it (Windows-1254 when not UTF-8). */
+    encoding: InspectEncoding = 'auto',
   ): Promise<InspectImportResultDto> {
     await this.assertProjectAccess(projectId, userId);
 
     const format = detectFormat(file.originalname, file.mimetype);
     if (!format) {
-      throw new BadRequestException(
-        `Unsupported file type: ${file.originalname}. Use .csv, .tsv, or .xlsx.`,
-      );
+      throw new BadRequestException(`Unsupported file type: ${file.originalname}. ${UNSUPPORTED_TYPE}`);
     }
 
     if (file.buffer.length === 0) {
@@ -240,12 +341,7 @@ export class DataImportService {
       );
     }
 
-    const preview = samplePreview(file.buffer, format, DEFAULT_PREVIEW_ROWS, firstRowIsHeader);
-    if (preview.headers.length === 0) {
-      throw new BadRequestException('File has no header row');
-    }
-
-    const inferred = inferSchema(preview.headers, preview.rows);
+    const preview = this.parsePreview(file.buffer, format, firstRowIsHeader, { encoding });
 
     // Stage the file in MinIO so /start can reference it by key.
     await this.ensureStagingBucket();
@@ -259,12 +355,52 @@ export class DataImportService {
     );
 
     const existingTables = await this.listExistingTables(projectId);
+    return this.toInspectResult(sourceKey, file.originalname, format, preview, firstRowIsHeader, existingTables);
+  }
 
+  /** samplePreview with file problems turned into a 400 the wizard can show. */
+  private parsePreview(
+    buffer: Buffer,
+    format: FileFormat,
+    firstRowIsHeader: boolean,
+    opts: { encoding: InspectEncoding; truncated?: boolean },
+  ): ParsePreview {
+    let preview: ParsePreview;
+    try {
+      preview = samplePreview(buffer, format, DEFAULT_PREVIEW_ROWS, firstRowIsHeader, opts);
+    } catch (err) {
+      if (err instanceof ImportFileError) throw new BadRequestException(err.message);
+      throw err;
+    }
+    if (preview.headers.length === 0) {
+      throw new BadRequestException('File has no header row');
+    }
+    return preview;
+  }
+
+  private toInspectResult(
+    sourceKey: string,
+    filename: string,
+    format: FileFormat,
+    preview: ParsePreview,
+    firstRowIsHeader: boolean,
+    existingTables: Array<{ schema: string; name: string }>,
+    overrides: { totalRowsApprox?: number } = {},
+  ): InspectImportResultDto {
+    // Decimal separator and day/month order are read off the sample, so a
+    // Turkish file with 1.234,56 and 31.12.1999 infers numeric/date columns.
+    const detectedFormat = detectValueFormat(preview.rows);
+    const inferred = inferSchema(preview.headers, preview.rows, detectedFormat);
     return {
       sourceKey,
-      filename: file.originalname,
+      filename,
       format,
-      totalRowsApprox: preview.totalRowsApprox,
+      totalRowsApprox: overrides.totalRowsApprox ?? preview.totalRowsApprox,
+      totalRowsExact: overrides.totalRowsApprox === undefined ? preview.totalRowsExact : false,
+      encoding: preview.encoding,
+      encodingDetected: preview.encodingDetected,
+      detectedFormat,
+      warnings: preview.warnings,
       headers: preview.headers,
       inferredColumns: inferred,
       sampleRows: preview.rows.slice(0, 25),
@@ -282,7 +418,7 @@ export class DataImportService {
     userId: string | undefined,
     dto: StartImportDto,
   ): Promise<{ jobId: string }> {
-    await this.assertProjectAccess(projectId, userId);
+    const project = await this.assertProjectAccess(projectId, userId);
 
     if (!dto.sourceKey || !dto.sourceKey.startsWith(`${projectId}/`)) {
       throw new BadRequestException(
@@ -316,6 +452,16 @@ export class DataImportService {
       );
     }
 
+    // Check the mapping against the real table now, rather than letting the
+    // worker fail on it after the user has walked away.
+    const shape = IDENT_RE.test(dto.tableName ?? '')
+      ? await this.describeTable(project, dto.tableName, dto.schemaName, dto.targetMode)
+      : null;
+    const planErrors = validateImportPlan(dto, shape);
+    if (planErrors.length > 0) {
+      throw new BadRequestException(planErrors.join(' '));
+    }
+
     // Verify every staged file is still in MinIO (could have been TTL'd or
     // cancelled). Done in one pass so the first-file error doesn't hide a
     // later-file error from a multi-upload session.
@@ -343,9 +489,11 @@ export class DataImportService {
         filename: dto.filename,
         format: dto.format,
         firstRowIsHeader: dto.firstRowIsHeader ?? true,
+        encoding: dto.encoding ?? 'auto',
+        valueFormat: dto.valueFormat,
         targetMode: dto.targetMode,
         tableName: dto.tableName,
-        schemaName: dto.schemaName,
+        schemaName: dto.schemaName ?? (dto.targetMode === 'existing' ? shape?.schema : undefined),
         conflictMode: dto.conflictMode,
         conflictColumns: dto.conflictColumns,
         columns: dto.columns,
@@ -383,10 +531,43 @@ export class DataImportService {
     return { jobId: String(job.id) };
   }
 
-  /** Status snapshot for poll-based clients. */
-  async getJobStatus(jobId: string) {
+  /**
+   * Load a job and make sure it belongs to this project and the caller can
+   * see the project. Job ids are small sequential numbers, so without this any
+   * signed-in user could read another tenant's import status — and download
+   * its error report, which carries raw rows.
+   */
+  private async getAuthorizedJob(projectId: string, userId: string | undefined, jobId: string): Promise<Job> {
+    await this.assertProjectAccess(projectId, userId);
     const job = await this.queue.getJob(jobId);
-    if (!job) throw new NotFoundException('Import job not found');
+    if (!job || job.data?.projectId !== projectId) {
+      throw new NotFoundException('Import job not found');
+    }
+    return job;
+  }
+
+  /** Status snapshot for poll-based clients. */
+  async getJobStatus(projectId: string, userId: string | undefined, jobId: string) {
+    const job = await this.getAuthorizedJob(projectId, userId, jobId);
+    const state = await job.getState();
+    return {
+      id: jobId,
+      state,
+      progress: job.progress,
+      result: job.returnvalue,
+      failedReason: job.failedReason,
+    };
+  }
+
+  /**
+   * Status for the SSE loop, which already authorized the caller when the
+   * stream opened; only the project match is re-checked on each tick.
+   */
+  async pollJobStatus(projectId: string, jobId: string) {
+    const job = await this.queue.getJob(jobId);
+    if (!job || job.data?.projectId !== projectId) {
+      throw new NotFoundException('Import job not found');
+    }
     const state = await job.getState();
     return {
       id: jobId,
@@ -403,12 +584,8 @@ export class DataImportService {
    * the next iteration (the worker polls `await job.isFailed()` between
    * batches — see processor).
    */
-  async cancelJob(jobId: string, userId: string | undefined): Promise<void> {
-    const job = await this.queue.getJob(jobId);
-    if (!job) throw new NotFoundException('Import job not found');
-    if (userId && job.data?.userId && job.data.userId !== userId) {
-      throw new NotFoundException('Import job not found');
-    }
+  async cancelJob(projectId: string, jobId: string, userId: string | undefined): Promise<void> {
+    const job = await this.getAuthorizedJob(projectId, userId, jobId);
     const state = await job.getState();
     if (state === 'completed' || state === 'failed') return;
     // moveToFailed with token — using BullMQ's API would require a worker
@@ -421,11 +598,10 @@ export class DataImportService {
    * Stream the worker-emitted bad-rows CSV out to the client. Returns null if
    * the job hasn't produced one (no errors, or hasn't finished yet).
    */
-  async getErrorReportStream(jobId: string) {
-    const job = await this.queue.getJob(jobId);
-    if (!job) throw new NotFoundException('Import job not found');
+  async getErrorReportStream(projectId: string, userId: string | undefined, jobId: string) {
+    const job = await this.getAuthorizedJob(projectId, userId, jobId);
     const errorKey = (job.returnvalue as { errorKey?: string } | undefined)?.errorKey;
-    if (!errorKey) return null;
+    if (!errorKey || !errorKey.startsWith(`${projectId}/`)) return null;
     return this.minio.getObject(STAGING_BUCKET, errorKey);
   }
 
@@ -445,14 +621,10 @@ export class DataImportService {
     return project;
   }
 
-  private async listExistingTables(projectId: string) {
-    // Lightweight tables list — the wizard only needs schema + name. We don't
-    // pull row counts here to keep inspect snappy on projects with hundreds
-    // of tables. The Table Editor still provides counts via its own endpoint.
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, status: 'ACTIVE' },
-    });
-    if (!project) return [];
+  private async withProjectClient<T>(
+    project: { dbHost: string; dbPort: number; dbUser: string; dbPassword: string; dbName: string },
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
     const { Pool } = await import('pg');
     const pool = new Pool({
       host: project.dbHost,
@@ -461,23 +633,101 @@ export class DataImportService {
       password: project.dbPassword,
       database: project.dbName,
       statement_timeout: 5_000,
+      max: 1,
     });
     try {
       const client = await pool.connect();
       try {
-        const r = await client.query(
-          `SELECT schemaname AS schema, tablename AS name
-           FROM pg_catalog.pg_tables
-           WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-           ORDER BY schemaname, tablename`,
-        );
-        return r.rows as Array<{ schema: string; name: string }>;
+        return await fn(client);
       } finally {
         client.release();
       }
     } finally {
       await pool.end();
     }
+  }
+
+  /**
+   * Columns and unique keys of the import target, or null when it does not
+   * exist. Schema resolution matches the worker: an explicit schema, or the
+   * one schema that has a table of this name.
+   */
+  private async describeTable(
+    project: { dbHost: string; dbPort: number; dbUser: string; dbPassword: string; dbName: string },
+    tableName: string,
+    schemaName: string | undefined,
+    targetMode: 'existing' | 'new',
+  ): Promise<TableShape | null> {
+    return this.withProjectClient(project, async (client) => {
+      let schema = schemaName;
+      if (!schema) {
+        if (targetMode === 'new') {
+          schema = 'public';
+        } else {
+          const lookup = await client.query(
+            `SELECT schemaname FROM pg_catalog.pg_tables
+             WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND tablename = $1`,
+            [tableName],
+          );
+          if ((lookup.rowCount ?? 0) > 1) {
+            throw new BadRequestException(
+              `Table "${tableName}" exists in more than one schema; pick the schema explicitly.`,
+            );
+          }
+          if (!lookup.rowCount) return null;
+          schema = lookup.rows[0].schemaname as string;
+        }
+      }
+
+      const cols = await client.query(
+        `SELECT a.attname AS name
+           FROM pg_catalog.pg_attribute a
+           JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')
+            AND a.attnum > 0 AND NOT a.attisdropped`,
+        [schema, tableName],
+      );
+      if (!cols.rowCount) return null;
+
+      // ON CONFLICT (cols) can only use a non-partial, non-expression unique
+      // index whose columns are exactly that set.
+      const keys = await client.query(
+        `SELECT array_agg(a.attname::text) AS cols
+           FROM pg_catalog.pg_index i
+           JOIN pg_catalog.pg_class c ON c.oid = i.indrelid
+           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+           JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+          WHERE n.nspname = $1 AND c.relname = $2
+            AND i.indisunique AND i.indpred IS NULL AND i.indexprs IS NULL
+          GROUP BY i.indexrelid`,
+        [schema, tableName],
+      );
+      return {
+        schema,
+        columns: new Set(cols.rows.map((r: { name: string }) => r.name)),
+        uniqueSets: keys.rows.map((r: { cols: string[] }) => r.cols),
+      };
+    });
+  }
+
+  private async listExistingTables(projectId: string) {
+    // Lightweight tables list — the wizard only needs schema + name. We don't
+    // pull row counts here to keep inspect snappy on projects with hundreds
+    // of tables. The Table Editor still provides counts via its own endpoint.
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, status: 'ACTIVE' },
+    });
+    if (!project) return [];
+    return this.withProjectClient(project, async (client) => {
+      const r = await client.query(
+        `SELECT schemaname AS schema, tablename AS name
+         FROM pg_catalog.pg_tables
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+         ORDER BY schemaname, tablename`,
+      );
+      return r.rows as Array<{ schema: string; name: string }>;
+    });
   }
 
   private async ensureStagingBucket() {
@@ -500,7 +750,7 @@ function safeBasename(name: string): string {
 }
 
 function mimeForFormat(format: FileFormat): string {
-  return format === 'csv'
-    ? 'text/csv'
-    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (format === 'csv') return 'text/csv';
+  if (format === 'json') return 'application/json';
+  return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 }
