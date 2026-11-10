@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -254,6 +255,9 @@ export class FeedbackService {
 
   async updateStatus(userId: string, id: string, status: FeedbackStatus) {
     const { isRoot, feedback } = await this.assertCanAccessFeedback(userId, id);
+    if (feedback.deletedAt) {
+      throw new BadRequestException('A deleted feedback cannot be changed');
+    }
     if (!isRoot) {
       const canMarkDone = status === FeedbackStatus.DONE;
       const canCloseAfterDone =
@@ -303,6 +307,16 @@ export class FeedbackService {
 
   async updateFeedback(userId: string, id: string, dto: UpdateFeedbackDto) {
     const { feedback } = await this.assertCanAccessFeedback(userId, id);
+    if (feedback.deletedAt) {
+      throw new BadRequestException('A deleted feedback cannot be changed');
+    }
+    // A report created without a description may stay without one; one that has a description keeps it.
+    if (dto.description !== undefined && !dto.description.trim() && feedback.description) {
+      throw new BadRequestException('Description cannot be empty');
+    }
+    if (dto.title !== undefined && !dto.title.trim()) {
+      throw new BadRequestException('Title cannot be empty');
+    }
     const updated = await this.prisma.feedback.update({
       where: { id },
       data: {

@@ -60,3 +60,8 @@ export function projectStatusLabel(status: string | null | undefined): string {
       return status ? status.charAt(0) + status.slice(1).toLowerCase() : '';
   }
 }
+
+/** Case- and accent-insensitive form for search: Turkish dotted and dotless i fold to a plain i, accented letters lose their marks. */
+export function foldText(s: string): string {
+  return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\u0131/g, 'i');
+}

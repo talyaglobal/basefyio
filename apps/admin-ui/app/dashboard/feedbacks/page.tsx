@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -31,6 +31,8 @@ import {
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
 import { formatDateTime } from '@/lib/format';
+import { foldText } from '@/lib/utils';
+import { MAX_FEEDBACK_FILES, feedbackFileProblem, uploadFeedbackFiles } from '@/lib/feedback-media';
 
 type FeedbackItem = Awaited<ReturnType<typeof api.feedback.list>>[number];
 
@@ -62,7 +64,15 @@ const TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {
   FEATURE: { label: 'Idea', icon: <Lightbulb className="h-3.5 w-3.5 text-purple-500" /> },
   GENERAL: { label: 'Issue', icon: <MessageSquare className="h-3.5 w-3.5 text-blue-500" /> },
 };
-const MAX_COMMENT_FILES = 5;
+const MAX_COMMENT_FILES = MAX_FEEDBACK_FILES;
+
+function FileThumb({ file }: { file: File }) {
+  // One object URL per file; creating one per render fired hundreds of blob: requests.
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt={file.name} className="h-full w-full object-cover" />;
+}
 
 export default function FeedbacksPage() {
   const { profile } = useDashboard();
@@ -78,6 +88,8 @@ export default function FeedbacksPage() {
   const [commentByFeedback, setCommentByFeedback] = useState<Record<string, string>>({});
   const [commentFiles, setCommentFiles] = useState<Record<string, File[]>>({});
   const [commentLoadingId, setCommentLoadingId] = useState<string | null>(null);
+  const [commentUploadStatus, setCommentUploadStatus] = useState('');
+  const [showDeleted, setShowDeleted] = useState(false);
   const [replyToByFeedback, setReplyToByFeedback] = useState<Record<string, { id: string; email: string } | null>>({});
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
   const [savingComment, setSavingComment] = useState(false);
@@ -175,18 +187,24 @@ export default function FeedbacksPage() {
 
   function appendCommentFiles(feedbackId: string, incoming: File[]) {
     if (!incoming.length) return 0;
+    const next = [...(commentFiles[feedbackId] || [])];
     let added = 0;
-    setCommentFiles((prev) => {
-      const existing = prev[feedbackId] || [];
-      const next = [...existing];
-      for (const f of incoming) {
-        if (next.length >= MAX_COMMENT_FILES) break;
-        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue;
-        next.push(f);
-        added += 1;
+    let skippedForLimit = false;
+    for (const f of incoming) {
+      const problem = feedbackFileProblem(f);
+      if (problem) {
+        toast.error(problem);
+        continue;
       }
-      return { ...prev, [feedbackId]: next };
-    });
+      if (next.length >= MAX_COMMENT_FILES) {
+        skippedForLimit = true;
+        continue;
+      }
+      next.push(f);
+      added += 1;
+    }
+    if (skippedForLimit) toast.message(`At most ${MAX_COMMENT_FILES} files`);
+    setCommentFiles((prev) => ({ ...prev, [feedbackId]: next }));
     return added;
   }
 
@@ -246,8 +264,10 @@ export default function FeedbacksPage() {
     }
   }
 
-  const normalizedSearch = search.trim().toLowerCase();
-  const filtered = feedbacks.filter((f) => {
+  const normalizedSearch = foldText(search.trim());
+  const liveFeedbacks = feedbacks.filter((f) => !f.deletedAt);
+  const deletedCount = feedbacks.length - liveFeedbacks.length;
+  const filtered = (showDeleted ? feedbacks : liveFeedbacks).filter((f) => {
     if (filterStatus && f.status !== filterStatus) return false;
     if (filterType === 'ISSUE' && f.type === 'FEATURE') return false;
     if (filterType === 'IDEA' && f.type !== 'FEATURE') return false;
@@ -260,12 +280,11 @@ export default function FeedbacksPage() {
       f.status,
       f.type,
     ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(normalizedSearch);
+      .join(' ');
+    return foldText(haystack).includes(normalizedSearch);
   });
 
-  const counts = feedbacks.reduce<Record<string, number>>((acc, f) => {
+  const counts = liveFeedbacks.reduce<Record<string, number>>((acc, f) => {
     acc[f.status] = (acc[f.status] || 0) + 1;
     return acc;
   }, {});
@@ -285,8 +304,8 @@ export default function FeedbacksPage() {
           <h1 className="text-2xl font-bold">Feedbacks</h1>
           <p className="text-sm text-muted-foreground">
             {isRoot
-              ? `${feedbacks.length} total feedback${feedbacks.length !== 1 ? 's' : ''}`
-              : `Track all your feedbacks and developer actions (${feedbacks.length})`}
+              ? `${liveFeedbacks.length} total feedback${liveFeedbacks.length !== 1 ? 's' : ''}`
+              : `Track all your feedbacks and developer actions (${liveFeedbacks.length})`}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
@@ -302,7 +321,7 @@ export default function FeedbacksPage() {
             !filterStatus ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
           }`}
         >
-          All ({feedbacks.length})
+          All ({liveFeedbacks.length})
         </button>
         {STATUS_OPTIONS.map((s) => {
           const cfg = STATUS_CONFIG[s];
@@ -349,6 +368,16 @@ export default function FeedbacksPage() {
             <Lightbulb className="h-3 w-3 text-purple-500" />
             Ideas
           </button>
+          {deletedCount > 0 && (
+            <button
+              onClick={() => setShowDeleted(!showDeleted)}
+              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                showDeleted ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+              }`}
+            >
+              {showDeleted ? 'Hide' : 'Show'} deleted ({deletedCount})
+            </button>
+          )}
         </div>
       )}
 
@@ -576,11 +605,12 @@ export default function FeedbacksPage() {
                         <div className="flex gap-2">
                           <Button
                             size="sm"
+                            disabled={!editTitle.trim() || (!!fb.description && !editDescription.trim())}
                             onClick={async () => {
                               try {
                                 const updated = await api.feedback.update(fb.id, {
                                   title: editTitle.trim(),
-                                  description: editDescription,
+                                  description: editDescription.trim(),
                                 });
                                 setFeedbacks((prev) =>
                                   prev.map((x) =>
@@ -667,7 +697,7 @@ export default function FeedbacksPage() {
                     >
                       <span className="font-medium text-foreground">Developer action:</span>{' '}
                       {isDeleted
-                        ? 'Deleted by user'
+                        ? 'Deleted'
                         : fb.status === 'OPEN'
                           ? 'Waiting for review'
                           : fb.status === 'IN_PROGRESS'
@@ -749,10 +779,9 @@ export default function FeedbacksPage() {
                               setCommentLoadingId(fb.id);
                               try {
                                 const files = commentFiles[fb.id] || [];
-                                const attachments: { url: string; mimeType: string; kind: 'image' | 'video' }[] = [];
-                                for (const file of files) {
-                                  attachments.push(await api.feedback.uploadAttachment(file));
-                                }
+                                const attachments = await uploadFeedbackFiles(files, api.feedback.uploadAttachment, (done, total) =>
+                                  setCommentUploadStatus(`Uploading ${done + 1} of ${total}…`),
+                                );
                                 const comment = await api.feedback.addComment(fb.id, {
                                   comment: (commentByFeedback[fb.id] || '').trim(),
                                   attachments: attachments.length ? attachments : undefined,
@@ -773,11 +802,12 @@ export default function FeedbacksPage() {
                                 toast.error(err.message || 'Failed to comment');
                               } finally {
                                 setCommentLoadingId(null);
+                                setCommentUploadStatus('');
                               }
                             }}
                           >
                             <Send className="mr-1 h-3.5 w-3.5" />
-                            Comment
+                            {commentLoadingId === fb.id && commentUploadStatus ? commentUploadStatus : 'Comment'}
                           </Button>
                           {(commentFiles[fb.id]?.length || 0) > 0 && (
                             <button
@@ -812,13 +842,7 @@ export default function FeedbacksPage() {
                                       <Video className="h-4 w-4 text-muted-foreground" />
                                     </div>
                                   ) : (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={URL.createObjectURL(file)}
-                                      alt={file.name}
-                                      className="h-full w-full object-cover"
-                                      onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
-                                    />
+                                    <FileThumb file={file} />
                                   )}
                                 </button>
                                 <button
@@ -855,7 +879,7 @@ export default function FeedbacksPage() {
                         <select
                           value={fb.status}
                           onChange={(e) => handleStatusChange(fb.id, e.target.value)}
-                          disabled={updatingId === fb.id}
+                          disabled={updatingId === fb.id || isDeleted}
                           className="rounded-md border bg-background px-2 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                         >
                           {STATUS_OPTIONS.map((s) => (
@@ -868,7 +892,7 @@ export default function FeedbacksPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={updatingId === fb.id || fb.status === 'CLOSED' || !isOwner}
+                          disabled={updatingId === fb.id || fb.status === 'CLOSED' || !isOwner || isDeleted}
                           onClick={() =>
                             handleStatusChange(
                               fb.id,

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { MAX_FEEDBACK_FILES, feedbackFileProblem, uploadFeedbackFiles } from '@/lib/feedback-media';
 import {
   Dialog,
   DialogContent,
@@ -25,13 +26,14 @@ interface FeedbackModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const MAX_FILES = 5;
+const MAX_FILES = MAX_FEEDBACK_FILES;
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime';
 
 export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [step, setStep] = useState<ModalStep>('choose');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [takingScreenshot, setTakingScreenshot] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -81,39 +83,31 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     };
   }, [previewUrl]);
 
-  function addFilesFromList(list: FileList | null) {
+  function addFilesFromList(list: ArrayLike<File> | null) {
     if (!list?.length) return;
-    setFiles((prev) => {
-      const next = [...prev];
-      for (let i = 0; i < list.length; i++) {
-        if (next.length >= MAX_FILES) break;
-        const f = list[i];
-        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) {
-          toast.error(`${f.name}: only images or videos`);
-          continue;
-        }
-        next.push(f);
+    const next = [...files];
+    let skippedForLimit = false;
+    for (const f of Array.from(list)) {
+      const problem = feedbackFileProblem(f);
+      if (problem) {
+        toast.error(problem);
+        continue;
       }
-      if (prev.length + list.length > MAX_FILES && next.length >= MAX_FILES) {
-        toast.message(`At most ${MAX_FILES} files`);
+      if (next.length >= MAX_FILES) {
+        skippedForLimit = true;
+        continue;
       }
-      return next;
-    });
+      next.push(f);
+    }
+    if (skippedForLimit) toast.message(`At most ${MAX_FILES} files`);
+    setFiles(next);
   }
 
   function addFilesFromArray(items: File[]) {
     if (!items.length) return false;
-    let added = 0;
-    setFiles((prev) => {
-      const next = [...prev];
-      for (const f of items) {
-        if (next.length >= MAX_FILES) break;
-        if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue;
-        next.push(f);
-        added += 1;
-      }
-      return next;
-    });
+    const before = files.length;
+    addFilesFromList(items);
+    const added = Math.min(items.filter((f) => !feedbackFileProblem(f)).length, MAX_FILES - before);
     if (added > 0) {
       toast.success(`${added} media pasted`);
       return true;
@@ -169,8 +163,13 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
       const file = new File([blob], `screenshot-${timestamp}.png`, { type: 'image/png' });
-      setFiles((prev) => [...prev, file]);
-      toast.success('Screenshot captured!');
+      const problem = feedbackFileProblem(file);
+      if (problem) {
+        toast.error(problem);
+      } else {
+        setFiles((prev) => [...prev, file]);
+        toast.success('Screenshot captured!');
+      }
     } catch (err: any) {
       // User cancelled the screen picker or API not available
       toast.error(
@@ -189,10 +188,9 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
     setLoading(true);
     try {
-      const attachments: { url: string; mimeType: string; kind: 'image' | 'video' }[] = [];
-      for (const f of files) {
-        attachments.push(await api.feedback.uploadAttachment(f));
-      }
+      const attachments = await uploadFeedbackFiles(files, api.feedback.uploadAttachment, (done, total) =>
+        setUploadStatus(`Uploading ${done + 1} of ${total}…`),
+      );
 
       const feedbackType = step === 'idea' ? 'FEATURE' : 'BUG';
       const titleLine = description.trim().split('\n')[0].slice(0, 120);
@@ -211,6 +209,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       toast.error(err.message || 'Failed to send feedback');
     } finally {
       setLoading(false);
+      setUploadStatus('');
     }
   }
 
@@ -338,7 +337,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !description.trim()}>
-              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending…</> : submitLabel}
+              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{uploadStatus || 'Sending…'}</> : submitLabel}
             </Button>
           </DialogFooter>
         </form>
