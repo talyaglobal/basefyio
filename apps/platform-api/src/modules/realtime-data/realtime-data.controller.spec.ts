@@ -3,7 +3,9 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import {
   RealtimeDataStreamController,
+  lastEventIdOf,
   parseChannels,
+  requireValidChannels,
   parsePresence,
 } from './realtime-data.controller';
 import { ApiKeyGuard, ApiKeyPayload } from '../../common/guards/api-key.guard';
@@ -18,6 +20,25 @@ import { QueryAccessTokenGuard } from './query-access-token.guard';
  */
 const anon: ApiKeyPayload = { projectId: 'p1', role: 'anon', dbRole: 'anon' };
 const user: ApiKeyPayload = { projectId: 'p1', role: 'anon', dbRole: 'authenticated', jwtClaims: { sub: 'user-1' } };
+
+describe('requireValidChannels', () => {
+  it('refuses an unknown channel instead of reading it as every table', () => {
+    expect(() => requireValidChannels('foo:bar')).toThrow(BadRequestException);
+    expect(() => requireValidChannels('table:orders,nonsense')).toThrow(/"nonsense"/);
+  });
+  it('accepts valid lists, schema-qualified names and an empty list', () => {
+    expect(requireValidChannels('table:public.orders,collection:nosql.posts,table:orders')).toEqual(['table:orders', 'collection:posts']);
+    expect(requireValidChannels(undefined)).toEqual([]);
+  });
+});
+
+describe('lastEventIdOf', () => {
+  it('reads the header, then the query, and ignores an invalid id', () => {
+    expect(lastEventIdOf({ headers: { 'last-event-id': 'abc-1' }, query: {} } as any)).toBe('abc-1');
+    expect(lastEventIdOf({ headers: {}, query: { last_event_id: 'x2' } } as any)).toBe('x2');
+    expect(lastEventIdOf({ headers: { 'last-event-id': 'a b' }, query: {} } as any)).toBeUndefined();
+  });
+});
 
 describe('parseChannels', () => {
   it('keeps table, collection and broadcast channels and drops everything else', () => {

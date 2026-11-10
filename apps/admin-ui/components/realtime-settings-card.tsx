@@ -92,7 +92,8 @@ export function RealtimeSettingsCard({ projectId }: RealtimeSettingsCardProps) {
         clients via{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">bf.realtime.subscribe()</code>.
         Events include full row data and are visible to anyone holding a project API key —
-        enable only what your app should broadcast.
+        enable only what your app should broadcast. Changes made in the SQL editor or by raw SQL
+        from outside the platform are not broadcast; use the REST API, the SDK or the table editor.
       </p>
 
       {loading ? (

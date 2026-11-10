@@ -56,6 +56,11 @@ export class RealtimePresenceService implements OnModuleDestroy {
     if (this.sweeper) clearInterval(this.sweeper);
   }
 
+  /** Seconds a member stays after its last heartbeat. */
+  get ttlSeconds(): number {
+    return this.ttlSec;
+  }
+
   isTracked(subId: string): boolean {
     return this.tracked.has(subId);
   }

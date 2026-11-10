@@ -18,13 +18,14 @@
  * A table without RLS is delivered exactly as before to every subscriber.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeFanoutService } from './realtime-fanout.service';
 import { RealtimePolicyService, policyGroupOf } from './realtime-policy.service';
 import { RealtimePresenceService } from './realtime-presence.service';
+import { RealtimeReplayService } from './realtime-replay.service';
 import type {
   DataChangeEvent,
   DataChangeType,
@@ -34,6 +35,11 @@ import type {
 } from './realtime-data.types';
 
 export type { DataChangeEvent, DataChangeType, RealtimeKind } from './realtime-data.types';
+
+interface PendingFrame {
+  eventName: string;
+  data: unknown;
+}
 
 export interface Subscriber {
   id: string;
@@ -48,6 +54,11 @@ export interface Subscriber {
   policyGroup: string;
   presenceKey?: string;
   presenceMeta?: Record<string, unknown>;
+  /** True while missed events are being replayed; live frames wait in `pending`. */
+  replaying?: boolean;
+  pending?: PendingFrame[];
+  /** Ids written during the replay, so a live copy of the same event is not sent twice. */
+  replayedIds?: Set<string>;
 }
 
 export interface SubscribeOptions {
@@ -55,9 +66,16 @@ export interface SubscribeOptions {
   jwtClaims?: Record<string, unknown>;
   presenceKey?: string;
   presenceMeta?: Record<string, unknown>;
+  /** The id of the last event the client saw (SSE Last-Event-ID): replay what came after it. */
+  lastEventId?: string;
+  /** Requested data channels that are not enabled; reported in `ready` and as a `warning` frame. */
+  inactive?: string[];
 }
 
 const BINDING_CACHE_TTL_MS = 30_000;
+
+/** Frames that carry an event id, written as the SSE `id:` field so a client can resume after them. */
+const RESUMABLE_FRAMES = new Set(['data_change', 'broadcast']);
 
 @Injectable()
 export class RealtimeDataService {
@@ -73,8 +91,13 @@ export class RealtimeDataService {
     private readonly fanout: RealtimeFanoutService,
     private readonly policy: RealtimePolicyService,
     private readonly presence: RealtimePresenceService,
+    @Optional() private readonly replay?: RealtimeReplayService,
   ) {
     this.fanout.setLocalDeliverer((msg) => this.deliverLocal(msg));
+    if (this.replay) {
+      const replay = this.replay;
+      this.fanout.setRecorder?.((msg) => replay.record(msg));
+    }
   }
 
   // ── Subscriptions ────────────────────────────────────────
@@ -96,6 +119,12 @@ export class RealtimeDataService {
       presenceKey: opts.presenceKey,
       presenceMeta: opts.presenceMeta,
     };
+    const replayFrom = opts.lastEventId && this.replay?.enabled() ? opts.lastEventId : undefined;
+    if (replayFrom) {
+      sub.replaying = true;
+      sub.pending = [];
+      sub.replayedIds = new Set();
+    }
     this.subscribers.set(id, sub);
     this.fanout.onLocalSubscriberAdded(projectId);
     this.write(res, 'ready', {
@@ -103,7 +132,24 @@ export class RealtimeDataService {
       channels: [...normalized],
       role,
       presence: opts.presenceKey,
+      ...(opts.inactive?.length ? { inactive: opts.inactive } : {}),
+      ...(replayFrom ? { resumedAfter: replayFrom } : {}),
     });
+    if (opts.inactive?.length) {
+      this.write(res, 'warning', {
+        code: 'channel_not_enabled',
+        channels: opts.inactive,
+        message:
+          `Realtime is not enabled for ${opts.inactive.join(', ')} (or it does not exist). ` +
+          'Enable it on the Realtime page of the dashboard or with PUT /api/rest/v1/realtime/bindings; ' +
+          'this subscription starts receiving its changes as soon as it is enabled.',
+      });
+    }
+    if (replayFrom) {
+      void this.replayMissed(sub, replayFrom)
+        .catch((err) => this.logger.warn(`replay failed: ${err?.message}`))
+        .finally(() => this.finishReplay(sub));
+    }
     if (opts.presenceKey) {
       void this.presence
         .join({
@@ -179,8 +225,77 @@ export class RealtimeDataService {
     if (!sub) return;
     this.subscribers.delete(clientId);
     this.fanout.onLocalSubscriberRemoved(sub.projectId);
+    // Keep recording for a while: the subscriber that just dropped may be
+    // reconnecting and will ask for what it missed.
+    if (!this.hasSubscribers(sub.projectId)) this.replay?.markWarm(sub.projectId);
     if (sub.presenceKey) {
       void this.presence.leave(clientId).catch(() => undefined);
+    }
+  }
+
+  /** Subscribers of a project connected to this instance (status pages). */
+  localSubscriberCount(projectId: string): number {
+    let n = 0;
+    for (const sub of this.subscribers.values()) if (sub.projectId === projectId) n++;
+    return n;
+  }
+
+  // ── Replay after a reconnect ─────────────────────────────
+
+  private subscriberWants(sub: Subscriber, kind: FanoutMessage['kind'], channel: string): boolean {
+    return sub.channels.has(channel) || (kind === 'data_change' && sub.channels.has('*'));
+  }
+
+  /**
+   * Write what the subscriber missed since `lastId`, each data change checked
+   * against row-level security exactly as live delivery would. When the id is
+   * no longer in the buffer, say so: the client should reload what it shows.
+   */
+  private async replayMissed(sub: Subscriber, lastId: string): Promise<void> {
+    if (!this.replay) return;
+    const { found, entries } = await this.replay.since(sub.projectId, lastId);
+    if (!found) {
+      this.writeDirect(sub, 'warning', {
+        code: 'replay_gap',
+        message:
+          'Events from before this reconnect are no longer available, so some may have been missed. Reload the data you show.',
+      });
+      return;
+    }
+    for (const entry of entries) {
+      if (!this.subscribers.has(sub.id)) return;
+      if (!this.subscriberWants(sub, entry.kind, entry.channel)) continue;
+      if (entry.kind === 'data_change') {
+        const { deliverTo, event } = await this.policy.filterByPolicy(sub.projectId, entry.event as DataChangeEvent, [sub]);
+        if (!deliverTo.includes(sub)) continue;
+        this.writeDirect(sub, 'data_change', event);
+      } else {
+        this.writeDirect(sub, entry.kind, entry.event);
+      }
+      sub.replayedIds?.add(entry.id);
+    }
+  }
+
+  /** Replay done: send what arrived live meanwhile, minus anything the replay already sent. */
+  private finishReplay(sub: Subscriber): void {
+    const pending = sub.pending ?? [];
+    const seen = sub.replayedIds ?? new Set<string>();
+    sub.replaying = false;
+    sub.pending = undefined;
+    sub.replayedIds = undefined;
+    if (!this.subscribers.has(sub.id)) return;
+    for (const frame of pending) {
+      const id = (frame.data as { eventId?: unknown } | null)?.eventId;
+      if (typeof id === 'string' && seen.has(id)) continue;
+      this.writeDirect(sub, frame.eventName, frame.data);
+    }
+  }
+
+  private writeDirect(sub: Subscriber, eventName: string, data: unknown): void {
+    try {
+      this.write(sub.res, eventName, data);
+    } catch {
+      this.dropSubscriber(sub.id);
     }
   }
 
@@ -212,8 +327,13 @@ export class RealtimeDataService {
       old?: Record<string, unknown> | null;
     },
   ): Promise<void> {
-    if (!(await this.hasAnySubscribers(projectId))) return;
+    if (!(await this.hasAnySubscribers(projectId)) && !(await this.replay?.isWarm(projectId))) return;
     if (!(await this.isEnabled(projectId, input.kind, input.entity))) return;
+
+    let old = input.old ?? null;
+    if (input.type === 'UPDATE' && !old && input.new) {
+      old = await this.identifyingFields(projectId, input.kind, input.entity, input.new);
+    }
 
     const event: DataChangeEvent = {
       eventId: randomUUID(),
@@ -221,7 +341,7 @@ export class RealtimeDataService {
       kind: input.kind,
       entity: input.entity,
       new: input.new ?? null,
-      old: input.old ?? null,
+      old,
       commitTimestamp: new Date().toISOString(),
     };
 
@@ -231,6 +351,33 @@ export class RealtimeDataService {
       channel: `${input.kind}:${input.entity}`,
       event,
     });
+  }
+
+  /**
+   * The fields that identify a row — its primary key — taken from the new row
+   * of an UPDATE, so `old` tells a subscriber which row changed (`{ id: 42 }`).
+   * A collection document is identified by `id`. Null when the table has no
+   * primary key or it cannot be read; the event is never held back for it.
+   */
+  private async identifyingFields(
+    projectId: string,
+    kind: RealtimeKind,
+    entity: string,
+    row: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    if (kind === 'collection') return row.id !== undefined ? { id: row.id } : null;
+    try {
+      const meta = await this.policy.tableMeta(projectId, 'public', entity);
+      if (!meta || meta.pk.length === 0) return null;
+      const out: Record<string, unknown> = {};
+      for (const c of meta.pk) {
+        if (!(c in row)) return null;
+        out[c] = row[c];
+      }
+      return out;
+    } catch {
+      return null;
+    }
   }
 
   // ── Delivery to this instance's subscribers ──────────────
@@ -289,6 +436,10 @@ export class RealtimeDataService {
     for (const sub of subs) {
       // The subscriber may have gone while a check was pending.
       if (!this.subscribers.has(sub.id)) continue;
+      if (sub.replaying) {
+        sub.pending?.push({ eventName, data });
+        continue;
+      }
       try {
         this.write(sub.res, eventName, data);
       } catch {
@@ -297,8 +448,14 @@ export class RealtimeDataService {
     }
   }
 
+  /**
+   * One SSE frame. Data changes and broadcasts carry their event id as the
+   * `id:` field, so a client can resume after the last one it saw.
+   */
   private write(res: Response, eventName: string, data: unknown): void {
-    res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
+    const id = RESUMABLE_FRAMES.has(eventName) ? (data as { eventId?: unknown } | null)?.eventId : undefined;
+    const idLine = typeof id === 'string' && id && !/[\r\n]/.test(id) ? `id: ${id}\n` : '';
+    res.write(`${idLine}event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
   // ── Bindings (per-entity opt-in) ─────────────────────────

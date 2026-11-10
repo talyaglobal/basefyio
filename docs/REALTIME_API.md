@@ -89,7 +89,8 @@ GET /api/realtime/v1/stream
 | anon key | `apikey` header **or** `?apikey=` | The query form exists because `EventSource` cannot set headers. |
 | service key | `apikey` header only | **Refused in the query string** (a URL reaches access logs, browser history and Referer headers). A server may subscribe with it in the header; it then sees every row. |
 | user access token | `Authorization: Bearer <jwt>` **or** `?access_token=<jwt>` | Verified against the project's own realm, exactly like `rest/v1`. An invalid token is refused (`401`). |
-| `channels` | query | Comma list of `table:<name>`, `collection:<name>`, `broadcast:<name>`. Omit for every enabled entity. |
+| `channels` | query | Comma list of `table:<name>`, `collection:<name>`, `broadcast:<name>`. Omit for every enabled entity. Anything else is a `400` naming the bad entry. A table/collection whose realtime is off (or that does not exist) is accepted and reported as `inactive` in `ready` plus a `warning` frame; `strict=true` makes it a `404`. |
+| `Last-Event-ID` | header (or `?last_event_id=`) | Resume: replays the data changes and broadcasts after that id (row-level security applied as for live delivery). |
 | `presence` | query | A member key (`^[A-Za-z0-9_.:@-]{1,128}$`) or `auto` for the signed-in user's id. Requires explicit `channels`. |
 | `presence_meta` | query | JSON object (≤ 1 KB) shown to the other members. |
 
@@ -97,8 +98,9 @@ Frames, as SSE `event:` names:
 
 | event | data |
 |-------|------|
-| `ready` | `{ subscriptionId, channels, role, presence? }` — first frame; `role` is `anon`, `authenticated` or `service_role`. |
-| `data_change` | `{ eventId, type, kind, entity, new, old, commitTimestamp }` |
+| `ready` | `{ subscriptionId, channels, role, presence?, inactive?, resumedAfter? }` — first frame; `role` is `anon`, `authenticated` or `service_role`. |
+| `data_change` | `{ eventId, type, kind, entity, new, old, commitTimestamp }` — `old` is the primary key on UPDATE (the whole row on DELETE, `null` on INSERT). Carries the SSE `id:` field. |
+| `warning` | `{ code, message, channels? }` — `channel_not_enabled`, or `replay_gap` when the resume id is older than the replay window (reload what you show). |
 | `presence` | `{ type: "join" \| "leave" \| "sync", channel, key?, meta?, members?, at }` |
 | `broadcast` | `{ eventId, channel, event, payload, sender: { role, sub? }, sentAt }` |
 | `ping` | `{ t }` every 25 s |
@@ -219,6 +221,8 @@ to force one.
 | `REALTIME_FANOUT` | `redis` | `redis` fans events out across API instances through Redis pub/sub; `off` keeps delivery process-local. Falls back to local delivery when Redis is unreachable. |
 | `REALTIME_RLS_FILTER` | `jwt` | `jwt` filters subscribers that presented an access token; `all` filters anon subscribers too; `off` disables filtering. |
 | `REALTIME_RLS_META_TTL_MS` | `60000` | Cache lifetime of the per-table "RLS enabled + primary key" lookup. |
+| `REALTIME_REPLAY_WINDOW_SEC` | `120` | How long recent events are kept for `Last-Event-ID` resume; `0` disables replay. |
+| `REALTIME_REPLAY_MAX_EVENTS` | `500` | Most events kept per project for resume. |
 | `REALTIME_PRESENCE_TTL_SEC` | `90` | Presence member expiry once heartbeats stop. |
 | `REALTIME_BROADCAST_MAX_BYTES` | `65536` | Maximum serialized broadcast payload. |
 | `REALTIME_BROADCAST_RATE_PER_MIN` | `600` | Broadcasts per minute per sender per project. |

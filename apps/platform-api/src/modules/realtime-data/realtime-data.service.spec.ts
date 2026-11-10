@@ -76,7 +76,7 @@ describe('RealtimeDataService', () => {
     deliver(change());
     await flush();
     expect(frames(all)).toHaveLength(2);
-    expect(frames(all)[1]).toMatch(/^event: data_change\n/);
+    expect(frames(all)[1]).toMatch(/^id: e1\nevent: data_change\n/);
     expect(frames(exact)).toHaveLength(2);
     expect(frames(otherChannel)).toHaveLength(1);
     expect(frames(otherProject)).toHaveLength(1);
@@ -192,6 +192,36 @@ describe('RealtimeDataService', () => {
       channel: 'table:orders',
       event: expect.objectContaining({ type: 'UPDATE', entity: 'orders', new: { id: 1 }, old: { id: 1 } }),
     });
+  });
+
+  it('an UPDATE without an old row carries the primary key as old; a table without one gets null', async () => {
+    const { svc, res, fanout, policy } = build();
+    svc.subscribe('p1', [], res());
+    policy.tableMeta = jest.fn().mockResolvedValueOnce({ pk: ['id'] }).mockResolvedValueOnce({ pk: [] });
+    svc.publishChange('p1', { type: 'UPDATE', kind: 'table', entity: 'orders', new: { id: 42, status: 'paid' } });
+    await new Promise((r) => setImmediate(r));
+    expect(fanout.publish.mock.calls[0][0].event.old).toEqual({ id: 42 });
+    svc.publishChange('p1', { type: 'UPDATE', kind: 'table', entity: 'orders', new: { id: 42 } });
+    await new Promise((r) => setImmediate(r));
+    expect(fanout.publish.mock.calls[1][0].event.old).toBeNull();
+  });
+
+  it('data changes and broadcasts are written with an SSE id; other frames are not', async () => {
+    const { svc, res, frames, deliver, flush } = build();
+    const r = res();
+    svc.subscribe('p1', ['table:orders'], r);
+    deliver(change());
+    await flush();
+    expect(frames(r)[0]).toMatch(/^event: ready/);
+    expect(frames(r)[1]).toMatch(/^id: e1\nevent: data_change\n/);
+  });
+
+  it('a subscriber of a channel whose realtime is off is told in ready and in a warning frame', () => {
+    const { svc, res, frames } = build();
+    const r = res();
+    svc.subscribe('p1', ['table:ghost'], r, { inactive: ['table:ghost'] });
+    expect(frames(r)[0]).toContain('"inactive":["table:ghost"]');
+    expect(frames(r)[1]).toMatch(/^event: warning\ndata: .*channel_not_enabled/);
   });
 
   it('publishChange asks the fan-out about other instances when nobody is local', async () => {

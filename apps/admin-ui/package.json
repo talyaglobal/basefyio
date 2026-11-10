@@ -1,6 +1,6 @@
 {
   "name": "@basefyio/admin-ui",
-  "version": "3.4.9",
+  "version": "3.5.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
