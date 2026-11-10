@@ -165,7 +165,7 @@ export function ImportProgressToast() {
                 />
               </div>
               {onReopenModal && (
-                <p className="text-[10px] text-muted-foreground/60 mt-1.5 text-center">
+                <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
                   Click to open details
                 </p>
               )}

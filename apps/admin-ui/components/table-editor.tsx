@@ -2053,7 +2053,7 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
                                           title={isPk ? 'Primary key (read-only)' : 'Double-click to edit'}
                                         >
                                           {row[f.name] === null ? (
-                                            <span className="text-muted-foreground/40 italic">NULL</span>
+                                            <span className="text-muted-foreground italic">NULL</span>
                                           ) : typeof row[f.name] === 'boolean' ? (
                                             <Badge variant={row[f.name] ? 'default' : 'secondary'} className="text-[10px]">
                                               {String(row[f.name])}

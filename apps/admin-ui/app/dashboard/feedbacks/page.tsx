@@ -53,10 +53,10 @@ const FEEDBACK_STATUS_FILTER_KEY = 'basefyio_feedbacks_status_filter';
 const FEEDBACK_TYPE_FILTER_KEY = 'basefyio_feedbacks_type_filter';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  OPEN: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Circle className="h-3 w-3" /> },
-  IN_PROGRESS: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: <Clock className="h-3 w-3" /> },
-  DONE: { label: 'Done', color: 'bg-green-100 text-green-700 border-green-200', icon: <CheckCircle2 className="h-3 w-3" /> },
-  CLOSED: { label: 'Closed', color: 'bg-gray-100 text-gray-500 border-gray-200', icon: <XCircle className="h-3 w-3" /> },
+  OPEN: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800', icon: <Circle className="h-3 w-3" /> },
+  IN_PROGRESS: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800', icon: <Clock className="h-3 w-3" /> },
+  DONE: { label: 'Done', color: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800', icon: <CheckCircle2 className="h-3 w-3" /> },
+  CLOSED: { label: 'Closed', color: 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-slate-700/40 dark:text-slate-300 dark:border-slate-600', icon: <XCircle className="h-3 w-3" /> },
 };
 
 const TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {

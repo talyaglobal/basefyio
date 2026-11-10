@@ -315,7 +315,7 @@ export function DashboardSidebar({
               </button>
             </div>
             {appVersion && (
-              <p className="mt-1 text-center text-[10px] italic text-muted-foreground/40">{appVersion}</p>
+              <p className="mt-1 text-center text-[10px] italic text-muted-foreground">{appVersion}</p>
             )}
           </>
         )}

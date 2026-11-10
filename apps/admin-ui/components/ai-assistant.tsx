@@ -885,7 +885,7 @@ export function AiAssistant() {
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim() || loading || contextLoading}
                   aria-label="Send message"
-                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40 hover:opacity-90 transition-opacity"
                 >
                   <Send className="h-3.5 w-3.5" />
                 </button>
@@ -1043,7 +1043,7 @@ function MessageBubble({
                   void onResend(next);
                   setEditing(false);
                 }}
-                className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-white hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground hover:opacity-90"
               >
                 <Send className="h-3 w-3" />
                 Send again
@@ -1112,7 +1112,7 @@ function MessageBubble({
                     </button>
                     {isSql && canRunSQL && (
                       <button onClick={() => onRunSQL(part.value)} disabled={isRunning}
-                        className="flex items-center gap-1 rounded px-2 py-0.5 bg-primary/80 hover:bg-primary text-white transition-colors disabled:opacity-60">
+                        className="flex items-center gap-1 rounded px-2 py-0.5 bg-primary/80 hover:bg-primary text-primary-foreground transition-colors disabled:opacity-60">
                         {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                         <span className="text-[10px]">{isRunning ? 'Running…' : 'Run'}</span>
                       </button>

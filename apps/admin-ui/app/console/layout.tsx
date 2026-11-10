@@ -35,6 +35,7 @@ import {
 import type { UserProfile } from '@/lib/types';
 import { DashboardContext, DEFAULT_FEATURES } from '@/app/dashboard/layout';
 import { ConsoleAlertBar } from '@/components/console/alert-bar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 
 type NavItem = { href: string; label: string; icon: ElementType; exact?: boolean };
@@ -210,6 +211,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
               <ExternalLink className="h-4 w-4" />
               Open the app
             </a>
+            <ThemeToggle withLabel className="text-zinc-300 hover:bg-white/5 hover:text-white" />
             <button
               onClick={signOut}
               className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-white/5 hover:text-white"

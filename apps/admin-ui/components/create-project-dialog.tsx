@@ -939,7 +939,7 @@ export function CreateProjectDialog({
                         <span className="truncate px-2 py-1">ada@x.com</span>
                       </div>
                     </div>
-                    <p className="mt-1 text-[10px] text-muted-foreground/70">
+                    <p className="mt-1 text-[10px] text-muted-foreground">
                       Example — a <span className="font-medium">row</span> in a{' '}
                       <code className="font-mono">users</code> table
                     </p>
@@ -978,7 +978,7 @@ export function CreateProjectDialog({
   "name": "Ada",
   "tags": ["admin", "beta"]
 }`}</pre>
-                    <p className="mt-1 text-[10px] text-muted-foreground/70">
+                    <p className="mt-1 text-[10px] text-muted-foreground">
                       Example — a <span className="font-medium">document</span> in a{' '}
                       <code className="font-mono">users</code> collection
                     </p>

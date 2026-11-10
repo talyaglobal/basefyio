@@ -1333,7 +1333,7 @@ export default function ProjectsPage() {
                 ))}
               </SortableContext>
               {tags.length === 0 && (
-                <p className="px-2 text-xs text-muted-foreground/50 mt-1">No tags yet</p>
+                <p className="px-2 text-xs text-muted-foreground mt-1">No tags yet</p>
               )}
 
               {/* Trash — visible to everyone; restore / delete are gated server-side */}
@@ -1433,11 +1433,11 @@ export default function ProjectsPage() {
                               </span>
                             )}
                             {project.description && (
-                              <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">{project.description}</p>
                             )}
                           </div>
                         </div>
-                        <p className="text-[10px] text-muted-foreground/50 mb-3">
+                        <p className="text-[10px] text-muted-foreground mb-3">
                           {(() => {
                             const raw = project.deletedAt ?? project.updatedAt;
                             if (!raw) return 'Deleted';
@@ -1474,7 +1474,7 @@ export default function ProjectsPage() {
                             </button>
                           </div>
                         ) : (
-                          <p className="text-[10px] text-muted-foreground/60">
+                          <p className="text-[10px] text-muted-foreground">
                             Only the team owner, an admin, or the project creator can restore or delete this.
                           </p>
                         )}
@@ -1559,11 +1559,11 @@ export default function ProjectsPage() {
                               </span>
                             )}
                             {project.description && (
-                              <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{project.description}</p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">{project.description}</p>
                             )}
                           </div>
                         </div>
-                        <p className="text-[10px] text-muted-foreground/50 mb-3">
+                        <p className="text-[10px] text-muted-foreground mb-3">
                           {(() => {
                             const raw = project.deactivatedAt ?? project.updatedAt;
                             if (!raw) return 'Deactivated · data kept, activate any time';
@@ -1589,7 +1589,7 @@ export default function ProjectsPage() {
                               Delete
                             </button>
                           )}
-                          <span className="ml-auto text-[10px] text-muted-foreground/60">Open for details</span>
+                          <span className="ml-auto text-[10px] text-muted-foreground">Open for details</span>
                         </div>
                       </div>
                       );
@@ -2808,7 +2808,7 @@ function ProjectCardOverlay({ project, selectionCount }: { project: ProjectListI
         </div>
         <span className="font-semibold truncate">{project.name}</span>
         {selectionCount > 1 && (
-          <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white px-1">
+          <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground px-1">
             {selectionCount}
           </span>
         )}
