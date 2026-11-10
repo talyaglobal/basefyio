@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format';
 
 function money(cents: number, currency = 'usd') {
@@ -53,6 +54,12 @@ export function QuickbooksTab() {
     }
   }
   async function disconnect() {
+    if (!(await confirmDialog({
+      title: 'Disconnect QuickBooks',
+      description: 'Sales Receipts stop being created for new sales until you connect again. Existing receipts stay in QuickBooks.',
+      confirmText: 'Disconnect',
+      destructive: true,
+    }))) return;
     setBusy(true);
     try { await api.billing.quickbooksDisconnect(); toast.success('Disconnected'); await load(); }
     catch (err: any) { toast.error(err.message); } finally { setBusy(false); }
@@ -63,6 +70,11 @@ export function QuickbooksTab() {
     catch (err: any) { toast.error(err.message); } finally { setBusy(false); }
   }
   async function runTest() {
+    if (!(await confirmDialog({
+      title: 'Create a test receipt',
+      description: 'This creates a real Sales Receipt in the connected QuickBooks company.',
+      confirmText: 'Create test receipt',
+    }))) return;
     setTesting(true);
     try {
       const r = await api.billing.quickbooksTest();
@@ -199,6 +211,8 @@ export function QuickbooksTab() {
                     <td className="px-4 py-2">
                       {l.status === 'success'
                         ? <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300">success</span>
+                        : l.status === 'deleted'
+                        ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">deleted in QuickBooks</span>
                         : <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-600 dark:text-red-400" title={l.error || ''}>failed</span>}
                     </td>
                     <td className="px-4 py-2">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Open ↗</a> : '—'}</td>

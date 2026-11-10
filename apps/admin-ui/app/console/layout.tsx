@@ -82,6 +82,14 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? '/console';
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
+  // One tab title per page, so open console tabs can be told apart.
+  useEffect(() => {
+    const item = NAV.flatMap((g) => g.items)
+      .filter((i) => (i.exact ? pathname === i.href : pathname === i.href || pathname.startsWith(`${i.href}/`)))
+      .sort((a, b) => b.href.length - a.href.length)[0];
+    document.title = item ? `${item.label} · basefyio console` : 'basefyio console';
+  }, [pathname]);
+
   useEffect(() => {
     if (!getAccessToken() && !getRefreshToken()) {
       router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);

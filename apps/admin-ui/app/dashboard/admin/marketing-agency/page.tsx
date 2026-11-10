@@ -330,16 +330,21 @@ export default function MarketingAgencyPage() {
       <section className="space-y-3 rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">New campaign</h2>
         <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            <span>Campaign name</span>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Campaign name (optional)"
+            placeholder="Optional"
             className="h-9"
           />
+          </label>
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            <span>Channel</span>
           <select
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
-            className="h-9 rounded-md border bg-background px-3 text-sm"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
           >
             {CHANNELS.map((c) => (
               <option key={c} value={c}>
@@ -347,8 +352,10 @@ export default function MarketingAgencyPage() {
               </option>
             ))}
           </select>
+          </label>
         </div>
         <textarea
+          aria-label="Campaign brief"
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           rows={4}
@@ -356,10 +363,12 @@ export default function MarketingAgencyPage() {
           className="w-full rounded-md border bg-background p-3 text-sm"
         />
         <div className="grid gap-3 sm:grid-cols-3">
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            <span>Language</span>
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
-            className="h-9 rounded-md border bg-background px-3 text-sm"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
           >
             {LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
@@ -367,31 +376,43 @@ export default function MarketingAgencyPage() {
               </option>
             ))}
           </select>
+          </label>
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            <span>Tone</span>
           <Input
             value={tone}
             onChange={(e) => setTone(e.target.value)}
-            placeholder="Tone (optional)"
+            placeholder="Optional"
             className="h-9"
           />
-          <select
-            value={integrationId}
-            onChange={(e) => setIntegrationId(e.target.value)}
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-          >
-            <option value="">
-              {channels.length ? 'Pick a Pubbler channel' : 'No channels loaded'}
-            </option>
-            {channels.map((c) => (
-              <option key={c.id} value={c.id} disabled={c.disabled}>
-                {c.name} ({c.identifier})
+          </label>
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            <span>Pubbler channel</span>
+            <select
+              value={integrationId}
+              onChange={(e) => setIntegrationId(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+            >
+              <option value="">
+                {channels.length ? 'Pick a Pubbler channel' : 'No channels loaded'}
               </option>
-            ))}
-          </select>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id} disabled={c.disabled}>
+                  {c.name} ({c.identifier})
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <Button onClick={createCampaign} disabled={busy === 'create' || !status?.copy}>
           {busy === 'create' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
           Write the campaign
         </Button>
+        {!status?.copy && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Copy writing is off: ANTHROPIC_API_KEY is not set on the server.
+          </p>
+        )}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-[260px_1fr]">

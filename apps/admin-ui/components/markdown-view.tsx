@@ -103,8 +103,9 @@ export function MarkdownView({ md }: { md: string }) {
     // Ordered list
     if (/^\s*\d+\.\s+/.test(line)) {
       const items: string[] = [];
+      const start = Number(line.match(/^\s*(\d+)\./)![1]); // keep the document's own numbers ("91." stays 91)
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+\.\s+/, ''));
-      out.push(<ol key={K()} className="my-2 ml-5 list-decimal space-y-1 text-sm">{items.map((it, ii) => <li key={ii} className={done(it)}>{inline(it, K())}</li>)}</ol>);
+      out.push(<ol key={K()} start={start} className="my-2 ml-5 list-decimal space-y-1 text-sm">{items.map((it, ii) => <li key={ii} className={done(it)}>{inline(it, K())}</li>)}</ol>);
       continue;
     }
 

@@ -19,6 +19,13 @@ function daysAgo(n: number): Date {
   return d;
 }
 
+/** Google reports each day's position already averaged over its impressions; the period average must weigh days by impressions too. */
+export function weightedPosition(rows: { impressions: number; position: number }[]): number {
+  const impressions = rows.reduce((s, r) => s + r.impressions, 0);
+  if (impressions <= 0) return 0;
+  return rows.reduce((s, r) => s + r.position * r.impressions, 0) / impressions;
+}
+
 @Injectable()
 export class MarketingInsightsService {
   private readonly logger = new Logger(MarketingInsightsService.name);
@@ -247,7 +254,7 @@ export class MarketingInsightsService {
     }
     if (byDate.length > 0) {
       totalCtr = totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0;
-      totalPosition = byDate.reduce((s, r) => s + r.position, 0) / byDate.length;
+      totalPosition = weightedPosition(byDate);
     }
     byDate.sort((a, b) => a.date.localeCompare(b.date));
 

@@ -433,13 +433,14 @@ export function InfraCostsTab() {
             />
             <select
               value={planFilter}
+              aria-label="Filter by plan"
               onChange={(e) => setPlanFilter(e.target.value)}
               className="h-8 rounded-md border bg-background px-2 text-sm"
             >
               <option value="all">All plans</option>
               {planNames.map((n) => (
                 <option key={n} value={n}>
-                  {n === 'none' ? 'No plan' : n}
+                  {n === 'none' ? 'No plan' : n.charAt(0).toUpperCase() + n.slice(1)}
                 </option>
               ))}
             </select>

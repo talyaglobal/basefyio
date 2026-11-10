@@ -8,6 +8,11 @@ import {
   type StripeDailySummaryData,
 } from '../email/templates/stripe-daily-summary.template';
 
+/** True when tomorrow (UTC) is the 1st — the month's last day, whatever its length. */
+export function isLastDayOfMonth(d: Date): boolean {
+  return new Date(d.getTime() + 24 * 3600 * 1000).getUTCDate() === 1;
+}
+
 const SUMMARY_RECIPIENT = process.env.BILLING_SUMMARY_RECIPIENT || 'support@talyasmart.com';
 const SETTINGS_KEY = 'email_reports_config';
 
@@ -52,16 +57,17 @@ export class StripeSummaryScheduler {
     await this.sendSummary('Weekly', config);
   }
 
-  /** Monthly — 30th of month 08:00 UTC */
-  @Cron('0 8 30 * *')
+  /** Monthly — last day of the month 08:00 UTC (fires 28-31, sends only on the real last day, so February is covered) */
+  @Cron('0 8 28-31 * *')
   async onMonthly() {
+    if (!isLastDayOfMonth(new Date())) return;
     const config = await this.getConfig();
     if (!config.schedule.monthly) return;
     await this.sendSummary('Monthly', config);
   }
 
-  /** Yearly — December 30th 08:00 UTC */
-  @Cron('0 8 30 12 *')
+  /** Yearly — December 31st 08:00 UTC */
+  @Cron('0 8 31 12 *')
   async onYearly() {
     const config = await this.getConfig();
     if (!config.schedule.yearly) return;

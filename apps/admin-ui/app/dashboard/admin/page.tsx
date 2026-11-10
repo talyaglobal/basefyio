@@ -28,6 +28,7 @@ import {
   YAxis,
 } from 'recharts';
 import { toast } from 'sonner';
+import { countryName } from '@/lib/country-names';
 import { confirmDialog } from '@/components/ui/confirm-dialog';
 import { useDashboard } from '@/app/dashboard/layout';
 import { api } from '@/lib/api';
@@ -60,9 +61,16 @@ const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
 type ByteUnit = (typeof BYTE_UNITS)[number];
 
+// "INDEXING_ALLOWED" -> "Indexing allowed"
+function humanizeIssue(v: string): string {
+  if (!/^[A-Z0-9_]+$/.test(v)) return v;
+  const t = v.toLowerCase().replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function GoogleIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
       <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
       <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
@@ -666,7 +674,7 @@ export default function ManagementPage() {
       )}
       <div className="flex items-center justify-between">
         <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => router.push('/console')}>
+          <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" aria-label="Back to console overview" onClick={() => router.push('/console')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -908,7 +916,7 @@ export default function ManagementPage() {
           {!gscData ? (
             null
           ) : gscData && !gscData.configured ? (
-            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-900 dark:text-amber-100">
               <p className="font-medium">Not configured</p>
               <p className="mt-2 text-muted-foreground">{gscData.message}</p>
               <p className="mt-3 text-xs text-muted-foreground">
@@ -918,7 +926,7 @@ export default function ManagementPage() {
               </p>
             </div>
           ) : gscData && gscData.configured && (gscData as any).error ? (
-            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-200">
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-200">
               <p className="font-medium">Failed to load Search Console data</p>
               <p className="mt-2 text-muted-foreground">{(gscData as any).error}</p>
             </div>
@@ -961,7 +969,7 @@ export default function ManagementPage() {
                           {issue.split(':')[0]?.trim()}
                         </div>
                         <div className={`text-sm font-semibold ${isGood ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {issue.split(':').slice(1).join(':').trim()}
+                          {humanizeIssue(issue.split(':').slice(1).join(':').trim())}
                         </div>
                       </div>
                     );
@@ -1091,7 +1099,7 @@ export default function ManagementPage() {
                 <div className="grid gap-6 md:grid-cols-2">
                   {sp.byDevice?.length > 0 && (
                     <div>
-                      <h3 className="mb-2 text-sm font-medium">By Device</h3>
+                      <h3 className="mb-2 text-sm font-medium">Clicks by device</h3>
                       <div className="h-48 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={sp.byDevice} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -1107,10 +1115,10 @@ export default function ManagementPage() {
                   )}
                   {sp.byCountry?.length > 0 && (
                     <div>
-                      <h3 className="mb-2 text-sm font-medium">By Country</h3>
+                      <h3 className="mb-2 text-sm font-medium">Clicks by country</h3>
                       <div className="h-48 w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={sp.byCountry.slice(0, 8)} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                          <BarChart data={sp.byCountry.slice(0, 8).map((c) => ({ ...c, country: countryName(c.country) }))} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                             <XAxis dataKey="country" tick={{ fontSize: 11 }} className="text-muted-foreground" />
                             <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" width={40} />
@@ -1129,11 +1137,11 @@ export default function ManagementPage() {
                 <h3 className="mb-2 text-sm font-medium">Sitemaps</h3>
                 {gscData.sitemaps.some((s) => s.warnings > 0 || s.errors > 0) && (
                   <div className="mb-3 rounded-lg border border-red-800/40 bg-red-950/20 p-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-red-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-200">
                       <AlertTriangle className="h-4 w-4 shrink-0" />
                       Sitemap issues
                     </div>
-                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-red-100/90">
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-red-700 dark:text-red-100/90">
                       {gscData.sitemaps.filter((s) => s.warnings > 0 || s.errors > 0).map((s) => (
                         <li key={s.path}>{s.path}: {s.errors} error(s), {s.warnings} warning(s)</li>
                       ))}
@@ -1181,9 +1189,9 @@ export default function ManagementPage() {
             </div>
           </div>
           {!gaData ? (
-            null
+            <p className="text-sm text-muted-foreground">Loading Analytics…</p>
           ) : gaData && !gaData.configured ? (
-            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-100">
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4 text-sm text-amber-900 dark:text-amber-100">
               <p className="font-medium">Not configured</p>
               <p className="mt-2 text-muted-foreground">{gaData.message}</p>
               <p className="mt-3 text-xs text-muted-foreground">
@@ -1212,9 +1220,15 @@ export default function ManagementPage() {
             return (
             <div className="space-y-6">
               {gaData.error && (
-                <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-200">
+                <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-700 dark:text-red-200">
                   {gaData.error}
                 </div>
+              )}
+
+              {!gaData.error && Object.keys(gaData.summary || {}).length === 0 && (
+                <p className="rounded-lg border p-3 text-sm text-muted-foreground">
+                  Google Analytics returned no data for the last 28 days.
+                </p>
               )}
 
               {/* Summary cards */}
@@ -1347,7 +1361,7 @@ export default function ManagementPage() {
                 {/* By Device */}
                 {gaData.byDevice && gaData.byDevice.length > 0 && (
                   <div>
-                    <h3 className="mb-2 text-sm font-medium">By Device</h3>
+                    <h3 className="mb-2 text-sm font-medium">Sessions by device</h3>
                     <div className="h-52 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={gaData.byDevice} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -1365,7 +1379,7 @@ export default function ManagementPage() {
                 {/* By Country */}
                 {gaData.byCountry && gaData.byCountry.length > 0 && (
                   <div>
-                    <h3 className="mb-2 text-sm font-medium">By Country</h3>
+                    <h3 className="mb-2 text-sm font-medium">Sessions by country</h3>
                     <div className="h-52 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={gaData.byCountry.slice(0, 8)} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -1396,7 +1410,7 @@ export default function ManagementPage() {
           </div>
 
           {distData.error ? (
-            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-200">
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-3 text-sm text-red-700 dark:text-red-200">
               {distData.error}
             </div>
           ) : (
@@ -1439,7 +1453,7 @@ export default function ManagementPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-100">
+                    <p className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-900 dark:text-amber-100">
                       {distData.github.clonesHint}
                     </p>
                   )}
@@ -1530,7 +1544,7 @@ export default function ManagementPage() {
           {!stripeData ? (
             null
           ) : stripeData?.error || (stripeData && !stripeData.configured) ? (
-            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-200">
+            <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-200">
               <p className="font-medium">Stripe not available</p>
               <p className="mt-2 text-muted-foreground">{stripeData?.error || stripeData?.message || 'Stripe is not configured.'}</p>
             </div>
@@ -1610,7 +1624,7 @@ export default function ManagementPage() {
                             <td className="px-3 py-2">
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                                 sub.status === 'active' ? 'bg-green-950/40 text-green-300' :
-                                sub.status === 'past_due' ? 'bg-amber-950/40 text-amber-300' :
+                                sub.status === 'past_due' ? 'bg-amber-950/40 text-amber-800 dark:text-amber-300' :
                                 'bg-muted text-muted-foreground'
                               }`}>
                                 {sub.status}
@@ -1653,8 +1667,8 @@ export default function ManagementPage() {
                             <td className="px-3 py-2">
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                                 c.status === 'succeeded' ? 'bg-green-950/40 text-green-300' :
-                                c.status === 'failed' ? 'bg-red-950/40 text-red-300' :
-                                c.status === 'pending' ? 'bg-amber-950/40 text-amber-300' :
+                                c.status === 'failed' ? 'bg-red-950/40 text-red-700 dark:text-red-300' :
+                                c.status === 'pending' ? 'bg-amber-950/40 text-amber-800 dark:text-amber-300' :
                                 'bg-muted text-muted-foreground'
                               }`}>
                                 {c.status}
@@ -1696,8 +1710,8 @@ export default function ManagementPage() {
                             <td className="px-3 py-2">
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                                 inv.status === 'paid' ? 'bg-green-950/40 text-green-300' :
-                                inv.status === 'open' ? 'bg-amber-950/40 text-amber-300' :
-                                inv.status === 'uncollectible' ? 'bg-red-950/40 text-red-300' :
+                                inv.status === 'open' ? 'bg-amber-950/40 text-amber-800 dark:text-amber-300' :
+                                inv.status === 'uncollectible' ? 'bg-red-950/40 text-red-700 dark:text-red-300' :
                                 'bg-muted text-muted-foreground'
                               }`}>
                                 {inv.status}
@@ -1758,6 +1772,7 @@ export default function ManagementPage() {
               setEmailReportsConfig(next);
               try {
                 await api.billing.updateManagementEmailReports({ content: { [key]: val } });
+                toast.success('Report content saved');
               } catch {
                 setEmailReportsConfig(emailReportsConfig);
                 toast.error('Failed to update');
@@ -1767,8 +1782,8 @@ export default function ManagementPage() {
             const scheduleItems = [
               { key: 'daily', label: 'Daily', desc: 'Every day at 08:00 UTC' },
               { key: 'weekly', label: 'Weekly', desc: 'Every Friday at 08:00 UTC' },
-              { key: 'monthly', label: 'Monthly', desc: '30th of every month' },
-              { key: 'yearly', label: 'Yearly', desc: 'December 30th' },
+              { key: 'monthly', label: 'Monthly', desc: 'Last day of every month at 08:00 UTC' },
+              { key: 'yearly', label: 'Yearly', desc: 'December 31st at 08:00 UTC' },
             ];
 
             const contentItems = [
@@ -1788,7 +1803,8 @@ export default function ManagementPage() {
               <div className="grid gap-6 lg:grid-cols-2">
                 {/* Schedule */}
                 <div>
-                  <h3 className="mb-3 text-sm font-semibold">Schedule</h3>
+                  <h3 className="mb-1 text-sm font-semibold">Schedule</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">Changes save as soon as you tick a box. Reports go to the address set in BILLING_SUMMARY_RECIPIENT on the server.</p>
                   <div className="space-y-2">
                     {scheduleItems.map((item) => (
                       <label
@@ -2075,10 +2091,13 @@ export default function ManagementPage() {
                       {u.signOnMethod === 'google' ? (
                         <GoogleIcon className="h-4 w-4" />
                       ) : u.signOnMethod === 'github' ? (
-                        <Github className="h-4 w-4" />
+                        <Github className="h-4 w-4" aria-hidden="true" />
                       ) : (
-                        <KeyRound className="h-4 w-4 text-emerald-700" />
+                        <KeyRound className="h-4 w-4 text-emerald-700" aria-hidden="true" />
                       )}
+                      <span className="text-xs text-muted-foreground">
+                        {u.signOnMethod === 'google' ? 'Google' : u.signOnMethod === 'github' ? 'GitHub' : 'Password'}
+                      </span>
                     </div>
                   </td>
                   <td className="px-2 py-2">{u._count.teamMembers}</td>
@@ -2093,6 +2112,12 @@ export default function ManagementPage() {
                           onChange={async (e) => {
                             const nextPlanName = e.target.value;
                             if (!nextPlanName) return;
+                            const nextDisplay = plans.find((x) => x.name === nextPlanName)?.displayName || nextPlanName;
+                            if (!(await confirmDialog({
+                              title: 'Change package',
+                              description: `Move ${u.email} to the ${nextDisplay} package? Limits and billing change immediately.`,
+                              confirmText: 'Change package',
+                            }))) return;
                             setSavingPackageUserId(u.id);
                             try {
                               const updated = await api.billing.updateManagementUserPackage(u.id, nextPlanName);
@@ -2138,6 +2163,12 @@ export default function ManagementPage() {
                       disabled={savingRoleUserId === u.id}
                       onChange={async (e) => {
                         const nextRole = e.target.value as (typeof ROLE_OPTIONS)[number];
+                        if (!(await confirmDialog({
+                          title: 'Change role',
+                          description: `Change ${u.email} from ${u.role} to ${nextRole}?`,
+                          confirmText: 'Change role',
+                          destructive: nextRole === 'ROOT',
+                        }))) return;
                         setSavingRoleUserId(u.id);
                         try {
                           const updated = await api.auth.updateManagementUserRole(u.id, nextRole);
@@ -2177,6 +2208,14 @@ export default function ManagementPage() {
                         disabled={savingActiveUserId === u.id}
                         onClick={async () => {
                           const next = !(u.isActive !== false);
+                          if (!(await confirmDialog({
+                            title: next ? 'Activate user' : 'Deactivate user',
+                            description: next
+                              ? `Let ${u.email} sign in again?`
+                              : `Deactivate ${u.email}? They can no longer sign in.`,
+                            confirmText: next ? 'Activate' : 'Deactivate',
+                            destructive: !next,
+                          }))) return;
                           setSavingActiveUserId(u.id);
                           try {
                             const updated = await api.auth.updateManagementUserActive(u.id, next);
