@@ -1949,8 +1949,14 @@ function TemplateEditorDialog({
 
             {showPreview ? (
               <div className="rounded-md border bg-white p-4 min-h-[200px]">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Subject: {applyVars(subject)}</p>
-                <div className="border-t pt-2" dangerouslySetInnerHTML={{ __html: sanitizeHtmlPreview(applyVars(body)) }} />
+                <p className="mb-2 text-xs font-medium text-neutral-500">Subject: {applyVars(subject)}</p>
+                {/* Isolated, script-less frame: the email renders on its own white page, not with the app theme. */}
+                <iframe
+                  title="Email preview"
+                  sandbox=""
+                  className="h-[360px] w-full border-t bg-white pt-2"
+                  srcDoc={`<!doctype html><meta charset="utf-8"><body style="margin:8px;background:#fff;color:#111;font:14px/1.5 system-ui,sans-serif">${sanitizeHtmlPreview(applyVars(body))}`}
+                />
               </div>
             ) : (
               <Textarea

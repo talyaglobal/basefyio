@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { formatBytes } from '@/lib/format';
 import { MAX_FEEDBACK_FILES, feedbackFileProblem, uploadFeedbackFiles } from '@/lib/feedback-media';
 import {
   Dialog,
@@ -317,10 +318,11 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
                       >
                         {f.name}
                       </button>
-                      <span className="shrink-0 text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                      <span className="shrink-0 text-muted-foreground">{formatBytes(f.size)}</span>
                       <button
                         type="button"
                         onClick={() => removeFile(i)}
+                        aria-label={`Remove ${f.name}`}
                         className="shrink-0 rounded p-0.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                       >
                         <X className="h-3.5 w-3.5" />

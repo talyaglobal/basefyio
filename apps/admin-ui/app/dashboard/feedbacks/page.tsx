@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { subscribebasefyioRealtime, isRealtimePhase1Enabled } from '@/lib/basefyio-realtime';
 import type { RealtimeEventEnvelope } from '@/lib/realtime-types';
-import { formatDateTime } from '@/lib/format';
+import { formatBytes, formatDateTime } from '@/lib/format';
 import { foldText } from '@/lib/utils';
 import { MAX_FEEDBACK_FILES, feedbackFileProblem, uploadFeedbackFiles } from '@/lib/feedback-media';
 
@@ -446,6 +446,11 @@ export default function FeedbacksPage() {
                                 ...prev,
                                 [fb.id]: { id: node.id, email: node.user?.email ?? node.userId },
                               }));
+                              setTimeout(() => {
+                                const el = document.getElementById(`comment-text-${fb.id}`);
+                                el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                                el?.focus();
+                              }, 0);
                             }}
                           >
                             Reply
@@ -525,7 +530,7 @@ export default function FeedbacksPage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm">{node.comment}</p>
+                      <p className="whitespace-pre-wrap break-words text-sm">{node.comment}</p>
                     )}
                     {nodeAttachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 pt-1">
@@ -618,7 +623,7 @@ export default function FeedbacksPage() {
                                   ),
                                 );
                                 setEditingId(null);
-                                toast.success('Task updated');
+                                toast.success('Feedback updated');
                               } catch (err: any) {
                                 toast.error(err.message || 'Failed to update');
                               }
@@ -742,6 +747,13 @@ export default function FeedbacksPage() {
                           </div>
                         )}
                         <Textarea
+                          id={`comment-text-${fb.id}`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              document.getElementById(`comment-submit-${fb.id}`)?.click();
+                            }
+                          }}
                           value={commentByFeedback[fb.id] || ''}
                           onChange={(e) =>
                             setCommentByFeedback((prev) => ({ ...prev, [fb.id]: e.target.value }))
@@ -773,6 +785,7 @@ export default function FeedbacksPage() {
                             Add media
                           </Button>
                           <Button
+                            id={`comment-submit-${fb.id}`}
                             size="sm"
                             disabled={commentLoadingId === fb.id || !(commentByFeedback[fb.id] || '').trim()}
                             onClick={async () => {
@@ -798,6 +811,7 @@ export default function FeedbacksPage() {
                                 setCommentFiles((prev) => ({ ...prev, [fb.id]: [] }));
                                 setSelectedFilesOpenByFeedback((prev) => ({ ...prev, [fb.id]: false }));
                                 setReplyToByFeedback((prev) => ({ ...prev, [fb.id]: null }));
+                                toast.success('Comment added');
                               } catch (err: any) {
                                 toast.error(err.message || 'Failed to comment');
                               } finally {
@@ -854,7 +868,7 @@ export default function FeedbacksPage() {
                                   {file.name}
                                 </button>
                                 <span className="shrink-0 text-muted-foreground">
-                                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                                  {formatBytes(file.size)}
                                 </span>
                                 <Button
                                   type="button"
@@ -927,7 +941,7 @@ export default function FeedbacksPage() {
                               try {
                                 await api.feedback.remove(fb.id);
                                 setFeedbacks((prev) => prev.filter((x) => x.id !== fb.id));
-                                toast.success('Task deleted');
+                                toast.success('Feedback deleted');
                               } catch (err: any) {
                                 toast.error(err.message || 'Delete failed');
                               }
@@ -964,6 +978,16 @@ export default function FeedbacksPage() {
               alt="Attachment preview"
               className="mx-auto max-h-[82vh] w-auto max-w-full rounded-md object-contain"
             />
+          )}
+          {preview && !preview.revokeOnClose && (
+            <div className="flex justify-center gap-4 text-xs">
+              <a href={preview.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                Open in new tab
+              </a>
+              <a href={preview.url} download className="text-primary hover:underline">
+                Download
+              </a>
+            </div>
           )}
         </DialogContent>
       </Dialog>

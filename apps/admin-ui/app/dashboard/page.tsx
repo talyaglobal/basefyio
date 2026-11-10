@@ -569,6 +569,8 @@ export default function DashboardPage() {
                 <Tooltip
                   contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
                   labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
                 />
                 <Bar
                   dataKey="value"
