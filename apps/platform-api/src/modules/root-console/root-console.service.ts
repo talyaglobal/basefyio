@@ -180,6 +180,7 @@ export class RootConsoleService {
     const planMix = new Map<string, ConsolePlanMix>();
     let mrrUsd = 0;
     let payingTeams = 0;
+    let pastDueTeams = 0;
     for (const s of subscriptions) {
       const price = s.plan.priceMonthly / 100;
       const entry = planMix.get(s.plan.name) ?? {
@@ -209,6 +210,7 @@ export class RootConsoleService {
       if (price > 0 && (s.status === 'ACTIVE' || s.status === 'TRIALING' || s.status === 'PAST_DUE')) {
         entry.paying += 1;
         payingTeams += 1;
+        if (s.status === 'PAST_DUE') pastDueTeams += 1;
         mrrUsd += price;
       }
       planMix.set(s.plan.name, entry);
@@ -253,6 +255,7 @@ export class RootConsoleService {
         activeUsersLast30d: activeLast30d,
         teams,
         payingTeams,
+        pastDueTeams,
         projects: {
           active: statusCount('ACTIVE'),
           paused: statusCount('PAUSED'),

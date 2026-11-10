@@ -15,6 +15,8 @@ import {
   mergeInfraCostConfig,
   priceProject,
   sumProjectCosts,
+  scaleProjectRaw,
+  billShareScale,
   tierHourlyRawUsd,
 } from './project-cost.pricing';
 
@@ -110,15 +112,19 @@ export interface PlatformCostReport {
     projects: number;
     /** What the host + block storage actually costs per month, from config. */
     actualMonthlyBillUsd: number;
-    /** Projected raw cost allocated to projects for the whole period. */
+    /** Projected raw cost allocated to projects for the whole period, as their share of the real bill when the tier sum passes it. */
     allocatedRawUsd: number;
+    /** The same projection with every project at its full tier, before fitting to the bill. */
+    tierEstimateRawUsd: number;
+    /** 1 when the tier sum fits the bill, otherwise the fraction of each tier estimate shown as a share. */
+    billShare: number;
     /** The same allocation at customer prices. */
     allocatedPricedUsd: number;
     /** Sum of plan prices across the teams in the report. */
     planRevenueUsd: number;
     marginVsAllocatedUsd: number;
     marginVsBillUsd: number;
-    /** allocatedRaw / actualBill — above 1 means the model over-recovers. */
+    /** tierEstimate / actualBill — above 1 means every project costed at its full tier passes the bill. */
     recoveryRatio: number;
   };
   teams: PlatformTeamCost[];
@@ -281,12 +287,22 @@ export class ProjectCostService {
       })
       .sort((a, b) => b.totals.projectedRawUsd - a.totals.projectedRawUsd);
 
-    const allocated = sumProjectCosts(teamReports.flatMap((t) => t.projects));
-    const planRevenueUsd = round2(teamReports.reduce((s, t) => s + (t.plan?.priceMonthlyUsd ?? 0), 0));
+    const tierEstimateRawUsd = sumProjectCosts(teamReports.flatMap((t) => t.projects)).projectedRawUsd;
     const actualMonthlyBillUsd = round2(
       cfg.server.monthlyCostUsd + cfg.server.volumeGb * cfg.diskUsdPerGbMonth,
     );
+    // Every project is costed at its full tier, so the sum can pass the real bill: show shares of the bill.
+    const billShare = billShareScale(tierEstimateRawUsd, actualMonthlyBillUsd);
+    if (billShare < 1) {
+      for (const t of teamReports) {
+        t.projects = t.projects.map((p) => scaleProjectRaw(p, billShare));
+        t.totals = sumProjectCosts(t.projects);
+        t.marginUsd = round2((t.plan?.priceMonthlyUsd ?? 0) - t.totals.projectedRawUsd);
+      }
+    }
 
+    const allocated = sumProjectCosts(teamReports.flatMap((t) => t.projects));
+    const planRevenueUsd = round2(teamReports.reduce((s, t) => s + (t.plan?.priceMonthlyUsd ?? 0), 0));
     return {
       currency: 'usd',
       generatedAt: now.toISOString(),
@@ -297,11 +313,13 @@ export class ProjectCostService {
         projects: allRows.length,
         actualMonthlyBillUsd,
         allocatedRawUsd: allocated.projectedRawUsd,
+        tierEstimateRawUsd,
+        billShare: round2(billShare),
         allocatedPricedUsd: allocated.projectedPricedUsd,
         planRevenueUsd,
         marginVsAllocatedUsd: round2(planRevenueUsd - allocated.projectedRawUsd),
         marginVsBillUsd: round2(planRevenueUsd - actualMonthlyBillUsd),
-        recoveryRatio: actualMonthlyBillUsd > 0 ? round2(allocated.projectedRawUsd / actualMonthlyBillUsd) : 0,
+        recoveryRatio: actualMonthlyBillUsd > 0 ? round2(tierEstimateRawUsd / actualMonthlyBillUsd) : 0,
       },
       teams: teamReports,
       storagePending: allRows.some((r) => !r.usage?.storageCalculatedAt),

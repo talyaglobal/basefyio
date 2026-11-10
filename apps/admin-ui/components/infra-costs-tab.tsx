@@ -364,7 +364,7 @@ export function InfraCostsTab() {
   const summaryCards = report
     ? [
         { label: 'Actual monthly bill', value: formatUsd(report.summary.actualMonthlyBillUsd), color: 'from-slate-500/20 to-slate-600/10 border-slate-500/20', hint: report.config.server.label },
-        { label: 'Allocated cost (projected)', value: formatUsd(report.summary.allocatedRawUsd), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20', hint: `${Math.round(report.summary.recoveryRatio * 100)}% of the bill` },
+        { label: 'Share of the bill (projected)', value: formatUsd(report.summary.allocatedRawUsd), color: 'from-blue-500/20 to-blue-600/10 border-blue-500/20', hint: report.summary.billShare < 1 ? `Tier estimate ${formatUsd(report.summary.tierEstimateRawUsd)}; each project shown at ${Math.round(report.summary.billShare * 100)}% of its tier so the total fits the bill` : `${Math.round(report.summary.recoveryRatio * 100)}% of the bill` },
         { label: `Priced ×${report.config.markup}`, value: formatUsd(report.summary.allocatedPricedUsd), color: 'from-violet-500/20 to-violet-600/10 border-violet-500/20', hint: 'what customers see' },
         { label: 'Plan revenue', value: formatUsd(report.summary.planRevenueUsd), color: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20', hint: `${report.summary.teams} teams · ${report.summary.projects} projects` },
         { label: 'Margin vs allocated', value: fmtSigned(report.summary.marginVsAllocatedUsd), color: report.summary.marginVsAllocatedUsd < 0 ? 'from-rose-500/20 to-rose-600/10 border-rose-500/20' : 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/20' },

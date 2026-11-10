@@ -74,12 +74,12 @@ export default function ConsoleOverviewPage() {
           label="Recurring revenue"
           icon={DollarSign}
           value={formatUsd(money.mrrUsd)}
-          hint={`${counts.payingTeams} paying of ${counts.teams} teams`}
+          hint={`${counts.payingTeams} paying of ${counts.teams} teams${counts.pastDueTeams ? ` · ${counts.pastDueTeams} past due` : ''}`}
         />
         <StatCard
           label="Infrastructure bill"
           value={formatUsd(money.actualMonthlyBillUsd)}
-          hint={`Projects use ${formatUsd(money.allocatedRawUsd)} of it this month`}
+          hint={`Projects take ${formatUsd(money.allocatedRawUsd)} of it this month (their share, never above the bill)`}
         />
         <StatCard
           label="Margin vs bill"

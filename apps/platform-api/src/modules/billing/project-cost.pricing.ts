@@ -422,3 +422,31 @@ export function mergeInfraCostConfig(stored: unknown): InfraCostConfig {
     sharedTierByDbSize: rules.length ? rules : d.sharedTierByDbSize,
   };
 }
+
+/**
+ * A project's raw cost with every raw figure multiplied by `scale`. Customer
+ * prices are left alone: they are a price list, not a share of our bill.
+ */
+export function scaleProjectRaw(p: ProjectCostReport, scale: number): ProjectCostReport {
+  if (scale === 1) return p;
+  return {
+    ...p,
+    rawUsd: round(p.rawUsd * scale),
+    projectedRawUsd: round(p.projectedRawUsd * scale),
+    lines: p.lines.map((l) => ({
+      ...l,
+      rawUsd: round(l.rawUsd * scale),
+      projectedRawUsd: round(l.projectedRawUsd * scale),
+    })),
+  };
+}
+
+/**
+ * The factor that makes the projects' summed projected raw cost fit inside the
+ * real monthly bill. Each project is costed at its full tier, so the sum can
+ * exceed what the server costs; above the bill we show each project's share of
+ * it, below the bill the tier estimate stands (the rest is idle capacity).
+ */
+export function billShareScale(projectedRawTotalUsd: number, billUsd: number): number {
+  return billUsd > 0 && projectedRawTotalUsd > billUsd ? billUsd / projectedRawTotalUsd : 1;
+}

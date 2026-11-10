@@ -4,7 +4,9 @@ import {
   describePeriod,
   mergeInfraCostConfig,
   priceProject,
+  billShareScale,
   resolveComputeTier,
+  scaleProjectRaw,
   sumProjectCosts,
   tierHourlyRawUsd,
   type ProjectUsageInput,
@@ -165,5 +167,24 @@ describe('mergeInfraCostConfig', () => {
     expect(m.computeTiers).toEqual(DEFAULT_INFRA_COST_CONFIG.computeTiers);
     const kept = mergeInfraCostConfig({ computeTiers: [{ name: ' Nano ', vcpu: 0.1, memoryGb: 0.25 }] });
     expect(kept.computeTiers).toEqual([{ name: 'Nano', vcpu: 0.1, memoryGb: 0.25 }]);
+  });
+});
+
+describe('fitting projects to the real bill', () => {
+  it('leaves a tier sum that fits the bill alone, and scales one that passes it', () => {
+    expect(billShareScale(30, 34)).toBe(1);
+    expect(billShareScale(299, 34)).toBeCloseTo(34 / 299, 6);
+    expect(billShareScale(10, 0)).toBe(1);
+  });
+
+  it('shares sum to the bill, raw figures only; customer prices stay', () => {
+    const reports = [priceProject(cfg, period, baseProject({ id: 'a' }), now), priceProject(cfg, period, baseProject({ id: 'b' }), now)];
+    const tier = sumProjectCosts(reports).projectedRawUsd;
+    const bill = tier / 2;
+    const scale = billShareScale(tier, bill);
+    const scaled = reports.map((r) => scaleProjectRaw(r, scale));
+    expect(sumProjectCosts(scaled).projectedRawUsd).toBeCloseTo(bill, 2);
+    expect(scaled[0].projectedPricedUsd).toBe(reports[0].projectedPricedUsd);
+    expect(scaleProjectRaw(reports[0], 1)).toBe(reports[0]);
   });
 });

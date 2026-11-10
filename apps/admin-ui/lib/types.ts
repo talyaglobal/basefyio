@@ -1891,6 +1891,8 @@ export interface PlatformCostReport {
     marginVsAllocatedUsd: number;
     marginVsBillUsd: number;
     recoveryRatio: number;
+    tierEstimateRawUsd: number;
+    billShare: number;
   };
   teams: PlatformTeamCost[];
   storagePending: boolean;

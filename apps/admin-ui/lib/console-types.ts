@@ -61,6 +61,7 @@ export interface ConsoleOverview {
     activeUsersLast30d: number;
     teams: number;
     payingTeams: number;
+    pastDueTeams: number;
     projects: { active: number; paused: number; deactivated: number; deleted: number };
   };
   money: {
