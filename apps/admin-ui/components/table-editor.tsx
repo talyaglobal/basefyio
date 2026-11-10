@@ -1469,8 +1469,21 @@ export function TableEditor({ projectId, initialOpen = null, initialFilter = nul
 
   function downloadCsvTemplate() {
     if (!columns.length || !selected) return;
-    const headers = columns.map((c) => c.name).join(',');
-    const blob = new Blob([headers + '\n'], { type: 'text/csv' });
+    // Header plus one example row so the expected format of every column is visible.
+    const example = (type: string) => {
+      const t = type.toLowerCase();
+      if (/bool/.test(t)) return 'true';
+      if (/int|serial/.test(t)) return '1';
+      if (/numeric|decimal|real|double|float|money/.test(t)) return '1234.56';
+      if (/timestamp/.test(t)) return '2026-12-31 10:00:00+00';
+      if (/date/.test(t)) return '2026-12-31';
+      if (/time/.test(t)) return '10:00:00';
+      if (/uuid/.test(t)) return '00000000-0000-0000-0000-000000000000';
+      if (/json/.test(t)) return '"{""key"":""value""}"';
+      return 'example';
+    };
+    const csv = columns.map((c) => c.name).join(',') + '\n' + columns.map((c) => example(c.type)).join(',') + '\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
