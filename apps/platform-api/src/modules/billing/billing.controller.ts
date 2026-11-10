@@ -575,28 +575,43 @@ export class BillingController {
 
     const client = this.stripe.getClient();
 
-    const [charges, balanceTxns, invoices, subscriptions, customers] =
+    const [chargesAll, balanceAll, invoicesAll, subscriptionsAll, customersAll, dbSubs, teams, plans] =
       await Promise.all([
-        client.charges.list({
-          limit: 50,
-          expand: ['data.customer'],
+        client.charges.list({ limit: 100, expand: ['data.customer'] }),
+        client.balanceTransactions.list({ limit: 100, expand: ['data.source'] }),
+        client.invoices.list({ limit: 100, expand: ['data.customer', 'data.subscription'] }),
+        client.subscriptions.list({ limit: 100, status: 'all', expand: ['data.customer', 'data.plan'] }).autoPagingToArray({ limit: 1000 }),
+        client.customers.list({ limit: 100 }).autoPagingToArray({ limit: 1000 }),
+        this.prisma.subscription.findMany({
+          where: { stripeCustomerId: { not: null } },
+          select: { stripeCustomerId: true, team: { select: { name: true } } },
         }),
-        client.balanceTransactions.list({
-          limit: 50,
-        }),
-        client.invoices.list({
-          limit: 50,
-          expand: ['data.customer', 'data.subscription'],
-        }),
-        client.subscriptions.list({
-          limit: 100,
-          status: 'all',
-          expand: ['data.customer', 'data.plan'],
-        }),
-        client.customers.list({
-          limit: 100,
-        }),
+        this.prisma.team.findMany({ select: { id: true, name: true } }),
+        this.prisma.plan.findMany({ where: { stripePriceId: { not: null } }, select: { stripePriceId: true, displayName: true } }),
       ]);
+
+    // The Stripe account can be shared with other products. Keep only what belongs to a basefyio
+    // team: the customer id is on one of our subscriptions, or the customer/subscription carries a teamId.
+    const teamNameById = new Map(teams.map((t) => [t.id, t.name]));
+    const teamNameByCustomer = new Map(dbSubs.map((d) => [d.stripeCustomerId as string, d.team.name]));
+    const planByPrice = new Map(plans.map((p) => [p.stripePriceId as string, p.displayName]));
+    const teamOf = (customer: unknown, metadata?: Record<string, string> | null): string | null => {
+      const id = typeof customer === 'string' ? customer : (customer as { id?: string } | null)?.id;
+      const meta = (typeof customer === 'object' && customer ? (customer as { metadata?: Record<string, string> }).metadata : null) ?? {};
+      return (
+        (id && teamNameByCustomer.get(id)) ||
+        teamNameById.get(metadata?.teamId ?? '') ||
+        teamNameById.get(meta.teamId ?? '') ||
+        null
+      );
+    };
+    const charges = { data: chargesAll.data.filter((c) => teamOf(c.customer, c.metadata)) };
+    const balanceTxns = {
+      data: balanceAll.data.filter((t) => typeof t.source === 'object' && t.source && 'customer' in t.source && teamOf((t.source as { customer?: unknown }).customer)),
+    };
+    const invoices = { data: invoicesAll.data.filter((i) => teamOf(i.customer, (i.subscription as { metadata?: Record<string, string> } | null)?.metadata)) };
+    const subscriptions = { data: subscriptionsAll.filter((s) => teamOf(s.customer, s.metadata)) };
+    const customers = { data: customersAll.filter((c) => teamOf(c)) };
 
     // Revenue summary from balance transactions
     const revenueTxns = balanceTxns.data.filter(
@@ -681,7 +696,9 @@ export class BillingController {
         ? (s.customer as any).email : null,
       customerName: typeof s.customer === 'object' && s.customer && 'name' in s.customer
         ? (s.customer as any).name : null,
-      planName: s.metadata?.planName || s.items?.data[0]?.price?.nickname || null,
+      teamName: teamOf(s.customer, s.metadata),
+      planName:
+        planByPrice.get(s.items?.data[0]?.price?.id ?? '') || s.metadata?.planName || s.items?.data[0]?.price?.nickname || null,
       amount: s.items?.data[0]?.price?.unit_amount || 0,
       currency: s.currency,
     }));
@@ -698,6 +715,8 @@ export class BillingController {
         canceledSubscriptions: canceledSubs.length,
         pastDueSubscriptions: pastDueSubs.length,
         totalCustomers: customers.data.length,
+        /** Subscriptions in the Stripe account that belong to no basefyio team (other products). */
+        otherProductSubscriptions: subscriptionsAll.length - subscriptions.data.length,
       },
       revenueByMonth,
       recentCharges,

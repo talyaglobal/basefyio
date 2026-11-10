@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -14,13 +15,8 @@ import type {
 } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Combobox } from '@/components/ui/combobox';
 import {
   FileSpreadsheet,
   Upload,
@@ -30,10 +26,35 @@ import {
   ArrowLeft,
   Table2,
   Database,
+  Download,
 } from 'lucide-react';
 import { formatDate } from '@/lib/format';
 
 const MAX_SAMPLE_ROWS = 200;
+
+/** A small starter workbook: one sheet per table, header row + example rows. */
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ['name', 'email', 'phone', 'created_at'],
+      ['Ada Lovelace', 'ada@example.com', '+44 20 7946 0000', '2026-01-15'],
+      ['Alan Turing', 'alan@example.com', '+44 20 7946 0001', '2026-02-03'],
+    ]),
+    'customers',
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ['order_number', 'customer_email', 'total', 'status', 'ordered_at'],
+      ['A-1001', 'ada@example.com', 120.5, 'paid', '2026-02-10'],
+      ['A-1002', 'alan@example.com', 80, 'pending', '2026-02-11'],
+    ]),
+    'orders',
+  );
+  XLSX.writeFile(wb, 'basefyio-starter-template.xlsx');
+}
 
 async function parseSheets(file: File): Promise<BlueprintSheet[]> {
   const buf = await file.arrayBuffer();
@@ -79,7 +100,8 @@ function statusVariant(status: string) {
 export function Blueprints({ teamId }: { teamId: string | null }) {
   const [list, setList] = useState<BlueprintSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const router = useRouter();
+  const [pending, setPending] = useState<{ file: File; name: string } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -98,44 +120,31 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
     load();
   }, [load]);
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !teamId) return;
+    if (file) setPending({ file, name: file.name.replace(/.(xlsx|xls|csv)$/i, '') });
+  };
+
+  const analyze = async () => {
+    if (!pending || !teamId) return;
     setAnalyzing(true);
     try {
-      const sheets = await parseSheets(file);
+      const sheets = await parseSheets(pending.file);
       if (sheets.length === 0) {
         toast.error('No usable sheets found (need a header row + data)');
         return;
       }
-      const bp = await api.blueprints.analyze({
-        teamId,
-        name: file.name.replace(/\.(xlsx|xls|csv)$/i, ''),
-        sheets,
-      });
+      const bp = await api.blueprints.analyze({ teamId, name: pending.name.trim() || 'Untitled', sheets });
       toast.success(`Analyzed ${sheets.length} sheet(s)`);
-      await load();
-      setSelectedId(bp.id);
+      setPending(null);
+      router.push(`/dashboard/blueprints/${bp.id}`);
     } catch (e: any) {
       toast.error(e?.message || 'Failed to analyze file');
     } finally {
       setAnalyzing(false);
     }
   };
-
-  if (selectedId) {
-    return (
-      <BlueprintDetailView
-        id={selectedId}
-        teamId={teamId}
-        onBack={() => {
-          setSelectedId(null);
-          load();
-        }}
-      />
-    );
-  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -155,15 +164,37 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
           className="hidden"
           onChange={onFile}
         />
-        <Button onClick={() => fileRef.current?.click()} disabled={analyzing || !teamId}>
-          {analyzing ? (
-            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-          ) : (
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={downloadTemplate}>
+            <Download className="mr-1 h-4 w-4" /> Starter template
+          </Button>
+          <Button onClick={() => fileRef.current?.click()} disabled={analyzing || !teamId}>
             <Upload className="mr-1 h-4 w-4" />
-          )}
-          New from Excel
-        </Button>
+            New from Excel
+          </Button>
+        </div>
       </div>
+
+      {pending && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
+          <FileSpreadsheet className="h-4 w-4 text-[#217346]" />
+          <span className="max-w-[14rem] truncate text-sm text-muted-foreground">{pending.file.name}</span>
+          <Input
+            aria-label="Blueprint name"
+            className="w-64"
+            value={pending.name}
+            onChange={(e) => setPending({ ...pending, name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && analyze()}
+          />
+          <Button onClick={analyze} disabled={analyzing}>
+            {analyzing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Analyze
+          </Button>
+          <Button variant="ghost" onClick={() => setPending(null)} disabled={analyzing}>
+            Cancel
+          </Button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -178,7 +209,7 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
           {list.map((bp) => (
             <button
               key={bp.id}
-              onClick={() => setSelectedId(bp.id)}
+              onClick={() => router.push(`/dashboard/blueprints/${bp.id}`)}
               className="flex w-full items-center gap-3 rounded-lg border bg-card p-4 text-left hover:bg-accent"
             >
               <Database className="h-4 w-4 text-muted-foreground" />
@@ -199,7 +230,7 @@ export function Blueprints({ teamId }: { teamId: string | null }) {
   );
 }
 
-function BlueprintDetailView({
+export function BlueprintDetailView({
   id,
   teamId,
   onBack,
@@ -337,6 +368,7 @@ function BlueprintDetailView({
     if (!ok) return;
     try {
       await api.blueprints.remove(id);
+      toast.success('Blueprint deleted');
       onBack();
     } catch (e: any) {
       toast.error(e?.message || 'Failed to delete');
@@ -418,18 +450,14 @@ function BlueprintDetailView({
         )}
         {(bp.status === 'APPROVED' || bp.status === 'GENERATED' || bp.status === 'FAILED') && (
           <>
-            <Select value={targetProject} onValueChange={setTargetProject}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Select target project" />
-              </SelectTrigger>
-              <SelectContent>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Combobox
+              className="w-64"
+              options={projects.map((p) => ({ value: p.id, label: p.name }))}
+              value={targetProject}
+              onValueChange={setTargetProject}
+              placeholder="Select target project"
+              searchPlaceholder="Search projects…"
+            />
             <Button onClick={generate} disabled={busy || !targetProject}>
               {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               <Database className="mr-1 h-4 w-4" />

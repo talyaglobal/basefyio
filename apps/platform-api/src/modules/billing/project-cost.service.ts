@@ -23,6 +23,11 @@ import {
 /** Projects that still occupy infrastructure. Deleted/deactivated ones are frozen or gone. */
 const BILLABLE_STATUSES = ['ACTIVE', 'PAUSED'] as const;
 
+/** The one definition of "paying": a priced plan whose subscription is live. Overview and Costs both use it. */
+export const PAYING_STATUSES = ['ACTIVE', 'TRIALING', 'PAST_DUE'] as const;
+export const isPayingSubscription = (status: string, priceMonthlyCents: number) =>
+  priceMonthlyCents > 0 && (PAYING_STATUSES as readonly string[]).includes(status);
+
 /** DB sizes older than this are refreshed on read; the cron also runs 6-hourly. */
 const DB_SIZE_STALE_MS = 6 * 60 * 60 * 1000;
 
@@ -120,8 +125,9 @@ export interface PlatformCostReport {
     billShare: number;
     /** The same allocation at customer prices. */
     allocatedPricedUsd: number;
-    /** Sum of plan prices across the teams in the report. */
+    /** Plan list price of every paying subscription on the platform (same figure as the console Overview). */
     planRevenueUsd: number;
+    payingTeams: number;
     marginVsAllocatedUsd: number;
     marginVsBillUsd: number;
     /** tierEstimate / actualBill — above 1 means every project costed at its full tier passes the bill. */
@@ -288,6 +294,11 @@ export class ProjectCostService {
       .sort((a, b) => b.totals.projectedRawUsd - a.totals.projectedRawUsd);
 
     const tierEstimateRawUsd = sumProjectCosts(teamReports.flatMap((t) => t.projects)).projectedRawUsd;
+    const paying = await this.prisma.subscription.findMany({
+      where: { status: { in: [...PAYING_STATUSES] }, plan: { priceMonthly: { gt: 0 } } },
+      select: { plan: { select: { priceMonthly: true } } },
+    });
+    const planRevenueUsd = round2(paying.reduce((sum, p) => sum + p.plan.priceMonthly / 100, 0));
     const actualMonthlyBillUsd = round2(
       cfg.server.monthlyCostUsd + cfg.server.volumeGb * cfg.diskUsdPerGbMonth,
     );
@@ -302,7 +313,6 @@ export class ProjectCostService {
     }
 
     const allocated = sumProjectCosts(teamReports.flatMap((t) => t.projects));
-    const planRevenueUsd = round2(teamReports.reduce((s, t) => s + (t.plan?.priceMonthlyUsd ?? 0), 0));
     return {
       currency: 'usd',
       generatedAt: now.toISOString(),
@@ -317,6 +327,7 @@ export class ProjectCostService {
         billShare: round2(billShare),
         allocatedPricedUsd: allocated.projectedPricedUsd,
         planRevenueUsd,
+        payingTeams: paying.length,
         marginVsAllocatedUsd: round2(planRevenueUsd - allocated.projectedRawUsd),
         marginVsBillUsd: round2(planRevenueUsd - actualMonthlyBillUsd),
         recoveryRatio: actualMonthlyBillUsd > 0 ? round2(tierEstimateRawUsd / actualMonthlyBillUsd) : 0,

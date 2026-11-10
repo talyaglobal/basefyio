@@ -1,4 +1,4 @@
-import { ProjectCostService } from './project-cost.service';
+import { ProjectCostService, isPayingSubscription } from './project-cost.service';
 
 const GB = 1024 ** 3;
 
@@ -46,5 +46,15 @@ describe('ProjectCostService.getTeamReport', () => {
     const rows = [project('a', 0, 10_000, 5), project('b', 0, 590, 7)];
     const report = await build(rows).getTeamReport('t1');
     
+  });
+});
+
+describe('isPayingSubscription', () => {
+  it('counts live priced subscriptions only, whatever the team has in projects', () => {
+    expect(isPayingSubscription('ACTIVE', 4000)).toBe(true);
+    expect(isPayingSubscription('TRIALING', 4000)).toBe(true);
+    expect(isPayingSubscription('PAST_DUE', 4000)).toBe(true);
+    expect(isPayingSubscription('CANCELED', 4000)).toBe(false);
+    expect(isPayingSubscription('ACTIVE', 0)).toBe(false);
   });
 });

@@ -1888,6 +1888,7 @@ export interface PlatformCostReport {
     allocatedRawUsd: number;
     allocatedPricedUsd: number;
     planRevenueUsd: number;
+    payingTeams: number;
     marginVsAllocatedUsd: number;
     marginVsBillUsd: number;
     recoveryRatio: number;

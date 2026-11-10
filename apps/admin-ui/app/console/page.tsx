@@ -74,7 +74,7 @@ export default function ConsoleOverviewPage() {
           label="Recurring revenue"
           icon={DollarSign}
           value={formatUsd(money.mrrUsd)}
-          hint={`${counts.payingTeams} paying of ${counts.teams} teams${counts.pastDueTeams ? ` · ${counts.pastDueTeams} past due` : ''}`}
+          hint={`List price of ${counts.payingTeams} paying of ${counts.teams} teams${counts.pastDueTeams ? ` · ${counts.pastDueTeams} past due` : ''}; Stripe shows what was billed`}
         />
         <StatCard
           label="Infrastructure bill"

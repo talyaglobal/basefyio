@@ -1449,7 +1449,10 @@ export default function ManagementPage() {
               <BarChart3 className="h-5 w-5 text-muted-foreground" />
               <div>
                 <h2 className="text-base font-semibold">Stripe Overview</h2>
-                <p className="text-sm text-muted-foreground">Revenue, subscriptions, charges, and invoices from Stripe.</p>
+                <p className="text-sm text-muted-foreground">
+                  Billed revenue, subscriptions, charges, and invoices for basefyio teams only. MRR here is what Stripe bills; the Overview shows the plans' list price.
+                  {stripeData?.summary?.otherProductSubscriptions > 0 && ` ${stripeData.summary.otherProductSubscriptions} subscriptions in this Stripe account belong to no basefyio team and are left out.`}
+                </p>
               </div>
             </div>
 
@@ -1514,6 +1517,7 @@ export default function ManagementPage() {
                     <table className="w-full text-left text-sm">
                       <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
                         <tr>
+                          <th className="px-3 py-2">Team</th>
                           <th className="px-3 py-2">Customer</th>
                           <th className="px-3 py-2">Plan</th>
                           <th className="px-3 py-2 text-right">Amount</th>
@@ -1524,6 +1528,7 @@ export default function ManagementPage() {
                       <tbody>
                         {stripeData.activeSubscriptions.map((sub: any) => (
                           <tr key={sub.id} className="border-b border-border/60 last:border-0">
+                            <td className="px-3 py-2">{sub.teamName || '—'}</td>
                             <td className="px-3 py-2">
                               <div className="truncate max-w-[200px]">{sub.customerName || sub.customerEmail || '—'}</div>
                               {sub.customerName && sub.customerEmail && (

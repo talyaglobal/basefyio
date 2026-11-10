@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ProjectCostService } from '../billing/project-cost.service';
+import { ProjectCostService, isPayingSubscription } from '../billing/project-cost.service';
 import type { CostLine, ProjectCostReport } from '../billing/project-cost.pricing';
 import { BucketInventory, PLATFORM_BUCKETS, StorageService } from '../storage/storage.service';
 import { DiskUsageService } from './disk-usage.service';
@@ -90,7 +90,6 @@ export interface ConsolePlanMix {
   teamList: ConsolePlanTeam[];
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class RootConsoleService {
@@ -178,7 +177,6 @@ export class RootConsoleService {
 
     // Plan mix and recurring revenue across every team, not only those with projects.
     const planMix = new Map<string, ConsolePlanMix>();
-    let mrrUsd = 0;
     let payingTeams = 0;
     let pastDueTeams = 0;
     for (const s of subscriptions) {
@@ -207,11 +205,10 @@ export class RootConsoleService {
         projectedRawUsd: tc?.projectedRawUsd ?? 0,
         footprintBytes: tc?.footprintBytes ?? 0,
       });
-      if (price > 0 && (s.status === 'ACTIVE' || s.status === 'TRIALING' || s.status === 'PAST_DUE')) {
+      if (isPayingSubscription(s.status, s.plan.priceMonthly)) {
         entry.paying += 1;
         payingTeams += 1;
         if (s.status === 'PAST_DUE') pastDueTeams += 1;
-        mrrUsd += price;
       }
       planMix.set(s.plan.name, entry);
     }
@@ -264,11 +261,11 @@ export class RootConsoleService {
         },
       },
       money: {
-        mrrUsd: round2(mrrUsd),
+        mrrUsd: report.summary.planRevenueUsd,
         actualMonthlyBillUsd: report.summary.actualMonthlyBillUsd,
         allocatedRawUsd: report.summary.allocatedRawUsd,
         allocatedPricedUsd: report.summary.allocatedPricedUsd,
-        marginVsBillUsd: round2(mrrUsd - report.summary.actualMonthlyBillUsd),
+        marginVsBillUsd: report.summary.marginVsBillUsd,
         recoveryRatio: report.summary.recoveryRatio,
         markup: report.config.markup,
       },
