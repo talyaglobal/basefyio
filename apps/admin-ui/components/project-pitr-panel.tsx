@@ -67,7 +67,23 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
     (!window?.continuousFrom ||
       new Date(target).getTime() < new Date(window.continuousFrom).getTime());
 
+  // Validate in the browser so an out-of-window time is explained before the request is made.
+  const targetMs = target ? new Date(target).getTime() : NaN;
+  const outOfWindow =
+    !target || Number.isNaN(targetMs)
+      ? 'Pick a date and time to recover to.'
+      : window?.latest && targetMs > new Date(window.latest).getTime()
+        ? `That time is after the latest recoverable moment (${fmt(window.latest)}).`
+        : window?.earliest && targetMs < new Date(window.earliest).getTime()
+          ? `That time is before the retention window starts (${fmt(window.earliest)}).`
+          : null;
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   async function submitRestore() {
+    if (outOfWindow) {
+      toast.error(outOfWindow);
+      return;
+    }
     if (confirmText.trim().toUpperCase() !== 'RESTORE') {
       toast.error('Type "RESTORE" to confirm');
       return;
@@ -114,8 +130,9 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
         </div>
       ) : !ready ? (
         <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-          No base backup has been taken yet. The first one runs automatically tonight; recovery
-          becomes available once it completes.
+          No base backup has been taken yet. Base backups are taken automatically every night (they cover the whole
+          cluster, so they cannot be started per project); recovery becomes available once
+          the first one completes.
         </div>
       ) : (
         <>
@@ -149,6 +166,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
                 id="pitr-target"
                 type="datetime-local"
                 value={target}
+                step={1}
                 min={window!.earliest ? toLocalInput(window!.earliest) : undefined}
                 max={window!.latest ? toLocalInput(window!.latest) : undefined}
                 onChange={(e) => setTarget(e.target.value)}
@@ -161,12 +179,16 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
                 setConfirmText('');
                 setConfirmOpen(true);
               }}
-              disabled={!target}
+              disabled={!!outOfWindow}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
               Recover
             </Button>
           </div>
+
+          {outOfWindow && target && (
+            <p role="alert" className="text-xs text-destructive">{outOfWindow}</p>
+          )}
 
           {approximate && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
@@ -193,7 +215,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
             </DialogTitle>
             <DialogDescription>
               This replaces the current contents of the database with its state at{' '}
-              <strong>{target ? formatDateTime(target) : '—'}</strong>. Anything written
+              <strong>{target ? formatDateTime(target) : '—'}</strong> ({timeZone}). Anything written
               after that moment is lost. Consider exporting a backup first.
             </DialogDescription>
           </DialogHeader>
@@ -216,7 +238,7 @@ export function ProjectPitrPanel({ projectId }: { projectId: string }) {
             <Button
               variant="destructive"
               onClick={submitRestore}
-              disabled={restoring || confirmText.trim().toUpperCase() !== 'RESTORE'}
+              disabled={restoring || !!outOfWindow || confirmText.trim().toUpperCase() !== 'RESTORE'}
             >
               {restoring && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Recover database

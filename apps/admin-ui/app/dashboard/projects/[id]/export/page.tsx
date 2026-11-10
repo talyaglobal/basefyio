@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Loader2, Minimize2, PackageCheck, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useProject } from '@/contexts/project-context';
 import { useLiveProjectRefresh } from '@/lib/use-live-refresh';
 import type { BackupHealth, CloudBackupItem, ExportJobProgressEvent, ExportJobResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ function fmtBytes(bytes: number): string {
 export default function ProjectExportPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { project } = useProject();
   const {
     activeExports,
     startTracking,
@@ -45,9 +47,11 @@ export default function ProjectExportPage() {
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<CloudBackupItem | null>(null);
-  const [restoreMode, setRestoreMode] = useState<'existing' | 'new'>('existing');
+  const [restoreMode, setRestoreMode] = useState<'existing' | 'new'>('new');
   const [newRestoreName, setNewRestoreName] = useState('');
-  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  // Overwriting is destructive: the user must type the project's exact name.
+  const overwriteConfirmed = !!project?.name && confirmName.trim() === project.name;
   const [options, setOptions] = useState({
     includeDatabase: true,
     includeAuth: true,
@@ -193,16 +197,16 @@ export default function ProjectExportPage() {
 
   function openRestoreDialog(backup: CloudBackupItem) {
     setRestoreTarget(backup);
-    setRestoreMode('existing');
+    setRestoreMode('new');
     setNewRestoreName('');
-    setConfirmOverwrite(false);
+    setConfirmName('');
     setRestoreDialogOpen(true);
   }
 
   async function submitRestore() {
     if (!restoreTarget) return;
-    if (restoreMode === 'existing' && !confirmOverwrite) {
-      toast.error('Please confirm overwrite to continue');
+    if (restoreMode === 'existing' && !overwriteConfirmed) {
+      toast.error('Type the project name to confirm the overwrite');
       return;
     }
     if (restoreMode === 'new' && !newRestoreName.trim()) {
@@ -601,15 +605,19 @@ export default function ProjectExportPage() {
             </label>
 
             {restoreMode === 'existing' && (
-              <label className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                <p>
+                  This replaces all data in <span className="font-semibold">{project?.name}</span>. Type its name to confirm.
+                </p>
                 <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-primary"
-                  checked={confirmOverwrite}
-                  onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder={project?.name}
+                  value={confirmName}
+                  onChange={(e) => setConfirmName(e.target.value)}
+                  aria-label="Type the project name to confirm"
+                  autoComplete="off"
                 />
-                I confirm that existing project data will be overwritten.
-              </label>
+              </div>
             )}
 
             <div className="flex justify-end gap-2">
@@ -626,7 +634,7 @@ export default function ProjectExportPage() {
                 onClick={() => void submitRestore()}
                 disabled={
                   !!restoringKey ||
-                  (restoreMode === 'existing' && !confirmOverwrite) ||
+                  (restoreMode === 'existing' && !overwriteConfirmed) ||
                   (restoreMode === 'new' && !newRestoreName.trim())
                 }
               >

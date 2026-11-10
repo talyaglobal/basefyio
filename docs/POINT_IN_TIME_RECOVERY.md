@@ -57,8 +57,11 @@ The panel shows the live recovery window:
 | Latest | How current the archived change log is |
 | Retention | Length of the window (7 days) |
 
-Pick a timestamp and choose **Recover**. Because recovery replaces the current
-contents of the database, the confirmation asks you to type `RESTORE`.
+Pick a timestamp (seconds included) and choose **Recover**. A time outside the window is
+flagged in the panel before anything is sent. Because recovery replaces the current
+contents of the database, the confirmation names the time zone and asks you to type
+`RESTORE`. Base backups are taken nightly for the whole cluster, so a new project can recover
+once the first nightly run has finished; they cannot be started per project.
 
 > **Anything written after the target instant is lost.** If you are unsure, take
 > an export first (same page) — that snapshot is independent of PITR.

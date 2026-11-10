@@ -349,7 +349,7 @@ memory; for large projects prefer restoring a stored backup (below).
 | GET | `/api/projects/:id/export/jobs/:jobId/events` | session | the same as a server-sent event stream |
 | GET | `/api/projects/:id/export/jobs/:jobId/download` | session | the finished archive (`application/zip`) |
 | GET | `/api/projects/:id/backups` | session | stored archives: manual exports and nightly backups |
-| POST | `/api/projects/:id/backups/restore` | session | restore a stored archive into this or a new project |
+| POST | `/api/projects/:id/backups/restore` | session | restore a stored archive into this or a new project (the dashboard defaults to a new project; overwriting asks for the project name) |
 | GET | `/api/projects/:id/pitr/window` | session | the range of instants the database can be recovered to |
 | POST | `/api/projects/:id/pitr/restore` | session | `{ targetTime }` — recover the database to that instant |
 | POST | `/api/projects/pitr/run-base-backup` | root | take a physical base backup of the whole cluster now |

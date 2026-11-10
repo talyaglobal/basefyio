@@ -1477,7 +1477,16 @@ export function CreateProjectDialog({
                   id="zip-file"
                   type="file"
                   accept=".zip,application/zip"
-                  onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (file && !file.name.toLowerCase().endsWith('.zip')) {
+                      toast.error('Choose a .zip file exported from basefyio.');
+                      e.target.value = '';
+                      setZipFile(null);
+                      return;
+                    }
+                    setZipFile(file);
+                  }}
                 />
                 <p className="text-xs text-muted-foreground">
                   Select a ZIP downloaded from the project export page.
