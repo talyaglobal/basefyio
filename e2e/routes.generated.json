@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-26",
+  "generatedAt": "2026-11-10",
   "dashboard": [
     "/",
     "/auth/handoff",
@@ -19,6 +19,7 @@
     "/dashboard/admin/seo",
     "/dashboard/billing",
     "/dashboard/blueprints",
+    "/dashboard/blueprints/[id]",
     "/dashboard/changelog",
     "/dashboard/changelog/[slug]",
     "/dashboard/feedbacks",
