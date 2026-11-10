@@ -7,7 +7,7 @@ describe('ProjectArchiveImportService guards', () => {
     create: jest.fn(),
     getProjectForSupabaseImport: jest.fn(async () => ({ id: 'p1', name: 'Live App' })),
   };
-  const svc = new ProjectArchiveImportService(projects as any, {} as any, {} as any);
+  const svc = new ProjectArchiveImportService(projects as any, {} as any, {} as any, { append: jest.fn() } as any);
   const emptyZip = new AdmZip().toBuffer();
   const file = (buffer: Buffer) => ({ buffer }) as Express.Multer.File;
 

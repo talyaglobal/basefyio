@@ -98,7 +98,7 @@ export function buildAdvisorItems(
     });
   }
 
-  const hasImport = !!importLog?.completedAt || (importLog?.database.tables ?? 0) > 0;
+  const hasImport = !!importLog?.completedAt || !!project.lastImportAt || (importLog?.database.tables ?? 0) > 0;
 
   if (!hasImport) {
     items.push({
@@ -243,8 +243,8 @@ export function ProjectAdvisorSection({
             Last import
           </p>
           <p className="mt-1.5 text-sm font-medium">
-            {importLog?.completedAt
-              ? formatDateTime(importLog.completedAt)
+            {importLog?.completedAt || project.lastImportAt
+              ? formatDateTime((importLog?.completedAt ?? project.lastImportAt)!)
               : '—'}
           </p>
         </div>

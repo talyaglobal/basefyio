@@ -100,6 +100,8 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   importSource?: 'MANUAL' | 'SUPABASE' | 'ZIP' | 'BRANCH';
+  /** Newest finished import of any kind (Supabase, ZIP, Data > Import Data). */
+  lastImportAt?: string | null;
   /** Persisted summary from the last completed Supabase import (if any). */
   supabaseImportLog?: unknown;
   github?: GitHubIntegration;

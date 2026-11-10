@@ -9,6 +9,7 @@ export const ProjectActivityKind = {
   SUPABASE_IMPORT_COMPLETED: 'supabase_import.completed',
   SUPABASE_IMPORT_FAILED: 'supabase_import.failed',
   SUPABASE_IMPORT_CANCELLED: 'supabase_import.cancelled',
+  PROJECT_ZIP_IMPORTED: 'project.zip_imported',
   PROJECT_CREATED: 'project.created',
   PROJECT_UPDATED: 'project.updated',
   PROJECT_DELETED: 'project.deleted',

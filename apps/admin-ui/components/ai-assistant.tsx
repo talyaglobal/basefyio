@@ -765,7 +765,7 @@ export function AiAssistant() {
               <div className="text-center">
                 <p className="text-sm font-semibold">{currentMode.label} mode</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {hasProject
+                  {hasProject && context.projectName
                     ? `"${context.projectName}" · ${currentMode.description}`
                     : currentMode.description}
                 </p>

@@ -26,6 +26,12 @@ interface FakeClient {
   release: jest.Mock;
 }
 
+// The statement goes out as a config object (rowMode: 'array'); SET ROLE etc. as plain strings.
+const sent = (c: { query: jest.Mock }, i: number): { text: string; values?: unknown[] } => {
+  const a = c.query.mock.calls[i];
+  return typeof a[0] === 'string' ? { text: a[0], values: a[1] } : a[0];
+};
+
 function harness(queryResult: unknown = { rows: [], fields: [], rowCount: 0 }) {
   const client: FakeClient = {
     query: jest.fn().mockResolvedValue(queryResult),
@@ -72,7 +78,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       params: ['page load'],
     });
 
-    const [text, values] = client.query.mock.calls[0];
+    const { text: text, values: values } = sent(client, 0);
     expect(text).toContain('$1');
     expect(text).not.toContain('page load');
     expect(values).toEqual(['page load']);
@@ -89,7 +95,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       }),
     ).resolves.toBeDefined();
 
-    expect(client.query.mock.calls[0][1]).toEqual([
+    expect(sent(client, 0).values).toEqual([
       'myfyio copy would post there',
       7,
     ]);
@@ -109,7 +115,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
 
     await svc.execute('p1', 'SELECT 1', 'u1');
 
-    expect(client.query.mock.calls[0][1]).toBeUndefined();
+    expect(sent(client, 0).values).toBeUndefined();
   });
 
   it('gives the count query the same values', async () => {
@@ -121,7 +127,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
     });
 
     expect(client.query).toHaveBeenCalledTimes(2);
-    const [countText, countValues] = client.query.mock.calls[1];
+    const { text: countText, values: countValues } = sent(client, 1);
     expect(countText).toContain('COUNT(*)');
     expect(countValues).toEqual(['v']);
   });
@@ -134,7 +140,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
       limit: 10,
     });
 
-    const [text] = client.query.mock.calls[0];
+    const { text } = sent(client, 0);
     expect(text).toContain('_bf_paged');
     expect(text).toContain('$1');
   });
@@ -144,7 +150,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
 
     await svc.execute('p1', 'WITH moved AS (DELETE FROM t RETURNING *) SELECT * FROM moved', 'u1', { page: 2 });
 
-    expect(client.query.mock.calls[0][0]).not.toContain('_bf_paged');
+    expect(sent(client, 0).text).not.toContain('_bf_paged');
   });
 
   it('still pages a read-only WITH, even when a column is called updated_at', async () => {
@@ -152,7 +158,7 @@ describe('SqlService.execute — values travel apart from the statement', () => 
 
     await svc.execute('p1', 'WITH x AS (SELECT updated_at FROM t) SELECT * FROM x', 'u1');
 
-    expect(client.query.mock.calls[0][0]).toContain('_bf_paged');
+    expect(sent(client, 0).text).toContain('_bf_paged');
   });
 
   it('refuses parameters with a multi-statement script, before touching the database', async () => {
@@ -204,8 +210,8 @@ describe('SqlService.execute — runs under the caller role', () => {
     let setRoleCalls = 0;
     const calls: string[] = [];
     const client = {
-      query: jest.fn(async (sql: string) => {
-        calls.push(sql);
+      query: jest.fn(async (sql: any) => {
+        calls.push(typeof sql === 'string' ? sql : (sql as any).text);
         if (/^SET LOCAL ROLE/.test(sql)) {
           setRoleCalls++;
           if (opts?.denySetRoleOnce && setRoleCalls === 1) {
@@ -276,5 +282,21 @@ describe('SqlService.execute — runs under the caller role', () => {
     expect(calls.filter((c) => c === 'SET LOCAL ROLE "anon"').length).toBe(2);
     // A ROLLBACK for the failed first attempt.
     expect(calls).toContain('ROLLBACK');
+  });
+});
+
+describe('SqlService.execute — columns that share a name', () => {
+  it('keeps every value: the repeat is renamed, not overwritten', async () => {
+    const { svc, client } = harness({
+      rows: [['20', '10']],
+      fields: [{ name: 'count', dataTypeID: 20 }, { name: 'count', dataTypeID: 20 }],
+      rowCount: 1,
+    });
+
+    const res = await svc.execute('p1', 'SELECT count(*), count(*) FILTER (WHERE a) FROM t', 'u1');
+
+    expect(client.query.mock.calls[0][0].rowMode).toBe('array');
+    expect(res.rows).toEqual([{ count: '20', count_1: '10' }]);
+    expect(res.fields?.map((f) => f.name)).toEqual(['count', 'count_1']);
   });
 });

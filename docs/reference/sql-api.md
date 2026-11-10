@@ -55,6 +55,11 @@ names. A bound value is never scanned as SQL and can never become syntax.
 is wrapped as `SELECT * FROM (<your query>) AS _bf_paged LIMIT <limit> OFFSET <offset>`;
 non-`SELECT` statements are run as written.
 
+Each row is an object keyed by column name. When a query returns two columns with the same
+name (`select count(*), count(*) filter (where done) from todos`), the repeats are renamed
+`count`, `count_1`, `count_2`, ... in both `rows` and `fields`, so no value is lost. Alias the
+columns to choose your own names.
+
 ## Limits
 
 - Statement timeout: 30 seconds (`statement_timeout` on the connection).

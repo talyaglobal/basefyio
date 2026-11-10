@@ -952,8 +952,23 @@ export class ProjectsService implements OnApplicationBootstrap {
     const externalHost = this.config.get<string>('pgbouncer.externalHost') || project.dbHost;
     const externalPort = this.config.get<number>('pgbouncer.externalPort') || project.dbPort;
 
+    // The Overview "Last import" card: the newest finished import of any kind
+    // (Supabase, ZIP, Data > Import Data).
+    const lastImport = await this.prisma.projectActivityLog.findFirst({
+      where: {
+        projectId: id,
+        OR: [
+          { kind: { in: ['supabase_import.completed', 'project.zip_imported'] } },
+          { title: { startsWith: 'Data import:' } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
     return {
       ...safe,
+      lastImportAt: lastImport?.createdAt ?? null,
       folder,
       tags,
       previewBranch: previewBranchOf({ ...safe, parent }),

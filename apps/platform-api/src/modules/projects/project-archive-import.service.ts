@@ -12,6 +12,7 @@ import { promisify } from 'util';
 import { execFile } from 'child_process';
 import AdmZip = require('adm-zip');
 import { ProjectsService } from './projects.service';
+import { ProjectActivityKind, ProjectActivityService } from './project-activity.service';
 import { KeycloakAdminService } from '../auth/keycloak-admin.service';
 import { StorageService } from '../storage/storage.service';
 
@@ -31,6 +32,7 @@ export class ProjectArchiveImportService {
     private readonly projectsService: ProjectsService,
     private readonly keycloak: KeycloakAdminService,
     private readonly storage: StorageService,
+    private readonly activity: ProjectActivityService,
   ) {}
 
   async importArchive(
@@ -144,6 +146,13 @@ export class ProjectArchiveImportService {
       if (existsSync(storageRoot) && existsSync(bucketsPath)) {
         await this.restoreStorage(project.id, storageRoot, bucketsPath, warnings);
       }
+
+      await this.activity.append(project.id, {
+        userId,
+        kind: ProjectActivityKind.PROJECT_ZIP_IMPORTED,
+        title: 'Project ZIP imported',
+        detail: warnings.length ? `${warnings.length} warning(s)` : null,
+      });
 
       return {
         project: { id: project.id, name: project.name, slug: project.slug },

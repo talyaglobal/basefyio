@@ -31,6 +31,7 @@ function build(opts: { status: 'ACTIVE' | 'PAUSED' | 'DEACTIVATED'; role?: 'OWNE
     parent: null,
   };
   const prisma = {
+    projectActivityLog: { findFirst: jest.fn().mockResolvedValue(null) },
     project: {
       findFirst: jest.fn().mockResolvedValue(project),
       updateMany: jest.fn().mockResolvedValue({ count: opts.count ?? 1 }),

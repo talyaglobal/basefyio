@@ -260,17 +260,21 @@ export class SqlService implements OnModuleDestroy {
       // A dashboard editor runs as owner; an API-key caller runs under its DB
       // role so RLS applies. runWithRole owns the connection either way.
       // `queryMode` is in pg 8.18 but not in @types/pg.
-      const send = (client: import('pg').PoolClient, text: string) =>
-        readOnly
-          ? client.query({ text, values, queryMode: 'extended' } as import('pg').QueryConfig)
-          : client.query(text, values);
+      // Result rows come back as arrays: pg builds an object row by column name,
+      // so two columns of one name would collapse into one (see objectRows).
+      const send = (client: import('pg').PoolClient, text: string, asArrays = false) => {
+        const config = { text, values, ...(asArrays ? { rowMode: 'array' } : {}) };
+        return readOnly
+          ? client.query({ ...config, queryMode: 'extended' } as import('pg').QueryConfig)
+          : client.query(config as import('pg').QueryConfig);
+      };
       const { rawResult, countRaw, duration } = await this.runWithRole(
         project,
         projectId,
         opts?.rls,
         async (client) => {
           const t0 = Date.now();
-          const main = await send(client, runQuery);
+          const main = await send(client, runQuery, true);
           const dur = Date.now() - t0;
           let count: QueryResult | null = null;
           if (countSql) {
@@ -290,9 +294,9 @@ export class SqlService implements OnModuleDestroy {
       // node-postgres returns an array of results for a multi-statement query.
       // Show the last statement that returned rows (the final SELECT); fall back
       // to the last statement so non-SELECT scripts still report success.
-      const allResults: QueryResult[] = Array.isArray(rawResult)
-        ? (rawResult as QueryResult[])
-        : [rawResult as QueryResult];
+      const allResults: QueryResult[] = (
+        Array.isArray(rawResult) ? (rawResult as QueryResult[]) : [rawResult as QueryResult]
+      ).map((r) => this.objectRows(r));
       // Each statement in a multi-statement script gets its own result set so
       // the UI can show every query's output, not just the last one.
       const resultSets = allResults.map((r) => ({
@@ -507,6 +511,29 @@ export class SqlService implements OnModuleDestroy {
       await this.projectsService.ensureRlsBootstrap(projectId);
       return await attempt();
     }
+  }
+
+  /**
+   * Turn array rows into objects keyed by column name. A repeated name gets a
+   * suffix (count, count_1, ...) so `select count(*), count(*) filter (...)`
+   * keeps both values instead of the second overwriting the first.
+   */
+  private objectRows(r: QueryResult): QueryResult {
+    if (!r.fields?.length) return r;
+    const seen = new Set<string>();
+    const names = r.fields.map((f) => {
+      let name = f.name;
+      for (let i = 1; seen.has(name); i++) name = `${f.name}_${i}`;
+      seen.add(name);
+      return name;
+    });
+    return {
+      ...r,
+      fields: r.fields.map((f, i) => ({ ...f, name: names[i] })),
+      rows: (r.rows as unknown as unknown[][]).map((row) =>
+        Object.fromEntries(names.map((n, i) => [n, row[i]])),
+      ),
+    };
   }
 
   /**
