@@ -145,7 +145,7 @@ export class PlatformProberService implements OnApplicationBootstrap {
       })(),
       (async () => {
         if (!keyed) return null;
-        const r = await sseProbe(`https://api.${d}/api/realtime/v1/stream?channels=slo_probe`, 5000, keyed);
+        const r = await sseProbe(`https://api.${d}/api/realtime/v1/stream?channels=table:slo_probe`, 5000, keyed);
         return { probe: 'realtime' as const, ...r };
       })(),
     ];
