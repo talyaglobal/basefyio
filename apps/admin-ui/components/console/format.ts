@@ -1,26 +1,6 @@
 export { formatUsd } from '@/components/project-costs-panel';
 
-const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-/** Binary units, as storage tools report them: 1 MB = 1024 KB. */
-export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < UNITS.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)} ${UNITS[i]}`;
-}
-
-/** Megabytes with one decimal, for columns that compare projects side by side. */
-export function formatMb(bytes: number | null | undefined): string {
-  if (bytes == null) return '—';
-  const mb = bytes / (1024 * 1024);
-  return `${mb >= 100 ? Math.round(mb).toLocaleString('en-US') : mb.toFixed(1)} MB`;
-}
+export { formatBytes } from '@/lib/format';
 
 export function formatCount(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -45,5 +25,5 @@ export function timeAgo(iso: string | null | undefined): string {
 
 export function monthLabel(isoMonth: string): string {
   const [y, m] = isoMonth.slice(0, 7).split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }

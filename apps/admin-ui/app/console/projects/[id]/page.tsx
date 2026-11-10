@@ -11,7 +11,6 @@ import {
   formatBytes,
   formatCount,
   formatDate,
-  formatMb,
   formatUsd,
   monthLabel,
   timeAgo,
@@ -97,7 +96,7 @@ export default function ConsoleProjectPage() {
         <StatCard
           label="Footprint"
           value={formatBytes(footprint)}
-          hint={`${formatMb(database.sizeBytes)} database · ${formatMb(storage.totalBytes)} files`}
+          hint={`${formatBytes(database.sizeBytes)} database · ${formatBytes(storage.totalBytes)} files`}
         />
         <StatCard
           label="File storage"
@@ -196,7 +195,7 @@ export default function ConsoleProjectPage() {
                       <div className="text-xs text-muted-foreground">{b.bucket}</div>
                     </td>
                     <td className={tdRight}>{formatCount(b.objectCount)}</td>
-                    <td className={`${tdRight} font-medium`}>{formatMb(b.sizeBytes)}</td>
+                    <td className={`${tdRight} font-medium`}>{formatBytes(b.sizeBytes)}</td>
                     <td className={td}>
                       <Meter value={largestBucket ? b.sizeBytes / largestBucket : 0} />
                     </td>
@@ -209,7 +208,7 @@ export default function ConsoleProjectPage() {
 
         <Panel
           title="Largest tables"
-          description={`Database ${project.dbName} · ${formatMb(database.sizeBytes)} · measured ${timeAgo(database.measuredAt)}`}
+          description={`Database ${project.dbName} · ${formatBytes(database.sizeBytes)} · measured ${timeAgo(database.measuredAt)}`}
           flush
         >
           {database.tablesError ? (
@@ -317,8 +316,8 @@ export default function ConsoleProjectPage() {
                 {data.history.map((h) => (
                   <tr key={h.periodStart} className="border-b last:border-0">
                     <td className={td}>{monthLabel(h.periodStart)}</td>
-                    <td className={tdRight}>{formatMb(h.dbSizeBytes)}</td>
-                    <td className={tdRight}>{formatMb(h.storageBytes)}</td>
+                    <td className={tdRight}>{formatBytes(h.dbSizeBytes)}</td>
+                    <td className={tdRight}>{formatBytes(h.storageBytes)}</td>
                     <td className={tdRight}>{formatCount(h.apiRequests)}</td>
                   </tr>
                 ))}

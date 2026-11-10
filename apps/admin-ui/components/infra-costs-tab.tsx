@@ -9,15 +9,7 @@ import type { InfraCostConfig, PlatformCostReport, PlatformTeamCost, ProjectCost
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatUsd } from '@/components/project-costs-panel';
-
-const GB = 1024 ** 3;
-
-function fmtBytes(bytes: number): string {
-  if (bytes >= GB) return `${(bytes / GB).toFixed(bytes >= 100 * GB ? 0 : 2)} GB`;
-  const mb = bytes / 1024 ** 2;
-  if (mb >= 1) return `${mb.toFixed(0)} MB`;
-  return bytes > 0 ? `${Math.round(bytes / 1024)} KB` : '0';
-}
+import { formatBytes, formatNumber } from '@/lib/format';
 
 function fmtSigned(n: number): string {
   const abs = formatUsd(Math.abs(n));
@@ -58,10 +50,10 @@ function ProjectRows({ projects }: { projects: ProjectCostReport[] }) {
             <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.computeTier}</span>
             {p.status !== 'ACTIVE' && <span className="ml-1 text-[10px] uppercase">{projectStatusLabel(p.status)}</span>}
           </td>
-          <td className="py-1.5 pr-3 text-right tabular-nums">{Math.round(p.activeHours)} h</td>
-          <td className="py-1.5 pr-3 text-right tabular-nums">{fmtBytes(p.dbSizeBytes)}</td>
-          <td className="py-1.5 pr-3 text-right tabular-nums">{fmtBytes(p.storageBytes)}</td>
-          <td className="py-1.5 pr-3 text-right tabular-nums">{fmtBytes(p.bandwidthBytes)}</td>
+          <td className="py-1.5 pr-3 text-right tabular-nums">{formatNumber(Math.round(p.activeHours))} h</td>
+          <td className="py-1.5 pr-3 text-right tabular-nums">{formatBytes(p.dbSizeBytes)}</td>
+          <td className="py-1.5 pr-3 text-right tabular-nums">{formatBytes(p.storageBytes)}</td>
+          <td className="py-1.5 pr-3 text-right tabular-nums">{formatBytes(p.bandwidthBytes)}</td>
           <td className="py-1.5 pr-3 text-right tabular-nums">{p.apiRequests.toLocaleString('en-US')}</td>
           <td className="py-1.5 pr-3 text-right tabular-nums">{formatUsd(p.rawUsd)}</td>
           <td className="py-1.5 pr-3 text-right tabular-nums">{formatUsd(p.projectedRawUsd)}</td>
@@ -91,10 +83,10 @@ function TeamRow({ team, expanded, onToggle }: { team: PlatformTeamCost; expande
             <PlanBadge plan={team.plan} />
           </div>
         </td>
-        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{Math.round(sum((p) => p.activeHours))} h</td>
-        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{fmtBytes(sum((p) => p.dbSizeBytes))}</td>
-        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{fmtBytes(sum((p) => p.storageBytes))}</td>
-        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{fmtBytes(sum((p) => p.bandwidthBytes))}</td>
+        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{formatNumber(Math.round(sum((p) => p.activeHours)))} h</td>
+        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{formatBytes(sum((p) => p.dbSizeBytes))}</td>
+        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{formatBytes(sum((p) => p.storageBytes))}</td>
+        <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{formatBytes(sum((p) => p.bandwidthBytes))}</td>
         <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{sum((p) => p.apiRequests).toLocaleString('en-US')}</td>
         <td className="py-2.5 pr-3 text-right tabular-nums">{formatUsd(team.totals.rawUsd)}</td>
         <td className="py-2.5 pr-3 text-right tabular-nums font-medium">{formatUsd(team.totals.projectedRawUsd)}</td>
@@ -122,8 +114,8 @@ function NumberField({
   hint?: string;
 }) {
   return (
-    <label className="block text-xs">
-      <span className="text-muted-foreground">{label}</span>
+    <label className="block min-w-0 text-xs">
+      <span className="block truncate text-muted-foreground" title={label}>{label}</span>
       <Input
         type="number"
         step={step}
@@ -207,8 +199,8 @@ function RatesEditor({
         </div>
         <div className="mt-2 space-y-2">
           {draft.computeTiers.map((t, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-              <label className="block text-xs">
+            <div key={i} className="grid grid-cols-[repeat(3,minmax(0,1fr))_auto] gap-2 items-end">
+              <label className="block min-w-0 text-xs">
                 <span className="text-muted-foreground">Name</span>
                 <Input
                   value={t.name}
@@ -243,9 +235,9 @@ function RatesEditor({
         </div>
         <div className="mt-2 space-y-2">
           {draft.sharedTierByDbSize.map((r, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-              <label className="block text-xs">
-                <span className="text-muted-foreground">Database under (GB) — blank = everything else</span>
+            <div key={i} className="grid grid-cols-[repeat(2,minmax(0,1fr))_auto] gap-2 items-end">
+              <label className="block min-w-0 text-xs">
+                <span className="block truncate text-muted-foreground" title="Database under (GB) — blank = everything else">Database under (GB) — blank = everything else</span>
                 <Input
                   type="number"
                   step="any"
@@ -257,7 +249,7 @@ function RatesEditor({
                   className="mt-1 h-8 text-sm"
                 />
               </label>
-              <label className="block text-xs">
+              <label className="block min-w-0 text-xs">
                 <span className="text-muted-foreground">Tier</span>
                 <select
                   value={r.tier}
@@ -466,7 +458,7 @@ export function InfraCostsTab() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-sm">
               <thead>
-                <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground [&_th]:whitespace-nowrap">
                   <th className="pb-2 pr-3 font-medium">Team / project</th>
                   <th className="pb-2 pr-3 font-medium text-right">Compute</th>
                   <th className="pb-2 pr-3 font-medium text-right">Database</th>
@@ -476,10 +468,17 @@ export function InfraCostsTab() {
                   <th className="pb-2 pr-3 font-medium text-right">Our cost so far</th>
                   <th className="pb-2 pr-3 font-medium text-right">Our cost / month</th>
                   <th className="pb-2 pr-3 font-medium text-right">Priced / month</th>
-                  <th className="pb-2 font-medium text-right">Margin</th>
+                  <th className="pb-2 pr-2 font-medium text-right">Margin</th>
                 </tr>
               </thead>
               <tbody>
+                {visibleTeams.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
+                      No teams or projects match{query.trim() ? ` “${query.trim()}”` : ' this filter'}.
+                    </td>
+                  </tr>
+                )}
                 {visibleTeams.map((t) => (
                   <TeamRow key={t.teamId} team={t} expanded={expanded.has(t.teamId)} onToggle={() => toggle(t.teamId)} />
                 ))}

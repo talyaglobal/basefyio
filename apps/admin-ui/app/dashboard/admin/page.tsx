@@ -54,7 +54,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { RootAlertsPanel } from '@/components/root-alerts-panel';
 import { QuickbooksTab } from '@/components/quickbooks-tab';
 import { InfraCostsTab } from '@/components/infra-costs-tab';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, humanizeCode } from '@/lib/format';
 
 const ROLE_OPTIONS = ['USER', 'ADMIN', 'ROOT'] as const;
 const BYTE_UNITS = ['MB', 'GB'] as const;
@@ -187,6 +187,8 @@ export default function ManagementPage() {
   const [usersSearchQ, setUsersSearchQ] = useState('');
   const [teams, setTeams] = useState<ManagementTeam[]>([]);
   const [teamKindFilter, setTeamKindFilter] = useState<string>('all');
+  const [teamSearch, setTeamSearch] = useState('');
+  const [teamSort, setTeamSort] = useState<'newest' | 'name' | 'projects' | 'members'>('newest');
   const [featureFlags, setFeatureFlags] = useState<FeatureFlags | null>(null);
   const [savingFlag, setSavingFlag] = useState(false);
   const [flagUsers, setFlagUsers] = useState<FeatureFlagManagement['users'] | null>(null);
@@ -305,6 +307,22 @@ export default function ManagementPage() {
   const teamById = useMemo(() => {
     return new Map(teams.map((t) => [t.id, t] as const));
   }, [teams]);
+
+  const visibleTeams = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    const rows = teams.filter(
+      (t) =>
+        (teamKindFilter === 'all' || (t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')) === teamKindFilter) &&
+        (!q || [t.name, t.slug, t.publicId, t.owner?.email].some((v) => v?.toLowerCase().includes(q))),
+    );
+    const by = {
+      newest: (a: ManagementTeam, b: ManagementTeam) => b.createdAt.localeCompare(a.createdAt),
+      name: (a: ManagementTeam, b: ManagementTeam) => a.name.localeCompare(b.name),
+      projects: (a: ManagementTeam, b: ManagementTeam) => b.projectCount - a.projectCount,
+      members: (a: ManagementTeam, b: ManagementTeam) => b.memberCount - a.memberCount,
+    }[teamSort];
+    return rows.sort(by);
+  }, [teams, teamKindFilter, teamSearch, teamSort]);
 
   const deletionReasonByProjectId = useMemo(() => {
     const map = new Map<string, ProjectDeletionReasonEntry>();
@@ -1140,7 +1158,7 @@ export default function ManagementPage() {
                           <td className="max-w-[280px] truncate px-3 py-2 font-mono text-xs">{s.path}</td>
                           <td className="px-3 py-2">{s.warnings}</td>
                           <td className="px-3 py-2">{s.errors}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{s.lastDownloaded || '—'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{formatDateTime(s.lastDownloaded)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1174,8 +1192,12 @@ export default function ManagementPage() {
               </p>
             </div>
           ) : gaData && gaData.configured ? (() => {
-            const fmtLabel = (raw: string) =>
-              raw.length === 8 ? `${raw.slice(4, 6)}/${raw.slice(6, 8)}` : raw.slice(5, 10);
+            // GA4 days arrive as 20260924 or 2026-09-24; show "Sep 24" like every other date
+            const fmtLabel = (raw: string) => {
+              const iso = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw.slice(0, 10);
+              const d = new Date(`${iso}T00:00:00Z`);
+              return Number.isNaN(d.getTime()) ? raw : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+            };
             const fmtMetric = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
             const fmtDuration = (s: number) => {
               const m = Math.floor(s / 60);
@@ -1902,7 +1924,8 @@ export default function ManagementPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Project Deletion Reasons</h2>
           <p className="text-xs text-muted-foreground">
-            Last {projectDeletionReasons.length} records
+            Last {projectDeletionReasons.length} records. A deleted project stays in the trash for 24 hours and is then
+            removed for good, so Overview and the Projects "Deleted" filter count only what is still in the trash.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -1914,13 +1937,14 @@ export default function ManagementPage() {
                 <th className="px-2 py-2">Project</th>
                 <th className="px-2 py-2">Reason</th>
                 <th className="px-2 py-2">Details</th>
-                <th className="px-2 py-2">Time</th>
+                <th className="px-2 py-2">Status</th>
+                <th className="whitespace-nowrap px-2 py-2">Time</th>
               </tr>
             </thead>
             <tbody>
               {projectDeletionReasons.length === 0 ? (
                 <tr>
-                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={6}>
+                  <td className="px-2 py-5 text-center text-muted-foreground" colSpan={7}>
                     No project deletion reason records yet.
                   </td>
                 </tr>
@@ -1928,12 +1952,10 @@ export default function ManagementPage() {
                 projectDeletionReasons.map((row) => (
                   <tr key={row.id} className="border-b last:border-0">
                     <td className="px-2 py-2">
-                      <div className="font-medium">{row.actorName || '-'}</div>
-                      <div className="text-xs text-muted-foreground">{row.actorUserId || '-'}</div>
+                      <div className="font-medium" title={row.actorUserId || undefined}>{row.actorName || '-'}</div>
                     </td>
                     <td className="px-2 py-2">
-                      <div className="font-medium">{row.teamName || '-'}</div>
-                      <div className="text-xs text-muted-foreground">{row.teamId || '-'}</div>
+                      <div className="font-medium" title={row.teamId || undefined}>{row.teamName || '-'}</div>
                     </td>
                     <td className="max-w-[320px] px-2 py-2">
                       <p
@@ -1941,6 +1963,9 @@ export default function ManagementPage() {
                         title={row.projectName || row.projectId}
                       >
                         {row.projectName || row.projectId}
+                      </p>
+                      <p className="font-mono text-[11px] text-muted-foreground" title={row.projectId}>
+                        {row.projectId.slice(0, 8)}
                       </p>
                     </td>
                     <td className="px-2 py-2">{row.reasonLabel || 'None of the above'}</td>
@@ -1950,7 +1975,14 @@ export default function ManagementPage() {
                     >
                       {row.details || '-'}
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">
+                      {row.projectStatus === 'DELETED'
+                        ? 'In trash (24 h)'
+                        : row.projectStatus
+                          ? 'Restored'
+                          : 'Permanently deleted'}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">
                       {formatDateTime(row.createdAt)}
                     </td>
                   </tr>
@@ -2023,6 +2055,13 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
+              {users.length === 0 && !tabLoading && (
+                <tr>
+                  <td className="px-2 py-6 text-center text-muted-foreground" colSpan={9}>
+                    {usersSearchQ ? `No users match “${usersSearchQ}”.` : 'No users.'}
+                  </td>
+                </tr>
+              )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-2 py-2 font-medium">
@@ -2198,7 +2237,7 @@ export default function ManagementPage() {
                   <td className="px-2 py-2">
                     {u.signOnMethod !== 'local' ? (
                       <span
-                        className="inline-block cursor-not-allowed rounded-md border border-muted px-3 py-1.5 text-xs text-muted-foreground"
+                        className="inline-block cursor-not-allowed whitespace-nowrap rounded-md border border-muted px-3 py-1.5 text-xs text-muted-foreground"
                         title={`Password reset is disabled because this user signed up with ${u.signOnMethod}.`}
                       >
                         Reset Password
@@ -2207,6 +2246,7 @@ export default function ManagementPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="whitespace-nowrap"
                       onClick={() => {
                         setPasswordDialogUser(u);
                         setNewPassword('');
@@ -2477,6 +2517,29 @@ export default function ManagementPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Organizations</h2>
           <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-56">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={teamSearch}
+                onChange={(e) => setTeamSearch(e.target.value)}
+                placeholder="Search name, owner, id…"
+                className="h-8 pl-8 text-xs"
+                aria-label="Search organizations"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Sort
+              <select
+                value={teamSort}
+                onChange={(e) => setTeamSort(e.target.value as typeof teamSort)}
+                className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+              >
+                <option value="newest">Newest</option>
+                <option value="name">Name</option>
+                <option value="projects">Most projects</option>
+                <option value="members">Most members</option>
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Kind
               <select
@@ -2583,9 +2646,14 @@ export default function ManagementPage() {
               </tr>
             </thead>
             <tbody>
-              {teams
-                .filter((t) => teamKindFilter === 'all' || (t.kind ?? (t.isPersonal ? 'PERSONAL' : 'COMPANY')) === teamKindFilter)
-                .map((t) => (
+              {visibleTeams.length === 0 && (
+                <tr>
+                  <td className="px-2 py-6 text-center text-muted-foreground" colSpan={9}>
+                    No organizations match.
+                  </td>
+                </tr>
+              )}
+              {visibleTeams.map((t) => (
                 <tr key={t.id} className="border-b last:border-0">
                   <td className="px-2 py-2">
                     <div className="font-medium">{t.name}</div>
@@ -2670,20 +2738,26 @@ export default function ManagementPage() {
             className="h-9 w-full max-w-sm"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={auditDateFrom}
-              onChange={(e) => setAuditDateFrom(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              title="From date"
-            />
-            <input
-              type="date"
-              value={auditDateTo}
-              onChange={(e) => setAuditDateTo(e.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              title="To date"
-            />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              From
+              <input
+                type="date"
+                lang="en-US"
+                value={auditDateFrom}
+                onChange={(e) => setAuditDateFrom(e.target.value)}
+                className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              To
+              <input
+                type="date"
+                lang="en-US"
+                value={auditDateTo}
+                onChange={(e) => setAuditDateTo(e.target.value)}
+                className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+              />
+            </label>
             <select
               value={auditSeverityFilter}
               onChange={(e) =>
@@ -2784,10 +2858,10 @@ export default function ManagementPage() {
                       <button
                         type="button"
                         className="w-full truncate text-left font-medium hover:underline"
-                        title="Click to view full action"
+                        title={`${log.action} — click for details`}
                         onClick={() => setAuditActionPreview({ log })}
                       >
-                        {log.action}
+                        {humanizeCode(log.action)}
                       </button>
                     </td>
                     <td className="max-w-[220px] px-2 py-2">
@@ -2874,7 +2948,11 @@ export default function ManagementPage() {
               if (!log) return null;
               const actor = userById.get(log.actorUserId);
               const metadata = (log.metadataJson || {}) as Record<string, unknown>;
-              const nested = metadata.metadata as Record<string, unknown> | undefined;
+              // rows written before the fix hold the string "JsonNull" for an absent value
+              const nested =
+                metadata.metadata && typeof metadata.metadata === 'object'
+                  ? (metadata.metadata as Record<string, unknown>)
+                  : undefined;
               const method = typeof metadata.method === 'string' ? metadata.method : null;
               const url = typeof metadata.url === 'string' ? metadata.url : null;
               const statusCode =
@@ -2903,7 +2981,7 @@ export default function ManagementPage() {
               return (
                 <>
                   <div className="rounded-md border bg-muted/30 p-3">
-                    <p className="break-all text-sm font-semibold">{log.action}</p>
+                    <p className="break-all text-sm font-semibold" title={log.action}>{humanizeCode(log.action)}</p>
                   </div>
 
                   <div className="grid gap-2 text-sm">
@@ -2923,7 +3001,9 @@ export default function ManagementPage() {
                         `${log.resourceType}${log.resourceId ? `:${log.resourceId}` : ''}`}
                     </p>
                     <p><span className="font-medium">Trace:</span> <span className="font-mono text-xs">{log.traceId}</span></p>
-                    <p><span className="font-medium">HTTP:</span> {method || '-'} {url || '-'} {statusCode ? `(${statusCode})` : ''}</p>
+                    {(method || url) && (
+                      <p><span className="font-medium">HTTP:</span> {method} {url} {statusCode ? `(${statusCode})` : ''}</p>
+                    )}
                     <p><span className="font-medium">Latency:</span> {Number.isFinite(latencyMs as number) ? `${latencyMs} ms` : '-'}</p>
                   </div>
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { projectStatusLabel } from '@/lib/utils';
+import { formatBytes } from '@/lib/format';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Info } from 'lucide-react';
 import type { CustomerProjectCost, TeamCostReport } from '@/lib/types';
@@ -16,11 +17,6 @@ function formatRate(n: number, unit: string): string {
   if (n === 0) return 'Included';
   const digits = n >= 1 ? 2 : n >= 0.01 ? 3 : 4;
   return `$${n.toFixed(digits)}${unit}`;
-}
-
-function formatMeteredBytes(bytes: number): string {
-  const mb = bytes / 1024 ** 2;
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
 }
 
 type SortKey = 'cost' | 'projected' | 'name';
@@ -211,11 +207,11 @@ export function ProjectCostsPanel({
               </div>
               <dl className="grid grid-cols-2 gap-y-1 text-muted-foreground">
                 <dt className="text-foreground/80">Database &amp; file storage</dt>
-                <dd className="text-right tabular-nums">{formatRate(rates.diskUsdPerGbMonth, '/GB-month')}</dd>
+                <dd className="whitespace-nowrap text-right tabular-nums">{formatRate(rates.diskUsdPerGbMonth, '/GB-month')}</dd>
                 <dt className="text-foreground/80">Egress</dt>
-                <dd className="text-right tabular-nums">{formatRate(rates.egressUsdPerGb, '/GB')}</dd>
+                <dd className="whitespace-nowrap text-right tabular-nums">{formatRate(rates.egressUsdPerGb, '/GB')}</dd>
                 <dt className="text-foreground/80">API requests</dt>
-                <dd className="text-right tabular-nums">{formatRate(rates.apiRequestsUsdPerMillion, '/M')}</dd>
+                <dd className="whitespace-nowrap text-right tabular-nums">{formatRate(rates.apiRequestsUsdPerMillion, '/M')}</dd>
               </dl>
             </div>
           )}
@@ -281,7 +277,7 @@ export function ProjectCostsPanel({
                   what is tied to your current projects, so{' '}
                   {[
                     otherRequests > 0 ? `${otherRequests.toLocaleString('en-US')} requests` : null,
-                    otherBytes > 0 ? `${formatMeteredBytes(otherBytes)} of traffic` : null,
+                    otherBytes > 0 ? `${formatBytes(otherBytes)} of traffic` : null,
                   ]
                     .filter(Boolean)
                     .join(' and ')}{' '}

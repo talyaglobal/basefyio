@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import type { ConsoleProjectList, ConsoleProjectRow } from '@/lib/console-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCount, formatDate, formatMb, formatUsd, timeAgo } from '@/components/console/format';
+import { formatBytes, formatCount, formatDate, formatUsd, timeAgo } from '@/components/console/format';
 import { ErrorState, PageHeader, Panel, Spinner, StatusBadge, td, tdRight, th, thRight } from '@/components/console/ui';
 import { cn } from '@/lib/utils';
 
@@ -227,12 +227,12 @@ export default function ConsoleProjectsPage() {
                         '—'
                       )}
                     </td>
-                    <td className={tdRight}>{formatMb(p.dbSizeBytes)}</td>
-                    <td className={tdRight}>{formatMb(p.storageBytes)}</td>
-                    <td className={`${tdRight} font-medium`}>{formatMb(p.dbSizeBytes + p.storageBytes)}</td>
+                    <td className={tdRight}>{formatBytes(p.dbSizeBytes)}</td>
+                    <td className={tdRight}>{formatBytes(p.storageBytes)}</td>
+                    <td className={`${tdRight} font-medium`}>{formatBytes(p.dbSizeBytes + p.storageBytes)}</td>
                     <td className={tdRight}>{p.bucketCount ?? '—'}</td>
                     <td className={tdRight}>{formatCount(p.apiRequests)}</td>
-                    <td className={tdRight}>{formatMb(p.bandwidthBytes)}</td>
+                    <td className={tdRight}>{formatBytes(p.bandwidthBytes)}</td>
                     <td className={tdRight}>
                       {p.cost ? (
                         <>
@@ -259,12 +259,12 @@ export default function ConsoleProjectsPage() {
                     <td className={td} colSpan={3}>
                       Total · {rows.length} projects
                     </td>
-                    <td className={tdRight}>{formatMb(totals.db)}</td>
-                    <td className={tdRight}>{formatMb(totals.storage)}</td>
-                    <td className={tdRight}>{formatMb(totals.db + totals.storage)}</td>
+                    <td className={tdRight}>{formatBytes(totals.db)}</td>
+                    <td className={tdRight}>{formatBytes(totals.storage)}</td>
+                    <td className={tdRight}>{formatBytes(totals.db + totals.storage)}</td>
                     <td className={tdRight}>{totals.buckets}</td>
                     <td className={tdRight}>{formatCount(totals.api)}</td>
-                    <td className={tdRight}>{formatMb(totals.egress)}</td>
+                    <td className={tdRight}>{formatBytes(totals.egress)}</td>
                     <td className={tdRight}>
                       <div>{formatUsd(totals.cost)}</div>
                       <div className="text-xs font-normal text-muted-foreground">{formatUsd(totals.price)}</div>

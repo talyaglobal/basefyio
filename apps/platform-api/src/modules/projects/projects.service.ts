@@ -1417,6 +1417,7 @@ export class ProjectsService implements OnApplicationBootstrap {
             select: {
               id: true,
               name: true,
+              status: true,
               teamId: true,
               team: { select: { id: true, name: true } },
             },
@@ -1458,6 +1459,8 @@ export class ProjectsService implements OnApplicationBootstrap {
         })(),
         teamId: projectById.get(x.projectId)?.team?.id || projectById.get(x.projectId)?.teamId || null,
         teamName: projectById.get(x.projectId)?.team?.name || null,
+        // null: the project row is gone (soft-deleted projects are purged after 24 hours)
+        projectStatus: projectById.get(x.projectId)?.status ?? null,
         reasonCode:
           typeof metadata.reasonCode === 'string' ? metadata.reasonCode : null,
         reasonLabel:

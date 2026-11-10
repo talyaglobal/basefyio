@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, humanizeCode, humanizeMessage } from '@/lib/format';
 
 function severityClass(severity: string) {
   const v = severity.toUpperCase();
@@ -118,7 +118,7 @@ export function RootAlertsPanel({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{a.title}</p>
-                  <p className="text-xs text-muted-foreground">{a.message}</p>
+                  <p className="text-xs text-muted-foreground">{humanizeMessage(a.message)}</p>
                   {(a.relatedActorDisplay || a.relatedTargetDisplay) && (
                     <div className="mt-2 space-y-0.5 rounded-md bg-muted/40 px-2 py-1.5 text-[11px] text-foreground/90">
                       {a.relatedActorDisplay && (
@@ -194,7 +194,7 @@ export function RootAlertsPanel({
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Alert</p>
                 <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                   <div><span className="text-muted-foreground">ID:</span> <span className="ml-1 font-mono text-xs">{selectedAlert.id}</span></div>
-                  <div><span className="text-muted-foreground">Kind:</span> <span className="ml-1">{selectedAlert.kind}</span></div>
+                  <div><span className="text-muted-foreground">Kind:</span> <span className="ml-1" title={selectedAlert.kind}>{humanizeCode(selectedAlert.kind)}</span></div>
                   <div><span className="text-muted-foreground">Severity:</span> <span className="ml-1">{selectedAlert.severity}</span></div>
                   <div><span className="text-muted-foreground">Read:</span> <span className="ml-1">{selectedAlert.isRead ? 'Yes' : 'No'}</span></div>
                   <div><span className="text-muted-foreground">Created:</span> <span className="ml-1">{formatDateTime(selectedAlert.createdAt)}</span></div>
@@ -223,7 +223,7 @@ export function RootAlertsPanel({
                 )}
                 <div className="mt-3">
                   <p className="font-medium">{selectedAlert.title}</p>
-                  <p className="mt-1 text-muted-foreground">{selectedAlert.message}</p>
+                  <p className="mt-1 text-muted-foreground">{humanizeMessage(selectedAlert.message)}</p>
                 </div>
               </div>
 
@@ -237,7 +237,7 @@ export function RootAlertsPanel({
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Related Audit</p>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <div><span className="text-muted-foreground">Trace ID:</span> <span className="ml-1 font-mono text-xs">{selectedAudit.traceId}</span></div>
-                      <div><span className="text-muted-foreground">Action:</span> <span className="ml-1">{selectedAudit.action}</span></div>
+                      <div><span className="text-muted-foreground">Action:</span> <span className="ml-1" title={selectedAudit.action}>{humanizeCode(selectedAudit.action)}</span></div>
                       <div className="md:col-span-2">
                         <span className="text-muted-foreground">Actor:</span>
                         {selectedAudit.actorDisplayName ? (

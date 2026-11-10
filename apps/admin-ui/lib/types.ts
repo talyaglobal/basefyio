@@ -586,6 +586,8 @@ export interface ProjectDeletionReasonEntry {
   projectName: string | null;
   teamId?: string | null;
   teamName?: string | null;
+  /** DELETED while in the 24-hour trash; null once the project is permanently removed. */
+  projectStatus?: string | null;
   reasonCode: string | null;
   reasonLabel: string | null;
   details: string | null;

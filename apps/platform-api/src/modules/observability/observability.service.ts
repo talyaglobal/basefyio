@@ -185,7 +185,8 @@ export class ObservabilityService {
         afterJson: params.afterJson != null ? params.afterJson : defaultAfter,
         metadataJson: {
           latencyMs: params.latencyMs,
-          metadata: params.metadataJson ?? Prisma.JsonNull,
+          // an absent value is left out; Prisma.JsonNull inside a JSON object is stored as the string "JsonNull"
+          ...(params.metadataJson != null ? { metadata: params.metadataJson } : {}),
         } as Prisma.InputJsonValue,
       },
     });
@@ -215,35 +216,72 @@ export class ObservabilityService {
     return row;
   }
 
-  private async attachUserLabelsToAuditLogs(rows: AuditLog[]) {
+  /**
+   * Readable actor and target labels for audit rows: users by name, project-key actors
+   * ("project:<id>[/user:<sub>]") and team/project targets by their names, never a bare id.
+   */
+  private async entityLabels(rows: Array<Pick<AuditLog, 'actorUserId' | 'resourceType' | 'resourceId'>>) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const keyActor = (id: string | null | undefined) => /^project:([0-9a-f-]{36})(?:\/user:(.+))?$/i.exec(id ?? '');
+    const kind = (t: string | null | undefined) => String(t ?? '').toLowerCase();
     const userIds = new Set<string>();
+    const teamIds = new Set<string>();
+    const projectIds = new Set<string>();
     for (const r of rows) {
-      userIds.add(r.actorUserId);
-      if (r.resourceId && String(r.resourceType).toLowerCase() === 'user') {
-        userIds.add(r.resourceId);
-      }
+      const k = keyActor(r.actorUserId);
+      if (k) {
+        projectIds.add(k[1]);
+        if (k[2]) userIds.add(k[2]);
+      } else if (r.actorUserId) userIds.add(r.actorUserId);
+      if (!r.resourceId) continue;
+      const t = kind(r.resourceType);
+      if (t === 'user') userIds.add(r.resourceId);
+      else if (t === 'team' && uuid.test(r.resourceId)) teamIds.add(r.resourceId);
+      else if ((t === 'project' || t === 'projects') && uuid.test(r.resourceId)) projectIds.add(r.resourceId);
     }
-    if (userIds.size === 0) {
-      return rows.map((r) => ({
-        ...r,
-        actorDisplayName: null as string | null,
-        resourceDisplayName: null as string | null,
-      }));
-    }
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: [...userIds] } },
-      select: { id: true, email: true, firstName: true, lastName: true },
-    });
-    const byId = new Map(users.map((u) => [u.id, u] as const));
+    const [users, teams, projects] = await Promise.all([
+      userIds.size
+        ? this.prisma.user.findMany({
+            where: { id: { in: [...userIds] } },
+            select: { id: true, email: true, firstName: true, lastName: true },
+          })
+        : [],
+      teamIds.size
+        ? this.prisma.team.findMany({ where: { id: { in: [...teamIds] } }, select: { id: true, name: true } })
+        : [],
+      projectIds.size
+        ? this.prisma.project.findMany({ where: { id: { in: [...projectIds] } }, select: { id: true, name: true } })
+        : [],
+    ]);
+    const userBy = new Map(users.map((u) => [u.id, u] as const));
+    const teamBy = new Map(teams.map((t) => [t.id, t.name] as const));
+    const projectBy = new Map(projects.map((p) => [p.id, p.name] as const));
+    const userLabel = (id: string) => formatUserLabel(userBy.get(id)) + ` · id ${id}`;
+    return {
+      actor: (id: string): string => {
+        const k = keyActor(id);
+        if (!k) return userLabel(id);
+        const via = k[2] ? ` (as ${formatUserLabel(userBy.get(k[2]))})` : '';
+        return `Project key · ${projectBy.get(k[1]) ?? 'deleted project'}${via}`;
+      },
+      resource: (type: string | null | undefined, id: string | null | undefined): string | null => {
+        if (!id) return null;
+        const t = kind(type);
+        if (t === 'user') return userLabel(id);
+        if (t === 'team') return `Team: ${teamBy.get(id) ?? id}`;
+        if (t === 'project' || t === 'projects') return `Project: ${projectBy.get(id) ?? id}`;
+        return `${type}: ${id}`;
+      },
+    };
+  }
+
+  private async attachUserLabelsToAuditLogs(rows: AuditLog[]) {
+    if (rows.length === 0) return [];
+    const labels = await this.entityLabels(rows);
     return rows.map((r) => ({
       ...r,
-      actorDisplayName: formatUserLabel(byId.get(r.actorUserId)) + ` · id ${r.actorUserId}`,
-      resourceDisplayName:
-        r.resourceId && String(r.resourceType).toLowerCase() === 'user'
-          ? formatUserLabel(byId.get(r.resourceId)) + ` · id ${r.resourceId}`
-          : r.resourceId
-            ? `${r.resourceType}: ${r.resourceId}`
-            : null,
+      actorDisplayName: labels.actor(r.actorUserId),
+      resourceDisplayName: labels.resource(r.resourceType, r.resourceId),
     }));
   }
 
@@ -253,50 +291,17 @@ export class ObservabilityService {
       take: Math.min(Math.max(limit, 1), 200),
     });
     const auditIds = alerts.map((a) => a.relatedAuditLogId).filter((id): id is string => !!id);
-    if (auditIds.length === 0) {
-      return alerts.map((a) => ({
-        ...a,
-        relatedActorDisplay: null as string | null,
-        relatedTargetDisplay: null as string | null,
-      }));
-    }
-    const audits = await this.prisma.auditLog.findMany({
-      where: { id: { in: auditIds } },
-    });
+    const audits = auditIds.length
+      ? await this.prisma.auditLog.findMany({ where: { id: { in: auditIds } } })
+      : [];
     const auditById = new Map(audits.map((x) => [x.id, x] as const));
-    const userIds = new Set<string>();
-    for (const a of audits) {
-      userIds.add(a.actorUserId);
-      if (a.resourceId && String(a.resourceType).toLowerCase() === 'user') {
-        userIds.add(a.resourceId);
-      }
-    }
-    const users =
-      userIds.size > 0
-        ? await this.prisma.user.findMany({
-            where: { id: { in: [...userIds] } },
-            select: { id: true, email: true, firstName: true, lastName: true },
-          })
-        : [];
-    const byId = new Map(users.map((u) => [u.id, u] as const));
+    const labels = audits.length ? await this.entityLabels(audits) : null;
     return alerts.map((alert) => {
       const audit = alert.relatedAuditLogId ? auditById.get(alert.relatedAuditLogId) : undefined;
-      let relatedActorDisplay: string | null = null;
-      let relatedTargetDisplay: string | null = null;
-      if (audit) {
-        relatedActorDisplay =
-          formatUserLabel(byId.get(audit.actorUserId)) + ` · id ${audit.actorUserId}`;
-        if (audit.resourceId && String(audit.resourceType).toLowerCase() === 'user') {
-          relatedTargetDisplay =
-            formatUserLabel(byId.get(audit.resourceId)) + ` · id ${audit.resourceId}`;
-        } else if (audit.resourceId) {
-          relatedTargetDisplay = `${audit.resourceType}: ${audit.resourceId}`;
-        }
-      }
       return {
         ...alert,
-        relatedActorDisplay,
-        relatedTargetDisplay,
+        relatedActorDisplay: audit && labels ? labels.actor(audit.actorUserId) : null,
+        relatedTargetDisplay: audit && labels ? labels.resource(audit.resourceType, audit.resourceId) : null,
       };
     });
   }

@@ -102,7 +102,7 @@ export default function ConsoleOverviewPage() {
           label="Projects"
           icon={Box}
           value={formatCount(counts.projects.active)}
-          hint={`${counts.projects.paused + counts.projects.deactivated} deactivated · ${counts.projects.deleted} deleted`}
+          hint={`${counts.projects.paused + counts.projects.deactivated} deactivated · ${counts.projects.deleted} in trash (removed after 24 h)`}
         />
         <StatCard
           label="Databases"

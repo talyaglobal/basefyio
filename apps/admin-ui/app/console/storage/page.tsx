@@ -7,7 +7,8 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { ConsoleStorage, StorageCategory } from '@/lib/console-types';
 import { Button } from '@/components/ui/button';
-import { formatBytes, formatCount, formatDate, formatMb, timeAgo } from '@/components/console/format';
+import { Input } from '@/components/ui/input';
+import { formatBytes, formatCount, formatDate, timeAgo } from '@/components/console/format';
 import {
   ErrorState,
   Meter,
@@ -23,10 +24,12 @@ import {
 } from '@/components/console/ui';
 import { cn } from '@/lib/utils';
 
+const PAGE = 50;
+
 const CATEGORIES: Array<{ key: StorageCategory; label: string; hint: string }> = [
   { key: 'project', label: 'Live projects', hint: 'Active and deactivated projects' },
   { key: 'deleted_project', label: 'Deleted projects', hint: 'Left behind by deleted projects' },
-  { key: 'platform', label: 'Platform', hint: 'Feedback attachments, marketing renders' },
+  { key: 'platform', label: 'Platform', hint: 'Backups, exports, imports, feedback attachments' },
   { key: 'orphan', label: 'No owner', hint: 'Matches no project at all' },
 ];
 
@@ -35,6 +38,8 @@ export default function ConsoleStoragePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StorageCategory | 'all'>('all');
+  const [query, setQuery] = useState('');
+  const [shown, setShown] = useState(PAGE);
   const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -69,10 +74,14 @@ export default function ConsoleStoragePage() {
     }
   }
 
-  const buckets = useMemo(
-    () => (data?.buckets ?? []).filter((b) => filter === 'all' || b.category === filter),
-    [data, filter],
-  );
+  const buckets = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.buckets ?? []).filter(
+      (b) =>
+        (filter === 'all' || b.category === filter) &&
+        (!q || [b.bucket, b.project?.name, b.project?.teamName].some((v) => v?.toLowerCase().includes(q))),
+    );
+  }, [data, filter, query]);
 
   if (loading && !data) return <Spinner />;
   if (error && !data) return <ErrorState message={error} onRetry={load} />;
@@ -115,11 +124,23 @@ export default function ConsoleStoragePage() {
         title={filter === 'all' ? 'All buckets' : CATEGORIES.find((c) => c.key === filter)?.label}
         description={`${buckets.length} buckets · ${formatBytes(buckets.reduce((s, b) => s + b.sizeBytes, 0))}`}
         actions={
-          filter !== 'all' && (
-            <button onClick={() => setFilter('all')} className="text-xs font-medium text-primary hover:underline">
-              Show all
-            </button>
-          )
+          <div className="flex items-center gap-3">
+            <Input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setShown(PAGE);
+              }}
+              placeholder="Search bucket, project or team…"
+              aria-label="Search buckets"
+              className="h-8 w-60 text-sm"
+            />
+            {filter !== 'all' && (
+              <button onClick={() => setFilter('all')} className="text-xs font-medium text-primary hover:underline">
+                Show all
+              </button>
+            )}
+          </div>
         }
         flush
       >
@@ -141,7 +162,14 @@ export default function ConsoleStoragePage() {
                 </tr>
               </thead>
               <tbody>
-                {buckets.map((b) => (
+                {buckets.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                      No buckets match{query ? ` “${query.trim()}”` : ' this filter'}.
+                    </td>
+                  </tr>
+                )}
+                {buckets.slice(0, shown).map((b) => (
                   <tr key={b.bucket} className="border-b last:border-0 hover:bg-muted/40">
                     <td className={`${td} font-mono text-xs`}>{b.bucket}</td>
                     <td className={td}>
@@ -160,7 +188,7 @@ export default function ConsoleStoragePage() {
                       )}
                     </td>
                     <td className={tdRight}>{formatCount(b.objectCount)}</td>
-                    <td className={`${tdRight} font-medium`}>{formatMb(b.sizeBytes)}</td>
+                    <td className={`${tdRight} font-medium`}>{formatBytes(b.sizeBytes)}</td>
                     <td className={td}>
                       <Meter value={largest ? b.sizeBytes / largest : 0} />
                     </td>
@@ -169,6 +197,13 @@ export default function ConsoleStoragePage() {
                 ))}
               </tbody>
             </table>
+            {buckets.length > shown && (
+              <div className="border-t p-3 text-center">
+                <Button variant="outline" size="sm" onClick={() => setShown((n) => n + PAGE)}>
+                  Show {Math.min(PAGE, buckets.length - shown)} more ({formatCount(buckets.length - shown)} left)
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Panel>
