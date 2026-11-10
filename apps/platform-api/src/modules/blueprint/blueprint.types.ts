@@ -26,6 +26,14 @@ export interface DataModelTable {
 
 export interface DataModel {
   tables: DataModelTable[];
+  /** Notes for the user, e.g. a source column renamed because it collides with a system column. */
+  warnings?: string[];
+}
+
+export interface UpdateBlueprintInput {
+  name?: string;
+  /** Edited tables; replaces the inferred data model until the tables are being generated. */
+  dataModel?: DataModel;
 }
 
 export type BlueprintDomain = 'crm' | 'inventory' | 'orders' | 'hr' | 'generic';

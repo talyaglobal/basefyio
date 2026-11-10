@@ -1,7 +1,7 @@
 import { buildDataModel, detectDomain, buildApplicationModel } from './blueprint-builder';
 
 describe('blueprint-builder', () => {
-  it('infers tables and drops reserved columns (id/created_at/updated_at)', () => {
+  it('keeps a source column that collides with a system column under a new name, with a warning', () => {
     const dm = buildDataModel({
       teamId: 't',
       sheets: [
@@ -14,10 +14,33 @@ describe('blueprint-builder', () => {
     });
     expect(dm.tables).toHaveLength(1);
     const cols = dm.tables[0].columns.map((c) => c.name);
-    expect(cols).toContain('name');
-    expect(cols).toContain('email');
-    expect(cols).not.toContain('id');
-    expect(cols).not.toContain('created_at');
+    expect(cols).toEqual(['source_id', 'name', 'email', 'source_created_at']);
+    expect(dm.warnings).toHaveLength(2);
+    expect(dm.warnings![1]).toContain('source_created_at');
+  });
+
+  it('reads Turkish decimals and dates as numbers and dates, and folds Turkish letters', () => {
+    const dm = buildDataModel({
+      teamId: 't',
+      sheets: [
+        {
+          name: 'musteriler',
+          headers: ['Müşteri Adı', 'Şehir', 'Tutar', 'Kayıt Tarihi'],
+          rows: [
+            ['Ayşe', 'İzmir', '12,50', '01.02.2026'],
+            ['Can', 'Ankara', '7,25', '15.03.2026'],
+          ],
+        },
+      ],
+    });
+    const byName = Object.fromEntries(dm.tables[0].columns.map((c) => [c.name, c.type]));
+    expect(byName).toEqual({
+      musteri_adi: 'text',
+      sehir: 'text',
+      tutar: 'numeric',
+      kayit_tarihi: 'date',
+    });
+    expect(dm.warnings).toBeUndefined();
   });
 
   it('detects the orders domain from sheet/column names', () => {

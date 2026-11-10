@@ -15,7 +15,7 @@ import {
   JwtPayload,
 } from '../../common/decorators/current-user.decorator';
 import { BlueprintService } from './blueprint.service';
-import { AnalyzeBlueprintInput, ApplicationModel } from './blueprint.types';
+import { AnalyzeBlueprintInput, ApplicationModel, UpdateBlueprintInput } from './blueprint.types';
 
 @Controller('blueprints')
 @UseGuards(JwtAuthGuard)
@@ -35,6 +35,15 @@ export class BlueprintController {
   @Get(':id')
   get(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.blueprint.get(id, user?.sub);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() body: UpdateBlueprintInput,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.blueprint.update(id, body, user?.sub);
   }
 
   @Patch(':id/approve')

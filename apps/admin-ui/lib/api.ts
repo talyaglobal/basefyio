@@ -108,6 +108,7 @@ import type {
   FlowRun,
   AnalyzeBlueprintInput,
   ApplicationModel,
+  DataModel,
   BlueprintSummary,
   BlueprintDetail,
   BlueprintGenerateResult,
@@ -2075,6 +2076,12 @@ export const api = {
     },
     get(id: string) {
       return request<BlueprintDetail>(`/blueprints/${id}`);
+    },
+    update(id: string, body: { name?: string; dataModel?: DataModel }) {
+      return request<BlueprintDetail>(`/blueprints/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
     },
     approve(id: string, applicationModel: ApplicationModel) {
       return request<BlueprintDetail>(`/blueprints/${id}/approve`, {

@@ -1,4 +1,5 @@
 import {
+  detectValueFormat,
   inferSchema,
   sanitizeColumnName,
 } from '../data-import/lib/type-inferrer';
@@ -28,26 +29,37 @@ const DOMAIN_KPIS: Record<BlueprintDomain, string[]> = {
   generic: ['Total records', 'Recently added'],
 };
 
+/** Added automatically to every generated table (see createRelationalTable). */
+export const RESERVED_COLUMNS = new Set(['id', 'created_at', 'updated_at']);
+
 /** Build the inferred DataModel from raw sheets (reuses data-import inference). */
 export function buildDataModel(input: AnalyzeBlueprintInput): DataModel {
   const exclude = new Set((input.excludeSheets ?? []).map((s) => s.toLowerCase()));
-  // These are added automatically to every generated table, so drop any inferred
-  // columns that would collide with them.
-  const RESERVED = new Set(['id', 'created_at', 'updated_at']);
   const tables: DataModelTable[] = [];
+  const warnings: string[] = [];
   for (const sheet of input.sheets ?? []) {
     if (!sheet?.name || exclude.has(sheet.name.toLowerCase())) continue;
-    const columns = inferSchema(sheet.headers ?? [], sheet.rows ?? []).filter(
-      (c) => !RESERVED.has(c.name.toLowerCase()),
-    );
+    const rows = sheet.rows ?? [];
+    // Read "12,50" and "01.02.2026" the way the file writes them (Turkish/European files).
+    const columns = inferSchema(sheet.headers ?? [], rows, detectValueFormat(rows));
     if (columns.length === 0) continue;
-    tables.push({
-      name: sanitizeColumnName(sheet.name, 0),
-      label: sheet.name,
-      columns,
-    });
+    // A source column that collides with a system column is kept under a new name
+    // instead of being dropped, so the user's own values are not lost.
+    const taken = new Set(columns.map((c) => c.name));
+    const tableName = sanitizeColumnName(sheet.name, 0);
+    for (const c of columns) {
+      if (!RESERVED_COLUMNS.has(c.name)) continue;
+      let renamed = `source_${c.name}`;
+      for (let i = 2; taken.has(renamed); i++) renamed = `source_${c.name}_${i}`;
+      warnings.push(
+        `${tableName}: column "${c.originalName}" is a system column (${c.name}) and was renamed to ${renamed}`,
+      );
+      taken.add(renamed);
+      c.name = renamed;
+    }
+    tables.push({ name: tableName, label: sheet.name, columns });
   }
-  return { tables };
+  return warnings.length ? { tables, warnings } : { tables };
 }
 
 export function detectDomain(dataModel: DataModel): BlueprintDomain {

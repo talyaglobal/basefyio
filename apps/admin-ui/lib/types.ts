@@ -1559,6 +1559,7 @@ export interface DataModelTable {
 
 export interface DataModel {
   tables: DataModelTable[];
+  warnings?: string[];
 }
 
 export interface AppRole {

@@ -10,6 +10,9 @@ import type {
   BlueprintSummary,
   BlueprintDetail,
   BlueprintSheet,
+  DataModel,
+  DataModelTable,
+  InferredColumn,
   ProjectListItem,
   MigrationRun,
 } from '@/lib/types';
@@ -27,10 +30,12 @@ import {
   Table2,
   Database,
   Download,
+  Pencil,
 } from 'lucide-react';
 import { formatDate } from '@/lib/format';
 
 const MAX_SAMPLE_ROWS = 200;
+const COLUMN_TYPES = ['text', 'integer', 'bigint', 'numeric', 'boolean', 'date', 'timestamptz', 'uuid', 'jsonb'];
 
 /** A small starter workbook: one sheet per table, header row + example rows. */
 function downloadTemplate() {
@@ -56,16 +61,46 @@ function downloadTemplate() {
   XLSX.writeFile(wb, 'basefyio-starter-template.xlsx');
 }
 
+/**
+ * CSV bytes are decoded here: SheetJS reads a byte array as Latin-1, which turns
+ * UTF-8 Turkish text into mojibake. A BOM decides; otherwise strictly valid UTF-8
+ * wins and anything else is Windows-1254 (what Turkish Excel saves).
+ */
+function decodeCsv(buf: ArrayBuffer): string {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf);
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(buf);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    return new TextDecoder('windows-1254').decode(buf);
+  }
+}
+
+/** An Excel date cell as text in the user's own calendar (no UTC shift): date only at midnight. */
+function dateCell(v: unknown): unknown {
+  if (!(v instanceof Date)) return v;
+  const p = (n: number) => String(n).padStart(2, '0');
+  const day = `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  return v.getHours() || v.getMinutes() || v.getSeconds() ? `${day} ${p(v.getHours())}:${p(v.getMinutes())}:${p(v.getSeconds())}` : day;
+}
+
 async function parseSheets(file: File): Promise<BlueprintSheet[]> {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array' });
+  const isCsv = /\.csv$/i.test(file.name);
+  // raw: keep CSV cells as text ("12,50", "01.02.2026"); the server reads them in the file's locale.
+  const wb = isCsv
+    ? XLSX.read(decodeCsv(buf), { type: 'string', raw: true })
+    : XLSX.read(buf, { type: 'array', cellDates: true });
   const sheets: BlueprintSheet[] = [];
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
+  for (const sheetName of wb.SheetNames) {
+    // A CSV has one anonymous sheet: the table takes the file's name.
+    const name = isCsv ? file.name.replace(/\.csv$/i, '') : sheetName;
+    const ws = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false });
     if (rows.length < 2) continue;
     const headers = (rows[0] as unknown[]).map((h) => String(h ?? ''));
-    const dataRows = rows.slice(1, 1 + MAX_SAMPLE_ROWS) as unknown[][];
+    const dataRows = (rows.slice(1, 1 + MAX_SAMPLE_ROWS) as unknown[][]).map((r) => r.map(dateCell));
     sheets.push({ name, headers, rows: dataRows });
   }
   return sheets;
@@ -245,6 +280,7 @@ export function BlueprintDetailView({
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState<MigrationRun | null>(null);
   const resyncRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState<DataModel | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -316,6 +352,36 @@ export function BlueprintDetailView({
       await load();
     } catch (e: any) {
       toast.error(e?.message || 'Failed to apply migration');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const editTable = (ti: number, patch: Partial<DataModelTable>) =>
+    setDraft((d) => d && { ...d, tables: d.tables.map((t, i) => (i === ti ? { ...t, ...patch } : t)) });
+
+  const editColumn = (ti: number, ci: number, patch: Partial<InferredColumn>) =>
+    setDraft(
+      (d) =>
+        d && {
+          ...d,
+          tables: d.tables.map((t, i) =>
+            i === ti ? { ...t, columns: t.columns.map((c, j) => (j === ci ? { ...c, ...patch } : c)) } : t,
+          ),
+        },
+    );
+
+  const saveDraft = async () => {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      await api.blueprints.update(id, { dataModel: draft });
+      setDraft(null);
+      setPlan(null);
+      toast.success('Data model saved');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save');
     } finally {
       setBusy(false);
     }
@@ -418,32 +484,113 @@ export function BlueprintDetailView({
 
       {/* Tables */}
       <div className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Data model ({bp.dataModel.tables.length} table{bp.dataModel.tables.length === 1 ? '' : 's'})
-        </h2>
-        {bp.dataModel.tables.map((t) => (
-          <div key={t.name} className="rounded-lg border bg-card p-4">
-            <div className="mb-2 flex items-center gap-2 font-medium">
-              <Table2 className="h-4 w-4 text-primary" /> {t.name}
-              {t.label !== t.name && (
-                <span className="text-xs text-muted-foreground">({t.label})</span>
-              )}
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Data model ({bp.dataModel.tables.length} table{bp.dataModel.tables.length === 1 ? '' : 's'})
+          </h2>
+          {draft ? (
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={saveDraft} disabled={busy}>
+                {busy && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Save changes
+              </Button>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {t.columns.map((c) => (
-                <Badge key={c.name} variant="secondary" className="text-xs font-normal">
-                  {c.name}: {c.type}
-                </Badge>
-              ))}
-            </div>
+          ) : (
+            bp.status !== 'GENERATING' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setDraft(structuredClone(bp.dataModel))}
+                disabled={busy}
+              >
+                <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+              </Button>
+            )
+          )}
+        </div>
+        {!draft && bp.dataModel.warnings && bp.dataModel.warnings.length > 0 && (
+          <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+            {bp.dataModel.warnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
           </div>
-        ))}
+        )}
+        {draft
+          ? draft.tables.map((t, ti) => (
+              <div key={ti} className="space-y-2 rounded-lg border bg-card p-4">
+                <div className="flex items-center gap-2">
+                  <Table2 className="h-4 w-4 text-primary" />
+                  <Input
+                    aria-label="Table name"
+                    value={t.name}
+                    className="h-8 max-w-xs font-medium"
+                    onChange={(e) => editTable(ti, { name: e.target.value })}
+                  />
+                </div>
+                {t.columns.map((c, ci) => (
+                  <div key={ci} className="flex flex-wrap items-center gap-2">
+                    <Input
+                      aria-label="Column name"
+                      value={c.name}
+                      className="h-8 w-48"
+                      onChange={(e) => editColumn(ti, ci, { name: e.target.value })}
+                    />
+                    <select
+                      aria-label="Column type"
+                      value={c.type}
+                      className="h-8 rounded-md border bg-background px-2 text-sm"
+                      onChange={(e) => editColumn(ti, ci, { type: e.target.value as InferredColumn['type'] })}
+                    >
+                      {COLUMN_TYPES.map((ty) => (
+                        <option key={ty} value={ty}>
+                          {ty}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={c.nullable}
+                        onChange={(e) => editColumn(ti, ci, { nullable: e.target.checked })}
+                      />
+                      nullable
+                    </label>
+                    {c.sampleValues[0] && (
+                      <span className="text-xs text-muted-foreground">
+                        e.g. {c.sampleValues.slice(0, 2).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))
+          : bp.dataModel.tables.map((t) => (
+              <div key={t.name} className="rounded-lg border bg-card p-4">
+                <div className="mb-2 flex items-center gap-2 font-medium">
+                  <Table2 className="h-4 w-4 text-primary" /> {t.name}
+                  {t.label !== t.name && (
+                    <span className="text-xs text-muted-foreground">({t.label})</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {t.columns.map((c) => (
+                    <Badge key={c.name} variant="secondary" className="text-xs font-normal">
+                      {c.name}: {c.type}
+                      {c.nullable ? '' : ' (required)'}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))}
       </div>
 
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
         {bp.status === 'DRAFT' && (
-          <Button onClick={approve} disabled={busy}>
+          <Button onClick={approve} disabled={busy || !!draft}>
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             <CheckCircle2 className="mr-1 h-4 w-4" /> Approve
           </Button>
