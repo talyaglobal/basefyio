@@ -13,6 +13,7 @@ import {
   UseGuards,
   UseFilters,
   ForbiddenException,
+  NotAcceptableException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -59,12 +60,13 @@ export class PublicApiController {
   ) {
     const payload = this.getPayload(req);
     if (!this.compat(req)) {
-      return this.publicApi.select(
-        payload.projectId,
-        table,
-        req.query as Record<string, string>,
-        this.buildCtx(payload),
-      );
+      // Only JSON is served; CSV and the rest are refused, not answered in JSON.
+      if (!acceptSupported(accept)) {
+        throw new NotAcceptableException(
+          `None of these media types are available: ${accept}. Only application/json is served.`,
+        );
+      }
+      return this.publicApi.select(payload.projectId, table, this.queryWithRange(req), this.buildCtx(payload));
     }
 
     this.assertCompatHeaders(req, accept);
@@ -174,13 +176,16 @@ export class PublicApiController {
     const payload = this.getPayload(req);
     if (!this.compat(req)) {
       const returnRep = prefer?.includes('return=representation') ?? false;
-      return this.publicApi.insert(
+      const r = await this.publicApi.insert(
         payload.projectId,
         table,
         body,
         returnRep,
         this.buildCtx(payload),
+        req.query as Record<string, string>,
+        parsePrefer(prefer).resolution,
       );
+      return this.minimalOr(res, prefer, 201, r);
     }
 
     this.assertCompatHeaders(req, accept);
@@ -207,7 +212,7 @@ export class PublicApiController {
     const payload = this.getPayload(req);
     if (!this.compat(req)) {
       const returnRep = prefer?.includes('return=representation') ?? false;
-      return this.publicApi.update(
+      const r = await this.publicApi.update(
         payload.projectId,
         table,
         req.query as Record<string, string>,
@@ -215,6 +220,7 @@ export class PublicApiController {
         returnRep,
         this.buildCtx(payload),
       );
+      return this.minimalOr(res, prefer, 204, r);
     }
 
     this.assertCompatHeaders(req, accept);
@@ -240,13 +246,14 @@ export class PublicApiController {
     const payload = this.getPayload(req);
     if (!this.compat(req)) {
       const returnRep = prefer?.includes('return=representation') ?? false;
-      return this.publicApi.delete(
+      const r = await this.publicApi.delete(
         payload.projectId,
         table,
         req.query as Record<string, string>,
         returnRep,
         this.buildCtx(payload),
       );
+      return this.minimalOr(res, prefer, 204, r);
     }
 
     this.assertCompatHeaders(req, accept);
@@ -258,6 +265,13 @@ export class PublicApiController {
       { prefer: parsePrefer(prefer), wantsObject: wantsObject(accept) },
     );
     return this.replyWrite(res, r, 200, accept);
+  }
+
+  /** `Prefer: return=minimal` means no body: the status alone says it worked. */
+  private minimalOr<T>(res: Response, prefer: string | undefined, status: 201 | 204, result: T): T | undefined {
+    if (parsePrefer(prefer).return !== 'minimal') return result;
+    res.status(status);
+    return undefined;
   }
 
   private getPayload(req: Request): ApiKeyPayload {

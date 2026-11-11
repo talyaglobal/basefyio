@@ -16,6 +16,8 @@ import {
   ParseFilePipe,
   MaxFileSizeValidator,
   BadRequestException,
+  ConflictException,
+  NotFoundException,
   NotImplementedException,
   PayloadTooLargeException,
   ServiceUnavailableException,
@@ -60,6 +62,47 @@ export const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const maxUploadBytes = resolveMaxUploadBytes(MAX_FILE_SIZE);
 /** Uploads streaming to the store at once on this instance; beyond it the route answers 503. */
 const uploadSlots = new Semaphore(resolveMaxConcurrentUploads());
+
+const SORT_KEYS = ['name', 'size', 'lastModified'] as const;
+
+/** Optional paging and ordering of a listing; with no parameter it is returned as the store gives it. */
+export function pageObjects<T extends { name: string; prefix?: string; size?: number; lastModified?: Date | string }>(
+  objects: T[],
+  q: { limit?: string; offset?: string; sortBy?: string; order?: string },
+): T[] {
+  const whole = (v: string | undefined, what: string, min: number, max = Number.MAX_SAFE_INTEGER) => {
+    if (v === undefined) return undefined;
+    const n = /^\d+$/.test(v) ? Number(v) : NaN;
+    if (!(n >= min && n <= max)) {
+      throw new BadRequestException(`${what} must be a whole number from ${min}${max < Number.MAX_SAFE_INTEGER ? ` to ${max}` : ' up'}`);
+    }
+    return n;
+  };
+  const limit = whole(q.limit, 'limit', 1, 1000);
+  const offset = whole(q.offset, 'offset', 0) ?? 0;
+  if (q.sortBy !== undefined && !(SORT_KEYS as readonly string[]).includes(q.sortBy)) {
+    throw new BadRequestException(`sortBy must be one of: ${SORT_KEYS.join(', ')}`);
+  }
+  if (q.order !== undefined && q.order !== 'asc' && q.order !== 'desc') {
+    throw new BadRequestException('order must be asc or desc');
+  }
+  let out = objects;
+  if (q.sortBy) {
+    const key = (o: T): string | number =>
+      q.sortBy === 'size'
+        ? o.size ?? 0
+        : q.sortBy === 'lastModified'
+          ? new Date(o.lastModified ?? 0).getTime()
+          : o.name || o.prefix || '';
+    const dir = q.order === 'desc' ? -1 : 1;
+    out = [...objects].sort((a, b) => (key(a) < key(b) ? -dir : key(a) > key(b) ? dir : 0));
+  }
+  return limit === undefined && !offset ? out : out.slice(offset, limit === undefined ? undefined : offset + limit);
+}
+
+/** A non-empty list of non-empty strings. */
+const isPathList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.length > 0 && v.every((p) => typeof p === 'string' && p.trim() !== '');
 
 /**
  * Buckets and objects.
@@ -212,11 +255,14 @@ export class StorageController {
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
   ) {
+    if (!isPathList(body?.sources) || (body.destFolder !== undefined && typeof body.destFolder !== 'string')) {
+      throw new BadRequestException('Send {"sources": [paths], "destFolder": "folder/"}; sources is a non-empty list of paths');
+    }
     await this.access.assertCanModifyAll(
       storageCaller(req),
       projectId,
       bucketName,
-      body.sources || [],
+      body.sources,
       this.statFn(projectId, user?.sub, bucketName),
       'move',
     );
@@ -224,7 +270,7 @@ export class StorageController {
       projectId,
       user?.sub,
       bucketName,
-      body.sources || [],
+      body.sources,
       body.destFolder || '',
     );
     await this.activity.append(projectId, {
@@ -236,6 +282,79 @@ export class StorageController {
     return result;
   }
 
+  /** Copy one object to a new key in the same bucket; an existing destination is never overwritten. */
+  @Post('buckets/:bucketName/objects/copy')
+  @AuthenticatedKeyOnly()
+  async copyObject(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { source: string; destination: string },
+    @Req() req: Request,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const { source, destination } = await this.checkSourceAndDestination(projectId, bucketName, body, req, user, 'read');
+    const result = await this.storage.copyObject(
+      projectId,
+      user?.sub,
+      bucketName,
+      source,
+      destination,
+      bucketName,
+      ownerMeta(storageCaller(req)),
+    );
+    return { name: result.name, size: result.size };
+  }
+
+  /** Rename one object to a new key in the same bucket (the destination is the whole key, not a folder). */
+  @Post('buckets/:bucketName/objects/rename')
+  @AuthenticatedKeyOnly()
+  async renameObject(
+    @Param('projectId') projectId: string,
+    @Param('bucketName') bucketName: string,
+    @Body() body: { source: string; destination: string },
+    @Req() req: Request,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    const { source, destination } = await this.checkSourceAndDestination(projectId, bucketName, body, req, user, 'move');
+    const result = await this.storage.moveObject(projectId, user?.sub, bucketName, source, destination);
+    await this.activity.append(projectId, {
+      userId: user?.sub,
+      kind: ProjectActivityKind.STORAGE_OBJECT_UPLOADED,
+      title: `Storage item renamed: ${bucketName}`,
+      detail: `${source} → ${destination}`,
+    });
+    return { name: result.name };
+  }
+
+  /** Shared checks of copy and rename: valid keys, the source exists and the caller may use it, the destination is free. */
+  private async checkSourceAndDestination(
+    projectId: string,
+    bucketName: string,
+    body: { source: string; destination: string },
+    req: Request,
+    user: JwtPayload | undefined,
+    verb: 'read' | 'move',
+  ) {
+    if (!isPathList([body?.source, body?.destination]) || body.source.endsWith('/') || body.destination.endsWith('/')) {
+      throw new BadRequestException('Send {"source": "a/b.txt", "destination": "c/d.txt"}: two object keys, not folders');
+    }
+    const source = body.source.replace(/^\/+/, '');
+    const destination = body.destination.replace(/^\/+/, '');
+    const caller = storageCaller(req);
+    const stat = this.statFn(projectId, user?.sub, bucketName);
+    const existing = await stat(source);
+    if (!existing) throw new NotFoundException(`Object "${source}" not found`);
+    if (verb === 'read') {
+      this.access.assertCanRead(caller, await this.access.resolveMode(projectId, bucketName, source), existing, source);
+    } else {
+      await this.access.assertCanModifyAll(caller, projectId, bucketName, [source], stat, 'move');
+    }
+    if (source !== destination && (await stat(destination))) {
+      throw new ConflictException(`An object already exists at "${destination}"`);
+    }
+    return { source, destination };
+  }
+
   @Get('buckets/:bucketName/objects')
   @AuthenticatedKeyOnly()
   async listObjects(
@@ -244,15 +363,20 @@ export class StorageController {
     @Query('prefix') prefix: string,
     @Req() req: Request,
     @CurrentUser() user?: JwtPayload,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('order') order?: string,
   ) {
     const objects = await this.storage.listObjects(projectId, user?.sub, bucketName, prefix || '');
     const mode = await this.access.resolveMode(projectId, bucketName, prefix || '');
-    return this.access.filterListing(
+    const visible = await this.access.filterListing(
       storageCaller(req),
       mode,
       objects,
       this.statFn(projectId, user?.sub, bucketName),
     );
+    return pageObjects(visible, { limit, offset, sortBy, order });
   }
 
   // The body lands in a disk spool (multer stops reading at the limit, which
@@ -478,10 +602,11 @@ export class StorageController {
     // A signed URL bypasses every later check, so the rule is applied when it is minted.
     const caller = storageCaller(req);
     const mode = await this.access.resolveMode(projectId, bucketName, objectPath);
-    if (mode && !isPrivileged(caller)) {
-      const stat = mode === 'owner-only' ? await this.statFn(projectId, user?.sub, bucketName)(objectPath) : null;
-      this.access.assertCanRead(caller, mode, stat, objectPath);
-    }
+    if (!objectPath) throw new BadRequestException('path is required');
+    // A URL for a missing object would only fail later, on the first use.
+    const stat = await this.statFn(projectId, user?.sub, bucketName)(objectPath);
+    if (!stat) throw new NotFoundException(`Object "${objectPath}" not found`);
+    if (mode && !isPrivileged(caller)) this.access.assertCanRead(caller, mode, stat, objectPath);
     return this.storage.getPresignedUrl(
       projectId,
       user?.sub,

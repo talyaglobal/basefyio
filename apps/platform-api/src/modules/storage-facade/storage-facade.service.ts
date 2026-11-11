@@ -375,7 +375,7 @@ export class StorageFacadeService {
       present.push(key);
       removed.push(fileObjectFromStat(bucket, key, key, stat));
     }
-    if (present.length) await this.storage.deleteObjects(project.id, undefined, bucket, present, { expandFolders: false });
+    if (present.length) await this.storage.deleteObjects(project.id, undefined, bucket, present, { expandFolders: false, onlyExisting: false });
     return removed;
   }
 

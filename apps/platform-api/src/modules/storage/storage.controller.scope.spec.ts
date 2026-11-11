@@ -66,6 +66,7 @@ describe('StorageController — declared key scope', () => {
     const authenticated = routeHandlers().filter((h) => effectiveScope(h) === 'authenticated').sort();
     expect(authenticated).toEqual(
       [
+        'copyObject',
         'createFolder',
         'deleteObjects',
         'findExisting',
@@ -73,6 +74,7 @@ describe('StorageController — declared key scope', () => {
         'listBuckets',
         'listObjects',
         'moveObjects',
+        'renameObject',
         'uploadObject',
       ].sort(),
     );
@@ -223,8 +225,8 @@ describe('StorageController — handler behaviour', () => {
       moveObjects: jest.fn().mockResolvedValue({ moved: 2 }),
       getPresignedUrl: jest.fn().mockResolvedValue({ url: 'signed', expiresIn: 3600 }),
       deleteObjects: jest.fn().mockResolvedValue({ message: 'Deleted 1 object(s)' }),
-      resolveBucket: jest.fn(),
-      statObjectIn: jest.fn(),
+      resolveBucket: jest.fn().mockResolvedValue({ minioBucket: 'bf-p-docs' }),
+      statObjectIn: jest.fn().mockResolvedValue({ size: 1 }),
     };
     const activity = { append: jest.fn().mockResolvedValue(undefined) };
     const access = {
@@ -324,10 +326,10 @@ describe('StorageController — handler behaviour', () => {
     expect(storage.findExistingObjects).toHaveBeenCalledWith('p1', 'u1', 'docs', []);
   });
 
-  it('moveObjects defaults to no sources and the bucket root, and records the count', async () => {
+  it('moveObjects defaults to the bucket root, and records the count', async () => {
     const { storage, activity, controller } = deps();
-    await controller.moveObjects('p1', 'docs', {} as any, serviceReq, undefined);
-    expect(storage.moveObjects).toHaveBeenCalledWith('p1', undefined, 'docs', [], '');
+    await controller.moveObjects('p1', 'docs', { sources: ['a'] } as any, serviceReq, undefined);
+    expect(storage.moveObjects).toHaveBeenCalledWith('p1', undefined, 'docs', ['a'], '');
     expect(activity.append.mock.calls[0][1].detail).toBe('2 item(s) → /');
 
     await controller.moveObjects('p1', 'docs', { sources: ['a'], destFolder: 'archive' }, serviceReq, undefined);

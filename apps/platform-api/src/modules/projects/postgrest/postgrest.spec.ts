@@ -331,6 +331,20 @@ describe('PostgREST builder — compat additions', () => {
     expect(params).toEqual([1, 2, 3, 'city']);
   });
 
+  it('names a JSON-path column after its last key, as PostgREST does', () => {
+    const { sql } = build('users', { select: 'profile->>city,profile->address->country,where:profile->>city' });
+    expect(sql).toMatch(/AS "city"/);
+    expect(sql).toMatch(/AS "country"/);
+    expect(sql).toMatch(/AS "where"/);
+  });
+
+  it('refuses a limit or offset that is not a non-negative integer', () => {
+    for (const bad of [{ limit: 'abc' }, { limit: '-1' }, { offset: '-5' }, { offset: '1.5' }]) {
+      expect(() => parseQuery(bad)).toThrow(PostgrestParseError);
+    }
+    expect(parseQuery({ limit: '5000' }).limit.get('')).toBe(1000);
+  });
+
   it('ignores apikey and on_conflict in the query string', () => {
     const { sql, params } = build('posts', { apikey: 'anon-key', on_conflict: 'id', id: 'eq.1' });
     expect(sql).not.toMatch(/apikey|on_conflict/);

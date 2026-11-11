@@ -24,13 +24,16 @@ jest.mock('../projects/project-activity.service', () => ({
 jest.mock('../../common/guards/jwt-or-apikey.guard', () => ({ JwtOrApiKeyGuard: class {} }));
 
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
+  NotFoundException,
   NotImplementedException,
   PayloadTooLargeException,
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import { MAX_FILE_SIZE, StorageController } from './storage.controller';
+import { MAX_FILE_SIZE, StorageController, pageObjects } from './storage.controller';
 
 const user = { sub: 'u1' } as any;
 
@@ -49,6 +52,8 @@ function deps() {
     listObjects: jest.fn(),
     deleteObjects: jest.fn().mockResolvedValue({ message: 'ok' }),
     moveObjects: jest.fn().mockResolvedValue({ moved: 1 }),
+    copyObject: jest.fn().mockResolvedValue({ name: 'b.txt', size: 3 }),
+    moveObject: jest.fn().mockResolvedValue({ name: 'b.txt' }),
     getPresignedUrl: jest.fn().mockResolvedValue({ url: 'signed', expiresIn: 3600 }),
     resolveBucket: jest.fn().mockResolvedValue({ project: { id: 'p1' }, minioBucket: 'bf-p-docs' }),
     statObjectIn: jest.fn().mockResolvedValue(null),
@@ -507,5 +512,83 @@ describe('renderObject', () => {
 
     expect(res.destroy).toHaveBeenCalled();
     expect(res.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("pageObjects", () => {
+  const files = [
+    { name: "b", size: 5, lastModified: "2026-01-02" },
+    { name: "a", size: 9, lastModified: "2026-01-03" },
+    { name: "c", size: 1, lastModified: "2026-01-01" },
+  ];
+  it("leaves the listing alone with no parameter", () => {
+    expect(pageObjects(files, {})).toBe(files);
+  });
+  it("sorts, orders and pages", () => {
+    expect(pageObjects(files, { sortBy: "name" }).map((o) => o.name)).toEqual(["a", "b", "c"]);
+    expect(pageObjects(files, { sortBy: "size", order: "desc" }).map((o) => o.name)).toEqual(["a", "b", "c"]);
+    expect(pageObjects(files, { sortBy: "lastModified" }).map((o) => o.name)).toEqual(["c", "b", "a"]);
+    expect(pageObjects(files, { sortBy: "name", limit: "1", offset: "1" }).map((o) => o.name)).toEqual(["b"]);
+    expect(pageObjects(files, { offset: "2" })).toEqual([files[2]]);
+  });
+  it("refuses a value it cannot honour", () => {
+    for (const q of [{ limit: "0" }, { limit: "abc" }, { limit: "1001" }, { offset: "-1" }, { sortBy: "etag" }, { order: "up" }]) {
+      expect(() => pageObjects(files, q)).toThrow(BadRequestException);
+    }
+  });
+});
+
+describe("move, copy, rename and the signed URL: input and existence", () => {
+  it("move refuses an empty or malformed body instead of answering 201 moved:0", async () => {
+    const { storage, controller } = deps();
+    for (const body of [{}, { sources: [] }, { sources: [""] }, { sources: "a" }, { sources: ["a"], destFolder: 5 }] as any[]) {
+      await expect(controller.moveObjects("p1", "b", body, serviceReq, undefined)).rejects.toThrow(BadRequestException);
+    }
+    expect(storage.moveObjects).not.toHaveBeenCalled();
+  });
+
+  it("copy needs an existing source, a free destination and read access", async () => {
+    const { storage, access, controller } = deps();
+    await expect(controller.copyObject("p1", "b", { source: "a.txt", destination: "b.txt" }, serviceReq, undefined)).rejects.toThrow(
+      NotFoundException,
+    );
+    storage.statObjectIn.mockImplementation(async (_b: string, k: string) => (k === "a.txt" || k === "taken.txt" ? { size: 3 } : null));
+    await expect(
+      controller.copyObject("p1", "b", { source: "a.txt", destination: "taken.txt" }, serviceReq, undefined),
+    ).rejects.toThrow(ConflictException);
+    await expect(controller.copyObject("p1", "b", { source: "a.txt", destination: "d/" }, serviceReq, undefined)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(await controller.copyObject("p1", "b", { source: "/a.txt", destination: "b.txt" }, serviceReq, undefined)).toEqual({
+      name: "b.txt",
+      size: 3,
+    });
+    expect(storage.copyObject).toHaveBeenCalledWith("p1", undefined, "b", "a.txt", "b.txt", "b", {});
+    expect(access.assertCanRead).toHaveBeenCalled();
+  });
+
+  it("rename checks the move rule and moves the one key", async () => {
+    const { storage, access, controller } = deps();
+    storage.statObjectIn.mockImplementation(async (_b: string, k: string) => (k === "a.txt" ? { size: 3 } : null));
+    expect(await controller.renameObject("p1", "b", { source: "a.txt", destination: "b.txt" }, aliceReq, undefined)).toEqual({
+      name: "b.txt",
+    });
+    expect(access.assertCanModifyAll).toHaveBeenCalledWith(
+      { kind: "authenticated", sub: "alice" },
+      "p1",
+      "b",
+      ["a.txt"],
+      expect.any(Function),
+      "move",
+    );
+    expect(storage.moveObject).toHaveBeenCalledWith("p1", undefined, "b", "a.txt", "b.txt");
+  });
+
+  it("a signed URL is refused for an object that is not there", async () => {
+    const { storage, controller } = deps();
+    storage.statObjectIn.mockResolvedValue(null);
+    await expect(controller.getPresignedUrl("p1", "b", "nope", "600", serviceReq, undefined)).rejects.toThrow(NotFoundException);
+    await expect(controller.getPresignedUrl("p1", "b", "", "600", serviceReq, undefined)).rejects.toThrow(BadRequestException);
+    expect(storage.getPresignedUrl).not.toHaveBeenCalled();
   });
 });

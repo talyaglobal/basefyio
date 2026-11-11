@@ -33,15 +33,17 @@ A **public** bucket grants anonymous `GetObject` only: each file is readable at 
 
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
-| GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects` | anon + user | `?prefix=` — list |
+| GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects` | anon + user | `?prefix=` — list; optional `limit` (1–1000), `offset`, `sortBy` (`name`, `size`, `lastModified`) and `order` (`asc`, `desc`) page and order it |
 | POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects` | anon + user | `?path=` + multipart field `file` — upload one object |
 | POST | `/api/projects/:projectId/storage/buckets/:bucketName/folders` | anon + user | `{ path }` — create a folder marker |
 | POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects/exists` | anon + user | `{ paths }` → `{ existing }` |
-| POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects/move` | anon + user | `{ sources, destFolder }` → `{ moved }` |
+| POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects/move` | anon + user | `{ sources, destFolder }` → `{ moved }`; `sources` must be a non-empty list of paths (400 otherwise) |
+| POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects/copy` | anon + user | `{ source, destination }` → `{ name, size }` — copy one object inside the bucket; 404 if the source is missing, 409 if the destination exists |
+| POST | `/api/projects/:projectId/storage/buckets/:bucketName/objects/rename` | anon + user | `{ source, destination }` → `{ name }` — rename one object (the destination is the whole key); same 404 and 409 |
 | GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects/download` | anon | `?path=` — the bytes, as an attachment |
 | GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects/render` | anon | `?path=&width=&height=&format=&quality=&fit=` — a transformed image, inline |
-| GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects/url` | anon + user | `?path=&expiry=` → `{ url, expiresIn }` — a signed URL (60…604800 s, default 3600) |
-| DELETE | `/api/projects/:projectId/storage/buckets/:bucketName/objects` | anon + user | `{ paths }` → `{ message }` |
+| GET | `/api/projects/:projectId/storage/buckets/:bucketName/objects/url` | anon + user | `?path=&expiry=` → `{ url, expiresIn }` — a signed URL (60…604800 s, default 3600; a shorter or longer `expiry` is a 400, a missing object a 404) |
+| DELETE | `/api/projects/:projectId/storage/buckets/:bucketName/objects` | anon + user | `{ paths }` → `{ message }` — the count is of objects that existed |
 
 An object: `{ name, size, contentType, lastModified, etag }` (listings also carry `prefix`).
 The single-request upload ceiling is `STORAGE_MAX_UPLOAD_MB` (default 500 MB); the body is

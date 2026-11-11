@@ -9,7 +9,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, types as pgTypes } from 'pg';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectsService } from './projects.service';
 import { RealtimeDataService } from '../realtime-data/realtime-data.service';
@@ -30,6 +30,20 @@ import {
   pgToPostgrest,
   postgrestBody,
 } from './postgrest/errors';
+
+/**
+ * A bigint (int8) arrives as a number while it is a safe integer, as it already
+ * does inside an embedded row (json), and as a string beyond that, where a
+ * number would lose digits. Without this a bigint is a string at the top level
+ * and a number in an embed.
+ */
+const BIGINT_OID = 20;
+export const bigintAsNumber = {
+  getTypeParser: (oid: number, format?: any) =>
+    oid === BIGINT_OID
+      ? (v: string) => (Number.isSafeInteger(Number(v)) ? Number(v) : v)
+      : pgTypes.getTypeParser(oid, format),
+};
 
 export type PgDbRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -467,14 +481,22 @@ export class PublicApiService {
     return { kind: 'scalar', value: result.rows[0]?.v ?? null, rows: 1 };
   }
 
+  /**
+   * An insert in basefyio's own dialect. `resolution` turns it into an upsert on
+   * `on_conflict` (default: the primary key); a `select` in `query` shapes the
+   * returned representation the way it does on a read.
+   */
   async insert(
     projectId: string,
     table: string,
     body: Record<string, unknown> | Record<string, unknown>[],
     returnRepresentation: boolean,
     ctx: RlsContext,
+    query: Record<string, string | string[]> = {},
+    resolution?: Prefer['resolution'],
   ) {
     this.validateTableName(table);
+    const parsed = returnRepresentation && query.select !== undefined ? this.parse(query, false) : null;
 
     return this.withRls(projectId, ctx, async (client) => {
       const rows = Array.isArray(body) ? body : [body];
@@ -497,20 +519,61 @@ export class PublicApiService {
         valueGroups.push(`(${placeholders.join(', ')})`);
       }
 
-      // RETURNING * unconditionally: response shape below is unchanged, but
-      // realtime needs the rows to broadcast full INSERT payloads.
-      const sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')} RETURNING *`;
-
-      const result = await client.query(sql, allValues);
-      return { __rows: result.rows, __count: result.rowCount };
+      const run = async (force: boolean) => {
+        // The schema is read only when the answer needs it: an upsert's default
+        // conflict target, or a shaped representation.
+        const schema = resolution || parsed ? await this.schemaCache.get(projectId, client, force) : null;
+        let sql = `INSERT INTO "${table}" (${cols}) VALUES ${valueGroups.join(', ')}`;
+        if (resolution && schema) {
+          sql += this.conflictClause(this.tableInfo(schema, table), table, keys, resolution, query.on_conflict);
+        }
+        // RETURNING * unconditionally: realtime needs the rows to broadcast full INSERT payloads.
+        sql += ' RETURNING *';
+        if (parsed && schema) {
+          const w = await this.runCompatWrite(client, schema, table, parsed, sql, allValues, {
+            prefer: { return: 'representation', raw: new Map() },
+            wantsObject: false,
+          });
+          return { __raw: w.raw, __rows: w.out, __count: w.count };
+        }
+        const result = await client.query(sql, allValues);
+        return { __raw: result.rows, __rows: result.rows, __count: result.rowCount };
+      };
+      return this.withSchemaRetry(projectId, run);
     }).then((r: any) => {
-      for (const row of r.__rows ?? []) {
+      for (const row of r.__raw ?? []) {
         this.realtimeData.publishChange(projectId, {
           type: 'INSERT', kind: 'table', entity: table, new: row,
         });
       }
       return returnRepresentation ? r.__rows : { count: r.__count };
     });
+  }
+
+  /**
+   * The `ON CONFLICT` tail of an upsert. The target is `on_conflict=` or the
+   * table's primary key; `merge-duplicates` rewrites the sent columns,
+   * `ignore-duplicates` leaves the existing row alone.
+   */
+  private conflictClause(
+    info: TableInfo,
+    table: string,
+    cols: string[],
+    resolution: NonNullable<Prefer['resolution']>,
+    onConflict: string | string[] | undefined,
+  ): string {
+    const target = parseColumnsParam(onConflict) ?? info.primaryKey;
+    for (const c of target) this.assertColumn(info, c);
+    if (!target.length) {
+      throw new PostgrestParseError(
+        `Cannot upsert into "${table}": it has no primary key`,
+        'Pass on_conflict=<columns> naming a unique constraint.',
+      );
+    }
+    const clause = ` ON CONFLICT (${target.map((c) => `"${c}"`).join(', ')})`;
+    return resolution === 'ignore-duplicates'
+      ? `${clause} DO NOTHING`
+      : `${clause} DO UPDATE SET ${cols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')}`;
   }
 
   /* ───────────────────────── PostgREST-shaped writes ───────────────────────── */
@@ -566,24 +629,7 @@ export class PublicApiService {
 
         let sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES ${groups.join(', ')}`;
         if (opts.prefer.resolution) {
-          const target = parseColumnsParam(query.on_conflict) ?? info.primaryKey;
-          for (const c of target) this.assertColumn(info, c);
-          if (!target.length) {
-            throw new PostgrestHttpError(
-              400,
-              postgrestBody(
-                'PGRST100',
-                `Cannot upsert into "${table}": it has no primary key`,
-                null,
-                'Pass on_conflict=<columns> naming a unique constraint.',
-              ),
-            );
-          }
-          sql += ` ON CONFLICT (${target.map((c) => `"${c}"`).join(', ')})`;
-          sql +=
-            opts.prefer.resolution === 'ignore-duplicates'
-              ? ' DO NOTHING'
-              : ` DO UPDATE SET ${cols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')}`;
+          sql += this.conflictClause(info, table, cols, opts.prefer.resolution, query.on_conflict);
         }
         sql += ' RETURNING *';
         return this.runCompatWrite(client, schema, table, parsed, sql, params, opts);
@@ -1044,6 +1090,7 @@ export class PublicApiService {
       password: project.dbPassword,
       database: project.dbName,
       statement_timeout: 15_000,
+      types: bigintAsNumber as any,
       max: 5,
       idleTimeoutMillis: 30_000,
     });

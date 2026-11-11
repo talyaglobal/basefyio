@@ -917,11 +917,14 @@ export class StorageService {
     userId: string | undefined,
     bucketName: string,
     objectNames: string[],
-    options: { expandFolders?: boolean } = {},
+    options: { expandFolders?: boolean; onlyExisting?: boolean } = {},
   ) {
     const project = await this.assertProjectAccess(projectId, userId);
     const minioBucket = this.minioBucketName(project.storagePrefix ?? project.slug, bucketName);
     const expandFolders = options.expandFolders ?? true;
+    // The count in the answer is of objects that were there; a caller that already
+    // checked passes onlyExisting: false to skip the second look.
+    const onlyExisting = options.onlyExisting ?? true;
 
     // Expand any folder paths (ending in '/') into all the objects beneath them
     // so selecting a folder deletes its whole contents.
@@ -931,7 +934,7 @@ export class StorageService {
       if (!name) continue;
       if (name.endsWith('/') && expandFolders) {
         for (const k of await this.listKeysUnder(minioBucket, name)) keys.add(k);
-      } else {
+      } else if (!onlyExisting || (await this.statObjectIn(minioBucket, name))) {
         keys.add(name);
       }
     }

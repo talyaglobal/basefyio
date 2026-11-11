@@ -79,7 +79,7 @@ default (ASC NULLS FIRST / DESC NULLS LAST).
 | `<column>` | `not.<op>.<value>` | negated filter |
 | `or` / `and` | `or=(a.eq.1,b.gte.10)`, `and=(…)`, `not.and(…)`, nested | boolean trees |
 | `order` | `col.asc`, `col.desc`, `col.desc.nullslast`, `col.asc.nullsfirst`, comma-separated | |
-| `limit` / `offset` | integers | `limit` is capped at 1000 |
+| `limit` / `offset` | non-negative integers | `limit` is capped at 1000 (a larger value is lowered to 1000); anything that is not a whole number is 400 |
 | JSON paths | `data->settings->>theme=eq.dark`, `select=data->>name` | `->` keeps JSON, `->>` yields text |
 
 Operators: `eq neq gt gte lt lte like ilike match imatch in is isdistinct fts plfts phfts
@@ -95,7 +95,8 @@ works on the first request.
 ## Writing
 
 Writes answer `{ "count": n }` unless the request carries `Prefer: return=representation`,
-in which case the affected rows are returned.
+in which case the affected rows are returned (an insert also honours `?select=` to shape them).
+`Prefer: return=minimal` answers with no body: 201 for an insert, 204 for a `PATCH` or `DELETE`.
 
 ```
 POST /api/rest/v1/todos            body: { "title": "Buy milk" }  or  [ {…}, {…} ]
@@ -107,9 +108,16 @@ DELETE /api/rest/v1/todos?id=eq.7
   keys of the first row. 400 `Empty body` / `No columns provided`.
 - `PATCH` and `DELETE` without any filter are refused (400), so a missing `?id=eq.…` cannot
   touch every row.
-- In the platform dialect upsert is not provided: `on_conflict` is accepted and ignored, and
-  `Prefer: resolution=merge-duplicates` has no effect. Use the SDK's `upsert()` (which goes
-  through the SQL route) or SQL.
+- Upsert: `Prefer: resolution=merge-duplicates` (or `ignore-duplicates`) on a `POST` becomes
+  `ON CONFLICT (<on_conflict columns, else the primary key>) DO UPDATE SET …` (or `DO NOTHING`);
+  a table with no primary key needs `on_conflict=` (400 otherwise). It runs under the caller's
+  role, so row-level security applies.
+- A read whose `Accept` header excludes JSON (for example `text/csv`) is 406; only JSON is served.
+- A `bigint` column is a JSON number while it is a safe integer, as it already is inside an
+  embedded row, and a string beyond 2^53 where a number would lose digits.
+- A JSON-path column is named after its last key: `select=meta->>color` returns `{ "color": … }`.
+- Error bodies name the failing constraint or input where Postgres does; a denied write says
+  whether a grant is missing or a row-level security policy refused the row.
 - Every successful write is published to realtime subscribers of the table if the table is
   enabled for realtime (see [../REALTIME_API.md](../REALTIME_API.md)).
 

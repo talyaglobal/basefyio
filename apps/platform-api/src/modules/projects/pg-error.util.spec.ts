@@ -29,6 +29,22 @@ describe('mapPgError', () => {
     expect(mapPgError({ code: '42703' })).toBeInstanceOf(BadRequestException);
   });
 
+  it('says whether a grant or a row policy refused the write', () => {
+    expect((mapPgError({ code: '42501', message: 'permission denied for table items' }) as any).message).toMatch(
+      /permission denied for table items.*grant is missing/,
+    );
+    expect((mapPgError({ code: '42501', message: 'new row violates row-level security policy for table "items"' }) as any).message).toBe(
+      'Permission denied by row-level security policy',
+    );
+  });
+
+  it('names the constraint a check violation broke and what a bad value was', () => {
+    expect((mapPgError({ code: '23514', constraint: 'items_qty_check' }) as any).message).toBe('Check constraint "items_qty_check" violated');
+    expect((mapPgError({ code: '22P02', message: 'invalid input syntax for type integer: "abc"' }) as any).message).toBe(
+      'Invalid input value: invalid input syntax for type integer: "abc"',
+    );
+  });
+
   it('maps undefined_table (42P01) to 404 Not Found', () => {
     expect(mapPgError({ code: '42P01' })).toBeInstanceOf(NotFoundException);
   });

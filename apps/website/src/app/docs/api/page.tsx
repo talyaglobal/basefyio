@@ -90,6 +90,18 @@ Body: { "column1": "value", "column2": 123 }
   — or array for bulk insert —
 Body: [{ "column1": "a" }, { "column1": "b" }]`}</code></pre>
 
+      <h3>Upsert rows</h3>
+      <pre><code>{`POST /api/rest/v1/:table?on_conflict=column   # default: the primary key
+Headers:
+  apikey: <service-key>
+  Prefer: resolution=merge-duplicates          # or resolution=ignore-duplicates
+
+Body: { "id": 7, "done": true }`}</code></pre>
+      <p>
+        <code>Prefer: return=minimal</code> answers with no body (201 for an insert, 204 for an update or delete).
+        <code>limit</code> is capped at 1000, and a value that is not a whole number is a 400.
+      </p>
+
       <h3>Update rows</h3>
       <pre><code>{`PATCH /api/rest/v1/:table?column=eq.value
 Headers:

@@ -185,7 +185,9 @@ export class SelectBuilder {
       } else if (item.kind === 'column') {
         let expr = this.fieldSql(alias, info, item.field);
         if (item.cast) expr = `(${expr})::"${item.cast}"`;
-        const label = item.alias ?? item.field.column;
+        // PostgREST names a JSON-path column after its last key: meta->>color is "color".
+        const path = item.field.jsonPath;
+        const label = item.alias ?? (path.length ? path[path.length - 1].key : item.field.column);
         out.push(`${expr} AS "${label}"`);
       } else {
         out.push(this.buildEmbed(table, alias, info, item, query, pathPrefix, innerPredicates));

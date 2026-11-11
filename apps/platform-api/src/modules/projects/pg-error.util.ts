@@ -16,8 +16,14 @@ import {
 export function mapPgError(e: any): unknown {
   if (e instanceof HttpException) return e;
   switch (e?.code) {
-    case '42501': // insufficient_privilege — RLS policy denied the operation
-      return new ForbiddenException('Permission denied by row-level security policy');
+    case '42501': // insufficient_privilege — a missing grant, or an RLS policy that denied the row
+      // Postgres words a missing grant "permission denied for table x" and a policy
+      // "new row violates row-level security policy"; they need different fixes.
+      return new ForbiddenException(
+        /^permission denied/i.test(e.message ?? '')
+          ? `${e.message}: the role has no privilege for this operation (a grant is missing)`
+          : 'Permission denied by row-level security policy',
+      );
     case '23505': // unique_violation
       return new ConflictException(e.detail || 'A record with these values already exists');
     case '23503': // foreign_key_violation
@@ -27,10 +33,12 @@ export function mapPgError(e: any): unknown {
         e.column ? `Column "${e.column}" cannot be null` : 'Not-null constraint violation',
       );
     case '23514': // check_violation
-      return new BadRequestException('Check constraint violation');
+      return new BadRequestException(
+        e.constraint ? `Check constraint "${e.constraint}" violated` : 'Check constraint violation',
+      );
     case '22P02': // invalid_text_representation
     case '22007': // invalid_datetime_format
-      return new BadRequestException('Invalid input value');
+      return new BadRequestException(e.message ? `Invalid input value: ${e.message}` : 'Invalid input value');
     case '42703': // undefined_column
       return new BadRequestException('Unknown column in request');
     case '25006': // read_only_sql_transaction — a function called over GET/HEAD tried to write

@@ -280,13 +280,11 @@ export function parseQuery(
       continue;
     }
     if (leaf === 'limit') {
-      const n = parseInt(values[0], 10);
-      if (!Number.isNaN(n) && n >= 0) result.limit.set(path, Math.min(n, 1000));
+      result.limit.set(path, Math.min(nonNegativeInt(leaf, values[0]), 1000));
       continue;
     }
     if (leaf === 'offset') {
-      const n = parseInt(values[0], 10);
-      if (!Number.isNaN(n) && n >= 0) result.offset.set(path, n);
+      result.offset.set(path, nonNegativeInt(leaf, values[0]));
       continue;
     }
 
@@ -303,6 +301,14 @@ export function parseQuery(
   }
 
   return result;
+}
+
+/** A paging value must be a whole number of zero or more; anything else is the caller's mistake, not something to ignore. */
+function nonNegativeInt(name: string, raw: string): number {
+  if (!/^\d+$/.test(raw ?? '')) {
+    throw new PostgrestParseError(`${name} must be a non-negative integer, got "${raw ?? ''}"`);
+  }
+  return parseInt(raw, 10);
 }
 
 /* ──────────────────────────── scanning helpers ────────────────────────────── */

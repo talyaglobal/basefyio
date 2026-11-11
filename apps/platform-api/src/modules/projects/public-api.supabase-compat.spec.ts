@@ -565,4 +565,66 @@ describe('a caller without the client’s headers keeps the platform contract', 
     expect(unauth.status).toBe(401);
     expect(await unauth.json()).toMatchObject({ statusCode: 401, message: 'Missing apikey' });
   });
+
+  it('upserts with Prefer: resolution= on the primary key or on_conflict', async () => {
+    db.rows = [{ id: 1 }];
+    const merge = await raw('/posts', {
+      method: 'POST',
+      headers: { prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify({ id: 1, title: 'a' }),
+    });
+    expect(merge.status).toBe(201);
+    expect(await merge.json()).toEqual({ count: 1 });
+    expect(db.statements()[0].sql).toBe(
+      'INSERT INTO "posts" ("id", "title") VALUES ($1, $2) ON CONFLICT ("id") DO UPDATE SET "id" = EXCLUDED."id", "title" = EXCLUDED."title" RETURNING *',
+    );
+    db.reset();
+    await raw('/posts?on_conflict=title', {
+      method: 'POST',
+      headers: { prefer: 'resolution=ignore-duplicates' },
+      body: JSON.stringify({ id: 1, title: 'a' }),
+    });
+    expect(db.statements()[0].sql).toBe(
+      'INSERT INTO "posts" ("id", "title") VALUES ($1, $2) ON CONFLICT ("title") DO NOTHING RETURNING *',
+    );
+  });
+
+  it('refuses an upsert with no conflict target as a 400 in the platform body', async () => {
+    const res = await raw('/events', { method: 'POST', headers: { prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ name: 'x' }) });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ statusCode: 400, message: expect.stringMatching(/no primary key/) });
+  });
+
+  it('answers Prefer: return=minimal with no body', async () => {
+    db.rows = [{ id: 1 }];
+    const created = await raw('/posts', { method: 'POST', headers: { prefer: 'return=minimal' }, body: JSON.stringify({ title: 'a' }) });
+    expect([created.status, await created.text()]).toEqual([201, '']);
+    const changed = await raw('/posts?id=eq.1', { method: 'PATCH', headers: { prefer: 'return=minimal' }, body: JSON.stringify({ title: 'b' }) });
+    expect([changed.status, await changed.text()]).toEqual([204, '']);
+    const gone = await raw('/posts?id=eq.1', { method: 'DELETE', headers: { prefer: 'return=minimal' } });
+    expect([gone.status, await gone.text()]).toEqual([204, '']);
+  });
+
+  it('shapes a POST representation with select=', async () => {
+    db.rows = [{ __basefyio_raw: { id: 1, title: 'a' }, id: 1 }];
+    const res = await raw('/posts?select=id', { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify({ title: 'a' }) });
+    expect(await res.json()).toEqual([{ id: 1 }]);
+    expect(db.statements()[0].sql).toMatch(/^WITH _w AS \(INSERT INTO "posts" \("title"\) VALUES \(\$1\) RETURNING \*\) SELECT /);
+    expect(realtime.publishChange).toHaveBeenCalledWith(PROJECT, expect.objectContaining({ new: { id: 1, title: 'a' } }));
+  });
+
+  it('refuses a limit or offset that is not a whole number instead of ignoring it', async () => {
+    for (const q of ['limit=abc', 'limit=-1', 'offset=-5', 'limit=']) {
+      const res = await raw(`/posts?${q}`);
+      expect([q, res.status]).toEqual([q, 400]);
+      expect(await res.json()).toMatchObject({ message: expect.stringMatching(/non-negative integer/) });
+    }
+  });
+
+  it('serves a Range header and refuses an Accept it cannot honour', async () => {
+    await raw('/posts', { headers: { 'range-unit': 'items', range: '5-9' } });
+    expect(db.statements()[0].params).toEqual([5, 5]);
+    const csv = await raw('/posts', { headers: { accept: 'text/csv' } });
+    expect(csv.status).toBe(406);
+  });
 });

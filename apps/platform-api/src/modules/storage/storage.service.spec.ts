@@ -720,6 +720,17 @@ describe('deleteObjects', () => {
     expect(out).toEqual({ message: 'Deleted 4 object(s)' });
   });
 
+  it('counts only the objects that were there', async () => {
+    const { svc, client } = build();
+    client.statObject.mockImplementation(async (_b: string, key: string) => {
+      if (key === 'ghost.txt') throw Object.assign(new Error('Not Found'), { code: 'NotFound' });
+      return { size: 3, etag: 'e', lastModified: new Date(0), metaData: {} };
+    });
+    const out = await svc.deleteObjects('p1', undefined, 'docs', ['a.txt', 'b.txt', 'ghost.txt']);
+    expect([...client.removeObjects.mock.calls[0][1]]).toEqual(['a.txt', 'b.txt']);
+    expect(out).toEqual({ message: 'Deleted 2 object(s)' });
+  });
+
   it('reports zero for an empty selection', async () => {
     const { svc, client } = build();
     await expect(svc.deleteObjects('p1', undefined, 'docs', [])).resolves.toEqual({ message: 'Deleted 0 object(s)' });
