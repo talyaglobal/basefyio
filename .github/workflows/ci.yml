@@ -137,7 +137,8 @@ jobs:
         run: node e2e/scripts/generate-routes.mjs --check
       - name: Install Playwright
         working-directory: e2e
-        run: npm ci && npx playwright install --with-deps chromium
+        # The apt mirrors can be unreachable from a runner (2026-11-11: every run hung ~10 min on it); the runner image already carries most browser libraries.
+        run: npm ci && (timeout 150 npx playwright install --with-deps chromium || npx playwright install chromium)
       # Without the secrets (a fork, a PR from outside) the suite still runs its public part.
       - name: Critical flows and the route inventory
         working-directory: e2e
