@@ -22,6 +22,26 @@ export type BuildMetadataInput = {
   authors?: string[];
 };
 
+/** Search results show about 60 title and 160 description characters; the rest is cut off. */
+const TITLE_MAX = 49; // the layout template adds " | basefyio"
+const DESCRIPTION_MAX = 160;
+
+/** Cut a long title at its first separator ("X vs. Y: subtitle" → "X vs. Y"). */
+export function clampTitle(title: string): string {
+  if (title.length <= TITLE_MAX) return title;
+  const head = title.split(/:| — | – /)[0].trim();
+  return head.length >= 15 && head.length <= TITLE_MAX ? head : title;
+}
+
+export function clampDescription(text: string): string {
+  if (text.length <= DESCRIPTION_MAX) return text;
+  const cut = text.slice(0, DESCRIPTION_MAX - 1);
+  return `${cut.slice(0, cut.lastIndexOf(" ")).replace(/[s,;:.-]+$/, "")}…`;
+}
+
+/** The blog feed, advertised on every page (a page-level `alternates` replaces the layout one). */
+export const RSS_ALTERNATE = { "application/rss+xml": [{ url: "/feed.xml", title: "basefyio Blog" }] };
+
 function toAbsolute(base: string, value: string): string {
   if (/^https?:\/\//i.test(value)) return value;
   return `${base}${value.startsWith("/") ? "" : "/"}${value}`;
@@ -44,15 +64,15 @@ export async function buildMetadata(
   const image = toAbsolute(base, input.image ?? SITE.defaultOgImage);
 
   const title = input.title ?? SITE.defaultTitle;
-  const description = input.description ?? SITE.defaultDescription;
+  const description = clampDescription(input.description ?? SITE.defaultDescription);
 
   return {
-    title: input.title, // undefined → layout default title is used
+    title: input.title && clampTitle(input.title), // undefined → layout default title is used
     description,
     keywords: input.keywords
       ? [...SITE.keywords, ...input.keywords]
       : undefined,
-    alternates: { canonical: url },
+    alternates: { canonical: url, types: RSS_ALTERNATE },
     openGraph: {
       type: input.type ?? "website",
       url,

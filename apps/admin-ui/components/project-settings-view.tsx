@@ -38,6 +38,22 @@ function tagIdsFromProject(project: Project): string[] {
   return (project.tags ?? []).map((a) => a.tag.id);
 }
 
+/** The fields whose form value differs from the project as this tab loaded it. */
+function changedSettings(
+  project: Project,
+  next: { name: string; description: string | null; folderId: string | null; tagIds: string[] },
+) {
+  const changes: { name?: string; description?: string | null; folderId?: string | null; tags?: string[] } = {};
+  if (next.name !== project.name) changes.name = next.name;
+  if (next.description !== (project.description ?? null)) changes.description = next.description;
+  if (next.folderId !== (project.folderId ?? null)) changes.folderId = next.folderId;
+  const before = tagIdsFromProject(project);
+  if (next.tagIds.length !== before.length || next.tagIds.some((id) => !before.includes(id))) {
+    changes.tags = next.tagIds;
+  }
+  return changes;
+}
+
 export function ProjectSettingsView() {
   const router = useRouter();
   const { project, loading, refreshProject } = useProject();
@@ -89,12 +105,19 @@ export function ProjectSettingsView() {
     }
     setSaving(true);
     try {
-      await api.projects.update(project.id, {
+      // Send only what this form changed, so a stale tab or another member's edit to
+      // a field left alone here is never overwritten (feedback #145).
+      const changes = changedSettings(project, {
         name: parsed.data.name,
         description: parsed.data.description ?? null,
         folderId,
-        tags: tagIds,
+        tagIds,
       });
+      if (Object.keys(changes).length === 0) {
+        toast.success('Nothing to save');
+        return;
+      }
+      await api.projects.update(project.id, changes);
       toast.success('Settings saved');
       await refreshProject?.();
     } catch (err) {

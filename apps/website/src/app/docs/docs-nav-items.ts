@@ -14,6 +14,7 @@ export interface DocsNavItem {
 
 export const DOCS_NAV_ITEMS: DocsNavItem[] = [
   { href: "/docs", label: "Overview", icon: "book", keywords: ["getting started", "intro", "quickstart"] },
+  { href: "/docs/quickstart", label: "Quickstart", icon: "book", keywords: ["getting started", "first project", "create project", "tutorial", "hello world"] },
   { href: "/docs/data-engine", label: "Data Engine", icon: "database", keywords: ["nosql", "documents", "collections", "json", "tables", "sql"] },
   { href: "/docs/connect", label: "Connect", icon: "link", keywords: ["database url", "postgres", "psql", "pgadmin", "dbeaver", "connection string", "direct"] },
   { href: "/docs/realtime", label: "Realtime", icon: "radio", keywords: ["subscribe", "live", "events", "insert", "update", "delete", "websocket", "sse"] },
@@ -23,6 +24,7 @@ export const DOCS_NAV_ITEMS: DocsNavItem[] = [
   { href: "/docs/ai", label: "AI / Embeddings", icon: "bot", keywords: ["embeddings", "vector", "pgvector", "semantic search", "rag", "retrieval", "openai", "ollama", "cohere", "namespace"] },
   { href: "/docs/integrations", label: "Integrations", icon: "link", keywords: ["github", "vercel", "deployments", "commits", "environment variables", "sync env", "repository"] },
   { href: "/docs/branches", label: "Branches", icon: "database", keywords: ["preview branch", "staging", "copy", "schema", "migration", "pull request", "environment"] },
+  { href: "/docs/backups", label: "Backups & PITR", icon: "harddrive", keywords: ["backup", "restore", "point in time", "pitr", "recovery", "wal", "snapshot", "undo"] },
   { href: "/docs/api", label: "API Reference", icon: "server", keywords: ["rest", "endpoints", "http", "rpc", "query"] },
   { href: "/docs/sdk", label: "SDK", icon: "code", keywords: ["javascript", "typescript", "client", "bf.from", "auth", "storage"] },
   { href: "/docs/cli", label: "CLI", icon: "terminal", keywords: ["command line", "bf", "basefyio init", "link", "migrate", "login"] },

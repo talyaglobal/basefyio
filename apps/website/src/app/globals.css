@@ -694,3 +694,9 @@
   background: hsl(var(--primary-foreground));
   flex-shrink: 0;
 }
+
+/* Inline code reads cleanly without the typography plugin's quote marks. */
+.prose code::before,
+.prose code::after {
+  content: none;
+}

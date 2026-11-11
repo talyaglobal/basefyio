@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthNav } from "@/components/auth-nav";
 import { DocsNav } from "./docs-nav";
 import { DocsSearch } from "./docs-search";
+import { DocsCopyButtons } from "./docs-copy-buttons";
 import { getAppPortalUrl, getAppSignupUrl } from "@/lib/site-url";
 import { docsPath, getSiteUrl } from "@/lib/public-hosts";
 
@@ -79,6 +80,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           >
             {children}
           </article>
+          <DocsCopyButtons />
         </main>
       </div>
     </div>

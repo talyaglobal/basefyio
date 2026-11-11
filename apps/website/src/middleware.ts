@@ -21,6 +21,9 @@ export const config = {
 /** Sections the docs host knows: "/data-engine", "/api", …; anything else forwards to the apex. */
 const DOCS_SECTIONS = DOCS_NAV_ITEMS.map((i) => i.href.replace(/^\/docs/, "")).filter(Boolean);
 
+/** Names people try for pages that live under another section. */
+const DOCS_ALIASES: Record<string, string> = { "/embeddings": "/ai", "/vector": "/ai", "/pitr": "/backups" };
+
 function requestHost(req: NextRequest): string {
   const raw = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   return raw.split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
@@ -36,6 +39,8 @@ export function middleware(req: NextRequest) {
     if (pathname === "/docs" || pathname.startsWith("/docs/")) {
       return NextResponse.redirect(new URL((pathname.slice("/docs".length) || "/") + search, `https://${host}`), 308);
     }
+    const alias = DOCS_ALIASES[pathname];
+    if (alias) return NextResponse.redirect(new URL(alias + search, `https://${host}`), 308);
     const known = pathname === "/" || DOCS_SECTIONS.some((s) => pathname === s || pathname.startsWith(`${s}/`));
     if (!known) return NextResponse.redirect(new URL(pathname + search, `https://${apex}`), 308);
     const url = req.nextUrl.clone();

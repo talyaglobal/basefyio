@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return buildMetadata({
     path: `/learn/${t.slug}`,
-    title: `${t.term}${t.aka ? ` (${t.aka})` : ""}`,
+    title: `What is ${t.term}${t.aka ? ` (${t.aka})` : ""}?`,
     description: t.definition,
     keywords: [t.term, ...(t.aka ? [t.aka] : []), "definition", "meaning"],
   });
