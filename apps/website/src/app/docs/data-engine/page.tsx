@@ -80,7 +80,7 @@ export default function DataEngineDocs() {
       </p>
 
       <h2>REST API</h2>
-      <p>Base path: <code>{apiUrl}/v1/projects/:projectId</code></p>
+      <p>Base path: <code>{apiUrl}/api/v1/projects/:projectId</code></p>
 
       <h3>Entity Management</h3>
       <table>

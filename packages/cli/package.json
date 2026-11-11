@@ -23,12 +23,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fsipka/kolaybase-new.git",
+    "url": "git+https://github.com/talyaglobal/basefyio.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/fsipka/kolaybase-new/tree/main/packages/cli",
+  "homepage": "https://github.com/talyaglobal/basefyio/tree/main/packages/cli",
   "bugs": {
-    "url": "https://github.com/fsipka/kolaybase-new/issues"
+    "url": "https://github.com/talyaglobal/basefyio/issues"
   },
   "keywords": [
     "basefyio",

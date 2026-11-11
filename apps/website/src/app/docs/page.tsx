@@ -278,9 +278,9 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
                │ HTTPS
 ┌──────────────▼───────────────────────────┐
 │   Platform API (NestJS)                  │
-│   ├── REST API (/rest/v1)                │
-│   ├── Data Engine (/v1/projects/:id/data)│
-│   ├── Auth (/rest/v1/auth)               │
+│   ├── REST API (/api/rest/v1)            │
+│   ├── Data Engine (/api/v1/projects/:id) │
+│   ├── Auth (/api/rest/v1/auth)           │
 │   ├── Storage (/storage)                 │
 │   ├── SQL (/sql/execute)                 │
 │   └── Admin (/projects, /teams, ...)     │

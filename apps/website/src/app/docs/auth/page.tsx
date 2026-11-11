@@ -219,27 +219,27 @@ const tokens = bf.auth.handleProviderCallback()  // reads the URL, stores the se
       <h2>REST API</h2>
       <p>
         Not using JavaScript? Every method maps to a REST endpoint under{" "}
-        <code>/rest/v1/auth/</code>. Send your anon key as the{" "}
-        <code>apikey</code> header (or <code>?apikey=</code> query param).
+        <code>/api/rest/v1/auth/</code>. Send your anon key as the{" "}
+        <code>apikey</code> header. Do not put keys in URLs: query strings end up in logs and referrers.
       </p>
       <table>
         <thead>
           <tr><th>Method &amp; path</th><th>Body</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>POST /rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user, return tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/signin</code></td><td><code>{`{ email, password }`}</code></td><td>Sign in, return tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/verify-email</code></td><td><code>{`{ otp }`}</code></td><td>Confirm an email code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/forgot-password</code></td><td><code>{`{ email }`}</code></td><td>Email a reset code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/reset-password</code></td><td><code>{`{ otp, newPassword }`}</code></td><td>Set a new password</td></tr>
-          <tr><td><code>POST /rest/v1/auth/magic-link</code></td><td><code>{`{ email }`}</code></td><td>Email a magic-link code</td></tr>
-          <tr><td><code>POST /rest/v1/auth/magic-link/verify</code></td><td><code>{`{ otp }`}</code></td><td>Exchange code for tokens</td></tr>
-          <tr><td><code>POST /rest/v1/auth/refresh</code></td><td><code>{`{ refreshToken }`}</code></td><td>Refresh the access token</td></tr>
-          <tr><td><code>GET /rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token)</td></tr>
-          <tr><td><code>GET /rest/v1/auth/signin/:provider</code></td><td>—</td><td>Start a social-login redirect</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/signup</code></td><td><code>{`{ email, password, firstName?, lastName? }`}</code></td><td>Create a user, return tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/signin</code></td><td><code>{`{ email, password }`}</code></td><td>Sign in, return tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/verify-email</code></td><td><code>{`{ otp }`}</code></td><td>Confirm an email code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/forgot-password</code></td><td><code>{`{ email }`}</code></td><td>Email a reset code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/reset-password</code></td><td><code>{`{ otp, newPassword }`}</code></td><td>Set a new password</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/magic-link</code></td><td><code>{`{ email }`}</code></td><td>Email a magic-link code</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/magic-link/verify</code></td><td><code>{`{ otp }`}</code></td><td>Exchange code for tokens</td></tr>
+          <tr><td><code>POST /api/rest/v1/auth/refresh</code></td><td><code>{`{ refreshToken }`}</code></td><td>Refresh the access token</td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/me</code></td><td>—</td><td>Current user (Bearer token)</td></tr>
+          <tr><td><code>GET /api/rest/v1/auth/signin/:provider</code></td><td>—</td><td>Start a social-login redirect</td></tr>
         </tbody>
       </table>
-      <pre><code>{`curl -X POST "https://api.basefyio.com/rest/v1/auth/signin" \\
+      <pre><code>{`curl -X POST "https://api.basefyio.com/api/rest/v1/auth/signin" \\
   -H "apikey: YOUR_ANON_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"email":"jane@example.com","password":"a-strong-password"}'`}</code></pre>

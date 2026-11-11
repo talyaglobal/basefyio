@@ -35,12 +35,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/fsipka/basefyio-new",
+    "url": "https://github.com/talyaglobal/basefyio",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/fsipka/basefyio-new/tree/main/packages/sdk",
+  "homepage": "https://github.com/talyaglobal/basefyio/tree/main/packages/sdk",
   "bugs": {
-    "url": "https://github.com/fsipka/basefyio-new/issues"
+    "url": "https://github.com/talyaglobal/basefyio/issues"
   },
   "keywords": [
     "basefyio",
