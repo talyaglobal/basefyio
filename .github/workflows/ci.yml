@@ -122,8 +122,7 @@ jobs:
 
   e2e-critical:
     name: Dashboard — critical flows (Playwright, against E2E_BASE_URL)
-    # Pinned: ubuntu-latest moved to an image whose apt mirrors do not resolve here, so Playwright's browser deps failed to install.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
