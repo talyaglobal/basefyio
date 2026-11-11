@@ -1,9 +1,9 @@
 ---
-title: "Getting Started with basefyio: A PostgreSQL Backend in Minutes"
-description: "Spin up a hosted PostgreSQL database, authentication, storage, and an auto-generated REST API with basefyio. A step-by-step guide from zero to first query."
+title: "Getting Started with basefyio: A SQL Backend in Minutes"
+description: "Spin up a hosted SQL database, authentication, storage, and an auto-generated REST API with basefyio. A step-by-step guide from zero to first query."
 date: "2026-05-12"
 author: "basefyio Team"
-tags: ["getting started", "PostgreSQL", "REST API", "tutorial"]
+tags: ["getting started", "SQL", "REST API", "tutorial"]
 ---
 
 Building a backend usually means wiring together a database, an auth layer, file
@@ -15,7 +15,7 @@ project to your first authenticated query.
 
 Every basefyio project ships with:
 
-- A dedicated **PostgreSQL 16** database — not a shared schema, a real database.
+- A dedicated **SQL database** — not a shared schema, a real database.
 - **Authentication** backed by built-in auth (email + OAuth).
 - **S3-compatible object storage** for files.
 - An **auto-generated REST API** with PostgREST-style filtering.
@@ -36,7 +36,7 @@ projects, run migrations, and open a SQL console.
 basefyio projects create my-app
 ```
 
-Behind the scenes this provisions a PostgreSQL database and an auth realm scoped
+Behind the scenes this provisions a database and an auth realm scoped
 to `my-app`. Nothing is shared with your other projects.
 
 ## 3. Define a table

@@ -153,6 +153,11 @@ export class ProjectCostService {
     return mergeInfraCostConfig(row?.value);
   }
 
+  /** Customer-facing usage rates (after markup) for the public pricing page. */
+  async getPublicRates(): Promise<CustomerRates> {
+    return customerRates(await this.getConfig());
+  }
+
   async updateConfig(patch: unknown): Promise<InfraCostConfig> {
     const current = await this.getConfig();
     const p = (patch && typeof patch === 'object' ? patch : {}) as Record<string, unknown>;

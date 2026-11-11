@@ -57,7 +57,7 @@ export default function IntegrationsDocs() {
           <tr><td><code>NEXT_PUBLIC_BASEFYIO_URL</code></td><td>The project&apos;s API base URL</td></tr>
           <tr><td><code>NEXT_PUBLIC_BASEFYIO_ANON_KEY</code></td><td>The anon key</td></tr>
           <tr><td><code>BASEFYIO_SERVICE_ROLE_KEY</code></td><td>The service key — keep it server-side</td></tr>
-          <tr><td><code>DATABASE_URL</code>, <code>DIRECT_URL</code></td><td>Pooled and direct Postgres connection strings</td></tr>
+          <tr><td><code>DATABASE_URL</code>, <code>DIRECT_URL</code></td><td>Pooled and direct database connection strings</td></tr>
           <tr><td><code>PROJECT_ID</code></td><td>The project id</td></tr>
         </tbody>
       </table>

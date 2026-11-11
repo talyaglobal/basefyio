@@ -55,7 +55,7 @@ export default function BranchesDocs() {
       <h2>Rules and limits</h2>
       <ul>
         <li>Names are 2–40 characters: lowercase letters, digits and hyphens, starting and ending with a letter or digit. A name is unique per parent project.</li>
-        <li>Only an <strong>active PostgreSQL project</strong> can be branched. NoSQL projects, projects on a dedicated database and projects that are not active are refused.</li>
+        <li>Only an <strong>active SQL project</strong> can be branched. NoSQL projects, projects on a dedicated database and projects that are not active are refused.</li>
         <li>Branches are one level deep: a branch cannot be branched again — create further branches from the parent.</li>
         <li>Up to <strong>3 live branches per project</strong> by default; delete one to create another.</li>
         <li>Branching is part of your plan&apos;s entitlements; creating a branch is refused if the plan does not include it.</li>

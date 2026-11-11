@@ -239,7 +239,7 @@ function LoginForm() {
             <BetaBadge />
           </h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to the control plane
+            Sign in to your account
           </p>
         </div>
 
@@ -294,7 +294,9 @@ function LoginForm() {
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
+              name="email"
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -315,6 +317,8 @@ function LoginForm() {
             </div>
             <PasswordInput
               id="password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="********"

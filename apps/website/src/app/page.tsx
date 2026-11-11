@@ -48,6 +48,7 @@ type PublicPlan = {
   maxTeamMembers: number | null;
   maxApiRequests: number | null;
   maxBandwidthBytes: number | string | null;
+  maxMau: number | null;
   dedicatedDb: boolean;
   dedicatedStorage: boolean;
   isPublic: boolean;
@@ -89,6 +90,7 @@ function planFeatures(plan: PublicPlan): string[] {
     `${plan.maxTeamMembers ?? "Unlimited"} team members`,
     `${formatReq(plan.maxApiRequests)} API requests/mo`,
     `${formatBytes(plan.maxBandwidthBytes)} bandwidth/mo`,
+    `${formatReq(plan.maxMau)} monthly active users`,
     plan.dedicatedDb || plan.dedicatedStorage
       ? "Dedicated infrastructure"
       : "Shared infrastructure",
@@ -115,8 +117,35 @@ async function getPublicPlans(): Promise<PublicPlan[]> {
   return [];
 }
 
+type PublicRates = {
+  computeTiers: Array<{ name: string; vcpu: number; memoryGb: number; hourlyUsd: number }>;
+  diskUsdPerGbMonth: number;
+  egressUsdPerGb: number;
+  apiRequestsUsdPerMillion: number;
+};
+
+// Same endpoints as the plans, one path over; the usage-rates block just disappears if none answers.
+async function getPublicRates(): Promise<PublicRates | null> {
+  for (const url of getBillingPlansFetchEndpoints()) {
+    try {
+      const res = await fetch(url.replace(/\/plans$/, "/rates"), { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = (await res.json()) as PublicRates;
+      if (Array.isArray(data?.computeTiers)) return data;
+    } catch {
+      // Try next endpoint
+    }
+  }
+  return null;
+}
+
+function formatRate(n: number, unit: string): string {
+  if (n === 0) return "Included";
+  return `$${n.toFixed(n >= 1 ? 2 : n >= 0.01 ? 3 : 4)}${unit}`;
+}
+
 export default async function Home() {
-  const plans = await getPublicPlans();
+  const [plans, rates] = await Promise.all([getPublicPlans(), getPublicRates()]);
   const appRoot = getAppPortalUrl();
   const appSignup = getAppSignupUrl();
 
@@ -191,7 +220,7 @@ export default async function Home() {
                 &middot; PITR &middot; ai assistant
               </p>
               <p className="mt-2 text-base text-muted-foreground">
-                &mdash; create a project and get a dedicated PostgreSQL database
+                &mdash; create a project and get a dedicated SQL database
                 &mdash; relational tables with full SQL, plus an optional document
                 store &mdash; with an instant REST API, auth, and storage. Fully
                 under your control.
@@ -339,6 +368,40 @@ export default async function Home() {
               </div>
             )}
           </div>
+
+          {rates && (
+            <div className="mt-12 rounded-xl border border-border bg-card p-7 shadow-subtle">
+              <h3 className="text-sm font-semibold">Usage rates</h3>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Plans are billed at their flat monthly price. Usage is measured at these standard rates, so you can
+                see what each project consumes in Billing.
+              </p>
+              <div className="mt-5 grid gap-8 text-sm sm:grid-cols-2">
+                <div>
+                  <div className="mb-2 text-xs font-medium">Compute</div>
+                  <table className="w-full text-muted-foreground">
+                    <tbody>
+                      {rates.computeTiers.map((t) => (
+                        <tr key={t.name}>
+                          <td className="py-0.5 pr-2 text-foreground/80">{t.name}</td>
+                          <td className="py-0.5 pr-2">{t.vcpu} vCPU &middot; {t.memoryGb} GB</td>
+                          <td className="py-0.5 text-right tabular-nums">{formatRate(t.hourlyUsd, "/h")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <dl className="grid h-fit grid-cols-2 gap-y-1 text-muted-foreground">
+                  <dt className="text-foreground/80">Database &amp; file storage</dt>
+                  <dd className="text-right tabular-nums">{formatRate(rates.diskUsdPerGbMonth, "/GB-month")}</dd>
+                  <dt className="text-foreground/80">Egress</dt>
+                  <dd className="text-right tabular-nums">{formatRate(rates.egressUsdPerGb, "/GB")}</dd>
+                  <dt className="text-foreground/80">API requests</dt>
+                  <dd className="text-right tabular-nums">{formatRate(rates.apiRequestsUsdPerMillion, "/M")}</dd>
+                </dl>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

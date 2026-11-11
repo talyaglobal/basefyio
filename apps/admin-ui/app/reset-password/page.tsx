@@ -165,6 +165,8 @@ function ResetPasswordForm() {
         <Label htmlFor="password">New Password</Label>
         <PasswordInput
           id="password"
+          name="password"
+          autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Strong password"
@@ -178,6 +180,8 @@ function ResetPasswordForm() {
         <Label htmlFor="confirmPassword">Confirm Password</Label>
         <PasswordInput
           id="confirmPassword"
+          name="confirmPassword"
+          autoComplete="new-password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder="Repeat your password"

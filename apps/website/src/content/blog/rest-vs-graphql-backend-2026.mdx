@@ -39,7 +39,7 @@ resources.
 ## Auto-generated REST removes the boilerplate
 
 The historical downside of REST was hand-writing controllers. A PostgREST-style
-API removes that: your PostgreSQL schema becomes the API, with filtering and
+API removes that: your database schema becomes the API, with filtering and
 related-table embedding built in.
 
 ```ts
@@ -52,7 +52,7 @@ const { data } = await bf
 
 That's field selection and a join in one request — much of GraphQL's ergonomics,
 over plain cacheable HTTP. See
-[how to build a REST API without boilerplate](/blog/rest-api-on-postgresql-without-boilerplate).
+[how to build a REST API without boilerplate](/blog/rest-api-without-boilerplate).
 
 ## A simple way to decide
 

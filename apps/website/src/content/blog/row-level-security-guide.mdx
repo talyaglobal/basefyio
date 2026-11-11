@@ -1,20 +1,20 @@
 ---
-title: "PostgreSQL Row-Level Security: A Practical Guide"
-description: "Learn how PostgreSQL row-level security (RLS) works, when to use it, and how to write policies that enforce multi-tenant and per-user access at the database layer."
+title: "Row-Level Security: A Practical Guide"
+description: "Learn how row-level security (RLS) works, when to use it, and how to write policies that enforce multi-tenant and per-user access at the database layer."
 date: "2026-05-19"
 author: "basefyio Team"
-tags: ["PostgreSQL", "security", "RLS", "multi-tenancy"]
+tags: ["SQL", "security", "RLS", "multi-tenancy"]
 ---
 
 Most access-control bugs come from the same place: permission checks scattered
 across application code, where one missing `if` leaks another user's data.
-PostgreSQL row-level security (RLS) moves those checks into the database, where
+Row-level security (RLS) moves those checks into the database, where
 they're enforced on every query no matter which client runs it.
 
 ## What row-level security does
 
 RLS lets you attach **policies** to a table. A policy is a SQL expression that
-decides which rows a given user can see or modify. Once enabled, PostgreSQL
+decides which rows a given user can see or modify. Once enabled, the database
 applies it automatically to every `select`, `insert`, `update`, and `delete`.
 
 ```sql
@@ -52,7 +52,7 @@ create policy "members read their org's rows"
 ```
 
 This single policy guarantees tenants can never read across organizations —
-enforced by Postgres, not hope. See the
+enforced by the database, not hope. See the
 [backend for SaaS applications](/use-cases/saas-applications) use case for the
 full pattern.
 
@@ -69,7 +69,7 @@ full pattern.
 
 When access control lives in the database, every entry point inherits it: your
 REST API, the SQL console, a background job. That's exactly how basefyio's
-[auto-generated REST API](/blog/rest-api-on-postgresql-without-boilerplate)
+[auto-generated REST API](/blog/rest-api-without-boilerplate)
 stays safe — the API respects your policies automatically.
 
 Define the rule once, in the right place, and stop re-checking it everywhere.

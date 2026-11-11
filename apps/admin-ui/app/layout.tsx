@@ -15,11 +15,11 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://basefyio.com';
 
 export const metadata: Metadata = {
   title: {
-    default: 'basefyio — Open Source Backend Platform',
+    default: 'basefyio — Backend Platform',
     template: process.env.NEXT_PUBLIC_RELEASE_STAGE?.toLowerCase() === 'ga' ? '%s | basefyio' : '%s | basefyio beta',
   },
   description:
-    'Self-hosted, open-source backend platform with a dedicated database per project, authentication, storage, real-time APIs, and team collaboration — a backend you fully own.',
+    'Backend platform with a dedicated database per project, authentication, storage, real-time APIs, and team collaboration — run it in the cloud or on your own server.',
   metadataBase: new URL(APP_URL),
   icons: {
     icon: '/icon.svg',
@@ -28,16 +28,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'basefyio',
-    title: 'basefyio — Open Source Backend Platform',
+    title: 'basefyio — Backend Platform',
     description:
-      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+      'Backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
     url: SITE_URL,
   },
   twitter: {
     card: 'summary',
-    title: 'basefyio — Open Source Backend Platform',
+    title: 'basefyio — Backend Platform',
     description:
-      'Self-hosted backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
+      'Backend platform with database management, authentication, storage, real-time APIs, and team collaboration.',
   },
   robots: {
     index: true,

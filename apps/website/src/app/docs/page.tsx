@@ -6,7 +6,7 @@ import { getAppPortalUrl, getAppSignupUrl, getPublicApiUrl } from "@/lib/site-ur
 import { docsPath } from "@/lib/public-hosts";
 
 const pageDescription =
-  "basefyio is a self-hosted backend-as-a-service platform. A dedicated PostgreSQL database (relational + full SQL) with an optional document store, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
+  "basefyio is a backend-as-a-service platform. Create a project and get a dedicated database (relational + full SQL) with an optional document store, authentication, file storage, auto-generated REST API, real-time events, team management, and billing — for every project.";
 
 export async function generateMetadata(): Promise<Metadata> {
   return withAbsoluteSiteUrls("/docs", {
@@ -36,11 +36,12 @@ export default function DocsOverview() {
     <div>
       <h1>Documentation</h1>
       <p>
-        basefyio is a <strong>self-hosted backend-as-a-service platform</strong>. Every project gets its
-        own dedicated <strong>PostgreSQL database</strong> &mdash; relational tables with full SQL &mdash;
+        basefyio is a <strong>backend-as-a-service platform</strong>. Every project gets its
+        own dedicated <strong>SQL database</strong> &mdash; relational tables with full SQL &mdash;
         plus an <strong>optional document store</strong> for flexible, schema-light data, an authentication
-        system, file storage, and an auto-generated REST API. Deploy with Docker Compose, manage via the
-        Admin Dashboard, and build applications with the SDK or CLI.
+        system, file storage, and an auto-generated REST API. Manage it from the Admin Dashboard and build
+        applications with the SDK or CLI. Prefer to run it yourself? See{" "}
+        <Link href={docsPath("/docs/self-hosting")}>Self-Hosting</Link>.
       </p>
 
       {/* ── Quick Start ──────────────────────────────────── */}
@@ -231,7 +232,7 @@ const { data: url } = await bf.storage.from('avatars').createSignedUrl('user-123
         gets <code>permission denied for schema public</code>.
       </p>
       <p>
-        Run migrations as the database owner instead, over a direct Postgres connection. The project&apos;s
+        Run migrations as the database owner instead, over a direct database connection. The project&apos;s
         Connection panel in the dashboard gives you the owner URI through the connection pooler — point
         your migration tool (Prisma, Drizzle, Flyway, psql, your own runner) at it. The pooler presents a
         self-signed certificate, so use <code>sslmode=require</code>. Team members can also apply schema

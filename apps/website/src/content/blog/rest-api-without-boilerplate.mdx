@@ -1,14 +1,14 @@
 ---
-title: "How to Build a REST API on PostgreSQL Without Writing Boilerplate"
-description: "Stop hand-writing CRUD controllers. Learn how an auto-generated, PostgREST-style REST API turns your PostgreSQL schema into a production endpoint instantly."
+title: "How to Build a REST API Without Writing Boilerplate"
+description: "Stop hand-writing CRUD controllers. Learn how an auto-generated, PostgREST-style REST API turns your database schema into a production endpoint instantly."
 date: "2026-05-15"
 author: "basefyio Team"
-tags: ["REST API", "PostgreSQL", "PostgREST", "backend"]
+tags: ["REST API", "SQL", "PostgREST", "backend"]
 ---
 
 Most REST APIs are 80% boilerplate: a controller per table, the same
 list/create/update/delete handlers, pagination, filtering, and validation copied
-over and over. PostgreSQL already knows your schema — so why describe it twice?
+over and over. Your database already knows your schema — so why describe it twice?
 
 ## The boilerplate problem
 
@@ -58,14 +58,14 @@ no N+1 queries and no custom join endpoint.
 | -------- | ------------------ | ------------------------ |
 | `eq`     | equals             | `status=eq.published`    |
 | `gt`     | greater than       | `views=gt.1000`          |
-| `like`   | pattern match      | `title=like.*postgres*`  |
+| `like`   | pattern match      | `title=like.*basefyio*`  |
 | `in`     | in list            | `id=in.(1,2,3)`          |
 | `is`     | null check         | `deleted_at=is.null`     |
 
 ## Security still lives in the database
 
 Auto-generated doesn't mean wide open. Row-level security policies decide who
-sees what, enforced by PostgreSQL itself:
+sees what, enforced by the database itself:
 
 ```sql
 alter table articles enable row level security;
@@ -80,7 +80,7 @@ across controllers.
 
 ## The takeaway
 
-Hand-written CRUD is a maintenance tax. Let PostgreSQL's schema and policies be
+Hand-written CRUD is a maintenance tax. Let your database's schema and policies be
 the single source of truth, and let the REST layer be generated from it. You
 write product features; the plumbing writes itself.
 

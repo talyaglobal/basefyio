@@ -27,7 +27,7 @@ you shouldn't build it from scratch.
 ## Relational data fits AI apps better than you'd think
 
 Conversations belong to users. Messages belong to conversations. Documents belong
-to workspaces. That's relational data, and PostgreSQL models it cleanly with
+to workspaces. That's relational data, and a relational database models it cleanly with
 foreign keys and fast queries — much better than stuffing everything into
 documents and reconstructing relationships in code.
 
@@ -44,15 +44,15 @@ create table messages (
 ## Checklist for choosing
 
 - **Does it include auth, storage, and an API?** If not, you'll build them.
-- **Is it standard PostgreSQL?** Standard SQL keeps you portable and lets you
+- **Is it standard SQL?** Standard SQL keeps you portable and lets you
   adopt ecosystem extensions as your needs grow.
 - **Can you self-host?** Useful for data-sensitive workloads.
 - **Is access control at the database?** Row-level security keeps user data
-  isolated — see the [RLS guide](/blog/postgresql-row-level-security-guide).
+  isolated — see the [RLS guide](/blog/row-level-security-guide).
 
 ## Where basefyio fits
 
-basefyio gives you the whole non-model foundation — PostgreSQL, authentication,
+basefyio gives you the whole non-model foundation — a SQL database, authentication,
 S3-compatible storage, and a REST API — so the only thing left to build is the
 part that's actually yours. See the
 [backend for AI applications](/use-cases/ai-applications) use case, or compare

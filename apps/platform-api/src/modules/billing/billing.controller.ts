@@ -54,6 +54,12 @@ export class BillingController {
     return this.billing.listPlans();
   }
 
+  /** Public: the pricing page lists the same usage rates the Billing page shows. */
+  @Get('rates')
+  async getRates() {
+    return this.projectCosts.getPublicRates();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('subscription')
   async getSubscription(@Req() req: any, @Query('teamId') teamId?: string) {

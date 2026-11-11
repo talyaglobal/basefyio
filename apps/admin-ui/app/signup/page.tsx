@@ -6,12 +6,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { setTokens, startProactiveRefresh } from '@/lib/auth';
+import { setTokens, startProactiveRefresh, isAuthenticated } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Database, Check, Info } from 'lucide-react';
+import { Database, Check } from 'lucide-react';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -119,6 +119,12 @@ function SignupForm() {
         router.push('/dashboard');
         return;
       }
+    }
+
+    // Already signed in: the sign-up form has nothing to offer, same as /login.
+    if (isAuthenticated()) {
+      router.replace('/dashboard');
+      return;
     }
 
     const emailParam = searchParams.get('email');
@@ -329,6 +335,7 @@ function SignupForm() {
                       <button
                         key={plan.name}
                         type="button"
+                        aria-pressed={selectedPlan === plan.name}
                         onClick={() => setSelectedPlan(plan.name)}
                         className={`relative rounded-lg border p-3 text-left transition-all ${
                           selectedPlan === plan.name
@@ -417,6 +424,8 @@ function SignupForm() {
                   <Label htmlFor="firstName">First Name</Label>
                   <Input
                     id="firstName"
+                    name="firstName"
+                    autoComplete="given-name"
                     value={form.firstName}
                     onChange={(e) => update('firstName', e.target.value)}
                     placeholder="John"
@@ -426,6 +435,8 @@ function SignupForm() {
                   <Label htmlFor="lastName">Last Name</Label>
                   <Input
                     id="lastName"
+                    name="lastName"
+                    autoComplete="family-name"
                     value={form.lastName}
                     onChange={(e) => update('lastName', e.target.value)}
                     placeholder="Doe"
@@ -437,7 +448,9 @@ function SignupForm() {
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   value={form.email}
                   onChange={(e) => update('email', e.target.value)}
                   placeholder="john@example.com"
@@ -447,36 +460,21 @@ function SignupForm() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="group relative">
-                    <button
-                      type="button"
-                      aria-label="Password requirements"
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-                    >
-                      <Info className="h-4 w-4" />
-                    </button>
-                    <div className="pointer-events-none invisible absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-md border bg-popover p-3 text-xs text-popover-foreground opacity-0 shadow-md transition-all group-hover:visible group-hover:opacity-100">
-                      <p className="mb-1 font-medium">Password requirements</p>
-                      <ul className="list-disc space-y-0.5 pl-4">
-                        <li>At least 8 characters</li>
-                        <li>At least one uppercase letter</li>
-                        <li>At least one lowercase letter</li>
-                        <li>At least one number</li>
-                        <li>At least one punctuation/special character</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                <Label htmlFor="password">Password</Label>
                 <PasswordInput
                   id="password"
+                  name="password"
+                  autoComplete="new-password"
+                  aria-describedby="password-rules"
                   value={form.password}
                   onChange={(e) => update('password', e.target.value)}
                   placeholder="At least 8 characters"
                   required
                   minLength={8}
                 />
+                <p id="password-rules" className="text-xs text-muted-foreground">
+                  At least 8 characters, with an uppercase letter, a lowercase letter, a number and a special character.
+                </p>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading || plansLoading || !accepted}>

@@ -57,7 +57,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["auto-generated-rest-api", "crud", "api-key", "webhook"],
     seeAlso: [
-      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
       { label: "REST vs. GraphQL in 2026", href: "/blog/rest-vs-graphql-backend-2026" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
@@ -74,7 +74,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
     related: ["rest-api", "row-level-security", "database-schema", "crud"],
     seeAlso: [
-      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-on-postgresql-without-boilerplate" },
+      { label: "REST API on your database without boilerplate", href: "/blog/rest-api-without-boilerplate" },
       { label: "basefyio vs. Hasura", href: "/compare/basefyio-vs-hasura" },
     ],
   },
@@ -92,7 +92,7 @@ export const GLOSSARY: GlossaryTerm[] = [
     related: ["multi-tenancy", "rest-api", "acid-transactions", "database-schema"],
     seeAlso: [
       { label: "Backend for SaaS applications", href: "/use-cases/saas-applications" },
-      { label: "Row-level security: a practical guide", href: "/blog/postgresql-row-level-security-guide" },
+      { label: "Row-level security: a practical guide", href: "/blog/row-level-security-guide" },
     ],
   },
   {

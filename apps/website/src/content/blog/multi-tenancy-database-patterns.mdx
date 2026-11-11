@@ -1,15 +1,15 @@
 ---
 title: "Database Multi-Tenancy Patterns: Shared Schema vs. Database per Tenant"
-description: "Compare the main multi-tenancy patterns — shared schema with row-level security vs. a database per tenant — and how to choose for your SaaS on PostgreSQL."
+description: "Compare the main multi-tenancy patterns — shared schema with row-level security vs. a database per tenant — and how to choose for your SaaS."
 date: "2026-05-16"
 author: "basefyio Team"
-tags: ["multi-tenancy", "PostgreSQL", "SaaS", "architecture"]
+tags: ["multi-tenancy", "SQL", "SaaS", "architecture"]
 ---
 
 Every SaaS has to answer one architectural question early: how do you keep
 tenants' data separate? Get it wrong and you face data leaks, noisy-neighbor
-problems, or painful migrations later. There are three common patterns on
-PostgreSQL — here's how they compare.
+problems, or painful migrations later. There are three common patterns —
+here's how they compare.
 
 ## 1. Shared schema, row-level security
 
@@ -27,12 +27,12 @@ create policy "tenant isolation"
   noisy neighbors share resources.
 - **Best for:** Most early-stage SaaS with many small tenants.
 
-See the [RLS guide](/blog/postgresql-row-level-security-guide) for how to enforce
+See the [RLS guide](/blog/row-level-security-guide) for how to enforce
 this safely.
 
 ## 2. Schema per tenant
 
-Each tenant gets its own PostgreSQL schema within a shared database.
+Each tenant gets its own schema within a shared database.
 
 - **Pros:** Stronger logical separation; per-tenant customization is possible.
 - **Cons:** Schema sprawl; migrations must run across many schemas; connection
@@ -42,7 +42,7 @@ Each tenant gets its own PostgreSQL schema within a shared database.
 
 ## 3. Database per tenant
 
-Each tenant gets a dedicated PostgreSQL database.
+Each tenant gets a dedicated database.
 
 - **Pros:** Strongest isolation; per-tenant backups, scaling, and even residency;
   no risk of cross-tenant leakage by query.
@@ -61,7 +61,7 @@ Each tenant gets a dedicated PostgreSQL database.
 
 Many platforms blend these — for example, a dedicated database per project plus
 row-level security inside it for per-user rules. That's the model basefyio uses:
-each project gets its own PostgreSQL database, and you still apply RLS within it.
+each project gets its own database, and you still apply RLS within it.
 It's why the [backend for SaaS applications](/use-cases/saas-applications) starts
 isolated by default.
 

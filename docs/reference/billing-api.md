@@ -8,7 +8,7 @@ and usage, but checkout, portal and payment-method routes fail.
 
 ## Authentication
 
-A dashboard session (Keycloak JWT). `GET /api/billing/plans` is public. Management routes
+A dashboard session (Keycloak JWT). `GET /api/billing/plans` and `GET /api/billing/rates` are public. Management routes
 under `/api/billing/management/*` and the Stripe webhook are operator-only and not part of the
 customer contract.
 
@@ -17,6 +17,7 @@ customer contract.
 | Method | Path | Tier | Purpose |
 |---|---|---|---|
 | GET | `/api/billing/plans` | public | the plan catalogue with limits and prices |
+| GET | `/api/billing/rates` | public | the standard usage rates: compute tiers per hour, storage per GB-month, egress per GB, API requests per million |
 | GET | `/api/billing/subscription` | session | `?teamId=` — the team's current plan and subscription state |
 | GET | `/api/billing/usage` | session | `?teamId=` — projects, database size, storage, API requests against the plan's limits |
 | GET | `/api/billing/project-costs` | session | `?teamId=` — the cost report per project |

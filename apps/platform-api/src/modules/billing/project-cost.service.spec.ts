@@ -58,3 +58,19 @@ describe('isPayingSubscription', () => {
     expect(isPayingSubscription('ACTIVE', 0)).toBe(false);
   });
 });
+
+describe('ProjectCostService.getPublicRates', () => {
+  it('lists the same rates the Billing page shows, without any team context', async () => {
+    const prisma: any = {
+      systemSetting: { findUnique: jest.fn().mockResolvedValue(null) },
+      subscription: { findUnique: jest.fn().mockResolvedValue(null) },
+      project: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    };
+    const usage: any = { getLiveProjectCounters: jest.fn().mockResolvedValue(new Map()) };
+    const svc = new ProjectCostService(prisma, usage);
+    const rates = await svc.getPublicRates();
+    expect(rates.computeTiers.length).toBeGreaterThan(0);
+    expect(rates.diskUsdPerGbMonth).toBeGreaterThan(0);
+    expect(rates).toEqual((await svc.getTeamReport('t1')).rates);
+  });
+});

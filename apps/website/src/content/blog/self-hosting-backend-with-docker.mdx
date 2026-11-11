@@ -3,7 +3,7 @@ title: "Self-Hosting Your Backend with Docker: What to Know"
 description: "Why and how teams self-host their backend with Docker Compose — data residency, cost control, and no vendor lock-in — plus the trade-offs to plan for."
 date: "2026-05-21"
 author: "basefyio Team"
-tags: ["self-hosting", "Docker", "PostgreSQL", "DevOps"]
+tags: ["self-hosting", "Docker", "SQL", "DevOps"]
 ---
 
 Managed backends are convenient until a compliance requirement, a surprise bill,
@@ -16,7 +16,7 @@ infrastructure — and with Docker Compose it's far less work than it used to be
   infrastructure or region.
 - **Cost control.** Usage-based pricing can spike; predictable hardware costs
   don't.
-- **No lock-in.** Standard PostgreSQL means you own your data and can move it
+- **No lock-in.** A standard SQL database means you own your data and can move it
   with `pg_dump` at any time.
 - **Network isolation.** Keep the backend inside a private network with no public
   database endpoint.
@@ -26,7 +26,7 @@ infrastructure — and with Docker Compose it's far less work than it used to be
 A complete backend is more than a database. Self-hosting one typically means
 running, at minimum:
 
-- **PostgreSQL** — your data.
+- **The database** — your data.
 - **An auth service** — sessions, OAuth, password flows.
 - **Object storage** — S3-compatible (e.g. MinIO) for files.
 - **The API layer** — what turns the database into endpoints.
@@ -38,7 +38,7 @@ Docker Compose stack removes most of the work:
 docker compose up -d
 ```
 
-That single command is how basefyio brings up PostgreSQL, authentication,
+That single command is how basefyio brings up the database, authentication,
 storage, and the API together — the same components you'd otherwise assemble
 yourself.
 
@@ -56,7 +56,7 @@ operational overhead — and choose a stack that minimizes that overhead.
 
 ## A portable middle ground
 
-Because basefyio is standard PostgreSQL, the decision isn't permanent. You can
+Because basefyio uses a standard SQL database, the decision isn't permanent. You can
 start self-hosted and stay portable, or move between environments without
 rewriting your app. That portability is the same reason it avoids
 [vendor lock-in compared to AWS Amplify](/compare/basefyio-vs-aws-amplify).

@@ -106,6 +106,8 @@ export default function SetNewPasswordPage() {
             <Label htmlFor="new-password">New password</Label>
             <PasswordInput
               id="new-password"
+              name="new-password"
+              autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Enter your new password"
@@ -118,6 +120,8 @@ export default function SetNewPasswordPage() {
             <Label htmlFor="confirm-password">Confirm new password</Label>
             <PasswordInput
               id="confirm-password"
+              name="confirm-password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter your new password"
